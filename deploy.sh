@@ -11,9 +11,9 @@ cd "$(dirname "$0")"
 
 # 兼容 docker-compose 和 docker compose
 if command -v docker-compose &> /dev/null; then
-    DC="docker-compose"
+    DC="docker-compose -f docker-compose.build.yml"
 else
-    DC="docker compose"
+    DC="docker compose -f docker-compose.build.yml"
 fi
 
 # 缓存文件

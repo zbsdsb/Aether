@@ -46,7 +46,7 @@ Aether 是一个自托管的 AI API 网关，为团队和个人提供多租户�
 
 ## 部署
 
-### Docker Compose（推荐）
+### Docker Compose（推荐：预构建镜像）
 
 ```bash
 # 1. 克隆代码
@@ -58,16 +58,24 @@ cp .env.example .env
 python generate_keys.py  # 生成密钥, 并将生成的密钥填入 .env
 
 # 3. 部署
-./deploy.sh  # 自动构建、启动、迁移
+docker-compose up -d
+
+# 4. 更新
+docker-compose pull && docker-compose up -d
 ```
 
-### 更新
+### Docker Compose（本地构建镜像）
 
 ```bash
-# 拉取最新代码
-git pull
+# 1. 克隆代码
+git clone https://github.com/fawney19/Aether.git
+cd aether
 
-# 自动部署脚本
+# 2. 配置环境变量
+cp .env.example .env
+python generate_keys.py  # 生成密钥, 并将生成的密钥填入 .env
+
+# 3. 部署 / 更新（自动构建、启动、迁移）
 ./deploy.sh
 ```
 
@@ -75,7 +83,7 @@ git pull
 
 ```bash
 # 启动依赖
-docker-compose up -d postgres redis
+docker-compose -f docker-compose.build.yml up -d postgres redis
 
 # 后端
 uv sync

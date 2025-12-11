@@ -12,10 +12,27 @@ import TableRow from '@/components/ui/table-row.vue'
 import Input from '@/components/ui/input.vue'
 import Pagination from '@/components/ui/pagination.vue'
 import RefreshButton from '@/components/ui/refresh-button.vue'
-import { Trash2, Eraser, Search, X } from 'lucide-vue-next'
+import Select from '@/components/ui/select.vue'
+import SelectTrigger from '@/components/ui/select-trigger.vue'
+import SelectContent from '@/components/ui/select-content.vue'
+import SelectItem from '@/components/ui/select-item.vue'
+import SelectValue from '@/components/ui/select-value.vue'
+import ScatterChart from '@/components/charts/ScatterChart.vue'
+import { Trash2, Eraser, Search, X, BarChart3, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { cacheApi, type CacheStats, type CacheConfig, type UserAffinity } from '@/api/cache'
+import type { TTLAnalysisUser } from '@/api/cache'
+import { formatNumber, formatTokens, formatCost, formatRemainingTime } from '@/utils/format'
+import {
+  useTTLAnalysis,
+  ANALYSIS_HOURS_OPTIONS,
+  getTTLBadgeVariant,
+  getFrequencyLabel,
+  getFrequencyClass
+} from '@/composables/useTTLAnalysis'
+
+// ==================== 缓存统计与亲和性列表 ====================
 
 const stats = ref<CacheStats | null>(null)
 const config = ref<CacheConfig | null>(null)
@@ -27,28 +44,40 @@ const matchedUserId = ref<string | null>(null)
 const clearingRowAffinityKey = ref<string | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
+const currentTime = ref(Math.floor(Date.now() / 1000))
+
 const { success: showSuccess, error: showError, info: showInfo } = useToast()
 const { confirm: showConfirm } = useConfirm()
-const currentTime = ref(Math.floor(Date.now() / 1000))
 
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let skipNextKeywordWatch = false
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
-// 计算分页后的数据
+// ==================== TTL 分析 (使用 composable) ====================
+
+const {
+  ttlAnalysis,
+  hitAnalysis,
+  ttlAnalysisLoading,
+  analysisHours,
+  expandedUserId,
+  userTimelineData,
+  userTimelineLoading,
+  userTimelineChartData,
+  toggleUserExpand,
+  refreshAnalysis
+} = useTTLAnalysis()
+
+// ==================== 计算属性 ====================
+
 const paginatedAffinityList = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   const end = start + pageSize.value
   return affinityList.value.slice(start, end)
 })
 
-// 页码变化处理
-function handlePageChange() {
-  // 分页变化时滚动到顶部
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-}
+// ==================== 缓存统计方法 ====================
 
-// 获取缓存统计
 async function fetchCacheStats() {
   loading.value = true
   try {
@@ -61,7 +90,6 @@ async function fetchCacheStats() {
   }
 }
 
-// 获取缓存配置
 async function fetchCacheConfig() {
   try {
     config.value = await cacheApi.getConfig()
@@ -70,7 +98,6 @@ async function fetchCacheConfig() {
   }
 }
 
-// 获取缓存亲和性列表
 async function fetchAffinityList(keyword?: string) {
   listLoading.value = true
   try {
@@ -107,17 +134,14 @@ async function resetAffinitySearch() {
   await fetchAffinityList()
 }
 
-// 清除缓存（按 affinity_key 或用户标识符）
 async function clearUserCache(identifier: string, displayName?: string) {
   const target = identifier?.trim()
-
   if (!target) {
     showError('无法识别标识符')
     return
   }
 
   const label = displayName || target
-
   const confirmed = await showConfirm({
     title: '确认清除',
     message: `确定要清除 ${label} 的缓存吗？`,
@@ -125,12 +149,9 @@ async function clearUserCache(identifier: string, displayName?: string) {
     variant: 'destructive'
   })
 
-  if (!confirmed) {
-    return
-  }
+  if (!confirmed) return
 
   clearingRowAffinityKey.value = target
-
   try {
     await cacheApi.clearUserCache(target)
     showSuccess('清除成功')
@@ -144,7 +165,6 @@ async function clearUserCache(identifier: string, displayName?: string) {
   }
 }
 
-// 清除所有缓存
 async function clearAllCache() {
   const firstConfirm = await showConfirm({
     title: '危险操作',
@@ -152,10 +172,7 @@ async function clearAllCache() {
     confirmText: '继续',
     variant: 'destructive'
   })
-
-  if (!firstConfirm) {
-    return
-  }
+  if (!firstConfirm) return
 
   const secondConfirm = await showConfirm({
     title: '再次确认',
@@ -163,10 +180,7 @@ async function clearAllCache() {
     confirmText: '确认清除',
     variant: 'destructive'
   })
-
-  if (!secondConfirm) {
-    return
-  }
+  if (!secondConfirm) return
 
   try {
     await cacheApi.clearAllCache()
@@ -179,33 +193,39 @@ async function clearAllCache() {
   }
 }
 
-// 计算剩余时间（使用实时更新的 currentTime）
-function getRemainingTime(expireAt?: number) {
-  if (!expireAt) return '未知'
-  const remaining = expireAt - currentTime.value
-  if (remaining <= 0) return '已过期'
+// ==================== 工具方法 ====================
 
-  const minutes = Math.floor(remaining / 60)
-  const seconds = Math.floor(remaining % 60)
-  return `${minutes}分${seconds}秒`
+function getRemainingTime(expireAt?: number): string {
+  return formatRemainingTime(expireAt, currentTime.value)
 }
 
-// 启动倒计时定时器
-function startCountdown() {
-  if (countdownTimer) {
-    clearInterval(countdownTimer)
+function formatIntervalDescription(user: TTLAnalysisUser): string {
+  const p90 = user.percentiles.p90
+  if (p90 === null || p90 === undefined) return '-'
+  if (p90 < 1) {
+    const seconds = Math.round(p90 * 60)
+    return `90% 请求间隔 < ${seconds} 秒`
   }
+  return `90% 请求间隔 < ${p90.toFixed(1)} 分钟`
+}
+
+function handlePageChange() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// ==================== 定时器管理 ====================
+
+function startCountdown() {
+  if (countdownTimer) clearInterval(countdownTimer)
 
   countdownTimer = setInterval(() => {
     currentTime.value = Math.floor(Date.now() / 1000)
 
-    // 过滤掉已过期的项目
     const beforeCount = affinityList.value.length
-    affinityList.value = affinityList.value.filter(item => {
-      return item.expire_at && item.expire_at > currentTime.value
-    })
+    affinityList.value = affinityList.value.filter(
+      item => item.expire_at && item.expire_at > currentTime.value
+    )
 
-    // 如果有项目被移除，显示提示
     if (beforeCount > affinityList.value.length) {
       const removedCount = beforeCount - affinityList.value.length
       showInfo(`${removedCount} 个缓存已自动过期移除`)
@@ -213,7 +233,6 @@ function startCountdown() {
   }, 1000)
 }
 
-// 停止倒计时定时器
 function stopCountdown() {
   if (countdownTimer) {
     clearInterval(countdownTimer)
@@ -221,15 +240,25 @@ function stopCountdown() {
   }
 }
 
+// ==================== 刷新所有数据 ====================
+
+async function refreshData() {
+  await Promise.all([
+    fetchCacheStats(),
+    fetchCacheConfig(),
+    fetchAffinityList()
+  ])
+}
+
+// ==================== 生命周期 ====================
+
 watch(tableKeyword, (value) => {
   if (skipNextKeywordWatch) {
     skipNextKeywordWatch = false
     return
   }
 
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer)
-  }
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
 
   const keyword = value.trim()
   searchDebounceTimer = setTimeout(() => {
@@ -243,21 +272,11 @@ onMounted(() => {
   fetchCacheConfig()
   fetchAffinityList()
   startCountdown()
+  refreshAnalysis()
 })
 
-// 刷新所有数据
-async function refreshData() {
-  await Promise.all([
-    fetchCacheStats(),
-    fetchCacheConfig(),
-    fetchAffinityList()
-  ])
-}
-
 onBeforeUnmount(() => {
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer)
-  }
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   stopCountdown()
 })
 </script>
@@ -272,31 +291,18 @@ onBeforeUnmount(() => {
       </p>
     </div>
 
-    <!-- 核心指标 -->
+    <!-- 亲和性系统状态 -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <!-- 缓存命中率 -->
       <Card class="p-4">
-        <div class="text-xs text-muted-foreground">命中率</div>
-        <div class="text-2xl font-bold text-success mt-1">
-          {{ stats ? (stats.affinity_stats.cache_hit_rate * 100).toFixed(1) : '0.0' }}%
-        </div>
-        <div class="text-xs text-muted-foreground mt-1">
-          {{ stats?.affinity_stats?.cache_hits || 0 }} / {{ (stats?.affinity_stats?.cache_hits || 0) + (stats?.affinity_stats?.cache_misses || 0) }}
-        </div>
-      </Card>
-
-      <!-- 活跃缓存数 -->
-      <Card class="p-4">
-        <div class="text-xs text-muted-foreground">活跃缓存</div>
+        <div class="text-xs text-muted-foreground">活跃亲和性</div>
         <div class="text-2xl font-bold mt-1">
-          {{ stats?.affinity_stats?.total_affinities || 0 }}
+          {{ stats?.affinity_stats?.active_affinities || 0 }}
         </div>
         <div class="text-xs text-muted-foreground mt-1">
           TTL {{ config?.cache_ttl_seconds || 300 }}s
         </div>
       </Card>
 
-      <!-- Provider切换 -->
       <Card class="p-4">
         <div class="text-xs text-muted-foreground">Provider 切换</div>
         <div class="text-2xl font-bold mt-1" :class="(stats?.affinity_stats?.provider_switches || 0) > 0 ? 'text-destructive' : ''">
@@ -307,7 +313,16 @@ onBeforeUnmount(() => {
         </div>
       </Card>
 
-      <!-- 预留比例 -->
+      <Card class="p-4">
+        <div class="text-xs text-muted-foreground">缓存失效</div>
+        <div class="text-2xl font-bold mt-1" :class="(stats?.affinity_stats?.cache_invalidations || 0) > 0 ? 'text-warning' : ''">
+          {{ stats?.affinity_stats?.cache_invalidations || 0 }}
+        </div>
+        <div class="text-xs text-muted-foreground mt-1">
+          因 Provider 不可用
+        </div>
+      </Card>
+
       <Card class="p-4">
         <div class="text-xs text-muted-foreground flex items-center gap-1">
           预留比例
@@ -322,14 +337,13 @@ onBeforeUnmount(() => {
           </template>
         </div>
         <div class="text-xs text-muted-foreground mt-1">
-          失效 {{ stats?.affinity_stats?.cache_invalidations || 0 }}
+          当前 {{ stats ? (stats.cache_reservation_ratio * 100).toFixed(0) : '-' }}%
         </div>
       </Card>
     </div>
 
     <!-- 缓存亲和性列表 -->
     <Card class="overflow-hidden">
-      <!-- 标题和操作栏 -->
       <div class="px-6 py-3 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
           <div class="flex items-center gap-3">
@@ -365,8 +379,8 @@ onBeforeUnmount(() => {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead class="w-28">用户</TableHead>
-            <TableHead class="w-36">Key</TableHead>
+            <TableHead class="w-36">用户</TableHead>
+            <TableHead class="w-28">Key</TableHead>
             <TableHead class="w-28">Provider</TableHead>
             <TableHead class="w-40">模型</TableHead>
             <TableHead class="w-36">API 格式 / Key</TableHead>
@@ -380,12 +394,12 @@ onBeforeUnmount(() => {
             <TableCell>
               <div class="flex items-center gap-1.5">
                 <Badge v-if="item.is_standalone" variant="outline" class="text-warning border-warning/30 text-[10px] px-1">独立</Badge>
-                <span class="text-sm font-medium truncate max-w-[90px]" :title="item.username ?? undefined">{{ item.username || '未知' }}</span>
+                <span class="text-sm font-medium truncate max-w-[120px]" :title="item.username ?? undefined">{{ item.username || '未知' }}</span>
               </div>
             </TableCell>
             <TableCell>
               <div class="flex items-center gap-1.5">
-                <span class="text-sm truncate max-w-[100px]" :title="item.user_api_key_name || undefined">{{ item.user_api_key_name || '未命名' }}</span>
+                <span class="text-sm truncate max-w-[80px]" :title="item.user_api_key_name || undefined">{{ item.user_api_key_name || '未命名' }}</span>
                 <Badge v-if="item.rate_multiplier !== 1.0" variant="outline" class="text-warning border-warning/30 text-[10px] px-2">{{ item.rate_multiplier }}x</Badge>
               </div>
               <div class="text-xs text-muted-foreground font-mono">{{ item.user_api_key_prefix || '---' }}</div>
@@ -438,6 +452,158 @@ onBeforeUnmount(() => {
         @update:current="currentPage = $event; handlePageChange()"
         @update:page-size="pageSize = $event"
       />
+    </Card>
+
+    <!-- TTL 分析区域 -->
+    <Card class="overflow-hidden">
+      <div class="px-6 py-3 border-b border-border/60">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <BarChart3 class="h-5 w-5 text-muted-foreground" />
+            <h3 class="text-base font-semibold">TTL 分析</h3>
+            <span class="text-xs text-muted-foreground">分析用户请求间隔，推荐合适的缓存 TTL</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <Select v-model="analysisHours">
+              <SelectTrigger class="w-28 h-8">
+                <SelectValue placeholder="时间段" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="option in ANALYSIS_HOURS_OPTIONS"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 缓存命中概览 -->
+      <div v-if="hitAnalysis" class="px-6 py-4 border-b border-border/40 bg-muted/30">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-6">
+          <div>
+            <div class="text-xs text-muted-foreground">请求命中率</div>
+            <div class="text-2xl font-bold text-success">{{ hitAnalysis.request_cache_hit_rate }}%</div>
+            <div class="text-xs text-muted-foreground">{{ formatNumber(hitAnalysis.requests_with_cache_hit) }} / {{ formatNumber(hitAnalysis.total_requests) }} 请求</div>
+          </div>
+          <div>
+            <div class="text-xs text-muted-foreground">Token 命中率</div>
+            <div class="text-2xl font-bold">{{ hitAnalysis.token_cache_hit_rate }}%</div>
+            <div class="text-xs text-muted-foreground">{{ formatTokens(hitAnalysis.total_cache_read_tokens) }} tokens 命中</div>
+          </div>
+          <div>
+            <div class="text-xs text-muted-foreground">缓存创建费用</div>
+            <div class="text-2xl font-bold">{{ formatCost(hitAnalysis.total_cache_creation_cost_usd) }}</div>
+            <div class="text-xs text-muted-foreground">{{ formatTokens(hitAnalysis.total_cache_creation_tokens) }} tokens</div>
+          </div>
+          <div>
+            <div class="text-xs text-muted-foreground">缓存读取费用</div>
+            <div class="text-2xl font-bold">{{ formatCost(hitAnalysis.total_cache_read_cost_usd) }}</div>
+            <div class="text-xs text-muted-foreground">{{ formatTokens(hitAnalysis.total_cache_read_tokens) }} tokens</div>
+          </div>
+          <div>
+            <div class="text-xs text-muted-foreground">预估节省</div>
+            <div class="text-2xl font-bold text-success">{{ formatCost(hitAnalysis.estimated_savings_usd) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 用户 TTL 分析表格 -->
+      <Table v-if="ttlAnalysis && ttlAnalysis.users.length > 0">
+        <TableHeader>
+          <TableRow>
+            <TableHead class="w-10"></TableHead>
+            <TableHead class="w-[20%]">用户</TableHead>
+            <TableHead class="w-[15%] text-center">请求数</TableHead>
+            <TableHead class="w-[15%] text-center">使用频率</TableHead>
+            <TableHead class="w-[15%] text-center">推荐 TTL</TableHead>
+            <TableHead>说明</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <template v-for="user in ttlAnalysis.users" :key="user.group_id">
+            <TableRow
+              class="cursor-pointer hover:bg-muted/50"
+              @click="toggleUserExpand(user.group_id)"
+            >
+              <TableCell class="p-2">
+                <button class="p-1 hover:bg-muted rounded">
+                  <ChevronDown v-if="expandedUserId === user.group_id" class="h-4 w-4 text-muted-foreground" />
+                  <ChevronRight v-else class="h-4 w-4 text-muted-foreground" />
+                </button>
+              </TableCell>
+              <TableCell>
+                <span class="text-sm font-medium">{{ user.username || '未知用户' }}</span>
+              </TableCell>
+              <TableCell class="text-center">
+                <span class="text-sm font-medium">{{ user.request_count }}</span>
+              </TableCell>
+              <TableCell class="text-center">
+                <span class="text-sm" :class="getFrequencyClass(user.recommended_ttl_minutes)">
+                  {{ getFrequencyLabel(user.recommended_ttl_minutes) }}
+                </span>
+              </TableCell>
+              <TableCell class="text-center">
+                <Badge :variant="getTTLBadgeVariant(user.recommended_ttl_minutes)">
+                  {{ user.recommended_ttl_minutes }} 分钟
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <span class="text-xs text-muted-foreground">
+                  {{ formatIntervalDescription(user) }}
+                </span>
+              </TableCell>
+            </TableRow>
+            <!-- 展开行：显示用户散点图 -->
+            <TableRow v-if="expandedUserId === user.group_id" class="bg-muted/30">
+              <TableCell colspan="6" class="p-0">
+                <div class="px-6 py-4">
+                  <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm font-medium">请求间隔时间线</h4>
+                    <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> 0-5分钟</span>
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span> 5-15分钟</span>
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-500"></span> 15-30分钟</span>
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-orange-500"></span> 30-60分钟</span>
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span> >60分钟</span>
+                      <span v-if="userTimelineData" class="ml-2">共 {{ userTimelineData.total_points }} 个数据点</span>
+                    </div>
+                  </div>
+                  <div v-if="userTimelineLoading" class="h-64 flex items-center justify-center">
+                    <span class="text-sm text-muted-foreground">加载中...</span>
+                  </div>
+                  <div v-else-if="userTimelineData && userTimelineData.points.length > 0" class="h-64">
+                    <ScatterChart :data="userTimelineChartData" />
+                  </div>
+                  <div v-else class="h-64 flex items-center justify-center">
+                    <span class="text-sm text-muted-foreground">暂无数据</span>
+                  </div>
+                </div>
+              </TableCell>
+            </TableRow>
+          </template>
+        </TableBody>
+      </Table>
+
+      <!-- 分析完成但无数据 -->
+      <div v-else-if="ttlAnalysis && ttlAnalysis.users.length === 0" class="px-6 py-12 text-center">
+        <BarChart3 class="h-12 w-12 text-muted-foreground/50 mx-auto mb-3" />
+        <p class="text-sm text-muted-foreground">
+          未找到符合条件的用户数据
+        </p>
+        <p class="text-xs text-muted-foreground mt-1">
+          尝试增加分析天数或降低最小请求数阈值
+        </p>
+      </div>
+
+      <!-- 加载中 -->
+      <div v-else-if="ttlAnalysisLoading" class="px-6 py-12 text-center">
+        <p class="text-sm text-muted-foreground">正在分析用户请求数据...</p>
+      </div>
     </Card>
   </div>
 </template>

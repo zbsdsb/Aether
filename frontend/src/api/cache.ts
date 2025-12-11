@@ -156,3 +156,116 @@ export const {
   clearProviderCache,
   listAffinities
 } = cacheApi
+
+// ==================== 缓存亲和性分析 API ====================
+
+export interface TTLAnalysisUser {
+  group_id: string
+  username: string | null
+  email: string | null
+  request_count: number
+  interval_distribution: {
+    within_5min: number
+    within_15min: number
+    within_30min: number
+    within_60min: number
+    over_60min: number
+  }
+  interval_percentages: {
+    within_5min: number
+    within_15min: number
+    within_30min: number
+    within_60min: number
+    over_60min: number
+  }
+  percentiles: {
+    p50: number | null
+    p75: number | null
+    p90: number | null
+  }
+  avg_interval_minutes: number | null
+  min_interval_minutes: number | null
+  max_interval_minutes: number | null
+  recommended_ttl_minutes: number
+  recommendation_reason: string
+}
+
+export interface TTLAnalysisResponse {
+  analysis_period_hours: number
+  total_users_analyzed: number
+  ttl_distribution: {
+    '5min': number
+    '15min': number
+    '30min': number
+    '60min': number
+  }
+  users: TTLAnalysisUser[]
+}
+
+export interface CacheHitAnalysisResponse {
+  analysis_period_hours: number
+  total_requests: number
+  requests_with_cache_hit: number
+  request_cache_hit_rate: number
+  total_input_tokens: number
+  total_cache_read_tokens: number
+  total_cache_creation_tokens: number
+  token_cache_hit_rate: number
+  total_cache_read_cost_usd: number
+  total_cache_creation_cost_usd: number
+  estimated_savings_usd: number
+}
+
+export interface IntervalTimelinePoint {
+  x: string  // ISO 时间字符串
+  y: number  // 间隔分钟数
+  user_id?: string  // 用户 ID（仅 include_user_info=true 时存在）
+}
+
+export interface IntervalTimelineResponse {
+  analysis_period_hours: number
+  total_points: number
+  points: IntervalTimelinePoint[]
+  users?: Record<string, string>  // user_id -> username 映射（仅 include_user_info=true 时存在）
+}
+
+export const cacheAnalysisApi = {
+  /**
+   * 分析缓存亲和性 TTL 推荐
+   */
+  async analyzeTTL(params?: {
+    user_id?: string
+    api_key_id?: string
+    hours?: number
+  }): Promise<TTLAnalysisResponse> {
+    const response = await api.get('/api/admin/usage/cache-affinity/ttl-analysis', { params })
+    return response.data
+  },
+
+  /**
+   * 分析缓存命中情况
+   */
+  async analyzeHit(params?: {
+    user_id?: string
+    api_key_id?: string
+    hours?: number
+  }): Promise<CacheHitAnalysisResponse> {
+    const response = await api.get('/api/admin/usage/cache-affinity/hit-analysis', { params })
+    return response.data
+  },
+
+  /**
+   * 获取请求间隔时间线数据
+   *
+   * @param params.include_user_info 是否包含用户信息（用于管理员多用户视图）
+   */
+  async getIntervalTimeline(params?: {
+    hours?: number
+    limit?: number
+    user_id?: string
+    include_user_info?: boolean
+  }): Promise<IntervalTimelineResponse> {
+    const response = await api.get('/api/admin/usage/cache-affinity/interval-timeline', { params })
+    return response.data
+  }
+}
