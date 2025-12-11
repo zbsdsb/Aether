@@ -530,9 +530,18 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
                 query = query.filter(
                     (Usage.status_code >= 400) | (Usage.error_message.isnot(None))
                 )
-            elif self.status in ("pending", "streaming", "completed", "failed"):
+            elif self.status in ("pending", "streaming", "completed"):
                 # 新的状态筛选：直接按 status 字段过滤
                 query = query.filter(Usage.status == self.status)
+            elif self.status == "failed":
+                # 失败请求需要同时考虑新旧两种判断方式：
+                # 1. 新方式：status = "failed"
+                # 2. 旧方式：status_code >= 400 或 error_message 不为空
+                query = query.filter(
+                    (Usage.status == "failed") |
+                    (Usage.status_code >= 400) |
+                    (Usage.error_message.isnot(None))
+                )
             elif self.status == "active":
                 # 活跃请求：pending 或 streaming 状态
                 query = query.filter(Usage.status.in_(["pending", "streaming"]))
@@ -651,42 +660,17 @@ class AdminActiveRequestsAdapter(AdminApiAdapter):
         self.ids = ids
 
     async def handle(self, context):  # type: ignore[override]
-        db = context.db
+        from src.services.usage import UsageService
 
+        db = context.db
+        id_list = None
         if self.ids:
-            # 查询指定 ID 的请求状态
             id_list = [id.strip() for id in self.ids.split(",") if id.strip()]
             if not id_list:
                 return {"requests": []}
 
-            records = (
-                db.query(Usage.id, Usage.status, Usage.input_tokens, Usage.output_tokens, Usage.total_cost_usd, Usage.response_time_ms)
-                .filter(Usage.id.in_(id_list))
-                .all()
-            )
-        else:
-            # 查询所有活跃请求（pending 或 streaming）
-            records = (
-                db.query(Usage.id, Usage.status, Usage.input_tokens, Usage.output_tokens, Usage.total_cost_usd, Usage.response_time_ms)
-                .filter(Usage.status.in_(["pending", "streaming"]))
-                .order_by(Usage.created_at.desc())
-                .limit(50)
-                .all()
-            )
-
-        return {
-            "requests": [
-                {
-                    "id": r.id,
-                    "status": r.status,
-                    "input_tokens": r.input_tokens,
-                    "output_tokens": r.output_tokens,
-                    "cost": float(r.total_cost_usd) if r.total_cost_usd else 0,
-                    "response_time_ms": r.response_time_ms,
-                }
-                for r in records
-            ]
-        }
+        requests = UsageService.get_active_requests_status(db=db, ids=id_list)
+        return {"requests": requests}
 
 
 @dataclass

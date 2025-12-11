@@ -81,6 +81,7 @@ export interface EndpointHealthDetail {
   api_format: string
   health_score: number
   is_active: boolean
+  active_keys?: number
 }
 
 export interface EndpointHealthEvent {

@@ -61,6 +61,16 @@ python generate_keys.py  # 生成密钥, 并将生成的密钥填入 .env
 ./deploy.sh  # 自动构建、启动、迁移
 ```
 
+### 更新
+
+```bash
+# 拉取最新代码
+git pull
+
+# 自动部署脚本
+./deploy.sh
+```
+
 ### 本地开发
 
 ```bash

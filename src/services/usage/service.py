@@ -1304,3 +1304,93 @@ class UsageService:
             )
             .count()
         )
+
+    @classmethod
+    def get_active_requests_status(
+        cls,
+        db: Session,
+        ids: Optional[List[str]] = None,
+        user_id: Optional[str] = None,
+        default_timeout_seconds: int = 300,
+    ) -> List[Dict[str, Any]]:
+        """
+        获取活跃请求状态（用于前端轮询），并自动清理超时的 pending 请求
+
+        与 get_active_requests 不同，此方法：
+        1. 返回轻量级的状态字典而非完整 Usage 对象
+        2. 自动检测并清理超时的 pending 请求
+        3. 支持按 ID 列表查询特定请求
+
+        Args:
+            db: 数据库会话
+            ids: 指定要查询的请求 ID 列表（可选）
+            user_id: 限制只查询该用户的请求（可选，用于普通用户接口）
+            default_timeout_seconds: 默认超时时间（秒），当端点未配置时使用
+
+        Returns:
+            请求状态列表
+        """
+        from src.models.database import ProviderEndpoint
+
+        now = datetime.now(timezone.utc)
+
+        # 构建基础查询，包含端点的 timeout 配置
+        query = db.query(
+            Usage.id,
+            Usage.status,
+            Usage.input_tokens,
+            Usage.output_tokens,
+            Usage.total_cost_usd,
+            Usage.response_time_ms,
+            Usage.created_at,
+            Usage.provider_endpoint_id,
+            ProviderEndpoint.timeout.label("endpoint_timeout"),
+        ).outerjoin(ProviderEndpoint, Usage.provider_endpoint_id == ProviderEndpoint.id)
+
+        if ids:
+            query = query.filter(Usage.id.in_(ids))
+            if user_id:
+                query = query.filter(Usage.user_id == user_id)
+        else:
+            # 查询所有活跃请求
+            query = query.filter(Usage.status.in_(["pending", "streaming"]))
+            if user_id:
+                query = query.filter(Usage.user_id == user_id)
+            query = query.order_by(Usage.created_at.desc()).limit(50)
+
+        records = query.all()
+
+        # 检查超时的 pending 请求
+        timeout_ids = []
+        for r in records:
+            if r.status == "pending" and r.created_at:
+                # 使用端点配置的超时时间，若无则使用默认值
+                timeout_seconds = r.endpoint_timeout or default_timeout_seconds
+
+                # 处理时区：如果 created_at 没有时区信息，假定为 UTC
+                created_at = r.created_at
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                elapsed = (now - created_at).total_seconds()
+                if elapsed > timeout_seconds:
+                    timeout_ids.append(r.id)
+
+        # 批量更新超时的请求
+        if timeout_ids:
+            db.query(Usage).filter(Usage.id.in_(timeout_ids)).update(
+                {"status": "failed", "error_message": "请求超时（服务器可能已重启）"},
+                synchronize_session=False,
+            )
+            db.commit()
+
+        return [
+            {
+                "id": r.id,
+                "status": "failed" if r.id in timeout_ids else r.status,
+                "input_tokens": r.input_tokens,
+                "output_tokens": r.output_tokens,
+                "cost": float(r.total_cost_usd) if r.total_cost_usd else 0,
+                "response_time_ms": r.response_time_ms,
+            }
+            for r in records
+        ]

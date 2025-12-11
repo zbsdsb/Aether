@@ -1,6 +1,8 @@
-import axios from 'axios'
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import axios, { getAdapter } from 'axios'
+import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig, AxiosAdapter } from 'axios'
 import { NETWORK_CONFIG, AUTH_CONFIG } from '@/config/constants'
+import { isDemoMode } from '@/config/demo'
+import { handleMockRequest, setMockUserToken } from '@/mocks'
 import { log } from '@/utils/logger'
 
 // 在开发环境下使用代理,生产环境使用环境变量
@@ -42,6 +44,39 @@ function isRefreshableAuthError(errorDetail: string): boolean {
   return !nonRefreshableErrors.some((msg) => errorDetail.includes(msg))
 }
 
+/**
+ * 创建 Demo 模式的自定义 adapter
+ * 在 Demo 模式下拦截请求并返回 mock 数据
+ */
+function createDemoAdapter(defaultAdapter: AxiosAdapter) {
+  return async (config: InternalAxiosRequestConfig): Promise<AxiosResponse> => {
+    if (isDemoMode()) {
+      try {
+        const mockResponse = await handleMockRequest({
+          method: config.method?.toUpperCase(),
+          url: config.url,
+          data: config.data,
+          params: config.params,
+        })
+        if (mockResponse) {
+          // 确保响应包含 config
+          mockResponse.config = config
+          return mockResponse
+        }
+      } catch (error: any) {
+        // Mock 错误需要附加 config，否则 handleResponseError 会崩溃
+        if (error.response) {
+          error.config = config
+          error.response.config = config
+        }
+        throw error
+      }
+    }
+    // 非 Demo 模式或没有 mock 响应时，使用默认 adapter
+    return defaultAdapter(config)
+  }
+}
+
 class ApiClient {
   private client: AxiosInstance
   private token: string | null = null
@@ -57,6 +92,10 @@ class ApiClient {
       },
     })
 
+    // 设置自定义 adapter 处理 Demo 模式
+    const defaultAdapter = getAdapter(this.client.defaults.adapter)
+    this.client.defaults.adapter = createDemoAdapter(defaultAdapter)
+
     this.setupInterceptors()
   }
 
@@ -64,7 +103,7 @@ class ApiClient {
    * 配置请求和响应拦截器
    */
   private setupInterceptors(): void {
-    // 请求拦截器
+    // 请求拦截器 - 仅处理认证
     this.client.interceptors.request.use(
       (config) => {
         const requiresAuth = !isPublicEndpoint(config.url, config.method) &&
@@ -207,11 +246,19 @@ class ApiClient {
   setToken(token: string): void {
     this.token = token
     localStorage.setItem('access_token', token)
+    // 同步到 mock handler
+    if (isDemoMode()) {
+      setMockUserToken(token)
+    }
   }
 
   getToken(): string | null {
     if (!this.token) {
       this.token = localStorage.getItem('access_token')
+      // 页面刷新时，从 localStorage 恢复 token 到 mock handler
+      if (this.token && isDemoMode()) {
+        setMockUserToken(this.token)
+      }
     }
     return this.token
   }
@@ -220,12 +267,18 @@ class ApiClient {
     this.token = null
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
+    // 同步清除 mock token
+    if (isDemoMode()) {
+      setMockUserToken(null)
+    }
   }
 
   async refreshToken(refreshToken: string): Promise<AxiosResponse> {
+    // refreshToken 会通过 adapter 处理 Demo 模式
     return this.client.post('/api/auth/refresh', { refresh_token: refreshToken })
   }
 
+  // 以下方法直接委托给 axios client，Demo 模式由 adapter 统一处理
   async request<T = any>(config: AxiosRequestConfig): Promise<AxiosResponse<T>> {
     return this.client.request<T>(config)
   }

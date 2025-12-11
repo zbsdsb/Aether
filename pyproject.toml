@@ -95,6 +95,8 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 exclude = "tools/debug"
+# 忽略项目内部模块的 import-untyped 警告
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

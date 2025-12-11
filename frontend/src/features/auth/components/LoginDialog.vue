@@ -11,6 +11,43 @@
         </h2>
       </div>
 
+      <!-- Demo 模式提示 -->
+      <div v-if="isDemo" class="rounded-lg border border-primary/20 dark:border-primary/30 bg-primary/5 dark:bg-primary/10 p-4">
+        <div class="flex items-start gap-3">
+          <div class="flex-shrink-0 text-primary dark:text-primary/90">
+            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-foreground">
+              演示模式
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              当前处于演示模式，所有数据均为模拟数据。
+            </p>
+            <div class="mt-3 space-y-2">
+              <button
+                type="button"
+                @click="fillDemoAccount('admin')"
+                class="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors group"
+              >
+                <span class="inline-flex items-center justify-center w-5 h-5 rounded bg-primary/20 dark:bg-primary/30 text-primary text-[10px] font-bold group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors">A</span>
+                <span>管理员：admin@demo.aether.io / demo123</span>
+              </button>
+              <button
+                type="button"
+                @click="fillDemoAccount('user')"
+                class="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors group"
+              >
+                <span class="inline-flex items-center justify-center w-5 h-5 rounded bg-muted text-muted-foreground text-[10px] font-bold group-hover:bg-muted/80 transition-colors">U</span>
+                <span>普通用户：user@demo.aether.io / demo123</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 登录表单 -->
       <form @submit.prevent="handleLogin" class="space-y-4">
         <div class="space-y-2">
@@ -32,14 +69,14 @@
             v-model="form.password"
             type="password"
             required
-            placeholder="••••••••"
+            placeholder="********"
             autocomplete="off"
             @keyup.enter="handleLogin"
           />
         </div>
 
         <!-- 提示信息 -->
-        <p class="text-xs text-slate-400 dark:text-muted-foreground/80">
+        <p v-if="!isDemo" class="text-xs text-slate-400 dark:text-muted-foreground/80">
           如需开通账户，请联系管理员配置访问权限
         </p>
       </form>
@@ -66,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Dialog } from '@/components/ui'
 import Button from '@/components/ui/button.vue'
@@ -74,6 +111,7 @@ import Input from '@/components/ui/input.vue'
 import Label from '@/components/ui/label.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
+import { isDemoMode, DEMO_ACCOUNTS } from '@/config/demo'
 
 const props = defineProps<{
   modelValue: boolean
@@ -88,6 +126,7 @@ const authStore = useAuthStore()
 const { success: showSuccess, warning: showWarning, error: showError } = useToast()
 
 const isOpen = ref(props.modelValue)
+const isDemo = computed(() => isDemoMode())
 
 watch(() => props.modelValue, (val) => {
   isOpen.value = val
@@ -108,6 +147,12 @@ const form = ref({
   email: '',
   password: ''
 })
+
+function fillDemoAccount(type: 'admin' | 'user') {
+  const account = DEMO_ACCOUNTS[type]
+  form.value.email = account.email
+  form.value.password = account.password
+}
 
 async function handleLogin() {
   if (!form.value.email || !form.value.password) {
