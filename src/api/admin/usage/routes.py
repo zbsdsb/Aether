@@ -920,8 +920,8 @@ class CacheHitAnalysisAdapter(AdminApiAdapter):
 @router.get("/cache-affinity/interval-timeline")
 async def get_interval_timeline(
     request: Request,
-    hours: int = Query(168, ge=1, le=720, description="分析最近多少小时的数据"),
-    limit: int = Query(1000, ge=100, le=5000, description="最大返回数据点数量"),
+    hours: int = Query(24, ge=1, le=720, description="分析最近多少小时的数据"),
+    limit: int = Query(10000, ge=100, le=50000, description="最大返回数据点数量"),
     user_id: Optional[str] = Query(None, description="指定用户 ID"),
     include_user_info: bool = Query(False, description="是否包含用户信息（用于管理员多用户视图）"),
     db: Session = Depends(get_db),

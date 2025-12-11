@@ -1730,8 +1730,8 @@ class UsageService:
     @staticmethod
     def get_interval_timeline(
         db: Session,
-        hours: int = 168,
-        limit: int = 1000,
+        hours: int = 24,
+        limit: int = 10000,
         user_id: Optional[str] = None,
         include_user_info: bool = False,
     ) -> Dict[str, Any]:
@@ -1740,8 +1740,8 @@ class UsageService:
 
         Args:
             db: 数据库会话
-            hours: 分析最近多少小时的数据
-            limit: 最大返回数据点数量
+            hours: 分析最近多少小时的数据（默认24小时）
+            limit: 最大返回数据点数量（默认10000）
             user_id: 指定用户 ID（可选，为空则返回所有用户）
             include_user_info: 是否包含用户信息（用于管理员多用户视图）
 
@@ -1758,6 +1758,7 @@ class UsageService:
         # 根据是否需要用户信息选择不同的查询
         if include_user_info and not user_id:
             # 管理员视图：返回带用户信息的数据点
+            # 使用按比例采样，保持每个用户的数据量比例不变
             sql = text(f"""
                 WITH request_intervals AS (
                     SELECT
@@ -1774,17 +1775,41 @@ class UsageService:
                       AND u.created_at > :start_date
                       AND u.user_id IS NOT NULL
                       {user_filter}
+                ),
+                filtered_intervals AS (
+                    SELECT
+                        created_at,
+                        user_id,
+                        username,
+                        EXTRACT(EPOCH FROM (created_at - prev_request_at)) / 60.0 as interval_minutes,
+                        ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at) as rn
+                    FROM request_intervals
+                    WHERE prev_request_at IS NOT NULL
+                      AND EXTRACT(EPOCH FROM (created_at - prev_request_at)) / 60.0 <= 120
+                ),
+                total_count AS (
+                    SELECT COUNT(*) as cnt FROM filtered_intervals
+                ),
+                user_totals AS (
+                    SELECT user_id, COUNT(*) as user_cnt FROM filtered_intervals GROUP BY user_id
+                ),
+                user_limits AS (
+                    SELECT
+                        ut.user_id,
+                        CASE WHEN tc.cnt <= :limit THEN ut.user_cnt
+                             ELSE GREATEST(CEIL(ut.user_cnt::float * :limit / tc.cnt), 1)::int
+                        END as user_limit
+                    FROM user_totals ut, total_count tc
                 )
                 SELECT
-                    created_at,
-                    user_id,
-                    username,
-                    EXTRACT(EPOCH FROM (created_at - prev_request_at)) / 60.0 as interval_minutes
-                FROM request_intervals
-                WHERE prev_request_at IS NOT NULL
-                  AND EXTRACT(EPOCH FROM (created_at - prev_request_at)) / 60.0 <= 120
-                ORDER BY created_at
-                LIMIT :limit
+                    fi.created_at,
+                    fi.user_id,
+                    fi.username,
+                    fi.interval_minutes
+                FROM filtered_intervals fi
+                JOIN user_limits ul ON fi.user_id = ul.user_id
+                WHERE fi.rn <= ul.user_limit
+                ORDER BY fi.created_at
             """)
         else:
             # 普通视图：只返回时间和间隔

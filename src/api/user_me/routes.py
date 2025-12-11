@@ -124,8 +124,8 @@ async def get_my_active_requests(
 @router.get("/usage/interval-timeline")
 async def get_my_interval_timeline(
     request: Request,
-    hours: int = Query(168, ge=1, le=720, description="分析最近多少小时的数据"),
-    limit: int = Query(1000, ge=100, le=5000, description="最大返回数据点数量"),
+    hours: int = Query(24, ge=1, le=720, description="分析最近多少小时的数据"),
+    limit: int = Query(5000, ge=100, le=20000, description="最大返回数据点数量"),
     db: Session = Depends(get_db),
 ):
     """获取当前用户的请求间隔时间线数据，用于散点图展示"""

@@ -41,7 +41,7 @@ const props = withDefaults(defineProps<{
   isAdmin: boolean
   hours?: number
 }>(), {
-  hours: 168  // 默认7天
+  hours: 24  // 默认当天
 })
 
 const loading = ref(false)
@@ -174,17 +174,17 @@ async function loadData() {
   loading.value = true
   try {
     if (props.isAdmin) {
-      // 管理员：获取所有用户数据
+      // 管理员：获取所有用户数据（按比例采样）
       timelineData.value = await cacheAnalysisApi.getIntervalTimeline({
         hours: props.hours,
         include_user_info: true,
-        limit: 2000,
+        limit: 10000,
       })
     } else {
       // 普通用户：获取自己的数据
       timelineData.value = await meApi.getIntervalTimeline({
         hours: props.hours,
-        limit: 1000,
+        limit: 5000,
       })
     }
   } catch (error) {
