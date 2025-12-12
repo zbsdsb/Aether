@@ -48,7 +48,10 @@
       </Button>
 
       <!-- 页码按钮（智能省略） -->
-      <template v-for="page in pageNumbers" :key="page">
+      <template
+        v-for="page in pageNumbers"
+        :key="page"
+      >
         <Button
           v-if="typeof page === 'number'"
           :variant="page === current ? 'default' : 'outline'"
@@ -59,7 +62,10 @@
         >
           {{ page }}
         </Button>
-        <span v-else class="px-2 text-muted-foreground select-none">{{ page }}</span>
+        <span
+          v-else
+          class="px-2 text-muted-foreground select-none"
+        >{{ page }}</span>
       </template>
 
       <Button

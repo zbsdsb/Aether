@@ -1,8 +1,13 @@
 <template>
   <Card class="p-4">
     <div class="flex items-center justify-between mb-3">
-      <p class="text-sm font-semibold">{{ title }}</p>
-      <div v-if="displayLegendItems.length > 0" class="flex items-center gap-2 flex-wrap justify-end text-[11px]">
+      <p class="text-sm font-semibold">
+        {{ title }}
+      </p>
+      <div
+        v-if="displayLegendItems.length > 0"
+        class="flex items-center gap-2 flex-wrap justify-end text-[11px]"
+      >
         <div
           v-for="item in displayLegendItems"
           :key="item.id"
@@ -14,18 +19,35 @@
           />
           <span class="text-muted-foreground">{{ item.name }}</span>
         </div>
-        <span v-if="hiddenLegendCount > 0" class="text-muted-foreground">
+        <span
+          v-if="hiddenLegendCount > 0"
+          class="text-muted-foreground"
+        >
           +{{ hiddenLegendCount }} 更多
         </span>
       </div>
     </div>
-    <div v-if="loading" class="h-[160px] flex items-center justify-center">
-      <div class="text-sm text-muted-foreground">Loading...</div>
+    <div
+      v-if="loading"
+      class="h-[160px] flex items-center justify-center"
+    >
+      <div class="text-sm text-muted-foreground">
+        Loading...
+      </div>
     </div>
-    <div v-else-if="hasData" class="h-[160px]">
-      <ScatterChart :data="chartData" :options="chartOptions" />
+    <div
+      v-else-if="hasData"
+      class="h-[160px]"
+    >
+      <ScatterChart
+        :data="chartData"
+        :options="chartOptions"
+      />
     </div>
-    <div v-else class="h-[160px] flex items-center justify-center text-sm text-muted-foreground">
+    <div
+      v-else
+      class="h-[160px] flex items-center justify-center text-sm text-muted-foreground"
+    >
       暂无请求间隔数据
     </div>
   </Card>
@@ -147,7 +169,7 @@ function formatModelName(model: string): string {
     }
   }
   // 其他模型保持原样但截断
-  return model.length > 20 ? model.slice(0, 17) + '...' : model
+  return model.length > 20 ? `${model.slice(0, 17)  }...` : model
 }
 
 // 构建图表数据

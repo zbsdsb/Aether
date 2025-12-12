@@ -8,8 +8,14 @@
       <div class="border-b border-border px-6 py-4">
         <div class="flex items-center gap-3">
           <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 flex-shrink-0">
-            <UserPlus v-if="!isEditMode" class="h-5 w-5 text-primary" />
-            <SquarePen v-else class="h-5 w-5 text-primary" />
+            <UserPlus
+              v-if="!isEditMode"
+              class="h-5 w-5 text-primary"
+            />
+            <SquarePen
+              v-else
+              class="h-5 w-5 text-primary"
+            />
           </div>
           <div class="flex-1 min-w-0">
             <h3 class="text-lg font-semibold text-foreground leading-tight">
@@ -23,7 +29,10 @@
       </div>
     </template>
 
-    <form @submit.prevent="handleSubmit" autocomplete="off">
+    <form
+      autocomplete="off"
+      @submit.prevent="handleSubmit"
+    >
       <div class="grid grid-cols-2 gap-0">
         <!-- 左侧：基础设置 -->
         <div class="pr-6 space-y-4">
@@ -32,7 +41,10 @@
           </div>
 
           <div class="space-y-2">
-            <Label for="form-username" class="text-sm font-medium">用户名 <span class="text-muted-foreground">*</span></Label>
+            <Label
+              for="form-username"
+              class="text-sm font-medium"
+            >用户名 <span class="text-muted-foreground">*</span></Label>
             <Input
               id="form-username"
               v-model="form.username"
@@ -46,14 +58,15 @@
 
           <div class="space-y-2">
             <Label class="text-sm font-medium">
-              {{ isEditMode ? '新密码 (留空保持不变)' : '密码' }} <span v-if="!isEditMode" class="text-muted-foreground">*</span>
+              {{ isEditMode ? '新密码 (留空保持不变)' : '密码' }} <span
+                v-if="!isEditMode"
+                class="text-muted-foreground"
+              >*</span>
             </Label>
             <Input
               :id="`pwd-${formNonce}`"
               v-model="form.password"
               :type="passwordFocused ? 'password' : 'text'"
-              @focus="passwordFocused = true"
-              @blur="passwordFocused = form.password.length > 0"
               autocomplete="new-password"
               data-form-type="other"
               data-lpignore="true"
@@ -62,12 +75,22 @@
               minlength="6"
               :placeholder="isEditMode ? '留空保持原密码' : '至少6个字符'"
               :class="!passwordFocused && form.password.length === 0 ? 'h-10 text-transparent' : 'h-10'"
+              @focus="passwordFocused = true"
+              @blur="passwordFocused = form.password.length > 0"
             />
-            <p v-if="!isEditMode" class="text-xs text-muted-foreground">密码至少需要6个字符</p>
+            <p
+              v-if="!isEditMode"
+              class="text-xs text-muted-foreground"
+            >
+              密码至少需要6个字符
+            </p>
           </div>
 
           <div class="space-y-2">
-            <Label for="form-email" class="text-sm font-medium">邮箱 <span class="text-muted-foreground">*</span></Label>
+            <Label
+              for="form-email"
+              class="text-sm font-medium"
+            >邮箱 <span class="text-muted-foreground">*</span></Label>
             <Input
               id="form-email"
               v-model="form.email"
@@ -80,7 +103,10 @@
           </div>
 
           <div class="space-y-2">
-            <Label for="form-quota" class="text-sm font-medium">配额(美元)</Label>
+            <Label
+              for="form-quota"
+              class="text-sm font-medium"
+            >配额(美元)</Label>
             <div class="flex items-center space-x-3">
               <Input
                 id="form-quota"
@@ -98,32 +124,55 @@
                   v-model="form.unlimited"
                   type="checkbox"
                   class="h-4 w-4 rounded border-gray-300 cursor-pointer"
-                />
-                <Label for="form-unlimited" class="whitespace-nowrap cursor-pointer text-sm">无限制</Label>
+                >
+                <Label
+                  for="form-unlimited"
+                  class="whitespace-nowrap cursor-pointer text-sm"
+                >无限制</Label>
               </div>
             </div>
           </div>
 
           <div class="space-y-2">
-            <Label for="form-role" class="text-sm font-medium">用户角色</Label>
+            <Label
+              for="form-role"
+              class="text-sm font-medium"
+            >用户角色</Label>
             <div class="flex items-center gap-3">
-              <Select v-model="form.role" v-model:open="roleSelectOpen" class="flex-1">
-                <SelectTrigger id="form-role" class="h-10">
+              <Select
+                v-model="form.role"
+                v-model:open="roleSelectOpen"
+                class="flex-1"
+              >
+                <SelectTrigger
+                  id="form-role"
+                  class="h-10"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">普通用户</SelectItem>
-                  <SelectItem value="admin">管理员</SelectItem>
+                  <SelectItem value="user">
+                    普通用户
+                  </SelectItem>
+                  <SelectItem value="admin">
+                    管理员
+                  </SelectItem>
                 </SelectContent>
               </Select>
-              <div v-if="!isEditMode" class="flex items-center justify-center gap-2 border rounded-lg px-3 py-2 bg-muted/50 w-24">
+              <div
+                v-if="!isEditMode"
+                class="flex items-center justify-center gap-2 border rounded-lg px-3 py-2 bg-muted/50 w-24"
+              >
                 <input
                   id="form-active"
                   v-model="form.is_active"
                   type="checkbox"
                   class="h-4 w-4 rounded border-gray-300 cursor-pointer"
-                />
-                <Label for="form-active" class="whitespace-nowrap cursor-pointer text-sm">启用用户</Label>
+                >
+                <Label
+                  for="form-active"
+                  class="whitespace-nowrap cursor-pointer text-sm"
+                >启用用户</Label>
               </div>
             </div>
           </div>
@@ -148,9 +197,16 @@
                 <span :class="form.allowed_providers.length ? 'text-foreground' : 'text-muted-foreground'">
                   {{ form.allowed_providers.length ? `已选择 ${form.allowed_providers.length} 个` : '全部可用' }}
                 </span>
-                <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform" :class="providerDropdownOpen ? 'rotate-180' : ''" />
+                <ChevronDown
+                  class="h-4 w-4 text-muted-foreground transition-transform"
+                  :class="providerDropdownOpen ? 'rotate-180' : ''"
+                />
               </button>
-              <div v-if="providerDropdownOpen" class="fixed inset-0 z-[80]" @click.stop="providerDropdownOpen = false"></div>
+              <div
+                v-if="providerDropdownOpen"
+                class="fixed inset-0 z-[80]"
+                @click.stop="providerDropdownOpen = false"
+              />
               <div
                 v-if="providerDropdownOpen"
                 class="absolute z-[90] w-full mt-1 bg-popover border rounded-lg shadow-lg max-h-48 overflow-y-auto"
@@ -167,10 +223,13 @@
                     class="h-4 w-4 rounded border-gray-300 cursor-pointer"
                     @click.stop
                     @change="toggleSelection('allowed_providers', provider.id)"
-                  />
+                  >
                   <span class="text-sm">{{ provider.display_name || provider.name }}</span>
                 </div>
-                <div v-if="providers.length === 0" class="px-3 py-2 text-sm text-muted-foreground">
+                <div
+                  v-if="providers.length === 0"
+                  class="px-3 py-2 text-sm text-muted-foreground"
+                >
                   暂无可用 Provider
                 </div>
               </div>
@@ -189,9 +248,16 @@
                 <span :class="form.allowed_endpoints.length ? 'text-foreground' : 'text-muted-foreground'">
                   {{ form.allowed_endpoints.length ? `已选择 ${form.allowed_endpoints.length} 个` : '全部可用' }}
                 </span>
-                <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform" :class="endpointDropdownOpen ? 'rotate-180' : ''" />
+                <ChevronDown
+                  class="h-4 w-4 text-muted-foreground transition-transform"
+                  :class="endpointDropdownOpen ? 'rotate-180' : ''"
+                />
               </button>
-              <div v-if="endpointDropdownOpen" class="fixed inset-0 z-[80]" @click.stop="endpointDropdownOpen = false"></div>
+              <div
+                v-if="endpointDropdownOpen"
+                class="fixed inset-0 z-[80]"
+                @click.stop="endpointDropdownOpen = false"
+              />
               <div
                 v-if="endpointDropdownOpen"
                 class="absolute z-[90] w-full mt-1 bg-popover border rounded-lg shadow-lg max-h-48 overflow-y-auto"
@@ -208,10 +274,13 @@
                     class="h-4 w-4 rounded border-gray-300 cursor-pointer"
                     @click.stop
                     @change="toggleSelection('allowed_endpoints', format.value)"
-                  />
+                  >
                   <span class="text-sm">{{ format.label }}</span>
                 </div>
-                <div v-if="apiFormats.length === 0" class="px-3 py-2 text-sm text-muted-foreground">
+                <div
+                  v-if="apiFormats.length === 0"
+                  class="px-3 py-2 text-sm text-muted-foreground"
+                >
                   暂无可用 API 格式
                 </div>
               </div>
@@ -230,9 +299,16 @@
                 <span :class="form.allowed_models.length ? 'text-foreground' : 'text-muted-foreground'">
                   {{ form.allowed_models.length ? `已选择 ${form.allowed_models.length} 个` : '全部可用' }}
                 </span>
-                <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform" :class="modelDropdownOpen ? 'rotate-180' : ''" />
+                <ChevronDown
+                  class="h-4 w-4 text-muted-foreground transition-transform"
+                  :class="modelDropdownOpen ? 'rotate-180' : ''"
+                />
               </button>
-              <div v-if="modelDropdownOpen" class="fixed inset-0 z-[80]" @click.stop="modelDropdownOpen = false"></div>
+              <div
+                v-if="modelDropdownOpen"
+                class="fixed inset-0 z-[80]"
+                @click.stop="modelDropdownOpen = false"
+              />
               <div
                 v-if="modelDropdownOpen"
                 class="absolute z-[90] w-full mt-1 bg-popover border rounded-lg shadow-lg max-h-48 overflow-y-auto"
@@ -249,10 +325,13 @@
                     class="h-4 w-4 rounded border-gray-300 cursor-pointer"
                     @click.stop
                     @change="toggleSelection('allowed_models', model.name)"
-                  />
+                  >
                   <span class="text-sm">{{ model.name }}</span>
                 </div>
-                <div v-if="globalModels.length === 0" class="px-3 py-2 text-sm text-muted-foreground">
+                <div
+                  v-if="globalModels.length === 0"
+                  class="px-3 py-2 text-sm text-muted-foreground"
+                >
                   暂无可用模型
                 </div>
               </div>
@@ -263,8 +342,19 @@
     </form>
 
     <template #footer>
-      <Button variant="outline" @click="handleCancel" type="button" class="h-10 px-5">取消</Button>
-      <Button @click="handleSubmit" class="h-10 px-5" :disabled="saving || !isFormValid">
+      <Button
+        variant="outline"
+        type="button"
+        class="h-10 px-5"
+        @click="handleCancel"
+      >
+        取消
+      </Button>
+      <Button
+        class="h-10 px-5"
+        :disabled="saving || !isFormValid"
+        @click="handleSubmit"
+      >
         {{ saving ? '处理中...' : (isEditMode ? '更新' : '创建') }}
       </Button>
     </template>

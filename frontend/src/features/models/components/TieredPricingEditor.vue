@@ -39,7 +39,10 @@
               </option>
             </select>
           </template>
-          <span v-else class="font-medium">无上限</span>
+          <span
+            v-else
+            class="font-medium"
+          >无上限</span>
         </div>
         <Button
           v-if="localTiers.length > 1"
@@ -53,7 +56,10 @@
       </div>
 
       <!-- 价格输入 -->
-      <div :class="['grid gap-3', showCache1h ? 'grid-cols-5' : 'grid-cols-4']">
+      <div
+        class="grid gap-3"
+        :class="[showCache1h ? 'grid-cols-5' : 'grid-cols-4']"
+      >
         <div class="space-y-1">
           <Label class="text-xs">输入 ($/M)</Label>
           <Input
@@ -102,7 +108,10 @@
             @update:model-value="(v) => updateCacheRead(index, v)"
           />
         </div>
-        <div v-if="showCache1h" class="space-y-1">
+        <div
+          v-if="showCache1h"
+          class="space-y-1"
+        >
           <Label class="text-xs text-muted-foreground">1h 缓存创建</Label>
           <Input
             :model-value="getCache1hDisplay(index)"
@@ -129,7 +138,10 @@
     </Button>
 
     <!-- 验证提示 -->
-    <p v-if="validationError" class="text-xs text-destructive">
+    <p
+      v-if="validationError"
+      class="text-xs text-destructive"
+    >
       {{ validationError }}
     </p>
   </div>
@@ -287,32 +299,32 @@ function formatTokens(tokens: number): string {
 // 缓存价格自动计算
 function getAutoCacheCreation(index: number): number {
   const inputPrice = localTiers.value[index]?.input_price_per_1m || 0
-  return parseFloat((inputPrice * 1.25).toFixed(2))
+  return parseFloat((inputPrice * 1.25).toFixed(4))
 }
 
 function getAutoCacheRead(index: number): number {
   const inputPrice = localTiers.value[index]?.input_price_per_1m || 0
-  return parseFloat((inputPrice * 0.1).toFixed(2))
+  return parseFloat((inputPrice * 0.1).toFixed(4))
 }
 
 function getAutoCache1h(index: number): number {
   const inputPrice = localTiers.value[index]?.input_price_per_1m || 0
-  return parseFloat((inputPrice * 2).toFixed(2))
+  return parseFloat((inputPrice * 2).toFixed(4))
 }
 
 function getCacheCreationPlaceholder(index: number): string {
   const auto = getAutoCacheCreation(index)
-  return auto > 0 ? auto.toFixed(2) : '自动'
+  return auto > 0 ? String(auto) : '自动'
 }
 
 function getCacheReadPlaceholder(index: number): string {
   const auto = getAutoCacheRead(index)
-  return auto > 0 ? auto.toFixed(2) : '自动'
+  return auto > 0 ? String(auto) : '自动'
 }
 
 function getCache1hPlaceholder(index: number): string {
   const auto = getAutoCache1h(index)
-  return auto > 0 ? auto.toFixed(2) : '自动'
+  return auto > 0 ? String(auto) : '自动'
 }
 
 function getCacheCreationDisplay(index: number): string | number {
@@ -346,11 +358,41 @@ function getCache1hDisplay(index: number): string | number {
   return ''
 }
 
-// 同步到父组件（包含自动计算的缓存价格）
+// 同步到父组件（只同步用户实际输入的值，不自动填充）
 function syncToParent() {
   if (validationError.value) return
 
   const tiers: PricingTier[] = localTiers.value.map((t, i) => {
+    const tier: PricingTier = {
+      up_to: t.up_to,
+      input_price_per_1m: t.input_price_per_1m,
+      output_price_per_1m: t.output_price_per_1m,
+    }
+
+    // 缓存创建价格：只有手动设置才同步
+    if (cacheManuallySet[i]?.creation && t.cache_creation_price_per_1m != null) {
+      tier.cache_creation_price_per_1m = t.cache_creation_price_per_1m
+    }
+
+    // 缓存读取价格：只有手动设置才同步
+    if (cacheManuallySet[i]?.read && t.cache_read_price_per_1m != null) {
+      tier.cache_read_price_per_1m = t.cache_read_price_per_1m
+    }
+
+    // 缓存 TTL 价格（1h 缓存）- 只有启用 1h 缓存能力且手动设置时才处理
+    if (props.showCache1h && cacheManuallySet[i]?.cache1h && t.cache_ttl_pricing?.length) {
+      tier.cache_ttl_pricing = t.cache_ttl_pricing
+    }
+
+    return tier
+  })
+
+  emit('update:modelValue', { tiers })
+}
+
+// 获取最终提交的数据（包含自动计算的缓存价格）
+function getFinalTiers(): PricingTier[] {
+  return localTiers.value.map((t, i) => {
     const tier: PricingTier = {
       up_to: t.up_to,
       input_price_per_1m: t.input_price_per_1m,
@@ -374,19 +416,20 @@ function syncToParent() {
     // 缓存 TTL 价格（1h 缓存）- 只有启用 1h 缓存能力时才处理
     if (props.showCache1h) {
       if (cacheManuallySet[i]?.cache1h && t.cache_ttl_pricing?.length) {
-        // 手动设置则用设置值
         tier.cache_ttl_pricing = t.cache_ttl_pricing
       } else if (t.input_price_per_1m > 0) {
-        // 否则自动计算
         tier.cache_ttl_pricing = [{ ttl_minutes: 60, cache_creation_price_per_1m: getAutoCache1h(i) }]
       }
     }
 
     return tier
   })
-
-  emit('update:modelValue', { tiers })
 }
+
+// 暴露给父组件调用
+defineExpose({
+  getFinalTiers,
+})
 
 function parseFloatInput(value: string | number): number {
   const num = typeof value === 'string' ? parseFloat(value) : value
@@ -515,9 +558,13 @@ function removeTier(index: number) {
   delete cacheManuallySet[index]
 
   // 重新整理 cacheManuallySet 的索引
-  const newManuallySet: Record<number, { creation: boolean; read: boolean }> = {}
+  const newManuallySet: Record<
+    number,
+    { creation: boolean; read: boolean; cache1h: boolean }
+  > = {}
   localTiers.value.forEach((_, i) => {
-    newManuallySet[i] = cacheManuallySet[i] || { creation: false, read: false }
+    newManuallySet[i] =
+      cacheManuallySet[i] || { creation: false, read: false, cache1h: false }
   })
   Object.keys(cacheManuallySet).forEach(k => delete cacheManuallySet[Number(k)])
   Object.assign(cacheManuallySet, newManuallySet)

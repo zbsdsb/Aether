@@ -1,11 +1,16 @@
 <template>
   <div class="space-y-6 pb-8">
     <!-- API Keys 表格 -->
-    <Card variant="default" class="overflow-hidden">
+    <Card
+      variant="default"
+      class="overflow-hidden"
+    >
       <!-- 标题和操作栏 -->
       <div class="px-6 py-3.5 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
-          <h3 class="text-base font-semibold">我的 API Keys</h3>
+          <h3 class="text-base font-semibold">
+            我的 API Keys
+          </h3>
 
           <!-- 操作按钮 -->
           <div class="flex items-center gap-2">
@@ -14,32 +19,45 @@
               variant="ghost"
               size="icon"
               class="h-8 w-8"
-              @click="showCreateDialog = true"
               title="创建新 API Key"
+              @click="showCreateDialog = true"
             >
               <Plus class="w-3.5 h-3.5" />
             </Button>
 
             <!-- 刷新按钮 -->
-            <RefreshButton :loading="loading" @click="loadApiKeys" />
+            <RefreshButton
+              :loading="loading"
+              @click="loadApiKeys"
+            />
           </div>
         </div>
       </div>
 
       <!-- 加载状态 -->
-      <div v-if="loading" class="flex items-center justify-center py-12">
+      <div
+        v-if="loading"
+        class="flex items-center justify-center py-12"
+      >
         <LoadingState message="加载中..." />
       </div>
 
       <!-- 空状态 -->
-      <div v-else-if="apiKeys.length === 0" class="flex items-center justify-center py-12">
+      <div
+        v-else-if="apiKeys.length === 0"
+        class="flex items-center justify-center py-12"
+      >
         <EmptyState
           title="暂无 API 密钥"
           description="创建你的第一个 API 密钥开始使用"
           :icon="Key"
         >
           <template #actions>
-            <Button @click="showCreateDialog = true" size="lg" class="shadow-lg shadow-primary/20">
+            <Button
+              size="lg"
+              class="shadow-lg shadow-primary/20"
+              @click="showCreateDialog = true"
+            >
               <Plus class="mr-2 h-4 w-4" />
               创建新 API Key
             </Button>
@@ -48,18 +66,37 @@
       </div>
 
       <!-- 桌面端表格 -->
-      <div v-else class="hidden md:block overflow-x-auto">
+      <div
+        v-else
+        class="hidden md:block overflow-x-auto"
+      >
         <Table>
           <TableHeader>
             <TableRow class="border-b border-border/60 hover:bg-transparent">
-              <TableHead class="min-w-[200px] h-12 font-semibold">密钥名称</TableHead>
-              <TableHead class="min-w-[80px] h-12 font-semibold">能力</TableHead>
-              <TableHead class="min-w-[160px] h-12 font-semibold">密钥</TableHead>
-              <TableHead class="min-w-[100px] h-12 font-semibold">费用(USD)</TableHead>
-              <TableHead class="min-w-[100px] h-12 font-semibold">请求次数</TableHead>
-              <TableHead class="min-w-[70px] h-12 font-semibold text-center">状态</TableHead>
-              <TableHead class="min-w-[100px] h-12 font-semibold">最后使用</TableHead>
-              <TableHead class="min-w-[80px] h-12 font-semibold text-center">操作</TableHead>
+              <TableHead class="min-w-[200px] h-12 font-semibold">
+                密钥名称
+              </TableHead>
+              <TableHead class="min-w-[80px] h-12 font-semibold">
+                能力
+              </TableHead>
+              <TableHead class="min-w-[160px] h-12 font-semibold">
+                密钥
+              </TableHead>
+              <TableHead class="min-w-[100px] h-12 font-semibold">
+                费用(USD)
+              </TableHead>
+              <TableHead class="min-w-[100px] h-12 font-semibold">
+                请求次数
+              </TableHead>
+              <TableHead class="min-w-[70px] h-12 font-semibold text-center">
+                状态
+              </TableHead>
+              <TableHead class="min-w-[100px] h-12 font-semibold">
+                最后使用
+              </TableHead>
+              <TableHead class="min-w-[80px] h-12 font-semibold text-center">
+                操作
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -71,7 +108,10 @@
               <!-- 密钥名称 -->
               <TableCell class="py-4">
                 <div class="flex-1 min-w-0">
-                  <div class="text-sm font-semibold truncate" :title="apiKey.name">
+                  <div
+                    class="text-sm font-semibold truncate"
+                    :title="apiKey.name"
+                  >
                     {{ apiKey.name }}
                   </div>
                   <div class="text-xs text-muted-foreground mt-0.5">
@@ -87,8 +127,8 @@
                     <button
                       v-for="cap in userConfigurableCapabilities"
                       :key="cap.name"
+                      class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all"
                       :class="[
-                        'inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all',
                         isCapabilityEnabled(apiKey, cap.name)
                           ? 'bg-primary text-primary-foreground'
                           : 'bg-transparent text-muted-foreground border border-dashed border-muted-foreground/50 hover:border-primary/50 hover:text-foreground'
@@ -96,12 +136,21 @@
                       :title="getCapabilityTooltip(cap, isCapabilityEnabled(apiKey, cap.name))"
                       @click.stop="toggleCapability(apiKey, cap.name)"
                     >
-                      <Check v-if="isCapabilityEnabled(apiKey, cap.name)" class="w-3 h-3" />
-                      <Plus v-else class="w-3 h-3" />
+                      <Check
+                        v-if="isCapabilityEnabled(apiKey, cap.name)"
+                        class="w-3 h-3"
+                      />
+                      <Plus
+                        v-else
+                        class="w-3 h-3"
+                      />
                       {{ cap.short_name || cap.display_name }}
                     </button>
                   </template>
-                  <span v-else class="text-muted-foreground text-xs">-</span>
+                  <span
+                    v-else
+                    class="text-muted-foreground text-xs"
+                  >-</span>
                 </div>
               </TableCell>
 
@@ -112,11 +161,11 @@
                     {{ apiKey.key_display || 'sk-••••••••' }}
                   </code>
                   <Button
-                    @click="copyApiKey(apiKey)"
                     variant="ghost"
                     size="icon"
                     class="h-6 w-6"
                     title="复制完整密钥"
+                    @click="copyApiKey(apiKey)"
                   >
                     <Copy class="h-3.5 w-3.5" />
                   </Button>
@@ -159,20 +208,20 @@
               <TableCell class="py-4">
                 <div class="flex justify-center gap-1">
                   <Button
-                    @click="toggleApiKey(apiKey)"
                     variant="ghost"
                     size="icon"
                     class="h-8 w-8"
                     :title="apiKey.is_active ? '禁用' : '启用'"
+                    @click="toggleApiKey(apiKey)"
                   >
                     <Power class="h-4 w-4" />
                   </Button>
                   <Button
-                    @click="confirmDelete(apiKey)"
                     variant="ghost"
                     size="icon"
                     class="h-8 w-8"
                     title="删除"
+                    @click="confirmDelete(apiKey)"
                   >
                     <Trash2 class="h-4 w-4" />
                   </Button>
@@ -184,7 +233,10 @@
       </div>
 
       <!-- 移动端卡片列表 -->
-      <div v-if="!loading && apiKeys.length > 0" class="md:hidden space-y-3 p-4">
+      <div
+        v-if="!loading && apiKeys.length > 0"
+        class="md:hidden space-y-3 p-4"
+      >
         <Card
           v-for="apiKey in paginatedApiKeys"
           :key="apiKey.id"
@@ -195,7 +247,9 @@
             <!-- 第一行：名称、状态、操作 -->
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-2 min-w-0 flex-1">
-                <h3 class="text-sm font-semibold text-foreground truncate">{{ apiKey.name }}</h3>
+                <h3 class="text-sm font-semibold text-foreground truncate">
+                  {{ apiKey.name }}
+                </h3>
                 <Badge
                   :variant="apiKey.is_active ? 'success' : 'secondary'"
                   class="text-xs px-1.5 py-0"
@@ -205,29 +259,29 @@
               </div>
               <div class="flex items-center gap-0.5 flex-shrink-0">
                 <Button
-                  @click="copyApiKey(apiKey)"
                   variant="ghost"
                   size="icon"
                   class="h-7 w-7"
                   title="复制"
+                  @click="copyApiKey(apiKey)"
                 >
                   <Copy class="h-3.5 w-3.5" />
                 </Button>
                 <Button
-                  @click="toggleApiKey(apiKey)"
                   variant="ghost"
                   size="icon"
                   class="h-7 w-7"
                   :title="apiKey.is_active ? '禁用' : '启用'"
+                  @click="toggleApiKey(apiKey)"
                 >
                   <Power class="h-3.5 w-3.5" />
                 </Button>
                 <Button
-                  @click="confirmDelete(apiKey)"
                   variant="ghost"
                   size="icon"
                   class="h-7 w-7"
                   title="删除"
+                  @click="confirmDelete(apiKey)"
                 >
                   <Trash2 class="h-3.5 w-3.5" />
                 </Button>
@@ -264,7 +318,7 @@
         :total="apiKeys.length"
         :page-size="pageSize"
         @update:current="currentPage = $event"
-        @update:pageSize="pageSize = $event"
+        @update:page-size="pageSize = $event"
       />
     </Card>
 
@@ -277,8 +331,12 @@
               <Key class="h-5 w-5 text-primary" />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-foreground leading-tight">创建 API 密钥</h3>
-              <p class="text-xs text-muted-foreground">创建一个新的密钥用于访问 API 服务</p>
+              <h3 class="text-lg font-semibold text-foreground leading-tight">
+                创建 API 密钥
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                创建一个新的密钥用于访问 API 服务
+              </p>
             </div>
           </div>
         </div>
@@ -286,7 +344,10 @@
 
       <div class="space-y-4">
         <div class="space-y-2">
-          <Label for="key-name" class="text-sm font-semibold">密钥名称</Label>
+          <Label
+            for="key-name"
+            class="text-sm font-semibold"
+          >密钥名称</Label>
           <Input
             id="key-name"
             v-model="newKeyName"
@@ -295,21 +356,39 @@
             autocomplete="off"
             required
           />
-          <p class="text-xs text-muted-foreground">给密钥起一个有意义的名称方便识别</p>
+          <p class="text-xs text-muted-foreground">
+            给密钥起一个有意义的名称方便识别
+          </p>
         </div>
       </div>
 
       <template #footer>
-        <Button variant="outline" class="h-11 px-6" @click="showCreateDialog = false">取消</Button>
-        <Button class="h-11 px-6 shadow-lg shadow-primary/20" @click="createApiKey" :disabled="creating">
-          <Loader2 v-if="creating" class="animate-spin h-4 w-4 mr-2" />
+        <Button
+          variant="outline"
+          class="h-11 px-6"
+          @click="showCreateDialog = false"
+        >
+          取消
+        </Button>
+        <Button
+          class="h-11 px-6 shadow-lg shadow-primary/20"
+          :disabled="creating"
+          @click="createApiKey"
+        >
+          <Loader2
+            v-if="creating"
+            class="animate-spin h-4 w-4 mr-2"
+          />
           {{ creating ? '创建中...' : '创建' }}
         </Button>
       </template>
     </Dialog>
 
     <!-- 新密钥创建成功对话框 -->
-    <Dialog v-model="showKeyDialog" size="lg">
+    <Dialog
+      v-model="showKeyDialog"
+      size="lg"
+    >
       <template #header>
         <div class="border-b border-border px-6 py-4">
           <div class="flex items-center gap-3">
@@ -317,8 +396,12 @@
               <CheckCircle class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-foreground leading-tight">创建成功</h3>
-              <p class="text-xs text-muted-foreground">请妥善保管, 切勿泄露给他人</p>
+              <h3 class="text-lg font-semibold text-foreground leading-tight">
+                创建成功
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                请妥善保管, 切勿泄露给他人
+              </p>
             </div>
           </div>
         </div>
@@ -335,7 +418,10 @@
               class="flex-1 font-mono text-sm bg-muted/50 h-11"
               @click="($event.target as HTMLInputElement)?.select()"
             />
-            <Button @click="copyTextToClipboard(newKeyValue)" class="h-11">
+            <Button
+              class="h-11"
+              @click="copyTextToClipboard(newKeyValue)"
+            >
               复制
             </Button>
           </div>
@@ -343,7 +429,12 @@
       </div>
 
       <template #footer>
-        <Button @click="showKeyDialog = false" class="h-10 px-5">确定</Button>
+        <Button
+          class="h-10 px-5"
+          @click="showKeyDialog = false"
+        >
+          确定
+        </Button>
       </template>
     </Dialog>
 
@@ -440,7 +531,7 @@ async function loadApiKeys() {
     } else if (error.response.status === 401) {
       showError('认证失败，请重新登录')
     } else {
-      showError('加载 API 密钥失败：' + (error.response?.data?.detail || error.message))
+      showError(`加载 API 密钥失败：${  error.response?.data?.detail || error.message}`)
     }
   } finally {
     loading.value = false

@@ -285,7 +285,9 @@ onBeforeUnmount(() => {
   <div class="space-y-6">
     <!-- 标题 -->
     <div>
-      <h2 class="text-2xl font-bold">缓存监控</h2>
+      <h2 class="text-2xl font-bold">
+        缓存监控
+      </h2>
       <p class="text-sm text-muted-foreground mt-1">
         管理缓存亲和性，提高 Prompt Caching 命中率
       </p>
@@ -294,7 +296,9 @@ onBeforeUnmount(() => {
     <!-- 亲和性系统状态 -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <Card class="p-4">
-        <div class="text-xs text-muted-foreground">活跃亲和性</div>
+        <div class="text-xs text-muted-foreground">
+          活跃亲和性
+        </div>
         <div class="text-2xl font-bold mt-1">
           {{ stats?.affinity_stats?.active_affinities || 0 }}
         </div>
@@ -304,8 +308,13 @@ onBeforeUnmount(() => {
       </Card>
 
       <Card class="p-4">
-        <div class="text-xs text-muted-foreground">Provider 切换</div>
-        <div class="text-2xl font-bold mt-1" :class="(stats?.affinity_stats?.provider_switches || 0) > 0 ? 'text-destructive' : ''">
+        <div class="text-xs text-muted-foreground">
+          Provider 切换
+        </div>
+        <div
+          class="text-2xl font-bold mt-1"
+          :class="(stats?.affinity_stats?.provider_switches || 0) > 0 ? 'text-destructive' : ''"
+        >
           {{ stats?.affinity_stats?.provider_switches || 0 }}
         </div>
         <div class="text-xs text-muted-foreground mt-1">
@@ -314,8 +323,13 @@ onBeforeUnmount(() => {
       </Card>
 
       <Card class="p-4">
-        <div class="text-xs text-muted-foreground">缓存失效</div>
-        <div class="text-2xl font-bold mt-1" :class="(stats?.affinity_stats?.cache_invalidations || 0) > 0 ? 'text-warning' : ''">
+        <div class="text-xs text-muted-foreground">
+          缓存失效
+        </div>
+        <div
+          class="text-2xl font-bold mt-1"
+          :class="(stats?.affinity_stats?.cache_invalidations || 0) > 0 ? 'text-warning' : ''"
+        >
           {{ stats?.affinity_stats?.cache_invalidations || 0 }}
         </div>
         <div class="text-xs text-muted-foreground mt-1">
@@ -326,7 +340,13 @@ onBeforeUnmount(() => {
       <Card class="p-4">
         <div class="text-xs text-muted-foreground flex items-center gap-1">
           预留比例
-          <Badge v-if="config?.dynamic_reservation?.enabled" variant="outline" class="text-[10px] px-1">动态</Badge>
+          <Badge
+            v-if="config?.dynamic_reservation?.enabled"
+            variant="outline"
+            class="text-[10px] px-1"
+          >
+            动态
+          </Badge>
         </div>
         <div class="text-2xl font-bold mt-1">
           <template v-if="config?.dynamic_reservation?.enabled">
@@ -347,7 +367,9 @@ onBeforeUnmount(() => {
       <div class="px-6 py-3 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
           <div class="flex items-center gap-3">
-            <h3 class="text-base font-semibold">亲和性列表</h3>
+            <h3 class="text-base font-semibold">
+              亲和性列表
+            </h3>
           </div>
           <div class="flex items-center gap-2">
             <div class="relative">
@@ -368,10 +390,19 @@ onBeforeUnmount(() => {
               </button>
             </div>
             <div class="h-4 w-px bg-border" />
-            <Button @click="clearAllCache" variant="ghost" size="icon" class="h-8 w-8 text-muted-foreground/70 hover:text-destructive" title="清除全部缓存">
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-8 w-8 text-muted-foreground/70 hover:text-destructive"
+              title="清除全部缓存"
+              @click="clearAllCache"
+            >
               <Eraser class="h-4 w-4" />
             </Button>
-            <RefreshButton :loading="loading || listLoading" @click="refreshData" />
+            <RefreshButton
+              :loading="loading || listLoading"
+              @click="refreshData"
+            />
           </div>
         </div>
       </div>
@@ -379,41 +410,99 @@ onBeforeUnmount(() => {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead class="w-36">用户</TableHead>
-            <TableHead class="w-28">Key</TableHead>
-            <TableHead class="w-28">Provider</TableHead>
-            <TableHead class="w-40">模型</TableHead>
-            <TableHead class="w-36">API 格式 / Key</TableHead>
-            <TableHead class="w-20 text-center">剩余</TableHead>
-            <TableHead class="w-14 text-center">次数</TableHead>
-            <TableHead class="w-12 text-right">操作</TableHead>
+            <TableHead class="w-36">
+              用户
+            </TableHead>
+            <TableHead class="w-28">
+              Key
+            </TableHead>
+            <TableHead class="w-28">
+              Provider
+            </TableHead>
+            <TableHead class="w-40">
+              模型
+            </TableHead>
+            <TableHead class="w-36">
+              API 格式 / Key
+            </TableHead>
+            <TableHead class="w-20 text-center">
+              剩余
+            </TableHead>
+            <TableHead class="w-14 text-center">
+              次数
+            </TableHead>
+            <TableHead class="w-12 text-right">
+              操作
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody v-if="!listLoading && affinityList.length">
-          <TableRow v-for="item in paginatedAffinityList" :key="`${item.affinity_key}-${item.endpoint_id}-${item.key_id}`">
+          <TableRow
+            v-for="item in paginatedAffinityList"
+            :key="`${item.affinity_key}-${item.endpoint_id}-${item.key_id}`"
+          >
             <TableCell>
               <div class="flex items-center gap-1.5">
-                <Badge v-if="item.is_standalone" variant="outline" class="text-warning border-warning/30 text-[10px] px-1">独立</Badge>
-                <span class="text-sm font-medium truncate max-w-[120px]" :title="item.username ?? undefined">{{ item.username || '未知' }}</span>
+                <Badge
+                  v-if="item.is_standalone"
+                  variant="outline"
+                  class="text-warning border-warning/30 text-[10px] px-1"
+                >
+                  独立
+                </Badge>
+                <span
+                  class="text-sm font-medium truncate max-w-[120px]"
+                  :title="item.username ?? undefined"
+                >{{ item.username || '未知' }}</span>
               </div>
             </TableCell>
             <TableCell>
               <div class="flex items-center gap-1.5">
-                <span class="text-sm truncate max-w-[80px]" :title="item.user_api_key_name || undefined">{{ item.user_api_key_name || '未命名' }}</span>
-                <Badge v-if="item.rate_multiplier !== 1.0" variant="outline" class="text-warning border-warning/30 text-[10px] px-2">{{ item.rate_multiplier }}x</Badge>
+                <span
+                  class="text-sm truncate max-w-[80px]"
+                  :title="item.user_api_key_name || undefined"
+                >{{ item.user_api_key_name || '未命名' }}</span>
+                <Badge
+                  v-if="item.rate_multiplier !== 1.0"
+                  variant="outline"
+                  class="text-warning border-warning/30 text-[10px] px-2"
+                >
+                  {{ item.rate_multiplier }}x
+                </Badge>
               </div>
-              <div class="text-xs text-muted-foreground font-mono">{{ item.user_api_key_prefix || '---' }}</div>
+              <div class="text-xs text-muted-foreground font-mono">
+                {{ item.user_api_key_prefix || '---' }}
+              </div>
             </TableCell>
             <TableCell>
-              <div class="text-sm truncate max-w-[100px]" :title="item.provider_name || undefined">{{ item.provider_name || '未知' }}</div>
+              <div
+                class="text-sm truncate max-w-[100px]"
+                :title="item.provider_name || undefined"
+              >
+                {{ item.provider_name || '未知' }}
+              </div>
             </TableCell>
             <TableCell>
-              <div class="text-sm truncate max-w-[150px]" :title="item.model_display_name || undefined">{{ item.model_display_name || '---' }}</div>
-              <div class="text-xs text-muted-foreground" :title="item.model_name || undefined">{{ item.model_name || '---' }}</div>
+              <div
+                class="text-sm truncate max-w-[150px]"
+                :title="item.model_display_name || undefined"
+              >
+                {{ item.model_display_name || '---' }}
+              </div>
+              <div
+                class="text-xs text-muted-foreground"
+                :title="item.model_name || undefined"
+              >
+                {{ item.model_name || '---' }}
+              </div>
             </TableCell>
             <TableCell>
-              <div class="text-sm">{{ item.endpoint_api_format || '---' }}</div>
-              <div class="text-xs text-muted-foreground font-mono">{{ item.key_prefix || '---' }}</div>
+              <div class="text-sm">
+                {{ item.endpoint_api_format || '---' }}
+              </div>
+              <div class="text-xs text-muted-foreground font-mono">
+                {{ item.key_prefix || '---' }}
+              </div>
             </TableCell>
             <TableCell class="text-center">
               <span class="text-xs">{{ getRemainingTime(item.expire_at) }}</span>
@@ -426,9 +515,9 @@ onBeforeUnmount(() => {
                 size="icon"
                 variant="ghost"
                 class="h-7 w-7 text-muted-foreground/70 hover:text-destructive"
-                @click="clearUserCache(item.affinity_key, item.user_api_key_name || item.affinity_key)"
                 :disabled="clearingRowAffinityKey === item.affinity_key"
                 title="清除缓存"
+                @click="clearUserCache(item.affinity_key, item.user_api_key_name || item.affinity_key)"
               >
                 <Trash2 class="h-3.5 w-3.5" />
               </Button>
@@ -437,7 +526,10 @@ onBeforeUnmount(() => {
         </TableBody>
         <TableBody v-else>
           <TableRow>
-            <TableCell colspan="8" class="text-center py-6 text-sm text-muted-foreground">
+            <TableCell
+              colspan="8"
+              class="text-center py-6 text-sm text-muted-foreground"
+            >
               {{ listLoading ? '加载中...' : '暂无缓存记录' }}
             </TableCell>
           </TableRow>
@@ -460,7 +552,9 @@ onBeforeUnmount(() => {
         <div class="flex items-center justify-between gap-4">
           <div class="flex items-center gap-3">
             <BarChart3 class="h-5 w-5 text-muted-foreground" />
-            <h3 class="text-base font-semibold">TTL 分析</h3>
+            <h3 class="text-base font-semibold">
+              TTL 分析
+            </h3>
             <span class="text-xs text-muted-foreground">分析用户请求间隔，推荐合适的缓存 TTL</span>
           </div>
           <div class="flex items-center gap-2">
@@ -483,31 +577,62 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 缓存命中概览 -->
-      <div v-if="hitAnalysis" class="px-6 py-4 border-b border-border/40 bg-muted/30">
+      <div
+        v-if="hitAnalysis"
+        class="px-6 py-4 border-b border-border/40 bg-muted/30"
+      >
         <div class="grid grid-cols-2 md:grid-cols-5 gap-6">
           <div>
-            <div class="text-xs text-muted-foreground">请求命中率</div>
-            <div class="text-2xl font-bold text-success">{{ hitAnalysis.request_cache_hit_rate }}%</div>
-            <div class="text-xs text-muted-foreground">{{ formatNumber(hitAnalysis.requests_with_cache_hit) }} / {{ formatNumber(hitAnalysis.total_requests) }} 请求</div>
+            <div class="text-xs text-muted-foreground">
+              请求命中率
+            </div>
+            <div class="text-2xl font-bold text-success">
+              {{ hitAnalysis.request_cache_hit_rate }}%
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {{ formatNumber(hitAnalysis.requests_with_cache_hit) }} / {{ formatNumber(hitAnalysis.total_requests) }} 请求
+            </div>
           </div>
           <div>
-            <div class="text-xs text-muted-foreground">Token 命中率</div>
-            <div class="text-2xl font-bold">{{ hitAnalysis.token_cache_hit_rate }}%</div>
-            <div class="text-xs text-muted-foreground">{{ formatTokens(hitAnalysis.total_cache_read_tokens) }} tokens 命中</div>
+            <div class="text-xs text-muted-foreground">
+              Token 命中率
+            </div>
+            <div class="text-2xl font-bold">
+              {{ hitAnalysis.token_cache_hit_rate }}%
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {{ formatTokens(hitAnalysis.total_cache_read_tokens) }} tokens 命中
+            </div>
           </div>
           <div>
-            <div class="text-xs text-muted-foreground">缓存创建费用</div>
-            <div class="text-2xl font-bold">{{ formatCost(hitAnalysis.total_cache_creation_cost_usd) }}</div>
-            <div class="text-xs text-muted-foreground">{{ formatTokens(hitAnalysis.total_cache_creation_tokens) }} tokens</div>
+            <div class="text-xs text-muted-foreground">
+              缓存创建费用
+            </div>
+            <div class="text-2xl font-bold">
+              {{ formatCost(hitAnalysis.total_cache_creation_cost_usd) }}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {{ formatTokens(hitAnalysis.total_cache_creation_tokens) }} tokens
+            </div>
           </div>
           <div>
-            <div class="text-xs text-muted-foreground">缓存读取费用</div>
-            <div class="text-2xl font-bold">{{ formatCost(hitAnalysis.total_cache_read_cost_usd) }}</div>
-            <div class="text-xs text-muted-foreground">{{ formatTokens(hitAnalysis.total_cache_read_tokens) }} tokens</div>
+            <div class="text-xs text-muted-foreground">
+              缓存读取费用
+            </div>
+            <div class="text-2xl font-bold">
+              {{ formatCost(hitAnalysis.total_cache_read_cost_usd) }}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {{ formatTokens(hitAnalysis.total_cache_read_tokens) }} tokens
+            </div>
           </div>
           <div>
-            <div class="text-xs text-muted-foreground">预估节省</div>
-            <div class="text-2xl font-bold text-success">{{ formatCost(hitAnalysis.estimated_savings_usd) }}</div>
+            <div class="text-xs text-muted-foreground">
+              预估节省
+            </div>
+            <div class="text-2xl font-bold text-success">
+              {{ formatCost(hitAnalysis.estimated_savings_usd) }}
+            </div>
           </div>
         </div>
       </div>
@@ -516,24 +641,41 @@ onBeforeUnmount(() => {
       <Table v-if="ttlAnalysis && ttlAnalysis.users.length > 0">
         <TableHeader>
           <TableRow>
-            <TableHead class="w-10"></TableHead>
-            <TableHead class="w-[20%]">用户</TableHead>
-            <TableHead class="w-[15%] text-center">请求数</TableHead>
-            <TableHead class="w-[15%] text-center">使用频率</TableHead>
-            <TableHead class="w-[15%] text-center">推荐 TTL</TableHead>
+            <TableHead class="w-10" />
+            <TableHead class="w-[20%]">
+              用户
+            </TableHead>
+            <TableHead class="w-[15%] text-center">
+              请求数
+            </TableHead>
+            <TableHead class="w-[15%] text-center">
+              使用频率
+            </TableHead>
+            <TableHead class="w-[15%] text-center">
+              推荐 TTL
+            </TableHead>
             <TableHead>说明</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          <template v-for="user in ttlAnalysis.users" :key="user.group_id">
+          <template
+            v-for="user in ttlAnalysis.users"
+            :key="user.group_id"
+          >
             <TableRow
               class="cursor-pointer hover:bg-muted/50"
               @click="toggleUserExpand(user.group_id)"
             >
               <TableCell class="p-2">
                 <button class="p-1 hover:bg-muted rounded">
-                  <ChevronDown v-if="expandedUserId === user.group_id" class="h-4 w-4 text-muted-foreground" />
-                  <ChevronRight v-else class="h-4 w-4 text-muted-foreground" />
+                  <ChevronDown
+                    v-if="expandedUserId === user.group_id"
+                    class="h-4 w-4 text-muted-foreground"
+                  />
+                  <ChevronRight
+                    v-else
+                    class="h-4 w-4 text-muted-foreground"
+                  />
                 </button>
               </TableCell>
               <TableCell>
@@ -543,7 +685,10 @@ onBeforeUnmount(() => {
                 <span class="text-sm font-medium">{{ user.request_count }}</span>
               </TableCell>
               <TableCell class="text-center">
-                <span class="text-sm" :class="getFrequencyClass(user.recommended_ttl_minutes)">
+                <span
+                  class="text-sm"
+                  :class="getFrequencyClass(user.recommended_ttl_minutes)"
+                >
                   {{ getFrequencyLabel(user.recommended_ttl_minutes) }}
                 </span>
               </TableCell>
@@ -559,27 +704,47 @@ onBeforeUnmount(() => {
               </TableCell>
             </TableRow>
             <!-- 展开行：显示用户散点图 -->
-            <TableRow v-if="expandedUserId === user.group_id" class="bg-muted/30">
-              <TableCell colspan="6" class="p-0">
+            <TableRow
+              v-if="expandedUserId === user.group_id"
+              class="bg-muted/30"
+            >
+              <TableCell
+                colspan="6"
+                class="p-0"
+              >
                 <div class="px-6 py-4">
                   <div class="flex items-center justify-between mb-3">
-                    <h4 class="text-sm font-medium">请求间隔时间线</h4>
+                    <h4 class="text-sm font-medium">
+                      请求间隔时间线
+                    </h4>
                     <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> 0-5分钟</span>
-                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span> 5-15分钟</span>
-                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-500"></span> 15-30分钟</span>
-                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-orange-500"></span> 30-60分钟</span>
-                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span> >60分钟</span>
-                      <span v-if="userTimelineData" class="ml-2">共 {{ userTimelineData.total_points }} 个数据点</span>
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500" /> 0-5分钟</span>
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500" /> 5-15分钟</span>
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-500" /> 15-30分钟</span>
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-orange-500" /> 30-60分钟</span>
+                      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500" /> >60分钟</span>
+                      <span
+                        v-if="userTimelineData"
+                        class="ml-2"
+                      >共 {{ userTimelineData.total_points }} 个数据点</span>
                     </div>
                   </div>
-                  <div v-if="userTimelineLoading" class="h-64 flex items-center justify-center">
+                  <div
+                    v-if="userTimelineLoading"
+                    class="h-64 flex items-center justify-center"
+                  >
                     <span class="text-sm text-muted-foreground">加载中...</span>
                   </div>
-                  <div v-else-if="userTimelineData && userTimelineData.points.length > 0" class="h-64">
+                  <div
+                    v-else-if="userTimelineData && userTimelineData.points.length > 0"
+                    class="h-64"
+                  >
                     <ScatterChart :data="userTimelineChartData" />
                   </div>
-                  <div v-else class="h-64 flex items-center justify-center">
+                  <div
+                    v-else
+                    class="h-64 flex items-center justify-center"
+                  >
                     <span class="text-sm text-muted-foreground">暂无数据</span>
                   </div>
                 </div>
@@ -590,7 +755,10 @@ onBeforeUnmount(() => {
       </Table>
 
       <!-- 分析完成但无数据 -->
-      <div v-else-if="ttlAnalysis && ttlAnalysis.users.length === 0" class="px-6 py-12 text-center">
+      <div
+        v-else-if="ttlAnalysis && ttlAnalysis.users.length === 0"
+        class="px-6 py-12 text-center"
+      >
         <BarChart3 class="h-12 w-12 text-muted-foreground/50 mx-auto mb-3" />
         <p class="text-sm text-muted-foreground">
           未找到符合条件的用户数据
@@ -601,8 +769,13 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 加载中 -->
-      <div v-else-if="ttlAnalysisLoading" class="px-6 py-12 text-center">
-        <p class="text-sm text-muted-foreground">正在分析用户请求数据...</p>
+      <div
+        v-else-if="ttlAnalysisLoading"
+        class="px-6 py-12 text-center"
+      >
+        <p class="text-sm text-muted-foreground">
+          正在分析用户请求数据...
+        </p>
       </div>
     </Card>
   </div>

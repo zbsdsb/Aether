@@ -7,7 +7,10 @@
         @click.self="handleClose"
       >
         <!-- 背景遮罩 -->
-        <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" @click="handleClose"></div>
+        <div
+          class="absolute inset-0 bg-black/30 backdrop-blur-sm"
+          @click="handleClose"
+        />
 
         <!-- 抽屉内容 -->
         <Card class="relative h-full w-[700px] rounded-none shadow-2xl overflow-y-auto">
@@ -15,9 +18,14 @@
           <div class="sticky top-0 z-10 bg-background border-b p-6">
             <div class="flex items-start justify-between gap-4">
               <div class="space-y-1 flex-1 min-w-0">
-                <h3 class="text-xl font-bold truncate">{{ model.display_name || model.name }}</h3>
+                <h3 class="text-xl font-bold truncate">
+                  {{ model.display_name || model.name }}
+                </h3>
                 <div class="flex items-center gap-2">
-                  <Badge :variant="model.is_active ? 'default' : 'secondary'" class="text-xs">
+                  <Badge
+                    :variant="model.is_active ? 'default' : 'secondary'"
+                    class="text-xs"
+                  >
                     {{ model.is_active ? '可用' : '停用' }}
                   </Badge>
                   <span class="text-sm text-muted-foreground font-mono">{{ model.name }}</span>
@@ -29,11 +37,19 @@
                     <Copy class="w-3 h-3 text-muted-foreground" />
                   </button>
                 </div>
-                <p v-if="model.description" class="text-xs text-muted-foreground">
+                <p
+                  v-if="model.description"
+                  class="text-xs text-muted-foreground"
+                >
                   {{ model.description }}
                 </p>
               </div>
-              <Button variant="ghost" size="icon" @click="handleClose" title="关闭">
+              <Button
+                variant="ghost"
+                size="icon"
+                title="关闭"
+                @click="handleClose"
+              >
                 <X class="w-4 h-4" />
               </Button>
             </div>
@@ -42,55 +58,92 @@
           <div class="p-6 space-y-6">
             <!-- 模型能力 -->
             <div class="space-y-3">
-              <h4 class="font-semibold text-sm">模型能力</h4>
+              <h4 class="font-semibold text-sm">
+                模型能力
+              </h4>
               <div class="grid grid-cols-2 gap-3">
                 <div class="flex items-center gap-2 p-3 rounded-lg border">
                   <Zap class="w-5 h-5 text-muted-foreground" />
                   <div class="flex-1">
-                    <p class="text-sm font-medium">Streaming</p>
-                    <p class="text-xs text-muted-foreground">流式输出</p>
+                    <p class="text-sm font-medium">
+                      Streaming
+                    </p>
+                    <p class="text-xs text-muted-foreground">
+                      流式输出
+                    </p>
                   </div>
-                  <Badge :variant="model.default_supports_streaming ?? false ? 'default' : 'secondary'" class="text-xs">
+                  <Badge
+                    :variant="model.default_supports_streaming ?? false ? 'default' : 'secondary'"
+                    class="text-xs"
+                  >
                     {{ model.default_supports_streaming ?? false ? '支持' : '不支持' }}
                   </Badge>
                 </div>
                 <div class="flex items-center gap-2 p-3 rounded-lg border">
                   <ImageIcon class="w-5 h-5 text-muted-foreground" />
                   <div class="flex-1">
-                    <p class="text-sm font-medium">Image Generation</p>
-                    <p class="text-xs text-muted-foreground">图像生成</p>
+                    <p class="text-sm font-medium">
+                      Image Generation
+                    </p>
+                    <p class="text-xs text-muted-foreground">
+                      图像生成
+                    </p>
                   </div>
-                  <Badge :variant="model.default_supports_image_generation ?? false ? 'default' : 'secondary'" class="text-xs">
+                  <Badge
+                    :variant="model.default_supports_image_generation ?? false ? 'default' : 'secondary'"
+                    class="text-xs"
+                  >
                     {{ model.default_supports_image_generation ?? false ? '支持' : '不支持' }}
                   </Badge>
                 </div>
                 <div class="flex items-center gap-2 p-3 rounded-lg border">
                   <Eye class="w-5 h-5 text-muted-foreground" />
                   <div class="flex-1">
-                    <p class="text-sm font-medium">Vision</p>
-                    <p class="text-xs text-muted-foreground">视觉理解</p>
+                    <p class="text-sm font-medium">
+                      Vision
+                    </p>
+                    <p class="text-xs text-muted-foreground">
+                      视觉理解
+                    </p>
                   </div>
-                  <Badge :variant="model.default_supports_vision ?? false ? 'default' : 'secondary'" class="text-xs">
+                  <Badge
+                    :variant="model.default_supports_vision ?? false ? 'default' : 'secondary'"
+                    class="text-xs"
+                  >
                     {{ model.default_supports_vision ?? false ? '支持' : '不支持' }}
                   </Badge>
                 </div>
                 <div class="flex items-center gap-2 p-3 rounded-lg border">
                   <Wrench class="w-5 h-5 text-muted-foreground" />
                   <div class="flex-1">
-                    <p class="text-sm font-medium">Tool Use</p>
-                    <p class="text-xs text-muted-foreground">工具调用</p>
+                    <p class="text-sm font-medium">
+                      Tool Use
+                    </p>
+                    <p class="text-xs text-muted-foreground">
+                      工具调用
+                    </p>
                   </div>
-                  <Badge :variant="model.default_supports_function_calling ?? false ? 'default' : 'secondary'" class="text-xs">
+                  <Badge
+                    :variant="model.default_supports_function_calling ?? false ? 'default' : 'secondary'"
+                    class="text-xs"
+                  >
                     {{ model.default_supports_function_calling ?? false ? '支持' : '不支持' }}
                   </Badge>
                 </div>
                 <div class="flex items-center gap-2 p-3 rounded-lg border">
                   <Brain class="w-5 h-5 text-muted-foreground" />
                   <div class="flex-1">
-                    <p class="text-sm font-medium">Extended Thinking</p>
-                    <p class="text-xs text-muted-foreground">深度思考</p>
+                    <p class="text-sm font-medium">
+                      Extended Thinking
+                    </p>
+                    <p class="text-xs text-muted-foreground">
+                      深度思考
+                    </p>
                   </div>
-                  <Badge :variant="model.default_supports_extended_thinking ?? false ? 'default' : 'secondary'" class="text-xs">
+                  <Badge
+                    :variant="model.default_supports_extended_thinking ?? false ? 'default' : 'secondary'"
+                    class="text-xs"
+                  >
                     {{ model.default_supports_extended_thinking ?? false ? '支持' : '不支持' }}
                   </Badge>
                 </div>
@@ -98,8 +151,13 @@
             </div>
 
             <!-- 模型偏好 -->
-            <div v-if="getModelUserConfigurableCapabilities().length > 0" class="space-y-3">
-              <h4 class="font-semibold text-sm">模型偏好</h4>
+            <div
+              v-if="getModelUserConfigurableCapabilities().length > 0"
+              class="space-y-3"
+            >
+              <h4 class="font-semibold text-sm">
+                模型偏好
+              </h4>
               <div class="space-y-2">
                 <div
                   v-for="cap in getModelUserConfigurableCapabilities()"
@@ -107,12 +165,19 @@
                   class="flex items-center justify-between p-3 rounded-lg border"
                 >
                   <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium">{{ cap.display_name }}</p>
-                    <p v-if="cap.description" class="text-xs text-muted-foreground truncate">{{ cap.description }}</p>
+                    <p class="text-sm font-medium">
+                      {{ cap.display_name }}
+                    </p>
+                    <p
+                      v-if="cap.description"
+                      class="text-xs text-muted-foreground truncate"
+                    >
+                      {{ cap.description }}
+                    </p>
                   </div>
                   <button
+                    class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     :class="[
-                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                       isCapabilityEnabled(cap.name) ? 'bg-primary' : 'bg-muted'
                     ]"
                     role="switch"
@@ -120,8 +185,8 @@
                     @click="handleToggleCapability(cap.name)"
                   >
                     <span
+                      class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out"
                       :class="[
-                        'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out',
                         isCapabilityEnabled(cap.name) ? 'translate-x-4' : 'translate-x-0'
                       ]"
                     />
@@ -132,10 +197,15 @@
 
             <!-- 定价信息 -->
             <div class="space-y-3">
-              <h4 class="font-semibold text-sm">定价信息</h4>
+              <h4 class="font-semibold text-sm">
+                定价信息
+              </h4>
 
               <!-- 单阶梯（固定价格）展示 -->
-              <div v-if="getTierCount(model.default_tiered_pricing) <= 1" class="space-y-3">
+              <div
+                v-if="getTierCount(model.default_tiered_pricing) <= 1"
+                class="space-y-3"
+              >
                 <div class="grid grid-cols-2 gap-3">
                   <div class="p-3 rounded-lg border">
                     <Label class="text-xs text-muted-foreground">输入价格 ($/M)</Label>
@@ -163,19 +233,28 @@
                   </div>
                 </div>
                 <!-- 1h 缓存 -->
-                <div v-if="getFirst1hCachePrice(model.default_tiered_pricing) !== '-'" class="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
+                <div
+                  v-if="getFirst1hCachePrice(model.default_tiered_pricing) !== '-'"
+                  class="flex items-center gap-3 p-3 rounded-lg border bg-muted/20"
+                >
                   <Label class="text-xs text-muted-foreground whitespace-nowrap">1h 缓存创建</Label>
                   <span class="text-sm font-mono">{{ getFirst1hCachePrice(model.default_tiered_pricing) }}</span>
                 </div>
                 <!-- 按次计费 -->
-                <div v-if="model.default_price_per_request && model.default_price_per_request > 0" class="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
+                <div
+                  v-if="model.default_price_per_request && model.default_price_per_request > 0"
+                  class="flex items-center gap-3 p-3 rounded-lg border bg-muted/20"
+                >
                   <Label class="text-xs text-muted-foreground whitespace-nowrap">按次计费</Label>
                   <span class="text-sm font-mono">${{ model.default_price_per_request.toFixed(3) }}/次</span>
                 </div>
               </div>
 
               <!-- 多阶梯计费展示 -->
-              <div v-else class="space-y-3">
+              <div
+                v-else
+                class="space-y-3"
+              >
                 <div class="flex items-center gap-2 text-sm text-muted-foreground">
                   <Layers class="w-4 h-4" />
                   <span>阶梯计费 ({{ getTierCount(model.default_tiered_pricing) }} 档)</span>
@@ -186,12 +265,24 @@
                   <Table>
                     <TableHeader>
                       <TableRow class="bg-muted/30">
-                        <TableHead class="text-xs h-9">阶梯</TableHead>
-                        <TableHead class="text-xs h-9 text-right">输入 ($/M)</TableHead>
-                        <TableHead class="text-xs h-9 text-right">输出 ($/M)</TableHead>
-                        <TableHead class="text-xs h-9 text-right">缓存创建</TableHead>
-                        <TableHead class="text-xs h-9 text-right">缓存读取</TableHead>
-                        <TableHead class="text-xs h-9 text-right">1h 缓存</TableHead>
+                        <TableHead class="text-xs h-9">
+                          阶梯
+                        </TableHead>
+                        <TableHead class="text-xs h-9 text-right">
+                          输入 ($/M)
+                        </TableHead>
+                        <TableHead class="text-xs h-9 text-right">
+                          输出 ($/M)
+                        </TableHead>
+                        <TableHead class="text-xs h-9 text-right">
+                          缓存创建
+                        </TableHead>
+                        <TableHead class="text-xs h-9 text-right">
+                          缓存读取
+                        </TableHead>
+                        <TableHead class="text-xs h-9 text-right">
+                          1h 缓存
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -201,7 +292,10 @@
                         class="text-xs"
                       >
                         <TableCell class="py-2">
-                          <span v-if="tier.up_to === null" class="text-muted-foreground">
+                          <span
+                            v-if="tier.up_to === null"
+                            class="text-muted-foreground"
+                          >
                             {{ index === 0 ? '所有' : `> ${formatTierLimit((model.default_tiered_pricing?.tiers || [])[index - 1]?.up_to)}` }}
                           </span>
                           <span v-else>
@@ -229,7 +323,10 @@
                 </div>
 
                 <!-- 按次计费（多阶梯时也显示） -->
-                <div v-if="model.default_price_per_request && model.default_price_per_request > 0" class="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
+                <div
+                  v-if="model.default_price_per_request && model.default_price_per_request > 0"
+                  class="flex items-center gap-3 p-3 rounded-lg border bg-muted/20"
+                >
                   <Label class="text-xs text-muted-foreground whitespace-nowrap">按次计费</Label>
                   <span class="text-sm font-mono">${{ model.default_price_per_request.toFixed(3) }}/次</span>
                 </div>
@@ -269,6 +366,13 @@ import type { PublicGlobalModel } from '@/api/public-models'
 import type { TieredPricingConfig, PricingTier } from '@/api/endpoints/types'
 import type { CapabilityDefinition } from '@/api/endpoints'
 
+const props = defineProps<Props>()
+
+const emit = defineEmits<{
+  'update:open': [value: boolean]
+  'toggle-capability': [modelName: string, capName: string]
+}>()
+
 const { success: showSuccess, error: showError } = useToast()
 
 interface Props {
@@ -278,13 +382,6 @@ interface Props {
   userConfigurableCapabilities?: CapabilityDefinition[]
   modelCapabilitySettings?: Record<string, Record<string, boolean>>
 }
-
-const props = defineProps<Props>()
-
-const emit = defineEmits<{
-  'update:open': [value: boolean]
-  'toggle-capability': [modelName: string, capName: string]
-}>()
 
 // 根据能力名称获取显示名称
 function getCapabilityDisplayName(capName: string): string {

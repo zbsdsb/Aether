@@ -8,8 +8,14 @@
       <div class="border-b border-border px-6 py-4">
         <div class="flex items-center gap-3">
           <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 flex-shrink-0">
-            <Plus v-if="!isEditMode" class="h-5 w-5 text-primary" />
-            <SquarePen v-else class="h-5 w-5 text-primary" />
+            <Plus
+              v-if="!isEditMode"
+              class="h-5 w-5 text-primary"
+            />
+            <SquarePen
+              v-else
+              class="h-5 w-5 text-primary"
+            />
           </div>
           <div class="flex-1 min-w-0">
             <h3 class="text-lg font-semibold text-foreground leading-tight">
@@ -33,7 +39,10 @@
           </div>
 
           <div class="space-y-2">
-            <Label for="form-name" class="text-sm font-medium">密钥名称</Label>
+            <Label
+              for="form-name"
+              class="text-sm font-medium"
+            >密钥名称</Label>
             <Input
               id="form-name"
               v-model="form.name"
@@ -44,8 +53,14 @@
           </div>
 
           <!-- 初始余额 - 仅创建模式显示 -->
-          <div v-if="!isEditMode" class="space-y-2">
-            <Label for="form-balance" class="text-sm font-medium">初始余额 (USD) <span class="text-rose-500">*</span></Label>
+          <div
+            v-if="!isEditMode"
+            class="space-y-2"
+          >
+            <Label
+              for="form-balance"
+              class="text-sm font-medium"
+            >初始余额 (USD) <span class="text-rose-500">*</span></Label>
             <Input
               id="form-balance"
               :model-value="form.initial_balance_usd ?? ''"
@@ -57,11 +72,16 @@
               class="h-10"
               @update:model-value="(v) => form.initial_balance_usd = parseNumberInput(v, { allowFloat: true }) ?? 10"
             />
-            <p class="text-xs text-muted-foreground">独立Key必须设置余额限制，最小值 $0.01</p>
+            <p class="text-xs text-muted-foreground">
+              独立Key必须设置余额限制，最小值 $0.01
+            </p>
           </div>
 
           <div class="space-y-2">
-            <Label for="form-expire-days" class="text-sm font-medium">有效期设置</Label>
+            <Label
+              for="form-expire-days"
+              class="text-sm font-medium"
+            >有效期设置</Label>
             <div class="flex items-center gap-2">
               <Input
                 id="form-expire-days"
@@ -80,24 +100,32 @@
                   type="checkbox"
                   class="h-3.5 w-3.5 rounded border-gray-300 cursor-pointer"
                   @change="onNeverExpireChange"
-                />
+                >
                 永不过期
               </label>
-              <label class="flex items-center gap-1.5 border rounded-md px-2 py-1.5 bg-muted/50 cursor-pointer text-xs whitespace-nowrap" :class="form.never_expire ? 'opacity-50' : ''">
+              <label
+                class="flex items-center gap-1.5 border rounded-md px-2 py-1.5 bg-muted/50 cursor-pointer text-xs whitespace-nowrap"
+                :class="form.never_expire ? 'opacity-50' : ''"
+              >
                 <input
                   v-model="form.auto_delete_on_expiry"
                   type="checkbox"
                   class="h-3.5 w-3.5 rounded border-gray-300 cursor-pointer"
                   :disabled="form.never_expire"
-                />
+                >
                 到期删除
               </label>
             </div>
-            <p class="text-xs text-muted-foreground">不勾选"到期删除"则仅禁用</p>
+            <p class="text-xs text-muted-foreground">
+              不勾选"到期删除"则仅禁用
+            </p>
           </div>
 
           <div class="space-y-2">
-            <Label for="form-rate-limit" class="text-sm font-medium">速率限制 (请求/分钟)</Label>
+            <Label
+              for="form-rate-limit"
+              class="text-sm font-medium"
+            >速率限制 (请求/分钟)</Label>
             <Input
               id="form-rate-limit"
               :model-value="form.rate_limit ?? ''"
@@ -131,9 +159,16 @@
                 <span :class="form.allowed_providers.length ? 'text-foreground' : 'text-muted-foreground'">
                   {{ form.allowed_providers.length ? `已选择 ${form.allowed_providers.length} 个` : '全部可用' }}
                 </span>
-                <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform" :class="providerDropdownOpen ? 'rotate-180' : ''" />
+                <ChevronDown
+                  class="h-4 w-4 text-muted-foreground transition-transform"
+                  :class="providerDropdownOpen ? 'rotate-180' : ''"
+                />
               </button>
-              <div v-if="providerDropdownOpen" class="fixed inset-0 z-[80]" @click.stop="providerDropdownOpen = false"></div>
+              <div
+                v-if="providerDropdownOpen"
+                class="fixed inset-0 z-[80]"
+                @click.stop="providerDropdownOpen = false"
+              />
               <div
                 v-if="providerDropdownOpen"
                 class="absolute z-[90] w-full mt-1 bg-popover border rounded-lg shadow-lg max-h-48 overflow-y-auto"
@@ -150,10 +185,13 @@
                     class="h-4 w-4 rounded border-gray-300 cursor-pointer"
                     @click.stop
                     @change="toggleSelection('allowed_providers', provider.id)"
-                  />
+                  >
                   <span class="text-sm">{{ provider.display_name || provider.name }}</span>
                 </div>
-                <div v-if="providers.length === 0" class="px-3 py-2 text-sm text-muted-foreground">
+                <div
+                  v-if="providers.length === 0"
+                  class="px-3 py-2 text-sm text-muted-foreground"
+                >
                   暂无可用 Provider
                 </div>
               </div>
@@ -172,9 +210,16 @@
                 <span :class="form.allowed_api_formats.length ? 'text-foreground' : 'text-muted-foreground'">
                   {{ form.allowed_api_formats.length ? `已选择 ${form.allowed_api_formats.length} 个` : '全部可用' }}
                 </span>
-                <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform" :class="apiFormatDropdownOpen ? 'rotate-180' : ''" />
+                <ChevronDown
+                  class="h-4 w-4 text-muted-foreground transition-transform"
+                  :class="apiFormatDropdownOpen ? 'rotate-180' : ''"
+                />
               </button>
-              <div v-if="apiFormatDropdownOpen" class="fixed inset-0 z-[80]" @click.stop="apiFormatDropdownOpen = false"></div>
+              <div
+                v-if="apiFormatDropdownOpen"
+                class="fixed inset-0 z-[80]"
+                @click.stop="apiFormatDropdownOpen = false"
+              />
               <div
                 v-if="apiFormatDropdownOpen"
                 class="absolute z-[90] w-full mt-1 bg-popover border rounded-lg shadow-lg max-h-48 overflow-y-auto"
@@ -191,7 +236,7 @@
                     class="h-4 w-4 rounded border-gray-300 cursor-pointer"
                     @click.stop
                     @change="toggleSelection('allowed_api_formats', format)"
-                  />
+                  >
                   <span class="text-sm">{{ format }}</span>
                 </div>
               </div>
@@ -210,9 +255,16 @@
                 <span :class="form.allowed_models.length ? 'text-foreground' : 'text-muted-foreground'">
                   {{ form.allowed_models.length ? `已选择 ${form.allowed_models.length} 个` : '全部可用' }}
                 </span>
-                <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform" :class="modelDropdownOpen ? 'rotate-180' : ''" />
+                <ChevronDown
+                  class="h-4 w-4 text-muted-foreground transition-transform"
+                  :class="modelDropdownOpen ? 'rotate-180' : ''"
+                />
               </button>
-              <div v-if="modelDropdownOpen" class="fixed inset-0 z-[80]" @click.stop="modelDropdownOpen = false"></div>
+              <div
+                v-if="modelDropdownOpen"
+                class="fixed inset-0 z-[80]"
+                @click.stop="modelDropdownOpen = false"
+              />
               <div
                 v-if="modelDropdownOpen"
                 class="absolute z-[90] w-full mt-1 bg-popover border rounded-lg shadow-lg max-h-48 overflow-y-auto"
@@ -229,10 +281,13 @@
                     class="h-4 w-4 rounded border-gray-300 cursor-pointer"
                     @click.stop
                     @change="toggleSelection('allowed_models', model.name)"
-                  />
+                  >
                   <span class="text-sm">{{ model.name }}</span>
                 </div>
-                <div v-if="globalModels.length === 0" class="px-3 py-2 text-sm text-muted-foreground">
+                <div
+                  v-if="globalModels.length === 0"
+                  class="px-3 py-2 text-sm text-muted-foreground"
+                >
                   暂无可用模型
                 </div>
               </div>
@@ -243,8 +298,19 @@
     </form>
 
     <template #footer>
-      <Button variant="outline" @click="handleCancel" type="button" class="h-10 px-5">取消</Button>
-      <Button @click="handleSubmit" :disabled="saving" class="h-10 px-5">
+      <Button
+        variant="outline"
+        type="button"
+        class="h-10 px-5"
+        @click="handleCancel"
+      >
+        取消
+      </Button>
+      <Button
+        :disabled="saving"
+        class="h-10 px-5"
+        @click="handleSubmit"
+      >
         {{ saving ? (isEditMode ? '更新中...' : '创建中...') : (isEditMode ? '更新' : '创建') }}
       </Button>
     </template>

@@ -15,7 +15,10 @@
 
     <!-- 分析统计 -->
     <!-- 管理员：模型 + 提供商 + API格式（3列） -->
-    <div v-if="isAdminPage" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div
+      v-if="isAdminPage"
+      class="grid grid-cols-1 lg:grid-cols-3 gap-4"
+    >
       <UsageModelTable
         :data="enhancedModelStats"
         :is-admin="authStore.isAdmin"
@@ -30,7 +33,10 @@
       />
     </div>
     <!-- 用户：模型 + API格式（2列） -->
-    <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div
+      v-else
+      class="grid grid-cols-1 lg:grid-cols-2 gap-4"
+    >
       <UsageModelTable
         :data="enhancedModelStats"
         :is-admin="authStore.isAdmin"
@@ -74,8 +80,8 @@
     <!-- 请求详情抽屉 - 仅管理员可见 -->
     <RequestDetailDrawer
       v-if="isAdminPage"
-      :isOpen="detailModalOpen"
-      :requestId="selectedRequestId"
+      :is-open="detailModalOpen"
+      :request-id="selectedRequestId"
       @close="detailModalOpen = false"
     />
   </div>

@@ -47,7 +47,7 @@ export function getDateRangeFromPeriod(period: PeriodValue): DateRangeParams {
  */
 export function formatDateTime(dateStr: string): string {
   // 后端返回的是 UTC 时间但没有时区标识，需要手动添加 'Z'
-  const utcDateStr = dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z'
+  const utcDateStr = dateStr.includes('Z') || dateStr.includes('+') ? dateStr : `${dateStr  }Z`
   const date = new Date(utcDateStr)
 
   // 只显示时分秒

@@ -1,35 +1,62 @@
 <template>
   <Card class="overflow-hidden">
     <div class="px-3 py-2 border-b">
-      <h3 class="text-sm font-medium">按提供商分析</h3>
+      <h3 class="text-sm font-medium">
+        按提供商分析
+      </h3>
     </div>
     <Table class="text-sm">
       <TableHeader>
         <TableRow>
-          <TableHead class="h-8 px-2">提供商</TableHead>
-          <TableHead class="h-8 px-2 text-right">请求数</TableHead>
-          <TableHead class="h-8 px-2 text-right">Tokens</TableHead>
-          <TableHead class="h-8 px-2 text-right">费用</TableHead>
-          <TableHead class="h-8 px-2 text-right">成功率</TableHead>
-          <TableHead class="h-8 px-2 text-right">平均响应</TableHead>
+          <TableHead class="h-8 px-2">
+            提供商
+          </TableHead>
+          <TableHead class="h-8 px-2 text-right">
+            请求数
+          </TableHead>
+          <TableHead class="h-8 px-2 text-right">
+            Tokens
+          </TableHead>
+          <TableHead class="h-8 px-2 text-right">
+            费用
+          </TableHead>
+          <TableHead class="h-8 px-2 text-right">
+            成功率
+          </TableHead>
+          <TableHead class="h-8 px-2 text-right">
+            平均响应
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         <TableRow v-if="data.length === 0">
-          <TableCell :colspan="6" class="text-center py-6 text-muted-foreground px-2">
+          <TableCell
+            :colspan="6"
+            class="text-center py-6 text-muted-foreground px-2"
+          >
             暂无提供商统计数据
           </TableCell>
         </TableRow>
-        <TableRow v-for="provider in data" :key="provider.provider">
-          <TableCell class="font-medium py-2 px-2">{{ provider.provider }}</TableCell>
-          <TableCell class="text-right py-2 px-2">{{ provider.requests }}</TableCell>
+        <TableRow
+          v-for="provider in data"
+          :key="provider.provider"
+        >
+          <TableCell class="font-medium py-2 px-2">
+            {{ provider.provider }}
+          </TableCell>
+          <TableCell class="text-right py-2 px-2">
+            {{ provider.requests }}
+          </TableCell>
           <TableCell class="text-right py-2 px-2">
             <span>{{ formatTokens(provider.totalTokens) }}</span>
           </TableCell>
           <TableCell class="text-right py-2 px-2">
             <div class="flex flex-col items-end text-xs gap-0.5">
               <span class="text-primary font-medium">{{ formatCurrency(provider.totalCost) }}</span>
-              <span v-if="isAdmin && provider.actualCost !== undefined" class="text-muted-foreground text-[10px]">
+              <span
+                v-if="isAdmin && provider.actualCost !== undefined"
+                class="text-muted-foreground text-[10px]"
+              >
                 {{ formatCurrency(provider.actualCost) }}
               </span>
             </div>
@@ -37,7 +64,9 @@
           <TableCell class="text-right py-2 px-2">
             <span :class="getSuccessRateClass(provider.successRate)">{{ provider.successRate }}%</span>
           </TableCell>
-          <TableCell class="text-right text-muted-foreground py-2 px-2">{{ provider.avgResponseTime }}</TableCell>
+          <TableCell class="text-right text-muted-foreground py-2 px-2">
+            {{ provider.avgResponseTime }}
+          </TableCell>
         </TableRow>
       </TableBody>
     </Table>
@@ -56,14 +85,15 @@ import TableCell from '@/components/ui/table-cell.vue'
 import { formatTokens, formatCurrency } from '@/utils/format'
 import type { ProviderStatsItem } from '../types'
 
+defineProps<{
+  data: ProviderStatsItem[]
+  isAdmin: boolean
+}>()
+
 // 成功率样式 - 简化为两种状态
 function getSuccessRateClass(rate: number): string {
   if (rate < 90) return 'text-destructive'
   return ''  // 默认颜色
 }
 
-defineProps<{
-  data: ProviderStatsItem[]
-  isAdmin: boolean
-}>()
 </script>

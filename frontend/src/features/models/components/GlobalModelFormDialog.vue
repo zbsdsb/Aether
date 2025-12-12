@@ -7,14 +7,22 @@
     size="xl"
     @update:model-value="handleDialogUpdate"
   >
-    <form @submit.prevent="handleSubmit" class="space-y-5 max-h-[70vh] overflow-y-auto pr-1">
+    <form
+      class="space-y-5 max-h-[70vh] overflow-y-auto pr-1"
+      @submit.prevent="handleSubmit"
+    >
       <!-- 基本信息 -->
       <section class="space-y-3">
-        <h4 class="font-medium text-sm">基本信息</h4>
+        <h4 class="font-medium text-sm">
+          基本信息
+        </h4>
 
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1.5">
-            <Label for="model-name" class="text-xs">模型名称 *</Label>
+            <Label
+              for="model-name"
+              class="text-xs"
+            >模型名称 *</Label>
             <Input
               id="model-name"
               v-model="form.name"
@@ -22,10 +30,18 @@
               :disabled="isEditMode"
               required
             />
-            <p v-if="!isEditMode" class="text-xs text-muted-foreground">创建后不可修改</p>
+            <p
+              v-if="!isEditMode"
+              class="text-xs text-muted-foreground"
+            >
+              创建后不可修改
+            </p>
           </div>
           <div class="space-y-1.5">
-            <Label for="model-display-name" class="text-xs">显示名称 *</Label>
+            <Label
+              for="model-display-name"
+              class="text-xs"
+            >显示名称 *</Label>
             <Input
               id="model-display-name"
               v-model="form.display_name"
@@ -36,7 +52,10 @@
         </div>
 
         <div class="space-y-1.5">
-          <Label for="model-description" class="text-xs">描述</Label>
+          <Label
+            for="model-description"
+            class="text-xs"
+          >描述</Label>
           <Input
             id="model-description"
             v-model="form.description"
@@ -47,30 +66,52 @@
 
       <!-- 能力配置 -->
       <section class="space-y-2">
-        <h4 class="font-medium text-sm">默认能力</h4>
+        <h4 class="font-medium text-sm">
+          默认能力
+        </h4>
         <div class="flex flex-wrap gap-2">
           <label class="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-muted/30 cursor-pointer text-sm">
-            <input type="checkbox" v-model="form.default_supports_streaming" class="rounded" />
+            <input
+              v-model="form.default_supports_streaming"
+              type="checkbox"
+              class="rounded"
+            >
             <Zap class="w-3.5 h-3.5 text-muted-foreground" />
             <span>流式输出</span>
           </label>
           <label class="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-muted/30 cursor-pointer text-sm">
-            <input type="checkbox" v-model="form.default_supports_vision" class="rounded" />
+            <input
+              v-model="form.default_supports_vision"
+              type="checkbox"
+              class="rounded"
+            >
             <Eye class="w-3.5 h-3.5 text-muted-foreground" />
             <span>视觉理解</span>
           </label>
           <label class="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-muted/30 cursor-pointer text-sm">
-            <input type="checkbox" v-model="form.default_supports_function_calling" class="rounded" />
+            <input
+              v-model="form.default_supports_function_calling"
+              type="checkbox"
+              class="rounded"
+            >
             <Wrench class="w-3.5 h-3.5 text-muted-foreground" />
             <span>工具调用</span>
           </label>
           <label class="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-muted/30 cursor-pointer text-sm">
-            <input type="checkbox" v-model="form.default_supports_extended_thinking" class="rounded" />
+            <input
+              v-model="form.default_supports_extended_thinking"
+              type="checkbox"
+              class="rounded"
+            >
             <Brain class="w-3.5 h-3.5 text-muted-foreground" />
             <span>深度思考</span>
           </label>
           <label class="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-muted/30 cursor-pointer text-sm">
-            <input type="checkbox" v-model="form.default_supports_image_generation" class="rounded" />
+            <input
+              v-model="form.default_supports_image_generation"
+              type="checkbox"
+              class="rounded"
+            >
             <Image class="w-3.5 h-3.5 text-muted-foreground" />
             <span>图像生成</span>
           </label>
@@ -78,8 +119,13 @@
       </section>
 
       <!-- Key 能力配置 -->
-      <section v-if="availableCapabilities.length > 0" class="space-y-2">
-        <h4 class="font-medium text-sm">Key 能力支持</h4>
+      <section
+        v-if="availableCapabilities.length > 0"
+        class="space-y-2"
+      >
+        <h4 class="font-medium text-sm">
+          Key 能力支持
+        </h4>
         <div class="flex flex-wrap gap-2">
           <label
             v-for="cap in availableCapabilities"
@@ -89,9 +135,9 @@
             <input
               type="checkbox"
               :checked="form.supported_capabilities?.includes(cap.name)"
-              @change="toggleCapability(cap.name)"
               class="rounded"
-            />
+              @change="toggleCapability(cap.name)"
+            >
             <span>{{ cap.display_name }}</span>
           </label>
         </div>
@@ -99,8 +145,14 @@
 
       <!-- 价格配置 -->
       <section class="space-y-3">
-        <h4 class="font-medium text-sm">价格配置</h4>
-        <TieredPricingEditor v-model="tieredPricing" :show-cache1h="form.supported_capabilities?.includes('cache_1h')" />
+        <h4 class="font-medium text-sm">
+          价格配置
+        </h4>
+        <TieredPricingEditor
+          ref="tieredPricingEditorRef"
+          v-model="tieredPricing"
+          :show-cache1h="form.supported_capabilities?.includes('cache_1h')"
+        />
 
         <!-- 按次计费 -->
         <div class="flex items-center gap-3 pt-2 border-t">
@@ -120,11 +172,21 @@
     </form>
 
     <template #footer>
-      <Button type="button" variant="outline" @click="handleCancel">
+      <Button
+        type="button"
+        variant="outline"
+        @click="handleCancel"
+      >
         取消
       </Button>
-      <Button @click="handleSubmit" :disabled="submitting">
-        <Loader2 v-if="submitting" class="w-4 h-4 mr-2 animate-spin" />
+      <Button
+        :disabled="submitting"
+        @click="handleSubmit"
+      >
+        <Loader2
+          v-if="submitting"
+          class="w-4 h-4 mr-2 animate-spin"
+        />
         {{ isEditMode ? '保存' : '创建' }}
       </Button>
     </template>
@@ -138,6 +200,7 @@ import { Dialog, Button, Input, Label } from '@/components/ui'
 import { useToast } from '@/composables/useToast'
 import { useFormDialog } from '@/composables/useFormDialog'
 import { parseNumberInput } from '@/utils/form'
+import { log } from '@/utils/logger'
 import TieredPricingEditor from './TieredPricingEditor.vue'
 import {
   createGlobalModel,
@@ -161,6 +224,7 @@ const emit = defineEmits<{
 
 const { success, error: showError } = useToast()
 const submitting = ref(false)
+const tieredPricingEditorRef = ref<InstanceType<typeof TieredPricingEditor> | null>(null)
 
 // 阶梯计费配置（统一使用，固定价格就是单阶梯）
 const tieredPricing = ref<TieredPricingConfig | null>(null)
@@ -203,7 +267,7 @@ async function loadCapabilities() {
   try {
     availableCapabilities.value = await getAllCapabilities()
   } catch (err) {
-    console.error('Failed to load capabilities:', err)
+    log.error('Failed to load capabilities:', err)
   }
 }
 
@@ -275,6 +339,10 @@ async function handleSubmit() {
     return
   }
 
+  // 获取包含自动计算缓存价格的最终数据
+  const finalTiers = tieredPricingEditorRef.value?.getFinalTiers()
+  const finalTieredPricing = finalTiers ? { tiers: finalTiers } : tieredPricing.value
+
   submitting.value = true
   try {
     if (isEditMode.value && props.model) {
@@ -283,7 +351,7 @@ async function handleSubmit() {
         description: form.value.description,
         // 使用 null 而不是 undefined 来显式清空字段
         default_price_per_request: form.value.default_price_per_request ?? null,
-        default_tiered_pricing: tieredPricing.value,
+        default_tiered_pricing: finalTieredPricing,
         default_supports_streaming: form.value.default_supports_streaming,
         default_supports_image_generation: form.value.default_supports_image_generation,
         default_supports_vision: form.value.default_supports_vision,
@@ -300,7 +368,7 @@ async function handleSubmit() {
         display_name: form.value.display_name!,
         description: form.value.description,
         default_price_per_request: form.value.default_price_per_request || undefined,
-        default_tiered_pricing: tieredPricing.value,
+        default_tiered_pricing: finalTieredPricing,
         default_supports_streaming: form.value.default_supports_streaming,
         default_supports_image_generation: form.value.default_supports_image_generation,
         default_supports_vision: form.value.default_supports_vision,

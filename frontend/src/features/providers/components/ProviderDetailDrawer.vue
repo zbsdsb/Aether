@@ -8,13 +8,19 @@
         @click.self="handleBackdropClick"
       >
         <!-- 背景遮罩 -->
-        <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" @click="handleBackdropClick"></div>
+        <div
+          class="absolute inset-0 bg-black/30 backdrop-blur-sm"
+          @click="handleBackdropClick"
+        />
 
         <!-- 抽屉内容 -->
         <Card class="relative h-full w-[700px] rounded-none shadow-2xl overflow-y-auto">
           <!-- 加载状态 -->
-          <div v-if="loading" class="flex items-center justify-center py-12">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <div
+            v-if="loading"
+            class="flex items-center justify-center py-12"
+          >
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
           </div>
 
           <template v-else-if="provider">
@@ -23,8 +29,13 @@
               <div class="flex items-start justify-between gap-4">
                 <div class="space-y-1 flex-1 min-w-0">
                   <div class="flex items-center gap-2">
-                    <h2 class="text-xl font-bold truncate">{{ provider.display_name }}</h2>
-                    <Badge :variant="provider.is_active ? 'default' : 'secondary'" class="text-xs shrink-0">
+                    <h2 class="text-xl font-bold truncate">
+                      {{ provider.display_name }}
+                    </h2>
+                    <Badge
+                      :variant="provider.is_active ? 'default' : 'secondary'"
+                      class="text-xs shrink-0"
+                    >
                       {{ provider.is_active ? '活跃' : '已停用' }}
                     </Badge>
                   </div>
@@ -45,18 +56,28 @@
                   </div>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" @click="$emit('edit', provider)" title="编辑提供商">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="编辑提供商"
+                    @click="$emit('edit', provider)"
+                  >
                     <Edit class="w-4 h-4" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon"
-                    @click="$emit('toggle-status', provider)"
                     :title="provider.is_active ? '点击停用' : '点击启用'"
+                    @click="$emit('toggle-status', provider)"
                   >
                     <Power class="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" @click="handleClose" title="关闭">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="关闭"
+                    @click="handleClose"
+                  >
                     <X class="w-4 h-4" />
                   </Button>
                 </div>
@@ -64,53 +85,72 @@
             </div>
 
             <div class="space-y-6 p-6">
-          <!-- 配额使用情况 -->
-          <Card v-if="provider.billing_type === 'monthly_quota' && provider.monthly_quota_usd" class="p-4">
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold">订阅配额</h3>
-                <Badge variant="secondary" class="text-xs">
-                  {{ ((provider.monthly_used_usd || 0) / provider.monthly_quota_usd * 100).toFixed(1) }}%
-                </Badge>
-              </div>
-              <div class="relative w-full h-2 bg-muted rounded-full overflow-hidden">
+              <!-- 配额使用情况 -->
+              <Card
+                v-if="provider.billing_type === 'monthly_quota' && provider.monthly_quota_usd"
+                class="p-4"
+              >
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-semibold">
+                      订阅配额
+                    </h3>
+                    <Badge
+                      variant="secondary"
+                      class="text-xs"
+                    >
+                      {{ ((provider.monthly_used_usd || 0) / provider.monthly_quota_usd * 100).toFixed(1) }}%
+                    </Badge>
+                  </div>
+                  <div class="relative w-full h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      class="absolute left-0 top-0 h-full transition-all duration-300"
+                      :class="{
+                        'bg-green-500': (provider.monthly_used_usd || 0) / provider.monthly_quota_usd < 0.7,
+                        'bg-yellow-500': (provider.monthly_used_usd || 0) / provider.monthly_quota_usd >= 0.7 && (provider.monthly_used_usd || 0) / provider.monthly_quota_usd < 0.9,
+                        'bg-red-500': (provider.monthly_used_usd || 0) / provider.monthly_quota_usd >= 0.9
+                      }"
+                      :style="{ width: `${Math.min((provider.monthly_used_usd || 0) / provider.monthly_quota_usd * 100, 100)}%` }"
+                    />
+                  </div>
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="font-semibold">
+                      ${{ (provider.monthly_used_usd || 0).toFixed(2) }} / ${{ provider.monthly_quota_usd.toFixed(2) }}
+                    </span>
+                    <span
+                      v-if="provider.quota_reset_day"
+                      class="text-muted-foreground"
+                    >
+                      每月 {{ provider.quota_reset_day }} 号重置
+                    </span>
+                  </div>
+                </div>
+              </Card>
+
+              <!-- 端点与密钥管理 -->
+              <Card class="overflow-hidden">
+                <div class="p-4 border-b border-border/60">
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-semibold flex items-center gap-2">
+                      <span>端点与密钥管理</span>
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      class="h-8"
+                      @click="showAddEndpointDialog"
+                    >
+                      <Plus class="w-3.5 h-3.5 mr-1.5" />
+                      添加端点
+                    </Button>
+                  </div>
+                </div>
+
+                <!-- 端点列表 -->
                 <div
-                  class="absolute left-0 top-0 h-full transition-all duration-300"
-                  :class="{
-                    'bg-green-500': (provider.monthly_used_usd || 0) / provider.monthly_quota_usd < 0.7,
-                    'bg-yellow-500': (provider.monthly_used_usd || 0) / provider.monthly_quota_usd >= 0.7 && (provider.monthly_used_usd || 0) / provider.monthly_quota_usd < 0.9,
-                    'bg-red-500': (provider.monthly_used_usd || 0) / provider.monthly_quota_usd >= 0.9
-                  }"
-                  :style="{ width: `${Math.min((provider.monthly_used_usd || 0) / provider.monthly_quota_usd * 100, 100)}%` }"
-                ></div>
-              </div>
-              <div class="flex items-center justify-between text-xs">
-                <span class="font-semibold">
-                  ${{ (provider.monthly_used_usd || 0).toFixed(2) }} / ${{ provider.monthly_quota_usd.toFixed(2) }}
-                </span>
-                <span v-if="provider.quota_reset_day" class="text-muted-foreground">
-                  每月 {{ provider.quota_reset_day }} 号重置
-                </span>
-              </div>
-            </div>
-          </Card>
-
-          <!-- 端点与密钥管理 -->
-          <Card class="overflow-hidden">
-            <div class="p-4 border-b border-border/60">
-              <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold flex items-center gap-2">
-                  <span>端点与密钥管理</span>
-                </h3>
-                <Button @click="showAddEndpointDialog" variant="outline" size="sm" class="h-8">
-                  <Plus class="w-3.5 h-3.5 mr-1.5" />
-                  添加端点
-                </Button>
-              </div>
-            </div>
-
-            <!-- 端点列表 -->
-            <div v-if="endpoints.length > 0" class="divide-y divide-border/40">
+                  v-if="endpoints.length > 0"
+                  class="divide-y divide-border/40"
+                >
                   <div
                     v-for="endpoint in endpoints"
                     :key="endpoint.id"
@@ -141,10 +181,16 @@
                                 <Key class="w-3 h-3" />
                                 {{ endpoint.keys?.filter((k: EndpointAPIKey) => k.is_active).length || 0 }}
                               </span>
-                              <span v-if="endpoint.max_retries" class="text-xs text-muted-foreground">
+                              <span
+                                v-if="endpoint.max_retries"
+                                class="text-xs text-muted-foreground"
+                              >
                                 {{ endpoint.max_retries }}次重试
                               </span>
-                              <span v-if="endpoint.timeout" class="text-xs text-muted-foreground">
+                              <span
+                                v-if="endpoint.timeout"
+                                class="text-xs text-muted-foreground"
+                              >
                                 {{ endpoint.timeout }}s
                               </span>
                             </div>
@@ -156,61 +202,70 @@
                                 variant="ghost"
                                 size="icon"
                                 class="h-5 w-5 shrink-0"
-                                @click.stop="copyToClipboard(endpoint.base_url)"
                                 title="复制 Base URL"
+                                @click.stop="copyToClipboard(endpoint.base_url)"
                               >
                                 <Copy class="w-3 h-3" />
                               </Button>
                             </div>
                           </div>
                         </div>
-                        <div class="flex items-center gap-1" @click.stop>
+                        <div
+                          class="flex items-center gap-1"
+                          @click.stop
+                        >
                           <Button
                             v-if="hasUnhealthyKeys(endpoint)"
-                            @click="handleRecoverAllKeys(endpoint)"
                             variant="ghost"
                             size="icon"
                             class="h-8 w-8 text-green-600"
                             title="恢复所有密钥健康状态"
                             :disabled="recoveringEndpointId === endpoint.id"
+                            @click="handleRecoverAllKeys(endpoint)"
                           >
-                            <Loader2 v-if="recoveringEndpointId === endpoint.id" class="w-3.5 h-3.5 animate-spin" />
-                            <RefreshCw v-else class="w-3.5 h-3.5" />
+                            <Loader2
+                              v-if="recoveringEndpointId === endpoint.id"
+                              class="w-3.5 h-3.5 animate-spin"
+                            />
+                            <RefreshCw
+                              v-else
+                              class="w-3.5 h-3.5"
+                            />
                           </Button>
                           <Button
-                            @click="handleAddKey(endpoint)"
                             variant="ghost"
                             size="icon"
                             class="h-8 w-8"
                             title="添加密钥"
+                            @click="handleAddKey(endpoint)"
                           >
                             <Plus class="w-4 h-4" />
                           </Button>
                           <Button
-                            @click="handleEditEndpoint(endpoint)"
                             variant="ghost"
                             size="icon"
                             class="h-8 w-8"
                             title="编辑端点"
+                            @click="handleEditEndpoint(endpoint)"
                           >
                             <Edit class="w-3.5 h-3.5" />
                           </Button>
                           <Button
-                            @click="toggleEndpointActive(endpoint)"
                             variant="ghost"
                             size="icon"
                             class="h-8 w-8"
                             :disabled="togglingEndpointId === endpoint.id"
                             :title="endpoint.is_active ? '点击停用' : '点击启用'"
+                            @click="toggleEndpointActive(endpoint)"
                           >
                             <Power class="w-3.5 h-3.5" />
                           </Button>
                           <Button
-                            @click="handleDeleteEndpoint(endpoint)"
                             variant="ghost"
                             size="icon"
                             class="h-8 w-8"
                             title="删除端点"
+                            @click="handleDeleteEndpoint(endpoint)"
                           >
                             <Trash2 class="w-3.5 h-3.5" />
                           </Button>
@@ -225,7 +280,10 @@
                     >
                       <div class="space-y-3 pt-3">
                         <!-- 端点配置信息 -->
-                        <div v-if="endpoint.custom_path || endpoint.rpm_limit" class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                        <div
+                          v-if="endpoint.custom_path || endpoint.rpm_limit"
+                          class="flex flex-wrap gap-x-4 gap-y-1 text-xs"
+                        >
                           <div v-if="endpoint.custom_path">
                             <span class="text-muted-foreground">自定义路径:</span>
                             <span class="ml-1 font-mono">{{ endpoint.custom_path }}</span>
@@ -238,16 +296,14 @@
 
                         <!-- 密钥列表 -->
                         <div class="space-y-2">
-                          <div v-if="endpoint.keys && endpoint.keys.length > 0" class="space-y-2">
+                          <div
+                            v-if="endpoint.keys && endpoint.keys.length > 0"
+                            class="space-y-2"
+                          >
                             <div
                               v-for="key in endpoint.keys"
                               :key="key.id"
                               draggable="true"
-                              @dragstart="handleDragStart($event, key, endpoint)"
-                              @dragend="handleDragEnd"
-                              @dragover="handleDragOver($event, key)"
-                              @dragleave="handleDragLeave"
-                              @drop="handleDrop($event, key, endpoint)"
                               class="p-3 bg-background rounded-md border transition-all duration-150 group/key"
                               :class="{
                                 'border-border/40 hover:border-border/80': dragState.targetKeyId !== key.id,
@@ -255,6 +311,11 @@
                                 'opacity-50': dragState.draggedKeyId === key.id,
                                 'cursor-grabbing': dragState.isDragging
                               }"
+                              @dragstart="handleDragStart($event, key, endpoint)"
+                              @dragend="handleDragEnd"
+                              @dragover="handleDragOver($event, key)"
+                              @dragleave="handleDragLeave"
+                              @drop="handleDrop($event, key, endpoint)"
                             >
                               <!-- 密钥主要信息行 -->
                               <div class="flex items-center justify-between mb-2">
@@ -276,7 +337,9 @@
                                         {{ key.is_active ? '活跃' : '禁用' }}
                                       </Badge>
                                     </div>
-                                    <div class="text-[10px] font-mono text-muted-foreground truncate">{{ key.api_key_masked }}</div>
+                                    <div class="text-[10px] font-mono text-muted-foreground truncate">
+                                      {{ key.api_key_masked }}
+                                    </div>
                                   </div>
                                   <div class="flex items-center gap-1.5 ml-auto shrink-0">
                                     <div
@@ -309,48 +372,48 @@
                                 <div class="flex items-center gap-1 ml-2">
                                   <Button
                                     v-if="key.circuit_breaker_open || (key.health_score !== undefined && key.health_score < 0.5)"
-                                    @click="handleRecoverKey(key)"
                                     variant="ghost"
                                     size="icon"
                                     class="h-7 w-7 text-green-600"
                                     title="刷新健康状态"
+                                    @click="handleRecoverKey(key)"
                                   >
                                     <RefreshCw class="w-3 h-3" />
                                   </Button>
                                   <Button
-                                    @click="handleConfigKeyModels(key)"
                                     variant="ghost"
                                     size="icon"
                                     class="h-7 w-7"
                                     title="配置允许的模型"
+                                    @click="handleConfigKeyModels(key)"
                                   >
                                     <Layers class="w-3 h-3" />
                                   </Button>
                                   <Button
-                                    @click="handleEditKey(endpoint, key)"
                                     variant="ghost"
                                     size="icon"
                                     class="h-7 w-7"
                                     title="编辑密钥"
+                                    @click="handleEditKey(endpoint, key)"
                                   >
                                     <Edit class="w-3 h-3" />
                                   </Button>
                                   <Button
-                                    @click="toggleKeyActive(key)"
                                     variant="ghost"
                                     size="icon"
                                     class="h-7 w-7"
                                     :disabled="togglingKeyId === key.id"
                                     :title="key.is_active ? '点击停用' : '点击启用'"
+                                    @click="toggleKeyActive(key)"
                                   >
                                     <Power class="w-3 h-3" />
                                   </Button>
                                   <Button
-                                    @click="handleDeleteKey(key)"
                                     variant="ghost"
                                     size="icon"
                                     class="h-7 w-7"
                                     title="删除密钥"
+                                    @click="handleDeleteKey(key)"
                                   >
                                     <Trash2 class="w-3 h-3" />
                                   </Button>
@@ -371,42 +434,67 @@
                                     P {{ key.internal_priority }}
                                   </span>
                                   <!-- 编辑模式 -->
-                                  <span v-else class="flex items-center gap-1">
+                                  <span
+                                    v-else
+                                    class="flex items-center gap-1"
+                                  >
                                     <span class="text-muted-foreground">P</span>
                                     <input
-                                      type="number"
+                                      ref="priorityInput"
                                       v-model.number="editingPriorityValue"
+                                      type="number"
                                       class="w-12 h-5 px-1 text-[11px] border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary"
                                       min="0"
                                       @keyup.enter="savePriority(key, endpoint)"
                                       @keyup.escape="cancelEditPriority"
                                       @blur="savePriority(key, endpoint)"
-                                      ref="priorityInput"
-                                    />
+                                    >
                                   </span>
-                                  <span class="text-muted-foreground" title="成本倍率，实际成本 = 模型价格 × 倍率">
+                                  <span
+                                    class="text-muted-foreground"
+                                    title="成本倍率，实际成本 = 模型价格 × 倍率"
+                                  >
                                     {{ key.rate_multiplier }}x
                                   </span>
-                                  <span v-if="key.success_rate !== undefined" class="text-muted-foreground" title="成功率 = 成功次数 / 总请求数">
+                                  <span
+                                    v-if="key.success_rate !== undefined"
+                                    class="text-muted-foreground"
+                                    title="成功率 = 成功次数 / 总请求数"
+                                  >
                                     {{ (key.success_rate * 100).toFixed(1) }}% ({{ key.success_count }}/{{ key.request_count }})
                                   </span>
                                 </div>
                                 <!-- 右侧动态信息 -->
                                 <div class="flex items-center gap-2 ml-auto">
-                                  <span v-if="key.next_probe_at" class="text-amber-600 dark:text-amber-400" title="熔断器探测恢复时间">
+                                  <span
+                                    v-if="key.next_probe_at"
+                                    class="text-amber-600 dark:text-amber-400"
+                                    title="熔断器探测恢复时间"
+                                  >
                                     {{ formatProbeTime(key.next_probe_at) }}探测
                                   </span>
-                                  <span v-if="key.rate_limit" class="text-muted-foreground" title="每分钟请求数限制">
+                                  <span
+                                    v-if="key.rate_limit"
+                                    class="text-muted-foreground"
+                                    title="每分钟请求数限制"
+                                  >
                                     {{ key.rate_limit }}rpm
                                   </span>
-                                  <span v-if="key.max_concurrent || key.is_adaptive" class="text-muted-foreground" :title="key.is_adaptive ? `自适应并发限制（学习值: ${key.learned_max_concurrent ?? '未学习'}）` : '固定并发限制'">
+                                  <span
+                                    v-if="key.max_concurrent || key.is_adaptive"
+                                    class="text-muted-foreground"
+                                    :title="key.is_adaptive ? `自适应并发限制（学习值: ${key.learned_max_concurrent ?? '未学习'}）` : '固定并发限制'"
+                                  >
                                     {{ key.is_adaptive ? '自适应' : '固定' }}并发: {{ key.learned_max_concurrent || key.max_concurrent || 3 }}
                                   </span>
                                 </div>
                               </div>
                             </div>
                           </div>
-                          <div v-else class="text-xs text-muted-foreground text-center py-4">
+                          <div
+                            v-else
+                            class="text-xs text-muted-foreground text-center py-4"
+                          >
                             暂无密钥
                           </div>
                         </div>
@@ -416,32 +504,39 @@
                 </div>
 
                 <!-- 空状态 -->
-                <div v-else class="p-8 text-center text-muted-foreground">
+                <div
+                  v-else
+                  class="p-8 text-center text-muted-foreground"
+                >
                   <Server class="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p class="text-sm">暂无端点配置</p>
-                  <p class="text-xs mt-1">点击上方"添加端点"按钮创建第一个端点</p>
+                  <p class="text-sm">
+                    暂无端点配置
+                  </p>
+                  <p class="text-xs mt-1">
+                    点击上方"添加端点"按钮创建第一个端点
+                  </p>
                 </div>
-          </Card>
+              </Card>
 
-          <!-- 模型查看 -->
-          <ModelsTab
-            v-if="provider"
-            :key="`models-${provider.id}`"
-            :provider="provider"
-            @edit-model="handleEditModel"
-            @delete-model="handleDeleteModel"
-            @batch-assign="handleBatchAssign"
-          />
+              <!-- 模型查看 -->
+              <ModelsTab
+                v-if="provider"
+                :key="`models-${provider.id}`"
+                :provider="provider"
+                @edit-model="handleEditModel"
+                @delete-model="handleDeleteModel"
+                @batch-assign="handleBatchAssign"
+              />
 
-          <!-- 模型映射 -->
-          <MappingsTab
-            v-if="provider"
-            :key="`mappings-${provider.id}`"
-            :provider="provider"
-            @refresh="handleRelatedDataRefresh"
-          />
-          </div>
-        </template>
+              <!-- 模型映射 -->
+              <MappingsTab
+                v-if="provider"
+                :key="`mappings-${provider.id}`"
+                :provider="provider"
+                @refresh="handleRelatedDataRefresh"
+              />
+            </div>
+          </template>
         </Card>
       </div>
     </Transition>

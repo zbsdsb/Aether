@@ -12,8 +12,8 @@
       <div class="flex gap-1 p-1 bg-muted/40 rounded-lg">
         <button
           type="button"
+          class="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200"
           :class="[
-            'flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200',
             activeMainTab === 'provider'
               ? 'bg-primary text-primary-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
@@ -25,8 +25,8 @@
         </button>
         <button
           type="button"
+          class="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200"
           :class="[
-            'flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200',
             activeMainTab === 'key'
               ? 'bg-primary text-primary-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
@@ -41,7 +41,10 @@
       <!-- 内容区域 -->
       <div class="min-h-[420px]">
         <!-- 提供商优先级 -->
-        <div v-show="activeMainTab === 'provider'" class="space-y-4">
+        <div
+          v-show="activeMainTab === 'provider'"
+          class="space-y-4"
+        >
           <!-- 提示信息 -->
           <div class="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground bg-muted/30 rounded-md">
             <Info class="w-3.5 h-3.5 shrink-0" />
@@ -49,18 +52,24 @@
           </div>
 
           <!-- 空状态 -->
-          <div v-if="sortedProviders.length === 0" class="flex flex-col items-center justify-center py-20 text-muted-foreground">
+          <div
+            v-if="sortedProviders.length === 0"
+            class="flex flex-col items-center justify-center py-20 text-muted-foreground"
+          >
             <Layers class="w-10 h-10 mb-3 opacity-20" />
             <span class="text-sm">暂无提供商</span>
           </div>
 
           <!-- 提供商列表 -->
-          <div v-else class="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+          <div
+            v-else
+            class="space-y-2 max-h-[380px] overflow-y-auto pr-1"
+          >
             <div
               v-for="(provider, index) in sortedProviders"
               :key="provider.id"
+              class="group flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all duration-200"
               :class="[
-                'group flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all duration-200',
                 draggedProvider === index
                   ? 'border-primary/50 bg-primary/5 shadow-md scale-[1.01]'
                   : dragOverProvider === index
@@ -100,7 +109,10 @@
         </div>
 
         <!-- Key 优先级 -->
-        <div v-show="activeMainTab === 'key'" class="space-y-3">
+        <div
+          v-show="activeMainTab === 'key'"
+          class="space-y-3"
+        >
           <!-- 提示信息 -->
           <div class="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground bg-muted/30 rounded-md">
             <Info class="w-3.5 h-3.5 shrink-0" />
@@ -108,29 +120,38 @@
           </div>
 
           <!-- 加载状态 -->
-          <div v-if="loadingKeys" class="flex items-center justify-center py-20">
+          <div
+            v-if="loadingKeys"
+            class="flex items-center justify-center py-20"
+          >
             <div class="flex flex-col items-center gap-2">
-              <div class="animate-spin rounded-full h-5 w-5 border-2 border-muted border-t-primary"></div>
+              <div class="animate-spin rounded-full h-5 w-5 border-2 border-muted border-t-primary" />
               <span class="text-xs text-muted-foreground">加载中...</span>
             </div>
           </div>
 
           <!-- 空状态 -->
-          <div v-else-if="availableFormats.length === 0" class="flex flex-col items-center justify-center py-20 text-muted-foreground">
+          <div
+            v-else-if="availableFormats.length === 0"
+            class="flex flex-col items-center justify-center py-20 text-muted-foreground"
+          >
             <Key class="w-10 h-10 mb-3 opacity-20" />
             <span class="text-sm">暂无 API Key</span>
           </div>
 
           <!-- 左右布局：格式列表 + Key 列表 -->
-          <div v-else class="flex gap-4">
+          <div
+            v-else
+            class="flex gap-4"
+          >
             <!-- 左侧：API 格式列表 -->
             <div class="w-32 shrink-0 space-y-1">
               <button
                 v-for="format in availableFormats"
                 :key="format"
                 type="button"
+                class="w-full px-3 py-2 text-xs font-medium rounded-md text-left transition-all duration-200"
                 :class="[
-                  'w-full px-3 py-2 text-xs font-medium rounded-md text-left transition-all duration-200',
                   activeFormatTab === format
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -143,115 +164,146 @@
 
             <!-- 右侧：Key 列表 -->
             <div class="flex-1 min-w-0">
-              <div v-for="format in availableFormats" :key="format" v-show="activeFormatTab === format">
-                <div v-if="keysByFormat[format]?.length > 0" class="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+              <div
+                v-for="format in availableFormats"
+                v-show="activeFormatTab === format"
+                :key="format"
+              >
                 <div
-                  v-for="(key, index) in keysByFormat[format]"
-                  :key="key.id"
-                  :class="[
-                    'group flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all duration-200',
-                    draggedKey[format] === index
-                      ? 'border-primary/50 bg-primary/5 shadow-md scale-[1.01]'
-                      : dragOverKey[format] === index
-                        ? 'border-primary/30 bg-primary/5'
-                        : 'border-border/50 bg-background hover:border-border hover:bg-muted/30'
-                  ]"
-                  draggable="true"
-                  @dragstart="handleKeyDragStart(format, index, $event)"
-                  @dragend="handleKeyDragEnd(format)"
-                  @dragover.prevent="handleKeyDragOver(format, index)"
-                  @dragleave="handleKeyDragLeave(format)"
-                  @drop="handleKeyDrop(format, index)"
+                  v-if="keysByFormat[format]?.length > 0"
+                  class="space-y-2 max-h-[380px] overflow-y-auto pr-1"
                 >
-                  <!-- 拖拽手柄 -->
-                  <div class="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-muted text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0">
-                    <GripVertical class="w-4 h-4" />
-                  </div>
-
-                  <!-- 可编辑序号 -->
-                  <div class="shrink-0">
-                    <input
-                      v-if="editingKeyPriority[format] === key.id"
-                      type="number"
-                      min="1"
-                      :value="key.priority"
-                      class="w-8 h-6 rounded-md bg-background border border-primary text-xs font-medium text-center focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      @blur="finishEditKeyPriority(format, key, $event)"
-                      @keydown.enter="($event.target as HTMLInputElement).blur()"
-                      @keydown.escape="cancelEditKeyPriority(format)"
-                      autofocus
-                    />
-                    <div
-                      v-else
-                      class="w-6 h-6 rounded-md bg-muted/50 flex items-center justify-center text-xs font-medium text-muted-foreground cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors"
-                      :title="'点击编辑优先级，相同数字为同级（负载均衡）'"
-                      @click.stop="startEditKeyPriority(format, key)"
-                    >
-                      {{ key.priority }}
+                  <div
+                    v-for="(key, index) in keysByFormat[format]"
+                    :key="key.id"
+                    class="group flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all duration-200"
+                    :class="[
+                      draggedKey[format] === index
+                        ? 'border-primary/50 bg-primary/5 shadow-md scale-[1.01]'
+                        : dragOverKey[format] === index
+                          ? 'border-primary/30 bg-primary/5'
+                          : 'border-border/50 bg-background hover:border-border hover:bg-muted/30'
+                    ]"
+                    draggable="true"
+                    @dragstart="handleKeyDragStart(format, index, $event)"
+                    @dragend="handleKeyDragEnd(format)"
+                    @dragover.prevent="handleKeyDragOver(format, index)"
+                    @dragleave="handleKeyDragLeave(format)"
+                    @drop="handleKeyDrop(format, index)"
+                  >
+                    <!-- 拖拽手柄 -->
+                    <div class="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-muted text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0">
+                      <GripVertical class="w-4 h-4" />
                     </div>
-                  </div>
 
-                  <!-- Key 信息 -->
-                  <div class="flex-1 min-w-0 flex items-center gap-3">
-                    <!-- 左侧：名称和来源 -->
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-2">
-                        <span class="font-medium text-sm">{{ key.name }}</span>
-                        <Badge
-                          v-if="key.circuit_breaker_open"
-                          variant="destructive"
-                          class="text-[10px] h-5 px-1.5 shrink-0"
-                        >
-                          熔断
-                        </Badge>
-                        <Badge
-                          v-else-if="!key.is_active"
-                          variant="secondary"
-                          class="text-[10px] h-5 px-1.5 shrink-0"
-                        >
-                          停用
-                        </Badge>
-                        <!-- 能力标签紧跟名称 -->
-                        <template v-if="key.capabilities?.length">
-                          <span v-for="cap in key.capabilities.slice(0, 2)" :key="cap" class="px-1 py-0.5 bg-muted text-muted-foreground rounded text-[10px]">{{ cap }}</span>
-                          <span v-if="key.capabilities.length > 2" class="text-[10px] text-muted-foreground">+{{ key.capabilities.length - 2 }}</span>
-                        </template>
-                      </div>
-                      <div class="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
-                        <span class="text-[10px] font-medium shrink-0">{{ key.provider_name }}</span>
-                        <span class="font-mono text-[10px] opacity-60 truncate">{{ key.api_key_masked }}</span>
+                    <!-- 可编辑序号 -->
+                    <div class="shrink-0">
+                      <input
+                        v-if="editingKeyPriority[format] === key.id"
+                        type="number"
+                        min="1"
+                        :value="key.priority"
+                        class="w-8 h-6 rounded-md bg-background border border-primary text-xs font-medium text-center focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        autofocus
+                        @blur="finishEditKeyPriority(format, key, $event)"
+                        @keydown.enter="($event.target as HTMLInputElement).blur()"
+                        @keydown.escape="cancelEditKeyPriority(format)"
+                      >
+                      <div
+                        v-else
+                        class="w-6 h-6 rounded-md bg-muted/50 flex items-center justify-center text-xs font-medium text-muted-foreground cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors"
+                        title="点击编辑优先级，相同数字为同级（负载均衡）"
+                        @click.stop="startEditKeyPriority(format, key)"
+                      >
+                        {{ key.priority }}
                       </div>
                     </div>
 
-                    <!-- 右侧：健康度 + 速率 -->
-                    <div class="shrink-0 flex items-center gap-3">
-                      <!-- 健康度 -->
-                      <div v-if="key.success_rate !== null" class="text-xs text-right">
-                        <div :class="[
-                          'font-medium tabular-nums',
-                          key.success_rate >= 0.95 ? 'text-green-600' :
-                          key.success_rate >= 0.8 ? 'text-yellow-600' : 'text-red-500'
-                        ]">
-                          {{ (key.success_rate * 100).toFixed(0) }}%
+                    <!-- Key 信息 -->
+                    <div class="flex-1 min-w-0 flex items-center gap-3">
+                      <!-- 左侧：名称和来源 -->
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                          <span class="font-medium text-sm">{{ key.name }}</span>
+                          <Badge
+                            v-if="key.circuit_breaker_open"
+                            variant="destructive"
+                            class="text-[10px] h-5 px-1.5 shrink-0"
+                          >
+                            熔断
+                          </Badge>
+                          <Badge
+                            v-else-if="!key.is_active"
+                            variant="secondary"
+                            class="text-[10px] h-5 px-1.5 shrink-0"
+                          >
+                            停用
+                          </Badge>
+                          <!-- 能力标签紧跟名称 -->
+                          <template v-if="key.capabilities?.length">
+                            <span
+                              v-for="cap in key.capabilities.slice(0, 2)"
+                              :key="cap"
+                              class="px-1 py-0.5 bg-muted text-muted-foreground rounded text-[10px]"
+                            >{{ cap }}</span>
+                            <span
+                              v-if="key.capabilities.length > 2"
+                              class="text-[10px] text-muted-foreground"
+                            >+{{ key.capabilities.length - 2 }}</span>
+                          </template>
                         </div>
-                        <div class="text-[10px] text-muted-foreground opacity-70">{{ key.request_count }} reqs</div>
+                        <div class="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+                          <span class="text-[10px] font-medium shrink-0">{{ key.provider_name }}</span>
+                          <span class="font-mono text-[10px] opacity-60 truncate">{{ key.api_key_masked }}</span>
+                        </div>
                       </div>
-                      <div v-else class="text-xs text-muted-foreground/50 text-right">
-                        <div>--</div>
-                        <div class="text-[10px]">无数据</div>
+
+                      <!-- 右侧：健康度 + 速率 -->
+                      <div class="shrink-0 flex items-center gap-3">
+                        <!-- 健康度 -->
+                        <div
+                          v-if="key.success_rate !== null"
+                          class="text-xs text-right"
+                        >
+                          <div
+                            class="font-medium tabular-nums"
+                            :class="[
+                              key.success_rate >= 0.95 ? 'text-green-600' :
+                              key.success_rate >= 0.8 ? 'text-yellow-600' : 'text-red-500'
+                            ]"
+                          >
+                            {{ (key.success_rate * 100).toFixed(0) }}%
+                          </div>
+                          <div class="text-[10px] text-muted-foreground opacity-70">
+                            {{ key.request_count }} reqs
+                          </div>
+                        </div>
+                        <div
+                          v-else
+                          class="text-xs text-muted-foreground/50 text-right"
+                        >
+                          <div>--</div>
+                          <div class="text-[10px]">
+                            无数据
+                          </div>
+                        </div>
+                        <!-- 速率倍数 -->
+                        <div class="text-sm font-medium tabular-nums text-primary min-w-[40px] text-right">
+                          {{ key.rate_multiplier }}x
+                        </div>
                       </div>
-                      <!-- 速率倍数 -->
-                      <div class="text-sm font-medium tabular-nums text-primary min-w-[40px] text-right">{{ key.rate_multiplier }}x</div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div v-else class="flex flex-col items-center justify-center py-20 text-muted-foreground">
-                <Key class="w-10 h-10 mb-3 opacity-20" />
-                <span class="text-sm">暂无 {{ format }} 格式的 Key</span>
+                <div
+                  v-else
+                  class="flex flex-col items-center justify-center py-20 text-muted-foreground"
+                >
+                  <Key class="w-10 h-10 mb-3 opacity-20" />
+                  <span class="text-sm">暂无 {{ format }} 格式的 Key</span>
+                </div>
               </div>
-            </div>
             </div>
           </div>
         </div>
@@ -264,11 +316,24 @@
           当前模式: <span class="font-medium">{{ activeMainTab === 'provider' ? '提供商优先' : 'Key 优先' }}</span>
         </div>
         <div class="flex gap-2">
-          <Button size="sm" @click="save" :disabled="saving" class="min-w-[72px]">
-            <Loader2 v-if="saving" class="w-3.5 h-3.5 mr-1.5 animate-spin" />
+          <Button
+            size="sm"
+            :disabled="saving"
+            class="min-w-[72px]"
+            @click="save"
+          >
+            <Loader2
+              v-if="saving"
+              class="w-3.5 h-3.5 mr-1.5 animate-spin"
+            />
             {{ saving ? '保存中' : '保存' }}
           </Button>
-          <Button variant="outline" size="sm" @click="close" class="min-w-[72px]">
+          <Button
+            variant="outline"
+            size="sm"
+            class="min-w-[72px]"
+            @click="close"
+          >
             取消
           </Button>
         </div>

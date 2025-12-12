@@ -3,15 +3,25 @@
     <!-- 页面头部：统计卡片 + 公告 -->
     <div class="flex gap-6 items-start">
       <!-- 左侧统计区域 -->
-      <div ref="statsPanelRef" class="flex-1 min-w-0 flex flex-col">
-        <Badge :variant="authStore.user?.role === 'admin' ? 'default' : 'secondary'" class="uppercase tracking-[0.45em] mb-4 self-start">
+      <div
+        ref="statsPanelRef"
+        class="flex-1 min-w-0 flex flex-col"
+      >
+        <Badge
+          :variant="authStore.user?.role === 'admin' ? 'default' : 'secondary'"
+          class="uppercase tracking-[0.45em] mb-4 self-start"
+        >
           {{ authStore.user?.role === 'admin' ? 'ADMIN MODE' : 'PERSONAL MODE' }}
         </Badge>
 
         <!-- 主要统计卡片 -->
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <template v-if="loading && stats.length === 0">
-            <Card v-for="i in 4" :key="'skeleton-' + i" class="p-5">
+            <Card
+              v-for="i in 4"
+              :key="'skeleton-' + i"
+              class="p-5"
+            >
               <Skeleton class="h-4 w-20 mb-4" />
               <Skeleton class="h-8 w-32 mb-2" />
               <Skeleton class="h-4 w-16" />
@@ -30,40 +40,75 @@
             />
             <div class="flex items-start justify-between relative">
               <div>
-                <p class="text-[11px] font-semibold uppercase tracking-[0.4em] text-muted-foreground">{{ stat.name }}</p>
-                <p class="mt-4 text-3xl font-semibold text-foreground">{{ stat.value }}</p>
-                <p v-if="stat.subValue" class="mt-1 text-sm text-muted-foreground">{{ stat.subValue }}</p>
-                <div v-if="stat.change || stat.extraBadge" class="mt-2 flex items-center gap-1.5">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.4em] text-muted-foreground">
+                  {{ stat.name }}
+                </p>
+                <p class="mt-4 text-3xl font-semibold text-foreground">
+                  {{ stat.value }}
+                </p>
+                <p
+                  v-if="stat.subValue"
+                  class="mt-1 text-sm text-muted-foreground"
+                >
+                  {{ stat.subValue }}
+                </p>
+                <div
+                  v-if="stat.change || stat.extraBadge"
+                  class="mt-2 flex items-center gap-1.5"
+                >
                   <Badge
                     v-if="stat.change"
                     variant="secondary"
                   >
                     {{ stat.change }}
                   </Badge>
-                  <Badge v-if="stat.extraBadge" variant="secondary">
+                  <Badge
+                    v-if="stat.extraBadge"
+                    variant="secondary"
+                  >
                     {{ stat.extraBadge }}
                   </Badge>
                 </div>
               </div>
-              <div class="rounded-2xl border border-border bg-card/50 p-3 shadow-inner backdrop-blur-sm" :class="getStatIconColor(index)">
-                <component :is="stat.icon" class="h-5 w-5" />
+              <div
+                class="rounded-2xl border border-border bg-card/50 p-3 shadow-inner backdrop-blur-sm"
+                :class="getStatIconColor(index)"
+              >
+                <component
+                  :is="stat.icon"
+                  class="h-5 w-5"
+                />
               </div>
             </div>
           </Card>
         </div>
 
         <!-- 管理员：系统健康摘要 -->
-        <div v-if="isAdmin && systemHealth" class="mt-6">
+        <div
+          v-if="isAdmin && systemHealth"
+          class="mt-6"
+        >
           <div class="mb-3 flex items-center justify-between">
-            <h3 class="text-sm font-medium text-foreground">本月系统健康</h3>
-            <Badge variant="outline" class="uppercase tracking-[0.3em] text-[10px]">Monthly</Badge>
+            <h3 class="text-sm font-medium text-foreground">
+              本月系统健康
+            </h3>
+            <Badge
+              variant="outline"
+              class="uppercase tracking-[0.3em] text-[10px]"
+            >
+              Monthly
+            </Badge>
           </div>
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Card class="p-4 border-book-cloth/30">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">平均响应</p>
-                  <p class="mt-2 text-xl font-semibold text-foreground">{{ systemHealth.avg_response_time }}s</p>
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                    平均响应
+                  </p>
+                  <p class="mt-2 text-xl font-semibold text-foreground">
+                    {{ systemHealth.avg_response_time }}s
+                  </p>
                 </div>
                 <Clock class="h-4 w-4 text-book-cloth" />
               </div>
@@ -71,8 +116,15 @@
             <Card class="p-4 border-kraft/30">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">错误率</p>
-                  <p class="mt-2 text-xl font-semibold" :class="systemHealth.error_rate > 5 ? 'text-destructive' : 'text-foreground'">{{ systemHealth.error_rate }}%</p>
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                    错误率
+                  </p>
+                  <p
+                    class="mt-2 text-xl font-semibold"
+                    :class="systemHealth.error_rate > 5 ? 'text-destructive' : 'text-foreground'"
+                  >
+                    {{ systemHealth.error_rate }}%
+                  </p>
                 </div>
                 <AlertTriangle class="h-4 w-4 text-kraft" />
               </div>
@@ -80,18 +132,33 @@
             <Card class="p-4 border-book-cloth/25">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">转移次数</p>
-                  <p class="mt-2 text-xl font-semibold text-foreground">{{ systemHealth.fallback_count }}</p>
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                    转移次数
+                  </p>
+                  <p class="mt-2 text-xl font-semibold text-foreground">
+                    {{ systemHealth.fallback_count }}
+                  </p>
                 </div>
                 <Shuffle class="h-4 w-4 text-kraft" />
               </div>
             </Card>
-            <Card v-if="costStats" class="p-4 border-manilla/40">
+            <Card
+              v-if="costStats"
+              class="p-4 border-manilla/40"
+            >
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">实际成本</p>
-                  <p class="mt-2 text-xl font-semibold text-foreground">{{ formatCurrency(costStats.total_actual_cost) }}</p>
-                  <Badge v-if="costStats.cost_savings > 0" variant="success" class="mt-1 text-[10px]">
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                    实际成本
+                  </p>
+                  <p class="mt-2 text-xl font-semibold text-foreground">
+                    {{ formatCurrency(costStats.total_actual_cost) }}
+                  </p>
+                  <Badge
+                    v-if="costStats.cost_savings > 0"
+                    variant="success"
+                    class="mt-1 text-[10px]"
+                  >
                     节省 {{ formatCurrency(costStats.cost_savings) }}
                   </Badge>
                 </div>
@@ -102,17 +169,31 @@
         </div>
 
         <!-- 普通用户：缓存统计 -->
-        <div v-else-if="!isAdmin && cacheStats && cacheStats.total_cache_tokens > 0" class="mt-6">
+        <div
+          v-else-if="!isAdmin && cacheStats && cacheStats.total_cache_tokens > 0"
+          class="mt-6"
+        >
           <div class="mb-3 flex items-center justify-between">
-            <h3 class="text-sm font-medium text-foreground">本月缓存使用</h3>
-            <Badge variant="outline" class="uppercase tracking-[0.3em] text-[10px]">Monthly</Badge>
+            <h3 class="text-sm font-medium text-foreground">
+              本月缓存使用
+            </h3>
+            <Badge
+              variant="outline"
+              class="uppercase tracking-[0.3em] text-[10px]"
+            >
+              Monthly
+            </Badge>
           </div>
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Card class="p-4 border-book-cloth/30">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">缓存命中率</p>
-                  <p class="mt-2 text-xl font-semibold text-foreground">{{ cacheStats.cache_hit_rate || 0 }}%</p>
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                    缓存命中率
+                  </p>
+                  <p class="mt-2 text-xl font-semibold text-foreground">
+                    {{ cacheStats.cache_hit_rate || 0 }}%
+                  </p>
                 </div>
                 <Database class="h-4 w-4 text-book-cloth" />
               </div>
@@ -120,8 +201,12 @@
             <Card class="p-4 border-kraft/30">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">缓存读取</p>
-                  <p class="mt-2 text-xl font-semibold text-foreground">{{ formatTokens(cacheStats.cache_read_tokens) }}</p>
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                    缓存读取
+                  </p>
+                  <p class="mt-2 text-xl font-semibold text-foreground">
+                    {{ formatTokens(cacheStats.cache_read_tokens) }}
+                  </p>
                 </div>
                 <Hash class="h-4 w-4 text-kraft" />
               </div>
@@ -129,18 +214,31 @@
             <Card class="p-4 border-book-cloth/25">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">缓存创建</p>
-                  <p class="mt-2 text-xl font-semibold text-foreground">{{ formatTokens(cacheStats.cache_creation_tokens) }}</p>
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                    缓存创建
+                  </p>
+                  <p class="mt-2 text-xl font-semibold text-foreground">
+                    {{ formatTokens(cacheStats.cache_creation_tokens) }}
+                  </p>
                 </div>
                 <Database class="h-4 w-4 text-kraft" />
               </div>
             </Card>
-            <Card v-if="tokenBreakdown" class="p-4 border-manilla/40">
+            <Card
+              v-if="tokenBreakdown"
+              class="p-4 border-manilla/40"
+            >
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">总Token</p>
-                  <p class="mt-2 text-xl font-semibold text-foreground">{{ formatTokens((tokenBreakdown.input || 0) + (tokenBreakdown.output || 0)) }}</p>
-                  <p class="mt-1 text-[10px] text-muted-foreground">输入 {{ formatTokens(tokenBreakdown.input || 0) }} / 输出 {{ formatTokens(tokenBreakdown.output || 0) }}</p>
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                    总Token
+                  </p>
+                  <p class="mt-2 text-xl font-semibold text-foreground">
+                    {{ formatTokens((tokenBreakdown.input || 0) + (tokenBreakdown.output || 0)) }}
+                  </p>
+                  <p class="mt-1 text-[10px] text-muted-foreground">
+                    输入 {{ formatTokens(tokenBreakdown.input || 0) }} / 输出 {{ formatTokens(tokenBreakdown.output || 0) }}
+                  </p>
                 </div>
                 <Hash class="h-4 w-4 text-book-cloth" />
               </div>
@@ -156,27 +254,48 @@
         :style="announcementsContainerStyle"
       >
         <div class="mb-3 flex items-center justify-between flex-shrink-0">
-          <h3 class="text-sm font-medium text-foreground">系统公告</h3>
-          <Badge variant="outline" class="uppercase tracking-[0.3em] text-[10px]">Live</Badge>
+          <h3 class="text-sm font-medium text-foreground">
+            系统公告
+          </h3>
+          <Badge
+            variant="outline"
+            class="uppercase tracking-[0.3em] text-[10px]"
+          >
+            Live
+          </Badge>
         </div>
 
         <Card class="overflow-hidden p-4 flex flex-col flex-1 min-h-0 h-full">
-          <div v-if="loadingAnnouncements" class="py-8 text-center">
+          <div
+            v-if="loadingAnnouncements"
+            class="py-8 text-center"
+          >
             <Loader2 class="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
           </div>
 
-          <div v-else-if="announcements.length === 0" class="py-8 text-center">
+          <div
+            v-else-if="announcements.length === 0"
+            class="py-8 text-center"
+          >
             <Bell class="h-8 w-8 mx-auto text-muted-foreground/40" />
-            <p class="mt-2 text-xs text-muted-foreground">暂无公告</p>
+            <p class="mt-2 text-xs text-muted-foreground">
+              暂无公告
+            </p>
           </div>
 
-          <div v-else class="-mx-4 px-4 flex-1 overflow-y-auto scrollbar-thin min-h-0 pb-2">
-            <div ref="announcementsTimelineRef" class="relative pl-5">
+          <div
+            v-else
+            class="-mx-4 px-4 flex-1 overflow-y-auto scrollbar-thin min-h-0 pb-2"
+          >
+            <div
+              ref="announcementsTimelineRef"
+              class="relative pl-5"
+            >
               <div
                 v-if="announcements.length > 1"
                 class="absolute left-[7px] w-[2px] bg-slate-200 dark:bg-muted"
                 :style="timelineLineStyle"
-              ></div>
+              />
 
               <button
                 v-for="announcement in announcements"
@@ -195,14 +314,14 @@
                         announcement.is_pinned
                           ? 'bg-amber-500 dark:bg-amber-400'
                           : announcement.is_read
-                          ? 'bg-slate-300 dark:bg-slate-600'
-                          : getAnnouncementDotColor(announcement.type)
+                            ? 'bg-slate-300 dark:bg-slate-600'
+                            : getAnnouncementDotColor(announcement.type)
                       ]"
                     >
                       <span
                         v-if="!announcement.is_read && !announcement.is_pinned"
                         class="h-1.5 w-1.5 rounded-full bg-white"
-                      ></span>
+                      />
                     </span>
                   </div>
 
@@ -244,13 +363,28 @@
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <!-- 请求次数和费用趋势 -->
       <Card class="p-5">
-        <h4 class="mb-3 text-xs font-semibold text-foreground uppercase tracking-wider">请求次数 / 费用趋势</h4>
-        <div v-if="loadingDaily" class="flex items-center justify-center h-[280px]">
+        <h4 class="mb-3 text-xs font-semibold text-foreground uppercase tracking-wider">
+          请求次数 / 费用趋势
+        </h4>
+        <div
+          v-if="loadingDaily"
+          class="flex items-center justify-center h-[280px]"
+        >
           <Skeleton class="h-full w-full" />
         </div>
-        <div v-else style="height: 280px;">
-          <LineChart v-if="chartData.requests" :data="chartData.requests" :options="chartOptions.requests" />
-          <div v-else class="flex h-full items-center justify-center text-xs text-muted-foreground">
+        <div
+          v-else
+          style="height: 280px;"
+        >
+          <LineChart
+            v-if="chartData.requests"
+            :data="chartData.requests"
+            :options="chartOptions.requests"
+          />
+          <div
+            v-else
+            class="flex h-full items-center justify-center text-xs text-muted-foreground"
+          >
             暂无数据
           </div>
         </div>
@@ -258,17 +392,28 @@
 
       <!-- 每日模型成本（堆叠柱状图） -->
       <Card class="p-5">
-        <h4 class="mb-3 text-xs font-semibold text-foreground uppercase tracking-wider">每日模型成本</h4>
-        <div v-if="loadingDaily" class="flex items-center justify-center h-[280px]">
+        <h4 class="mb-3 text-xs font-semibold text-foreground uppercase tracking-wider">
+          每日模型成本
+        </h4>
+        <div
+          v-if="loadingDaily"
+          class="flex items-center justify-center h-[280px]"
+        >
           <Skeleton class="h-full w-full" />
         </div>
-        <div v-else style="height: 280px;">
+        <div
+          v-else
+          style="height: 280px;"
+        >
           <BarChart
             v-if="dailyModelCostChartData.labels && dailyModelCostChartData.labels.length > 0"
             :data="dailyModelCostChartData"
             :options="dailyModelCostChartOptions"
           />
-          <div v-else class="flex h-full items-center justify-center text-xs text-muted-foreground">
+          <div
+            v-else
+            class="flex h-full items-center justify-center text-xs text-muted-foreground"
+          >
             暂无数据
           </div>
         </div>
@@ -280,18 +425,35 @@
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead class="text-left">日期</TableHead>
-            <TableHead class="text-center">请求次数</TableHead>
-            <TableHead class="text-center">Tokens</TableHead>
-            <TableHead class="text-center">费用</TableHead>
-            <TableHead class="text-center">平均响应</TableHead>
-            <TableHead class="text-center">使用模型</TableHead>
-            <TableHead class="text-center">使用提供商</TableHead>
+            <TableHead class="text-left">
+              日期
+            </TableHead>
+            <TableHead class="text-center">
+              请求次数
+            </TableHead>
+            <TableHead class="text-center">
+              Tokens
+            </TableHead>
+            <TableHead class="text-center">
+              费用
+            </TableHead>
+            <TableHead class="text-center">
+              平均响应
+            </TableHead>
+            <TableHead class="text-center">
+              使用模型
+            </TableHead>
+            <TableHead class="text-center">
+              使用提供商
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <TableRow v-if="loadingDaily">
-            <TableCell colspan="7" class="text-center py-8">
+            <TableCell
+              colspan="7"
+              class="text-center py-8"
+            >
               <div class="flex items-center justify-center gap-2">
                 <Skeleton class="h-5 w-5 rounded-full" />
                 <span class="text-muted-foreground text-xs">加载中...</span>
@@ -299,87 +461,150 @@
             </TableCell>
           </TableRow>
           <TableRow v-else-if="dailyStats.length === 0">
-            <TableCell colspan="7" class="text-center py-8 text-muted-foreground text-xs">
+            <TableCell
+              colspan="7"
+              class="text-center py-8 text-muted-foreground text-xs"
+            >
               暂无数据
             </TableCell>
           </TableRow>
           <template v-else>
-            <TableRow v-for="stat in dailyStats.slice().reverse()" :key="stat.date">
-              <TableCell class="font-medium text-xs">{{ formatDate(stat.date) }}</TableCell>
-              <TableCell class="text-center text-xs">{{ stat.requests.toLocaleString() }}</TableCell>
-              <TableCell class="text-center">
-                <Badge variant="secondary" class="text-[10px]">{{ formatTokens(stat.tokens) }}</Badge>
+            <TableRow
+              v-for="stat in dailyStats.slice().reverse()"
+              :key="stat.date"
+            >
+              <TableCell class="font-medium text-xs">
+                {{ formatDate(stat.date) }}
+              </TableCell>
+              <TableCell class="text-center text-xs">
+                {{ stat.requests.toLocaleString() }}
               </TableCell>
               <TableCell class="text-center">
-                <Badge variant="success" class="text-[10px]">${{ stat.cost.toFixed(4) }}</Badge>
+                <Badge
+                  variant="secondary"
+                  class="text-[10px]"
+                >
+                  {{ formatTokens(stat.tokens) }}
+                </Badge>
               </TableCell>
               <TableCell class="text-center">
-                <Badge variant="outline" class="text-[10px]">{{ formatResponseTime(stat.avg_response_time) }}</Badge>
+                <Badge
+                  variant="success"
+                  class="text-[10px]"
+                >
+                  ${{ stat.cost.toFixed(4) }}
+                </Badge>
               </TableCell>
-              <TableCell class="text-center text-xs">{{ stat.unique_models }}</TableCell>
-              <TableCell class="text-center text-xs">{{ stat.unique_providers }}</TableCell>
+              <TableCell class="text-center">
+                <Badge
+                  variant="outline"
+                  class="text-[10px]"
+                >
+                  {{ formatResponseTime(stat.avg_response_time) }}
+                </Badge>
+              </TableCell>
+              <TableCell class="text-center text-xs">
+                {{ stat.unique_models }}
+              </TableCell>
+              <TableCell class="text-center text-xs">
+                {{ stat.unique_providers }}
+              </TableCell>
             </TableRow>
           </template>
         </TableBody>
       </Table>
 
       <!-- 汇总信息 -->
-      <div v-if="dailyStats.length > 0" class="border-t border-border bg-muted/30 backdrop-blur-sm px-4 py-3 text-xs">
+      <div
+        v-if="dailyStats.length > 0"
+        class="border-t border-border bg-muted/30 backdrop-blur-sm px-4 py-3 text-xs"
+      >
         <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div class="text-center">
-            <div class="text-muted-foreground text-[10px]">总请求</div>
-            <div class="font-semibold text-foreground">{{ totalStats.requests.toLocaleString() }}</div>
+            <div class="text-muted-foreground text-[10px]">
+              总请求
+            </div>
+            <div class="font-semibold text-foreground">
+              {{ totalStats.requests.toLocaleString() }}
+            </div>
           </div>
           <div class="text-center">
-            <div class="text-muted-foreground text-[10px]">总Tokens</div>
-            <div class="font-semibold text-book-cloth dark:text-kraft">{{ formatTokens(totalStats.tokens) }}</div>
+            <div class="text-muted-foreground text-[10px]">
+              总Tokens
+            </div>
+            <div class="font-semibold text-book-cloth dark:text-kraft">
+              {{ formatTokens(totalStats.tokens) }}
+            </div>
           </div>
           <div class="text-center">
-            <div class="text-muted-foreground text-[10px]">总费用</div>
-            <div class="font-semibold text-amber-600 dark:text-amber-400">${{ totalStats.cost.toFixed(4) }}</div>
+            <div class="text-muted-foreground text-[10px]">
+              总费用
+            </div>
+            <div class="font-semibold text-amber-600 dark:text-amber-400">
+              ${{ totalStats.cost.toFixed(4) }}
+            </div>
           </div>
           <div class="text-center">
-            <div class="text-muted-foreground text-[10px]">平均响应</div>
-            <div class="font-semibold text-book-cloth dark:text-kraft">{{ formatResponseTime(totalStats.avgResponseTime) }}</div>
+            <div class="text-muted-foreground text-[10px]">
+              平均响应
+            </div>
+            <div class="font-semibold text-book-cloth dark:text-kraft">
+              {{ formatResponseTime(totalStats.avgResponseTime) }}
+            </div>
           </div>
         </div>
       </div>
     </Card>
-
   </div>
 
   <!-- 公告详情对话框 -->
-  <Dialog v-model="detailDialogOpen" size="lg">
+  <Dialog
+    v-model="detailDialogOpen"
+    size="lg"
+  >
     <template #header>
       <div class="border-b border-border px-6 py-4">
         <div class="flex items-center gap-3">
           <component
-            v-if="selectedAnnouncement"
             :is="getAnnouncementIcon(selectedAnnouncement.type)"
+            v-if="selectedAnnouncement"
             class="h-5 w-5 flex-shrink-0"
             :class="getAnnouncementIconColor(selectedAnnouncement.type)"
           />
           <div class="flex-1 min-w-0">
-            <h3 class="text-lg font-semibold text-foreground leading-tight truncate">{{ selectedAnnouncement?.title || '公告详情' }}</h3>
-            <p class="text-xs text-muted-foreground">系统公告</p>
+            <h3 class="text-lg font-semibold text-foreground leading-tight truncate">
+              {{ selectedAnnouncement?.title || '公告详情' }}
+            </h3>
+            <p class="text-xs text-muted-foreground">
+              系统公告
+            </p>
           </div>
         </div>
       </div>
     </template>
 
-    <div v-if="selectedAnnouncement" class="space-y-4">
+    <div
+      v-if="selectedAnnouncement"
+      class="space-y-4"
+    >
       <div class="text-xs text-muted-foreground">
         {{ formatFullDate(selectedAnnouncement.created_at) }}
       </div>
 
       <div
-        v-html="renderMarkdown(selectedAnnouncement.content)"
         class="prose prose-sm dark:prose-invert max-w-none"
-      ></div>
+        v-html="renderMarkdown(selectedAnnouncement.content)"
+      />
     </div>
 
     <template #footer>
-      <Button variant="outline" @click="detailDialogOpen = false" class="h-10 px-5">关闭</Button>
+      <Button
+        variant="outline"
+        class="h-10 px-5"
+        @click="detailDialogOpen = false"
+      >
+        关闭
+      </Button>
     </template>
   </Dialog>
 </template>

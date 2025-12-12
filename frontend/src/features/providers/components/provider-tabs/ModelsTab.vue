@@ -6,7 +6,12 @@
         <h3 class="text-sm font-semibold flex items-center gap-2">
           模型列表
         </h3>
-        <Button @click="openBatchAssignDialog" variant="outline" size="sm" class="h-8">
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8"
+          @click="openBatchAssignDialog"
+        >
           <Layers class="w-3.5 h-3.5 mr-1.5" />
           关联模型
         </Button>
@@ -14,19 +19,33 @@
     </div>
 
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex items-center justify-center py-12">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    <div
+      v-if="loading"
+      class="flex items-center justify-center py-12"
+    >
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
     </div>
 
     <!-- 模型列表 -->
-    <div v-else-if="models.length > 0" class="overflow-hidden">
+    <div
+      v-else-if="models.length > 0"
+      class="overflow-hidden"
+    >
       <table class="w-full text-sm table-fixed">
         <thead class="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
-            <th class="text-left px-4 py-3 font-semibold w-[40%]">模型</th>
-            <th class="text-left px-4 py-3 font-semibold w-[15%]">能力</th>
-            <th class="text-left px-4 py-3 font-semibold w-[25%]">价格 ($/M)</th>
-            <th class="text-center px-4 py-3 font-semibold w-[20%]">操作</th>
+            <th class="text-left px-4 py-3 font-semibold w-[40%]">
+              模型
+            </th>
+            <th class="text-left px-4 py-3 font-semibold w-[15%]">
+              能力
+            </th>
+            <th class="text-left px-4 py-3 font-semibold w-[25%]">
+              价格 ($/M)
+            </th>
+            <th class="text-center px-4 py-3 font-semibold w-[20%]">
+              操作
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -42,7 +61,7 @@
                   class="w-2 h-2 rounded-full shrink-0"
                   :class="getStatusIndicatorClass(model)"
                   :title="getStatusTitle(model)"
-                ></div>
+                />
                 <!-- 模型信息 -->
                 <div class="text-left flex-1 min-w-0">
                   <span class="font-semibold text-sm">
@@ -51,9 +70,9 @@
                   <div class="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                     <span class="font-mono truncate">{{ model.provider_model_name }}</span>
                     <button
-                      @click.stop="copyModelId(model.provider_model_name)"
                       class="p-0.5 hover:bg-muted rounded transition-colors shrink-0"
                       title="复制模型 ID"
+                      @click.stop="copyModelId(model.provider_model_name)"
                     >
                       <Copy class="w-3 h-3" />
                     </button>
@@ -62,17 +81,46 @@
               </div>
             </td>
             <td class="align-top px-4 py-3">
-              <div v-if="hasAnyCapability(model)" class="grid grid-cols-3 gap-1 w-fit">
-                <Zap v-if="model.effective_supports_streaming ?? model.supports_streaming" class="w-4 h-4 text-muted-foreground" title="流式输出" />
-                <Image v-if="model.effective_supports_image_generation ?? model.supports_image_generation" class="w-4 h-4 text-muted-foreground" title="图像生成" />
-                <Eye v-if="model.effective_supports_vision ?? model.supports_vision" class="w-4 h-4 text-muted-foreground" title="视觉理解" />
-                <Wrench v-if="model.effective_supports_function_calling ?? model.supports_function_calling" class="w-4 h-4 text-muted-foreground" title="工具调用" />
-                <Brain v-if="model.effective_supports_extended_thinking ?? model.supports_extended_thinking" class="w-4 h-4 text-muted-foreground" title="深度思考" />
+              <div
+                v-if="hasAnyCapability(model)"
+                class="grid grid-cols-3 gap-1 w-fit"
+              >
+                <Zap
+                  v-if="model.effective_supports_streaming ?? model.supports_streaming"
+                  class="w-4 h-4 text-muted-foreground"
+                  title="流式输出"
+                />
+                <Image
+                  v-if="model.effective_supports_image_generation ?? model.supports_image_generation"
+                  class="w-4 h-4 text-muted-foreground"
+                  title="图像生成"
+                />
+                <Eye
+                  v-if="model.effective_supports_vision ?? model.supports_vision"
+                  class="w-4 h-4 text-muted-foreground"
+                  title="视觉理解"
+                />
+                <Wrench
+                  v-if="model.effective_supports_function_calling ?? model.supports_function_calling"
+                  class="w-4 h-4 text-muted-foreground"
+                  title="工具调用"
+                />
+                <Brain
+                  v-if="model.effective_supports_extended_thinking ?? model.supports_extended_thinking"
+                  class="w-4 h-4 text-muted-foreground"
+                  title="深度思考"
+                />
               </div>
-              <span v-else class="text-xs text-muted-foreground">—</span>
+              <span
+                v-else
+                class="text-xs text-muted-foreground"
+              >—</span>
             </td>
             <td class="align-top px-4 py-3 text-xs whitespace-nowrap">
-              <div class="grid gap-1" style="grid-template-columns: auto 1fr;">
+              <div
+                class="grid gap-1"
+                style="grid-template-columns: auto 1fr;"
+              >
                 <!-- 按 Token 计费 -->
                 <template v-if="hasTokenPricing(model)">
                   <span class="text-muted-foreground text-right">输入/输出:</span>
@@ -112,8 +160,8 @@
                   variant="ghost"
                   size="icon"
                   class="h-8 w-8"
-                  @click="editModel(model)"
                   title="编辑"
+                  @click="editModel(model)"
                 >
                   <Edit class="w-3.5 h-3.5" />
                 </Button>
@@ -122,8 +170,8 @@
                   size="icon"
                   class="h-8 w-8"
                   :disabled="togglingModelId === model.id"
-                  @click="toggleModelActive(model)"
                   :title="model.is_active ? '点击停用' : '点击启用'"
+                  @click="toggleModelActive(model)"
                 >
                   <Power class="w-3.5 h-3.5" />
                 </Button>
@@ -131,8 +179,8 @@
                   variant="ghost"
                   size="icon"
                   class="h-8 w-8 text-destructive hover:text-destructive"
-                  @click="deleteModel(model)"
                   title="删除"
+                  @click="deleteModel(model)"
                 >
                   <Trash2 class="w-3.5 h-3.5" />
                 </Button>
@@ -144,10 +192,17 @@
     </div>
 
     <!-- 空状态 -->
-    <div v-else class="p-8 text-center text-muted-foreground">
+    <div
+      v-else
+      class="p-8 text-center text-muted-foreground"
+    >
       <Box class="w-12 h-12 mx-auto mb-3 opacity-50" />
-      <p class="text-sm">暂无模型</p>
-      <p class="text-xs mt-1">请前往"模型目录"页面添加模型</p>
+      <p class="text-sm">
+        暂无模型
+      </p>
+      <p class="text-xs mt-1">
+        请前往"模型目录"页面添加模型
+      </p>
     </div>
   </Card>
 </template>

@@ -1,18 +1,27 @@
 <template>
   <div class="space-y-6 pb-8">
     <!-- 公告列表卡片 -->
-    <Card variant="default" class="overflow-hidden">
+    <Card
+      variant="default"
+      class="overflow-hidden"
+    >
       <!-- 标题和操作栏 -->
       <div class="px-6 py-3.5 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
           <div>
-            <h3 class="text-base font-semibold">公告管理</h3>
+            <h3 class="text-base font-semibold">
+              公告管理
+            </h3>
             <p class="text-xs text-muted-foreground mt-0.5">
               {{ isAdmin ? '管理系统公告和通知' : '查看系统公告和通知' }}
             </p>
           </div>
           <div class="flex items-center gap-2">
-            <Badge v-if="unreadCount > 0" variant="default" class="px-3 py-1">
+            <Badge
+              v-if="unreadCount > 0"
+              variant="default"
+              class="px-3 py-1"
+            >
               {{ unreadCount }} 条未读
             </Badge>
             <div class="h-4 w-px bg-border" />
@@ -21,39 +30,80 @@
               variant="ghost"
               size="icon"
               class="h-8 w-8"
-              @click="openCreateDialog"
               title="新建公告"
+              @click="openCreateDialog"
             >
               <Plus class="w-3.5 h-3.5" />
             </Button>
-            <RefreshButton :loading="loading" @click="loadAnnouncements(currentPage)" />
+            <RefreshButton
+              :loading="loading"
+              @click="loadAnnouncements(currentPage)"
+            />
           </div>
         </div>
       </div>
 
       <!-- 内容区域 -->
-      <div v-if="loading" class="flex items-center justify-center py-12">
+      <div
+        v-if="loading"
+        class="flex items-center justify-center py-12"
+      >
         <Loader2 class="w-8 h-8 animate-spin text-primary" />
       </div>
 
-      <div v-else-if="announcements.length === 0" class="flex flex-col items-center justify-center py-12 text-center">
+      <div
+        v-else-if="announcements.length === 0"
+        class="flex flex-col items-center justify-center py-12 text-center"
+      >
         <Bell class="h-12 w-12 text-muted-foreground mb-3" />
-        <h3 class="text-sm font-medium text-foreground">暂无公告</h3>
-        <p class="text-xs text-muted-foreground mt-1">系统暂时没有发布任何公告</p>
+        <h3 class="text-sm font-medium text-foreground">
+          暂无公告
+        </h3>
+        <p class="text-xs text-muted-foreground mt-1">
+          系统暂时没有发布任何公告
+        </p>
       </div>
 
-      <div v-else class="overflow-x-auto">
+      <div
+        v-else
+        class="overflow-x-auto"
+      >
         <Table>
           <TableHeader>
             <TableRow class="border-b border-border/60 hover:bg-transparent">
-              <TableHead class="w-[80px] h-12 font-semibold text-center">类型</TableHead>
-              <TableHead class="h-12 font-semibold">概要</TableHead>
-              <TableHead class="w-[120px] h-12 font-semibold">发布者</TableHead>
-              <TableHead class="w-[140px] h-12 font-semibold">发布时间</TableHead>
-              <TableHead class="w-[80px] h-12 font-semibold text-center">状态</TableHead>
-              <TableHead v-if="isAdmin" class="w-[80px] h-12 font-semibold text-center">置顶</TableHead>
-              <TableHead v-if="isAdmin" class="w-[80px] h-12 font-semibold text-center">启用</TableHead>
-              <TableHead v-if="isAdmin" class="w-[100px] h-12 font-semibold text-center">操作</TableHead>
+              <TableHead class="w-[80px] h-12 font-semibold text-center">
+                类型
+              </TableHead>
+              <TableHead class="h-12 font-semibold">
+                概要
+              </TableHead>
+              <TableHead class="w-[120px] h-12 font-semibold">
+                发布者
+              </TableHead>
+              <TableHead class="w-[140px] h-12 font-semibold">
+                发布时间
+              </TableHead>
+              <TableHead class="w-[80px] h-12 font-semibold text-center">
+                状态
+              </TableHead>
+              <TableHead
+                v-if="isAdmin"
+                class="w-[80px] h-12 font-semibold text-center"
+              >
+                置顶
+              </TableHead>
+              <TableHead
+                v-if="isAdmin"
+                class="w-[80px] h-12 font-semibold text-center"
+              >
+                启用
+              </TableHead>
+              <TableHead
+                v-if="isAdmin"
+                class="w-[100px] h-12 font-semibold text-center"
+              >
+                操作
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -65,8 +115,15 @@
             >
               <TableCell class="py-4 text-center">
                 <div class="flex flex-col items-center gap-1">
-                  <component :is="getAnnouncementIcon(announcement.type)" class="w-5 h-5" :class="getIconColor(announcement.type)" />
-                  <span :class="['text-xs font-medium', getTypeTextColor(announcement.type)]">
+                  <component
+                    :is="getAnnouncementIcon(announcement.type)"
+                    class="w-5 h-5"
+                    :class="getIconColor(announcement.type)"
+                  />
+                  <span
+                    class="text-xs font-medium"
+                    :class="[getTypeTextColor(announcement.type)]"
+                  >
                     {{ getTypeLabel(announcement.type) }}
                   </span>
                 </div>
@@ -75,7 +132,10 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 mb-1">
                     <span class="text-sm font-medium text-foreground">{{ announcement.title }}</span>
-                    <Pin v-if="announcement.is_pinned" class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    <Pin
+                      v-if="announcement.is_pinned"
+                      class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0"
+                    />
                   </div>
                   <p class="text-xs text-muted-foreground line-clamp-1">
                     {{ getPlainText(announcement.content) }}
@@ -89,37 +149,67 @@
                 {{ formatDate(announcement.created_at) }}
               </TableCell>
               <TableCell class="py-4 text-center">
-                <Badge v-if="announcement.is_read" variant="secondary" class="text-xs px-2.5 py-0.5">
+                <Badge
+                  v-if="announcement.is_read"
+                  variant="secondary"
+                  class="text-xs px-2.5 py-0.5"
+                >
                   已读
                 </Badge>
-                <Badge v-else variant="default" class="text-xs px-2.5 py-0.5">
+                <Badge
+                  v-else
+                  variant="default"
+                  class="text-xs px-2.5 py-0.5"
+                >
                   未读
                 </Badge>
               </TableCell>
-              <TableCell v-if="isAdmin" class="py-4" @click.stop>
+              <TableCell
+                v-if="isAdmin"
+                class="py-4"
+                @click.stop
+              >
                 <div class="flex items-center justify-center">
                   <Switch
                     :model-value="announcement.is_pinned"
-                    @update:model-value="toggleAnnouncementPin(announcement, $event)"
                     class="data-[state=checked]:bg-emerald-500"
+                    @update:model-value="toggleAnnouncementPin(announcement, $event)"
                   />
                 </div>
               </TableCell>
-              <TableCell v-if="isAdmin" class="py-4" @click.stop>
+              <TableCell
+                v-if="isAdmin"
+                class="py-4"
+                @click.stop
+              >
                 <div class="flex items-center justify-center">
                   <Switch
                     :model-value="announcement.is_active"
-                    @update:model-value="toggleAnnouncementActive(announcement, $event)"
                     class="data-[state=checked]:bg-primary"
+                    @update:model-value="toggleAnnouncementActive(announcement, $event)"
                   />
                 </div>
               </TableCell>
-              <TableCell v-if="isAdmin" class="py-4" @click.stop>
+              <TableCell
+                v-if="isAdmin"
+                class="py-4"
+                @click.stop
+              >
                 <div class="flex items-center justify-center gap-1">
-                  <Button @click="openEditDialog(announcement)" variant="ghost" size="icon" class="h-8 w-8">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                    @click="openEditDialog(announcement)"
+                  >
                     <SquarePen class="w-4 h-4" />
                   </Button>
-                  <Button @click="confirmDelete(announcement)" variant="ghost" size="icon" class="h-9 w-9 hover:bg-rose-500/10 hover:text-rose-600">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-9 w-9 hover:bg-rose-500/10 hover:text-rose-600"
+                    @click="confirmDelete(announcement)"
+                  >
                     <Trash2 class="w-4 h-4" />
                   </Button>
                 </div>
@@ -141,7 +231,10 @@
     </Card>
 
     <!-- 创建/编辑公告对话框 -->
-    <Dialog v-model="dialogOpen" size="xl">
+    <Dialog
+      v-model="dialogOpen"
+      size="xl"
+    >
       <template #header>
         <div class="border-b border-border px-6 py-4">
           <div class="flex items-center gap-3">
@@ -149,43 +242,96 @@
               <Bell class="h-5 w-5 text-primary" />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-foreground leading-tight">{{ editingAnnouncement ? '编辑公告' : '新建公告' }}</h3>
-              <p class="text-xs text-muted-foreground">{{ editingAnnouncement ? '修改公告内容和设置' : '发布新的系统公告' }}</p>
+              <h3 class="text-lg font-semibold text-foreground leading-tight">
+                {{ editingAnnouncement ? '编辑公告' : '新建公告' }}
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                {{ editingAnnouncement ? '修改公告内容和设置' : '发布新的系统公告' }}
+              </p>
             </div>
           </div>
         </div>
       </template>
 
-      <form @submit.prevent="saveAnnouncement" class="space-y-4">
+      <form
+        class="space-y-4"
+        @submit.prevent="saveAnnouncement"
+      >
         <div class="space-y-2">
-          <Label for="title" class="text-sm font-medium">标题 *</Label>
-          <Input id="title" v-model="formData.title" placeholder="输入公告标题" class="h-11" required />
+          <Label
+            for="title"
+            class="text-sm font-medium"
+          >标题 *</Label>
+          <Input
+            id="title"
+            v-model="formData.title"
+            placeholder="输入公告标题"
+            class="h-11"
+            required
+          />
         </div>
 
         <div class="space-y-2">
-          <Label for="content" class="text-sm font-medium">内容 * (支持 Markdown)</Label>
-          <Textarea id="content" v-model="formData.content" placeholder="输入公告内容，支持 Markdown 格式" rows="10" required />
+          <Label
+            for="content"
+            class="text-sm font-medium"
+          >内容 * (支持 Markdown)</Label>
+          <Textarea
+            id="content"
+            v-model="formData.content"
+            placeholder="输入公告内容，支持 Markdown 格式"
+            rows="10"
+            required
+          />
         </div>
 
         <div class="grid grid-cols-2 gap-4">
           <div class="space-y-2">
-            <Label for="type" class="text-sm font-medium">类型</Label>
-            <Select v-model="formData.type" v-model:open="typeSelectOpen">
-              <SelectTrigger id="type" class="h-11">
+            <Label
+              for="type"
+              class="text-sm font-medium"
+            >类型</Label>
+            <Select
+              v-model="formData.type"
+              v-model:open="typeSelectOpen"
+            >
+              <SelectTrigger
+                id="type"
+                class="h-11"
+              >
                 <SelectValue placeholder="选择类型" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="info">信息</SelectItem>
-                <SelectItem value="warning">警告</SelectItem>
-                <SelectItem value="maintenance">维护</SelectItem>
-                <SelectItem value="important">重要</SelectItem>
+                <SelectItem value="info">
+                  信息
+                </SelectItem>
+                <SelectItem value="warning">
+                  警告
+                </SelectItem>
+                <SelectItem value="maintenance">
+                  维护
+                </SelectItem>
+                <SelectItem value="important">
+                  重要
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div class="space-y-2">
-            <Label for="priority" class="text-sm font-medium">优先级</Label>
-            <Input id="priority" v-model.number="formData.priority" type="number" placeholder="0" class="h-11" min="0" max="10" />
+            <Label
+              for="priority"
+              class="text-sm font-medium"
+            >优先级</Label>
+            <Input
+              id="priority"
+              v-model.number="formData.priority"
+              type="number"
+              placeholder="0"
+              class="h-11"
+              min="0"
+              max="10"
+            />
           </div>
         </div>
 
@@ -196,27 +342,50 @@
               v-model="formData.is_pinned"
               type="checkbox"
               class="h-4 w-4 rounded border-gray-300 cursor-pointer"
-            />
-            <Label for="pinned" class="cursor-pointer text-sm">置顶公告</Label>
+            >
+            <Label
+              for="pinned"
+              class="cursor-pointer text-sm"
+            >置顶公告</Label>
           </div>
-          <div v-if="editingAnnouncement" class="flex items-center gap-2">
+          <div
+            v-if="editingAnnouncement"
+            class="flex items-center gap-2"
+          >
             <input
               id="active"
               v-model="formData.is_active"
               type="checkbox"
               class="h-4 w-4 rounded border-gray-300 cursor-pointer"
-            />
-            <Label for="active" class="cursor-pointer text-sm">启用</Label>
+            >
+            <Label
+              for="active"
+              class="cursor-pointer text-sm"
+            >启用</Label>
           </div>
         </div>
       </form>
 
       <template #footer>
-        <Button @click="saveAnnouncement" :disabled="saving" class="h-10 px-5">
-          <Loader2 v-if="saving" class="animate-spin h-4 w-4 mr-2" />
+        <Button
+          :disabled="saving"
+          class="h-10 px-5"
+          @click="saveAnnouncement"
+        >
+          <Loader2
+            v-if="saving"
+            class="animate-spin h-4 w-4 mr-2"
+          />
           {{ editingAnnouncement ? '保存' : '创建' }}
         </Button>
-        <Button variant="outline" @click="dialogOpen = false" type="button" class="h-10 px-5">取消</Button>
+        <Button
+          variant="outline"
+          type="button"
+          class="h-10 px-5"
+          @click="dialogOpen = false"
+        >
+          取消
+        </Button>
       </template>
     </Dialog>
 
@@ -233,27 +402,40 @@
     />
 
     <!-- 公告详情对话框 -->
-    <Dialog v-model="detailDialogOpen" size="lg">
+    <Dialog
+      v-model="detailDialogOpen"
+      size="lg"
+    >
       <template #header>
         <div class="border-b border-border px-6 py-4">
           <div class="flex items-center gap-3">
-            <div class="flex h-9 w-9 items-center justify-center rounded-lg flex-shrink-0" :class="getDialogIconClass(viewingAnnouncement?.type)">
+            <div
+              class="flex h-9 w-9 items-center justify-center rounded-lg flex-shrink-0"
+              :class="getDialogIconClass(viewingAnnouncement?.type)"
+            >
               <component
-                v-if="viewingAnnouncement"
                 :is="getAnnouncementIcon(viewingAnnouncement.type)"
+                v-if="viewingAnnouncement"
                 class="h-5 w-5"
                 :class="getIconColor(viewingAnnouncement.type)"
               />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-foreground leading-tight truncate">{{ viewingAnnouncement?.title || '公告详情' }}</h3>
-              <p class="text-xs text-muted-foreground">系统公告</p>
+              <h3 class="text-lg font-semibold text-foreground leading-tight truncate">
+                {{ viewingAnnouncement?.title || '公告详情' }}
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                系统公告
+              </p>
             </div>
           </div>
         </div>
       </template>
 
-      <div v-if="viewingAnnouncement" class="space-y-4">
+      <div
+        v-if="viewingAnnouncement"
+        class="space-y-4"
+      >
         <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-muted-foreground">
           <span>{{ viewingAnnouncement.author.username }}</span>
           <span>·</span>
@@ -261,13 +443,20 @@
         </div>
 
         <div
-          v-html="renderMarkdown(viewingAnnouncement.content)"
           class="prose prose-sm dark:prose-invert max-w-none"
-        ></div>
+          v-html="renderMarkdown(viewingAnnouncement.content)"
+        />
       </div>
 
       <template #footer>
-        <Button variant="outline" @click="detailDialogOpen = false" type="button" class="h-10 px-5">关闭</Button>
+        <Button
+          variant="outline"
+          type="button"
+          class="h-10 px-5"
+          @click="detailDialogOpen = false"
+        >
+          关闭
+        </Button>
       </template>
     </Dialog>
   </div>

@@ -1,13 +1,20 @@
 <template>
   <div class="space-y-6 pb-8">
     <!-- 审计日志列表 -->
-    <Card variant="default" class="overflow-hidden">
+    <Card
+      variant="default"
+      class="overflow-hidden"
+    >
       <!-- 标题和操作栏 -->
       <div class="px-6 py-3.5 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
           <div>
-            <h3 class="text-base font-semibold">审计日志</h3>
-            <p class="text-xs text-muted-foreground mt-0.5">查看系统所有操作记录</p>
+            <h3 class="text-base font-semibold">
+              审计日志
+            </h3>
+            <p class="text-xs text-muted-foreground mt-0.5">
+              查看系统所有操作记录
+            </p>
           </div>
           <div class="flex items-center gap-2">
             <!-- 搜索框 -->
@@ -33,17 +40,39 @@
                 <SelectValue placeholder="全部类型" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all__">全部类型</SelectItem>
-                <SelectItem value="login_success">登录成功</SelectItem>
-                <SelectItem value="login_failed">登录失败</SelectItem>
-                <SelectItem value="logout">退出登录</SelectItem>
-                <SelectItem value="api_key_created">API密钥创建</SelectItem>
-                <SelectItem value="api_key_deleted">API密钥删除</SelectItem>
-                <SelectItem value="request_success">请求成功</SelectItem>
-                <SelectItem value="request_failed">请求失败</SelectItem>
-                <SelectItem value="user_created">用户创建</SelectItem>
-                <SelectItem value="user_updated">用户更新</SelectItem>
-                <SelectItem value="user_deleted">用户删除</SelectItem>
+                <SelectItem value="__all__">
+                  全部类型
+                </SelectItem>
+                <SelectItem value="login_success">
+                  登录成功
+                </SelectItem>
+                <SelectItem value="login_failed">
+                  登录失败
+                </SelectItem>
+                <SelectItem value="logout">
+                  退出登录
+                </SelectItem>
+                <SelectItem value="api_key_created">
+                  API密钥创建
+                </SelectItem>
+                <SelectItem value="api_key_deleted">
+                  API密钥删除
+                </SelectItem>
+                <SelectItem value="request_success">
+                  请求成功
+                </SelectItem>
+                <SelectItem value="request_failed">
+                  请求失败
+                </SelectItem>
+                <SelectItem value="user_created">
+                  用户创建
+                </SelectItem>
+                <SelectItem value="user_updated">
+                  用户更新
+                </SelectItem>
+                <SelectItem value="user_deleted">
+                  用户删除
+                </SelectItem>
               </SelectContent>
             </Select>
             <!-- 时间范围筛选 -->
@@ -56,10 +85,18 @@
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1">1天</SelectItem>
-                <SelectItem value="7">7天</SelectItem>
-                <SelectItem value="30">30天</SelectItem>
-                <SelectItem value="90">90天</SelectItem>
+                <SelectItem value="1">
+                  1天
+                </SelectItem>
+                <SelectItem value="7">
+                  7天
+                </SelectItem>
+                <SelectItem value="30">
+                  30天
+                </SelectItem>
+                <SelectItem value="90">
+                  90天
+                </SelectItem>
               </SelectContent>
             </Select>
             <!-- 重置筛选 -->
@@ -68,8 +105,8 @@
               variant="ghost"
               size="icon"
               class="h-8 w-8"
-              @click="handleResetFilters"
               title="重置筛选"
+              @click="handleResetFilters"
             >
               <FilterX class="w-3.5 h-3.5" />
             </Button>
@@ -79,22 +116,31 @@
               variant="ghost"
               size="icon"
               class="h-8 w-8"
-              @click="exportLogs"
               title="导出"
+              @click="exportLogs"
             >
               <Download class="w-3.5 h-3.5" />
             </Button>
             <!-- 刷新按钮 -->
-            <RefreshButton :loading="loading" @click="refreshLogs" />
+            <RefreshButton
+              :loading="loading"
+              @click="refreshLogs"
+            />
           </div>
         </div>
       </div>
 
-      <div v-if="loading" class="flex items-center justify-center py-12">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div
+        v-if="loading"
+        class="flex items-center justify-center py-12"
+      >
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
 
-      <div v-else-if="logs.length === 0" class="text-center py-12 text-muted-foreground">
+      <div
+        v-else-if="logs.length === 0"
+        class="text-center py-12 text-muted-foreground"
+      >
         暂无审计记录
       </div>
 
@@ -102,45 +148,81 @@
         <Table>
           <TableHeader>
             <TableRow class="border-b border-border/60 hover:bg-transparent">
-              <TableHead class="h-12 font-semibold">时间</TableHead>
-              <TableHead class="h-12 font-semibold">用户</TableHead>
-              <TableHead class="h-12 font-semibold">事件类型</TableHead>
-              <TableHead class="h-12 font-semibold">描述</TableHead>
-              <TableHead class="h-12 font-semibold">IP地址</TableHead>
-              <TableHead class="h-12 font-semibold">状态</TableHead>
+              <TableHead class="h-12 font-semibold">
+                时间
+              </TableHead>
+              <TableHead class="h-12 font-semibold">
+                用户
+              </TableHead>
+              <TableHead class="h-12 font-semibold">
+                事件类型
+              </TableHead>
+              <TableHead class="h-12 font-semibold">
+                描述
+              </TableHead>
+              <TableHead class="h-12 font-semibold">
+                IP地址
+              </TableHead>
+              <TableHead class="h-12 font-semibold">
+                状态
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow v-for="log in logs" :key="log.id" @mousedown="handleMouseDown" @click="handleRowClick($event, log)" class="cursor-pointer border-b border-border/40 hover:bg-muted/30 transition-colors">
+            <TableRow
+              v-for="log in logs"
+              :key="log.id"
+              class="cursor-pointer border-b border-border/40 hover:bg-muted/30 transition-colors"
+              @mousedown="handleMouseDown"
+              @click="handleRowClick($event, log)"
+            >
               <TableCell class="text-xs py-4">
                 {{ formatDateTime(log.created_at) }}
               </TableCell>
 
               <TableCell class="py-4">
-                <div v-if="log.user_id" class="flex flex-col">
+                <div
+                  v-if="log.user_id"
+                  class="flex flex-col"
+                >
                   <span class="text-sm font-medium">
                     {{ log.user_email || `用户 ${log.user_id}` }}
                   </span>
-                  <span v-if="log.user_username" class="text-xs text-muted-foreground">
+                  <span
+                    v-if="log.user_username"
+                    class="text-xs text-muted-foreground"
+                  >
                     {{ log.user_username }}
                   </span>
                 </div>
-                <span v-else class="text-muted-foreground italic">系统</span>
+                <span
+                  v-else
+                  class="text-muted-foreground italic"
+                >系统</span>
               </TableCell>
 
               <TableCell class="py-4">
                 <Badge :variant="getEventTypeBadgeVariant(log.event_type)">
-                  <component :is="getEventTypeIcon(log.event_type)" class="h-3 w-3 mr-1" />
+                  <component
+                    :is="getEventTypeIcon(log.event_type)"
+                    class="h-3 w-3 mr-1"
+                  />
                   {{ getEventTypeLabel(log.event_type) }}
                 </Badge>
               </TableCell>
 
-              <TableCell class="max-w-xs truncate py-4" :title="log.description">
+              <TableCell
+                class="max-w-xs truncate py-4"
+                :title="log.description"
+              >
                 {{ log.description || '无描述' }}
               </TableCell>
 
               <TableCell class="py-4">
-                <span v-if="log.ip_address" class="flex items-center text-sm">
+                <span
+                  v-if="log.ip_address"
+                  class="flex items-center text-sm"
+                >
                   <Globe class="h-3 w-3 mr-1 text-muted-foreground" />
                   {{ log.ip_address }}
                 </span>
@@ -148,7 +230,10 @@
               </TableCell>
 
               <TableCell class="py-4">
-                <Badge v-if="log.status_code" :variant="getStatusCodeVariant(log.status_code)">
+                <Badge
+                  v-if="log.status_code"
+                  :variant="getStatusCodeVariant(log.status_code)"
+                >
                   {{ log.status_code }}
                 </Badge>
                 <span v-else>-</span>
@@ -170,12 +255,25 @@
     </Card>
 
     <!-- 详情对话框 (使用shadcn Dialog组件) -->
-    <div v-if="selectedLog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click="closeLogDetail">
-      <Card class="max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" @click.stop>
+    <div
+      v-if="selectedLog"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      @click="closeLogDetail"
+    >
+      <Card
+        class="max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+        @click.stop
+      >
         <div class="p-6">
           <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-medium">审计日志详情</h3>
-            <Button variant="ghost" size="sm" @click="closeLogDetail">
+            <h3 class="text-lg font-medium">
+              审计日志详情
+            </h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              @click="closeLogDetail"
+            >
               <X class="h-4 w-4" />
             </Button>
           </div>
@@ -183,43 +281,64 @@
           <div class="space-y-4">
             <div>
               <Label>事件类型</Label>
-              <p class="mt-1 text-sm">{{ getEventTypeLabel(selectedLog.event_type) }}</p>
+              <p class="mt-1 text-sm">
+                {{ getEventTypeLabel(selectedLog.event_type) }}
+              </p>
             </div>
 
             <Separator />
 
             <div>
               <Label>描述</Label>
-              <p class="mt-1 text-sm">{{ selectedLog.description || '无描述' }}</p>
+              <p class="mt-1 text-sm">
+                {{ selectedLog.description || '无描述' }}
+              </p>
             </div>
 
             <div>
               <Label>时间</Label>
-              <p class="mt-1 text-sm">{{ formatDateTime(selectedLog.created_at) }}</p>
+              <p class="mt-1 text-sm">
+                {{ formatDateTime(selectedLog.created_at) }}
+              </p>
             </div>
 
             <div v-if="selectedLog.user_id">
               <Label>用户信息</Label>
               <div class="mt-1 text-sm">
-                <p class="font-medium">{{ selectedLog.user_email || `用户 ${selectedLog.user_id}` }}</p>
-                <p v-if="selectedLog.user_username" class="text-muted-foreground">{{ selectedLog.user_username }}</p>
-                <p class="text-xs text-muted-foreground">ID: {{ selectedLog.user_id }}</p>
+                <p class="font-medium">
+                  {{ selectedLog.user_email || `用户 ${selectedLog.user_id}` }}
+                </p>
+                <p
+                  v-if="selectedLog.user_username"
+                  class="text-muted-foreground"
+                >
+                  {{ selectedLog.user_username }}
+                </p>
+                <p class="text-xs text-muted-foreground">
+                  ID: {{ selectedLog.user_id }}
+                </p>
               </div>
             </div>
 
             <div v-if="selectedLog.ip_address">
               <Label>IP地址</Label>
-              <p class="mt-1 text-sm">{{ selectedLog.ip_address }}</p>
+              <p class="mt-1 text-sm">
+                {{ selectedLog.ip_address }}
+              </p>
             </div>
 
             <div v-if="selectedLog.status_code">
               <Label>状态码</Label>
-              <p class="mt-1 text-sm">{{ selectedLog.status_code }}</p>
+              <p class="mt-1 text-sm">
+                {{ selectedLog.status_code }}
+              </p>
             </div>
 
             <div v-if="selectedLog.error_message">
               <Label>错误消息</Label>
-              <p class="mt-1 text-sm text-destructive">{{ selectedLog.error_message }}</p>
+              <p class="mt-1 text-sm text-destructive">
+                {{ selectedLog.error_message }}
+              </p>
             </div>
 
             <div v-if="selectedLog.metadata">
@@ -334,7 +453,7 @@ async function loadLogs() {
       event_type: (filters.value.eventType !== '__all__' ? filters.value.eventType : undefined),
       days: filters.value.days,
       limit: pageSize.value,
-      offset: offset
+      offset
     }
 
     const data = await auditApi.getAuditLogs(filterParams)

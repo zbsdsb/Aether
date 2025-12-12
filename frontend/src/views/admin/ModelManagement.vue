@@ -4,252 +4,314 @@
     <div class="flex-1 flex flex-col min-w-0">
       <!-- 模型列表 -->
       <Card class="overflow-hidden">
-            <!-- 标题和操作栏 -->
-            <div class="px-6 py-3.5 border-b border-border/60">
-              <div class="flex items-center justify-between gap-4">
-                <!-- 左侧：标题 -->
-                <h3 class="text-base font-semibold">模型管理</h3>
+        <!-- 标题和操作栏 -->
+        <div class="px-6 py-3.5 border-b border-border/60">
+          <div class="flex items-center justify-between gap-4">
+            <!-- 左侧：标题 -->
+            <h3 class="text-base font-semibold">
+              模型管理
+            </h3>
 
-                <!-- 右侧：操作区 -->
-                <div class="flex items-center gap-2">
-                  <!-- 搜索框 -->
-                  <div class="relative">
-                    <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/70 z-10 pointer-events-none" />
-                    <Input
-                      id="model-search"
-                      v-model="searchQuery"
-                      type="text"
-                      placeholder="搜索模型名称..."
-                      class="w-44 pl-8 pr-3 h-8 text-sm bg-muted/30 border-border/50 focus:border-primary/50 transition-colors"
-                    />
-                  </div>
-
-                  <div class="h-4 w-px bg-border" />
-
-                  <!-- 能力筛选 -->
-                  <div class="flex items-center border rounded-md border-border/60 h-8 overflow-hidden">
-                    <button
-                      class="px-2.5 h-full text-xs transition-colors"
-                      :class="capabilityFilters.streaming ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-                      @click="capabilityFilters.streaming = !capabilityFilters.streaming"
-                      title="流式输出"
-                    >
-                      <Zap class="w-3.5 h-3.5" />
-                    </button>
-                    <div class="w-px h-4 bg-border/60" />
-                    <button
-                      class="px-2.5 h-full text-xs transition-colors"
-                      :class="capabilityFilters.imageGeneration ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-                      @click="capabilityFilters.imageGeneration = !capabilityFilters.imageGeneration"
-                      title="图像生成"
-                    >
-                      <Image class="w-3.5 h-3.5" />
-                    </button>
-                    <div class="w-px h-4 bg-border/60" />
-                    <button
-                      class="px-2.5 h-full text-xs transition-colors"
-                      :class="capabilityFilters.vision ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-                      @click="capabilityFilters.vision = !capabilityFilters.vision"
-                      title="视觉理解"
-                    >
-                      <Eye class="w-3.5 h-3.5" />
-                    </button>
-                    <div class="w-px h-4 bg-border/60" />
-                    <button
-                      class="px-2.5 h-full text-xs transition-colors"
-                      :class="capabilityFilters.toolUse ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-                      @click="capabilityFilters.toolUse = !capabilityFilters.toolUse"
-                      title="工具调用"
-                    >
-                      <Wrench class="w-3.5 h-3.5" />
-                    </button>
-                    <div class="w-px h-4 bg-border/60" />
-                    <button
-                      class="px-2.5 h-full text-xs transition-colors"
-                      :class="capabilityFilters.extendedThinking ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-                      @click="capabilityFilters.extendedThinking = !capabilityFilters.extendedThinking"
-                      title="深度思考"
-                    >
-                      <Brain class="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div class="h-4 w-px bg-border" />
-
-                  <!-- 操作按钮 -->
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="h-8 w-8"
-                    @click="openCreateModelDialog"
-                    title="创建模型"
-                  >
-                    <Plus class="w-3.5 h-3.5" />
-                  </Button>
-                  <RefreshButton :loading="loading" @click="refreshData" />
-                </div>
+            <!-- 右侧：操作区 -->
+            <div class="flex items-center gap-2">
+              <!-- 搜索框 -->
+              <div class="relative">
+                <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/70 z-10 pointer-events-none" />
+                <Input
+                  id="model-search"
+                  v-model="searchQuery"
+                  type="text"
+                  placeholder="搜索模型名称..."
+                  class="w-44 pl-8 pr-3 h-8 text-sm bg-muted/30 border-border/50 focus:border-primary/50 transition-colors"
+                />
               </div>
+
+              <div class="h-4 w-px bg-border" />
+
+              <!-- 能力筛选 -->
+              <div class="flex items-center border rounded-md border-border/60 h-8 overflow-hidden">
+                <button
+                  class="px-2.5 h-full text-xs transition-colors"
+                  :class="capabilityFilters.streaming ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
+                  title="流式输出"
+                  @click="capabilityFilters.streaming = !capabilityFilters.streaming"
+                >
+                  <Zap class="w-3.5 h-3.5" />
+                </button>
+                <div class="w-px h-4 bg-border/60" />
+                <button
+                  class="px-2.5 h-full text-xs transition-colors"
+                  :class="capabilityFilters.imageGeneration ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
+                  title="图像生成"
+                  @click="capabilityFilters.imageGeneration = !capabilityFilters.imageGeneration"
+                >
+                  <Image class="w-3.5 h-3.5" />
+                </button>
+                <div class="w-px h-4 bg-border/60" />
+                <button
+                  class="px-2.5 h-full text-xs transition-colors"
+                  :class="capabilityFilters.vision ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
+                  title="视觉理解"
+                  @click="capabilityFilters.vision = !capabilityFilters.vision"
+                >
+                  <Eye class="w-3.5 h-3.5" />
+                </button>
+                <div class="w-px h-4 bg-border/60" />
+                <button
+                  class="px-2.5 h-full text-xs transition-colors"
+                  :class="capabilityFilters.toolUse ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
+                  title="工具调用"
+                  @click="capabilityFilters.toolUse = !capabilityFilters.toolUse"
+                >
+                  <Wrench class="w-3.5 h-3.5" />
+                </button>
+                <div class="w-px h-4 bg-border/60" />
+                <button
+                  class="px-2.5 h-full text-xs transition-colors"
+                  :class="capabilityFilters.extendedThinking ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
+                  title="深度思考"
+                  @click="capabilityFilters.extendedThinking = !capabilityFilters.extendedThinking"
+                >
+                  <Brain class="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div class="h-4 w-px bg-border" />
+
+              <!-- 操作按钮 -->
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                title="创建模型"
+                @click="openCreateModelDialog"
+              >
+                <Plus class="w-3.5 h-3.5" />
+              </Button>
+              <RefreshButton
+                :loading="loading"
+                @click="refreshData"
+              />
             </div>
+          </div>
+        </div>
 
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead class="w-[240px]">模型名称</TableHead>
-                  <TableHead class="w-[140px]">能力/偏好</TableHead>
-                  <TableHead class="w-[160px] text-center">价格 ($/M)</TableHead>
-                  <TableHead class="w-[80px] text-center">提供商</TableHead>
-                  <TableHead class="w-[70px] text-center">别名/映射</TableHead>
-                  <TableHead class="w-[80px] text-center">调用次数</TableHead>
-                  <TableHead class="w-[70px]">状态</TableHead>
-                  <TableHead class="w-[140px] text-center">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow v-if="loading">
-                  <TableCell colspan="8" class="text-center py-8">
-                    <Loader2 class="w-6 h-6 animate-spin mx-auto" />
-                  </TableCell>
-                </TableRow>
-                <TableRow v-else-if="filteredGlobalModels.length === 0">
-                  <TableCell colspan="8" class="text-center py-8 text-muted-foreground">
-                    没有找到匹配的模型
-                  </TableCell>
-                </TableRow>
-                <template v-else>
-                  <TableRow
-                    v-for="model in paginatedGlobalModels"
-                    :key="model.id"
-                    class="cursor-pointer hover:bg-muted/50 group"
-                    @mousedown="handleMouseDown"
-                    @click="handleRowClick($event, model)"
-                  >
-                    <TableCell>
-                      <div>
-                        <div class="font-medium">{{ model.display_name }}</div>
-                        <div class="text-xs text-muted-foreground flex items-center gap-1">
-                          <span>{{ model.name }}</span>
-                          <button
-                            class="p-0.5 rounded hover:bg-muted transition-colors"
-                            title="复制模型 ID"
-                            @click.stop="copyToClipboard(model.name)"
-                          >
-                            <Copy class="w-3 h-3" />
-                          </button>
-                        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead class="w-[240px]">
+                模型名称
+              </TableHead>
+              <TableHead class="w-[140px]">
+                能力/偏好
+              </TableHead>
+              <TableHead class="w-[160px] text-center">
+                价格 ($/M)
+              </TableHead>
+              <TableHead class="w-[80px] text-center">
+                提供商
+              </TableHead>
+              <TableHead class="w-[70px] text-center">
+                别名/映射
+              </TableHead>
+              <TableHead class="w-[80px] text-center">
+                调用次数
+              </TableHead>
+              <TableHead class="w-[70px]">
+                状态
+              </TableHead>
+              <TableHead class="w-[140px] text-center">
+                操作
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-if="loading">
+              <TableCell
+                colspan="8"
+                class="text-center py-8"
+              >
+                <Loader2 class="w-6 h-6 animate-spin mx-auto" />
+              </TableCell>
+            </TableRow>
+            <TableRow v-else-if="filteredGlobalModels.length === 0">
+              <TableCell
+                colspan="8"
+                class="text-center py-8 text-muted-foreground"
+              >
+                没有找到匹配的模型
+              </TableCell>
+            </TableRow>
+            <template v-else>
+              <TableRow
+                v-for="model in paginatedGlobalModels"
+                :key="model.id"
+                class="cursor-pointer hover:bg-muted/50 group"
+                @mousedown="handleMouseDown"
+                @click="handleRowClick($event, model)"
+              >
+                <TableCell>
+                  <div>
+                    <div class="font-medium">
+                      {{ model.display_name }}
+                    </div>
+                    <div class="text-xs text-muted-foreground flex items-center gap-1">
+                      <span>{{ model.name }}</span>
+                      <button
+                        class="p-0.5 rounded hover:bg-muted transition-colors"
+                        title="复制模型 ID"
+                        @click.stop="copyToClipboard(model.name)"
+                      >
+                        <Copy class="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div class="space-y-1 w-fit">
+                    <div class="flex flex-wrap gap-1">
+                      <Zap
+                        v-if="model.default_supports_streaming"
+                        class="w-4 h-4 text-muted-foreground"
+                        title="流式输出"
+                      />
+                      <Image
+                        v-if="model.default_supports_image_generation"
+                        class="w-4 h-4 text-muted-foreground"
+                        title="图像生成"
+                      />
+                      <Eye
+                        v-if="model.default_supports_vision"
+                        class="w-4 h-4 text-muted-foreground"
+                        title="视觉理解"
+                      />
+                      <Wrench
+                        v-if="model.default_supports_function_calling"
+                        class="w-4 h-4 text-muted-foreground"
+                        title="工具调用"
+                      />
+                      <Brain
+                        v-if="model.default_supports_extended_thinking"
+                        class="w-4 h-4 text-muted-foreground"
+                        title="深度思考"
+                      />
+                    </div>
+                    <template v-if="model.supported_capabilities?.length">
+                      <div class="border-t border-border/50" />
+                      <div class="flex flex-wrap gap-0.5">
+                        <span
+                          v-for="capName in model.supported_capabilities"
+                          :key="capName"
+                          class="text-[11px] px-1 py-0.5 rounded bg-muted/60 text-muted-foreground"
+                          :title="getCapabilityDisplayName(capName)"
+                        >{{ getCapabilityShortName(capName) }}</span>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div class="space-y-1 w-fit">
-                        <div class="flex flex-wrap gap-1">
-                          <Zap v-if="model.default_supports_streaming" class="w-4 h-4 text-muted-foreground" title="流式输出" />
-                          <Image v-if="model.default_supports_image_generation" class="w-4 h-4 text-muted-foreground" title="图像生成" />
-                          <Eye v-if="model.default_supports_vision" class="w-4 h-4 text-muted-foreground" title="视觉理解" />
-                          <Wrench v-if="model.default_supports_function_calling" class="w-4 h-4 text-muted-foreground" title="工具调用" />
-                          <Brain v-if="model.default_supports_extended_thinking" class="w-4 h-4 text-muted-foreground" title="深度思考" />
-                        </div>
-                        <template v-if="model.supported_capabilities?.length">
-                          <div class="border-t border-border/50"></div>
-                          <div class="flex flex-wrap gap-0.5">
-                            <span
-                              v-for="capName in model.supported_capabilities"
-                              :key="capName"
-                              class="text-[11px] px-1 py-0.5 rounded bg-muted/60 text-muted-foreground"
-                              :title="getCapabilityDisplayName(capName)"
-                            >{{ getCapabilityShortName(capName) }}</span>
-                          </div>
-                        </template>
-                      </div>
-                    </TableCell>
-                    <TableCell class="text-center">
-                      <div class="text-xs space-y-0.5">
-                        <!-- 按 Token 计费 -->
-                        <div v-if="getFirstTierPrice(model, 'input') || getFirstTierPrice(model, 'output')">
-                          <span class="text-muted-foreground">In:</span>
-                          <span class="font-mono ml-1">{{ getFirstTierPrice(model, 'input')?.toFixed(2) || '-' }}</span>
-                          <span class="text-muted-foreground mx-1">/</span>
-                          <span class="text-muted-foreground">Out:</span>
-                          <span class="font-mono ml-1">{{ getFirstTierPrice(model, 'output')?.toFixed(2) || '-' }}</span>
-                          <!-- 阶梯计费标记 -->
-                          <span v-if="hasTieredPricing(model)" class="ml-1 text-muted-foreground" title="阶梯计费">[阶梯]</span>
-                        </div>
-                        <!-- 按次计费 -->
-                        <div v-if="model.default_price_per_request && model.default_price_per_request > 0">
-                          <span class="text-muted-foreground">按次:</span>
-                          <span class="font-mono ml-1">${{ model.default_price_per_request.toFixed(3) }}/次</span>
-                        </div>
-                        <!-- 无计费配置 -->
-                        <div v-if="!getFirstTierPrice(model, 'input') && !getFirstTierPrice(model, 'output') && !model.default_price_per_request" class="text-muted-foreground">-</div>
-                      </div>
-                    </TableCell>
-                    <TableCell class="text-center">
-                      <Badge variant="secondary">{{ model.provider_count || 0 }}</Badge>
-                    </TableCell>
-                    <TableCell class="text-center">
-                      <Badge variant="secondary">{{ model.alias_count || 0 }}</Badge>
-                    </TableCell>
-                    <TableCell class="text-center">
-                      <span class="text-sm font-mono">{{ formatUsageCount(model.usage_count || 0) }}</span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge :variant="model.is_active ? 'default' : 'secondary'">
-                        {{ model.is_active ? '活跃' : '停用' }}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div class="flex items-center justify-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          class="h-8 w-8"
-                          @click.stop="selectModel(model)"
-                          title="查看详情"
-                        >
-                          <Eye class="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          class="h-8 w-8"
-                          @click.stop="editModel(model)"
-                          title="编辑模型"
-                        >
-                          <Edit class="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          class="h-8 w-8"
-                          @click.stop="toggleModelStatus(model)"
-                          :title="model.is_active ? '停用模型' : '启用模型'"
-                        >
-                          <Power class="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          class="h-8 w-8"
-                          @click.stop="deleteModel(model)"
-                          title="删除模型"
-                        >
-                          <Trash2 class="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                </template>
-              </TableBody>
-            </Table>
+                    </template>
+                  </div>
+                </TableCell>
+                <TableCell class="text-center">
+                  <div class="text-xs space-y-0.5">
+                    <!-- 按 Token 计费 -->
+                    <div v-if="getFirstTierPrice(model, 'input') || getFirstTierPrice(model, 'output')">
+                      <span class="text-muted-foreground">In:</span>
+                      <span class="font-mono ml-1">{{ getFirstTierPrice(model, 'input')?.toFixed(2) || '-' }}</span>
+                      <span class="text-muted-foreground mx-1">/</span>
+                      <span class="text-muted-foreground">Out:</span>
+                      <span class="font-mono ml-1">{{ getFirstTierPrice(model, 'output')?.toFixed(2) || '-' }}</span>
+                      <!-- 阶梯计费标记 -->
+                      <span
+                        v-if="hasTieredPricing(model)"
+                        class="ml-1 text-muted-foreground"
+                        title="阶梯计费"
+                      >[阶梯]</span>
+                    </div>
+                    <!-- 按次计费 -->
+                    <div v-if="model.default_price_per_request && model.default_price_per_request > 0">
+                      <span class="text-muted-foreground">按次:</span>
+                      <span class="font-mono ml-1">${{ model.default_price_per_request.toFixed(3) }}/次</span>
+                    </div>
+                    <!-- 无计费配置 -->
+                    <div
+                      v-if="!getFirstTierPrice(model, 'input') && !getFirstTierPrice(model, 'output') && !model.default_price_per_request"
+                      class="text-muted-foreground"
+                    >
+                      -
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell class="text-center">
+                  <Badge variant="secondary">
+                    {{ model.provider_count || 0 }}
+                  </Badge>
+                </TableCell>
+                <TableCell class="text-center">
+                  <Badge variant="secondary">
+                    {{ model.alias_count || 0 }}
+                  </Badge>
+                </TableCell>
+                <TableCell class="text-center">
+                  <span class="text-sm font-mono">{{ formatUsageCount(model.usage_count || 0) }}</span>
+                </TableCell>
+                <TableCell>
+                  <Badge :variant="model.is_active ? 'default' : 'secondary'">
+                    {{ model.is_active ? '活跃' : '停用' }}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div class="flex items-center justify-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-8 w-8"
+                      title="查看详情"
+                      @click.stop="selectModel(model)"
+                    >
+                      <Eye class="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-8 w-8"
+                      title="编辑模型"
+                      @click.stop="editModel(model)"
+                    >
+                      <Edit class="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-8 w-8"
+                      :title="model.is_active ? '停用模型' : '启用模型'"
+                      @click.stop="toggleModelStatus(model)"
+                    >
+                      <Power class="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-8 w-8"
+                      title="删除模型"
+                      @click.stop="deleteModel(model)"
+                    >
+                      <Trash2 class="w-4 h-4" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            </template>
+          </TableBody>
+        </Table>
 
-            <!-- 分页 -->
-            <Pagination
-              v-if="!loading && filteredGlobalModels.length > 0"
-              :current="catalogCurrentPage"
-              :total="filteredGlobalModels.length"
-              :page-size="catalogPageSize"
-              @update:current="catalogCurrentPage = $event"
-              @update:page-size="catalogPageSize = $event"
-            />
-          </Card>
+        <!-- 分页 -->
+        <Pagination
+          v-if="!loading && filteredGlobalModels.length > 0"
+          :current="catalogCurrentPage"
+          :total="filteredGlobalModels.length"
+          :page-size="catalogPageSize"
+          @update:current="catalogCurrentPage = $event"
+          @update:page-size="catalogPageSize = $event"
+        />
+      </Card>
     </div>
 
     <!-- 创建/编辑模型对话框 -->
@@ -299,22 +361,32 @@
     <!-- 批量添加关联提供商对话框 -->
     <Dialog
       :model-value="batchAddProvidersDialogOpen"
-      @update:model-value="handleBatchAddProvidersDialogUpdate"
       title="批量添加关联提供商"
       description="为模型批量添加 Provider 实现, 提供商将自动继承模型的价格和能力, 可在添加后单独修改"
       :icon="Server"
       size="4xl"
+      @update:model-value="handleBatchAddProvidersDialogUpdate"
     >
       <template #default>
-        <div v-if="selectedModel" class="space-y-4">
+        <div
+          v-if="selectedModel"
+          class="space-y-4"
+        >
           <!-- 模型信息头部 -->
           <div class="rounded-lg border bg-muted/30 p-4">
             <div class="flex items-start justify-between">
               <div>
-                <p class="font-semibold text-lg">{{ selectedModel.display_name }}</p>
-                <p class="text-sm text-muted-foreground font-mono">{{ selectedModel.name }}</p>
+                <p class="font-semibold text-lg">
+                  {{ selectedModel.display_name }}
+                </p>
+                <p class="text-sm text-muted-foreground font-mono">
+                  {{ selectedModel.name }}
+                </p>
               </div>
-              <Badge variant="outline" class="text-xs">
+              <Badge
+                variant="outline"
+                class="text-xs"
+              >
                 当前 {{ selectedModelProviders.length }} 个 Provider
               </Badge>
             </div>
@@ -326,7 +398,9 @@
             <div class="flex-1 space-y-2">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <p class="text-sm font-medium">可添加</p>
+                  <p class="text-sm font-medium">
+                    可添加
+                  </p>
                   <Button
                     v-if="availableProvidersForBatchAdd.length > 0"
                     variant="ghost"
@@ -337,19 +411,33 @@
                     {{ isAllLeftSelected ? '取消全选' : '全选' }}
                   </Button>
                 </div>
-                <Badge variant="secondary" class="text-xs">
+                <Badge
+                  variant="secondary"
+                  class="text-xs"
+                >
                   {{ availableProvidersForBatchAdd.length }} 个
                 </Badge>
               </div>
               <div class="border rounded-lg h-80 overflow-y-auto">
-                <div v-if="loadingProviderOptions" class="flex items-center justify-center h-full">
+                <div
+                  v-if="loadingProviderOptions"
+                  class="flex items-center justify-center h-full"
+                >
                   <Loader2 class="w-6 h-6 animate-spin text-primary" />
                 </div>
-                <div v-else-if="availableProvidersForBatchAdd.length === 0" class="flex flex-col items-center justify-center h-full text-muted-foreground">
+                <div
+                  v-else-if="availableProvidersForBatchAdd.length === 0"
+                  class="flex flex-col items-center justify-center h-full text-muted-foreground"
+                >
                   <Building2 class="w-10 h-10 mb-2 opacity-30" />
-                  <p class="text-sm">所有 Provider 均已关联</p>
+                  <p class="text-sm">
+                    所有 Provider 均已关联
+                  </p>
                 </div>
-                <div v-else class="p-2 space-y-1">
+                <div
+                  v-else
+                  class="p-2 space-y-1"
+                >
                   <div
                     v-for="provider in availableProvidersForBatchAdd"
                     :key="provider.id"
@@ -365,8 +453,12 @@
                       @click.stop
                     />
                     <div class="flex-1 min-w-0">
-                      <p class="font-medium text-sm truncate">{{ provider.display_name || provider.name }}</p>
-                      <p class="text-xs text-muted-foreground truncate">{{ provider.name }}</p>
+                      <p class="font-medium text-sm truncate">
+                        {{ provider.display_name || provider.name }}
+                      </p>
+                      <p class="text-xs text-muted-foreground truncate">
+                        {{ provider.name }}
+                      </p>
                     </div>
                     <Badge
                       :variant="provider.is_active ? 'outline' : 'secondary'"
@@ -388,11 +480,18 @@
                 class="w-9 h-8"
                 :class="selectedLeftProviderIds.length > 0 && !submittingBatchAddProviders ? 'border-primary' : ''"
                 :disabled="selectedLeftProviderIds.length === 0 || submittingBatchAddProviders"
-                @click="batchAddSelectedProviders"
                 title="添加选中"
+                @click="batchAddSelectedProviders"
               >
-                <Loader2 v-if="submittingBatchAddProviders" class="w-4 h-4 animate-spin" />
-                <ChevronRight v-else class="w-6 h-6 stroke-[3]" :class="selectedLeftProviderIds.length > 0 && !submittingBatchAddProviders ? 'text-primary' : ''" />
+                <Loader2
+                  v-if="submittingBatchAddProviders"
+                  class="w-4 h-4 animate-spin"
+                />
+                <ChevronRight
+                  v-else
+                  class="w-6 h-6 stroke-[3]"
+                  :class="selectedLeftProviderIds.length > 0 && !submittingBatchAddProviders ? 'text-primary' : ''"
+                />
               </Button>
               <Button
                 variant="outline"
@@ -400,11 +499,18 @@
                 class="w-9 h-8"
                 :class="selectedRightProviderIds.length > 0 && !submittingBatchRemoveProviders ? 'border-primary' : ''"
                 :disabled="selectedRightProviderIds.length === 0 || submittingBatchRemoveProviders"
-                @click="batchRemoveSelectedProviders"
                 title="移除选中"
+                @click="batchRemoveSelectedProviders"
               >
-                <Loader2 v-if="submittingBatchRemoveProviders" class="w-4 h-4 animate-spin" />
-                <ChevronLeft v-else class="w-6 h-6 stroke-[3]" :class="selectedRightProviderIds.length > 0 && !submittingBatchRemoveProviders ? 'text-primary' : ''" />
+                <Loader2
+                  v-if="submittingBatchRemoveProviders"
+                  class="w-4 h-4 animate-spin"
+                />
+                <ChevronLeft
+                  v-else
+                  class="w-6 h-6 stroke-[3]"
+                  :class="selectedRightProviderIds.length > 0 && !submittingBatchRemoveProviders ? 'text-primary' : ''"
+                />
               </Button>
             </div>
 
@@ -412,7 +518,9 @@
             <div class="flex-1 space-y-2">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <p class="text-sm font-medium">已添加</p>
+                  <p class="text-sm font-medium">
+                    已添加
+                  </p>
                   <Button
                     v-if="selectedModelProviders.length > 0"
                     variant="ghost"
@@ -423,16 +531,27 @@
                     {{ isAllRightSelected ? '取消全选' : '全选' }}
                   </Button>
                 </div>
-                <Badge variant="secondary" class="text-xs">
+                <Badge
+                  variant="secondary"
+                  class="text-xs"
+                >
                   {{ selectedModelProviders.length }} 个
                 </Badge>
               </div>
               <div class="border rounded-lg h-80 overflow-y-auto">
-                <div v-if="selectedModelProviders.length === 0" class="flex flex-col items-center justify-center h-full text-muted-foreground">
+                <div
+                  v-if="selectedModelProviders.length === 0"
+                  class="flex flex-col items-center justify-center h-full text-muted-foreground"
+                >
                   <Building2 class="w-10 h-10 mb-2 opacity-30" />
-                  <p class="text-sm">暂无关联提供商</p>
+                  <p class="text-sm">
+                    暂无关联提供商
+                  </p>
                 </div>
-                <div v-else class="p-2 space-y-1">
+                <div
+                  v-else
+                  class="p-2 space-y-1"
+                >
                   <!-- 已存在的（可选中删除） -->
                   <div
                     v-for="provider in selectedModelProviders"
@@ -449,8 +568,12 @@
                       @click.stop
                     />
                     <div class="flex-1 min-w-0">
-                      <p class="font-medium text-sm truncate">{{ provider.display_name }}</p>
-                      <p class="text-xs text-muted-foreground truncate">{{ provider.identifier }}</p>
+                      <p class="font-medium text-sm truncate">
+                        {{ provider.display_name }}
+                      </p>
+                      <p class="text-xs text-muted-foreground truncate">
+                        {{ provider.identifier }}
+                      </p>
                     </div>
                     <Badge
                       :variant="provider.is_active ? 'outline' : 'secondary'"
@@ -485,7 +608,6 @@
       @update:open="handleEditProviderDialogUpdate"
       @saved="handleEditProviderSaved"
     />
-
   </div>
 </template>
 
@@ -623,9 +745,9 @@ const { confirmDanger } = useConfirm()
 // 格式化调用次数（大数字简化显示）
 function formatUsageCount(count: number): string {
   if (count >= 1000000) {
-    return (count / 1000000).toFixed(1) + 'M'
+    return `${(count / 1000000).toFixed(1)  }M`
   } else if (count >= 1000) {
-    return (count / 1000).toFixed(1) + 'K'
+    return `${(count / 1000).toFixed(1)  }K`
   }
   return count.toString()
 }

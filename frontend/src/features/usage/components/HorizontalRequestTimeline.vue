@@ -1,25 +1,38 @@
 <template>
   <div class="minimal-request-timeline">
     <!-- Loading State -->
-    <div v-if="loading" class="py-4">
+    <div
+      v-if="loading"
+      class="py-4"
+    >
       <Skeleton class="h-32 w-full" />
     </div>
 
     <!-- Error State -->
-    <Card v-else-if="error" class="border-red-200 dark:border-red-800">
+    <Card
+      v-else-if="error"
+      class="border-red-200 dark:border-red-800"
+    >
       <div class="p-4">
-        <p class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
+        <p class="text-sm text-red-600 dark:text-red-400">
+          {{ error }}
+        </p>
       </div>
     </Card>
 
     <!-- Timeline Content -->
-    <div v-else-if="trace && trace.candidates.length > 0" class="space-y-0">
+    <div
+      v-else-if="trace && trace.candidates.length > 0"
+      class="space-y-0"
+    >
       <Card>
         <div class="p-6">
           <!-- 概览信息 -->
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-3">
-              <h4 class="text-sm font-semibold">请求链路追踪</h4>
+              <h4 class="text-sm font-semibold">
+                请求链路追踪
+              </h4>
               <Badge :variant="getFinalStatusBadgeVariant(computedFinalStatus)">
                 {{ getFinalStatusLabel(computedFinalStatus) }}
               </Badge>
@@ -46,7 +59,9 @@
               <!-- 节点容器 -->
               <div class="node-container">
                 <!-- 节点名称（在节点上方） -->
-                <div class="node-label">{{ group.providerName }}</div>
+                <div class="node-label">
+                  {{ group.providerName }}
+                </div>
 
                 <!-- 主节点（代表首次请求） -->
                 <div
@@ -56,10 +71,13 @@
                     { 'is-first-selected': isGroupSelected(group) && selectedAttemptIndex === 0 }
                   ]"
                   @click.stop="selectFirstAttempt(group)"
-                ></div>
+                />
 
                 <!-- 子节点（同提供商的其他尝试，不包含首次） -->
-                <div v-if="group.retryCount > 0 && isGroupSelected(group)" class="sub-dots">
+                <div
+                  v-if="group.retryCount > 0 && isGroupSelected(group)"
+                  class="sub-dots"
+                >
                   <button
                     v-for="(attempt, idx) in group.allAttempts.slice(1)"
                     :key="attempt.id"
@@ -68,23 +86,32 @@
                       getStatusColorClass(attempt.status),
                       { active: selectedAttemptIndex === idx + 1 }
                     ]"
-                    @click.stop="selectedAttemptIndex = idx + 1"
                     :title="attempt.key_name || `Key ${idx + 2}`"
-                  ></button>
+                    @click.stop="selectedAttemptIndex = idx + 1"
+                  />
                 </div>
               </div>
 
               <!-- 连接线 -->
-              <div class="node-line" v-if="groupIndex < groupedTimeline.length - 1"></div>
+              <div
+                v-if="groupIndex < groupedTimeline.length - 1"
+                class="node-line"
+              />
             </div>
           </div>
 
           <!-- 选中详情面板 -->
           <Transition name="slide-up">
-            <div v-if="selectedGroup && currentAttempt" class="detail-panel">
+            <div
+              v-if="selectedGroup && currentAttempt"
+              class="detail-panel"
+            >
               <div class="panel-header">
                 <div class="panel-title">
-                  <span class="title-dot" :class="getStatusColorClass(currentAttempt.status)"></span>
+                  <span
+                    class="title-dot"
+                    :class="getStatusColorClass(currentAttempt.status)"
+                  />
                   <span class="title-text">{{ selectedGroup.providerName }}</span>
                   <a
                     v-if="currentAttempt.provider_website"
@@ -96,7 +123,10 @@
                   >
                     <ExternalLink class="w-3 h-3" />
                   </a>
-                  <span class="status-tag" :class="getStatusColorClass(currentAttempt.status)">
+                  <span
+                    class="status-tag"
+                    :class="getStatusColorClass(currentAttempt.status)"
+                  >
                     {{ currentAttempt.status_code || getStatusLabel(currentAttempt.status) }}
                   </span>
                   <!-- 多 Key 标识 -->
@@ -126,31 +156,45 @@
               </div>
 
               <div class="panel-body">
-
                 <!-- 核心信息网格 -->
                 <div class="info-grid">
-                  <div class="info-item" v-if="currentAttempt.started_at">
+                  <div
+                    v-if="currentAttempt.started_at"
+                    class="info-item"
+                  >
                     <span class="info-label">时间范围</span>
                     <span class="info-value mono time-range-value">
                       {{ formatTime(currentAttempt.started_at) }}
                       <span class="time-arrow-container">
-                        <span class="time-duration" v-if="currentAttempt.finished_at">+{{ formatDuration(currentAttempt.started_at, currentAttempt.finished_at) }}</span>
+                        <span
+                          v-if="currentAttempt.finished_at"
+                          class="time-duration"
+                        >+{{ formatDuration(currentAttempt.started_at, currentAttempt.finished_at) }}</span>
                         <span class="time-arrow">→</span>
                       </span>
                       {{ currentAttempt.finished_at ? formatTime(currentAttempt.finished_at) : '进行中' }}
                     </span>
                   </div>
-                  <div class="info-item" v-if="currentAttempt.key_name || currentAttempt.key_id">
+                  <div
+                    v-if="currentAttempt.key_name || currentAttempt.key_id"
+                    class="info-item"
+                  >
                     <span class="info-label">密钥</span>
                     <span class="info-value">
                       <span class="key-name">{{ currentAttempt.key_name || '未知' }}</span>
                       <template v-if="currentAttempt.key_preview">
-                        <Separator orientation="vertical" class="h-3 mx-2" />
+                        <Separator
+                          orientation="vertical"
+                          class="h-3 mx-2"
+                        />
                         <code class="key-preview">{{ currentAttempt.key_preview }}</code>
                       </template>
                     </span>
                   </div>
-                  <div class="info-item" v-if="mergedCapabilities.length > 0">
+                  <div
+                    v-if="mergedCapabilities.length > 0"
+                    class="info-item"
+                  >
                     <span class="info-label">能力</span>
                     <span class="info-value">
                       <span class="capability-tags">
@@ -166,7 +210,10 @@
                 </div>
 
                 <!-- 用量与费用（仅成功节点显示） -->
-                <div v-if="currentAttempt.status === 'success' && usageData" class="usage-section">
+                <div
+                  v-if="currentAttempt.status === 'success' && usageData"
+                  class="usage-section"
+                >
                   <div class="usage-grid">
                     <!-- 输入 输出 -->
                     <div class="usage-row">
@@ -175,7 +222,7 @@
                         <span class="usage-tokens">{{ formatNumber(usageData.tokens.input) }}</span>
                         <span class="usage-cost">${{ usageData.cost.input.toFixed(6) }}</span>
                       </div>
-                      <div class="usage-divider"></div>
+                      <div class="usage-divider" />
                       <div class="usage-item">
                         <span class="usage-label">输出</span>
                         <span class="usage-tokens">{{ formatNumber(usageData.tokens.output) }}</span>
@@ -183,13 +230,16 @@
                       </div>
                     </div>
                     <!-- 缓存创建 缓存读取（仅在有缓存数据时显示） -->
-                    <div v-if="usageData.tokens.cache_creation || usageData.tokens.cache_read" class="usage-row">
+                    <div
+                      v-if="usageData.tokens.cache_creation || usageData.tokens.cache_read"
+                      class="usage-row"
+                    >
                       <div class="usage-item">
                         <span class="usage-label">缓存创建</span>
                         <span class="usage-tokens">{{ formatNumber(usageData.tokens.cache_creation || 0) }}</span>
                         <span class="usage-cost">${{ (usageData.cost.cache_creation || 0).toFixed(6) }}</span>
                       </div>
-                      <div class="usage-divider"></div>
+                      <div class="usage-divider" />
                       <div class="usage-item">
                         <span class="usage-label">缓存读取</span>
                         <span class="usage-tokens">{{ formatNumber(usageData.tokens.cache_read || 0) }}</span>
@@ -200,20 +250,35 @@
                 </div>
 
                 <!-- 跳过原因 -->
-                <div v-if="currentAttempt.skip_reason" class="skip-reason">
+                <div
+                  v-if="currentAttempt.skip_reason"
+                  class="skip-reason"
+                >
                   <span class="reason-label">跳过原因</span>
                   <span class="reason-value">{{ currentAttempt.skip_reason }}</span>
                 </div>
 
                 <!-- 错误信息 -->
-                <div v-if="currentAttempt.status === 'failed' && (currentAttempt.error_message || currentAttempt.error_type)" class="error-block">
-                  <div class="error-type">{{ currentAttempt.error_type || '错误' }}</div>
-                  <div class="error-msg">{{ currentAttempt.error_message || '未知错误' }}</div>
+                <div
+                  v-if="currentAttempt.status === 'failed' && (currentAttempt.error_message || currentAttempt.error_type)"
+                  class="error-block"
+                >
+                  <div class="error-type">
+                    {{ currentAttempt.error_type || '错误' }}
+                  </div>
+                  <div class="error-msg">
+                    {{ currentAttempt.error_message || '未知错误' }}
+                  </div>
                 </div>
 
                 <!-- 额外数据 -->
-                <details v-if="currentAttempt.extra_data && Object.keys(currentAttempt.extra_data).length > 0" class="extra-block">
-                  <summary class="extra-toggle">额外信息</summary>
+                <details
+                  v-if="currentAttempt.extra_data && Object.keys(currentAttempt.extra_data).length > 0"
+                  class="extra-block"
+                >
+                  <summary class="extra-toggle">
+                    额外信息
+                  </summary>
                   <pre class="extra-json">{{ JSON.stringify(currentAttempt.extra_data, null, 2) }}</pre>
                 </details>
               </div>
@@ -224,9 +289,14 @@
     </div>
 
     <!-- Empty State -->
-    <Card v-else class="border-dashed">
+    <Card
+      v-else
+      class="border-dashed"
+    >
       <div class="p-8 text-center">
-        <p class="text-sm text-muted-foreground">暂无追踪数据</p>
+        <p class="text-sm text-muted-foreground">
+          暂无追踪数据
+        </p>
       </div>
     </Card>
   </div>

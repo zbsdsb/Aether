@@ -3,8 +3,8 @@
     :class="triggerClass"
     :data-state="isActive ? 'active' : 'inactive'"
     :data-value="props.value"
-    @click="handleClick"
     type="button"
+    @click="handleClick"
   >
     <slot />
   </button>

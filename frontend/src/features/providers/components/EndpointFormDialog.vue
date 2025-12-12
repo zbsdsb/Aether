@@ -7,11 +7,18 @@
     size="xl"
     @update:model-value="handleDialogUpdate"
   >
-
-    <form @submit.prevent="handleSubmit" class="space-y-6">
+    <form
+      class="space-y-6"
+      @submit.prevent="handleSubmit"
+    >
       <!-- API 配置 -->
       <div class="space-y-4">
-        <h3 v-if="isEditMode" class="text-sm font-medium">API 配置</h3>
+        <h3
+          v-if="isEditMode"
+          class="text-sm font-medium"
+        >
+          API 配置
+        </h3>
 
         <div class="grid grid-cols-2 gap-4">
           <!-- API 格式 -->
@@ -24,10 +31,16 @@
                 disabled
                 class="bg-muted"
               />
-              <p class="text-xs text-muted-foreground">API 格式创建后不可修改</p>
+              <p class="text-xs text-muted-foreground">
+                API 格式创建后不可修改
+              </p>
             </template>
             <template v-else>
-              <Select v-model="form.api_format" v-model:open="selectOpen" required>
+              <Select
+                v-model="form.api_format"
+                v-model:open="selectOpen"
+                required
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="请选择 API 格式" />
                 </SelectTrigger>
@@ -69,7 +82,9 @@
 
       <!-- 请求配置 -->
       <div class="space-y-4">
-        <h3 class="text-sm font-medium">请求配置</h3>
+        <h3 class="text-sm font-medium">
+          请求配置
+        </h3>
 
         <div class="grid grid-cols-3 gap-4">
           <div class="space-y-2">
@@ -117,21 +132,20 @@
           </div>
         </div>
       </div>
-
     </form>
 
     <template #footer>
       <Button
-        @click="handleCancel"
         type="button"
         variant="outline"
         :disabled="loading"
+        @click="handleCancel"
       >
         取消
       </Button>
       <Button
-        @click="handleSubmit"
         :disabled="loading || !form.base_url || (!isEditMode && !form.api_format)"
+        @click="handleSubmit"
       >
         {{ loading ? (isEditMode ? '保存中...' : '创建中...') : (isEditMode ? '保存修改' : '创建') }}
       </Button>

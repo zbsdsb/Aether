@@ -8,7 +8,10 @@
         @click.self="handleClose"
       >
         <!-- 背景遮罩 -->
-        <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" @click="handleClose"></div>
+        <div
+          class="absolute inset-0 bg-black/30 backdrop-blur-sm"
+          @click="handleClose"
+        />
 
         <!-- 抽屉内容 -->
         <Card class="relative h-full w-[800px] max-w-[90vw] rounded-none shadow-2xl flex flex-col">
@@ -17,19 +20,46 @@
             <!-- 第一行：标题、模型、状态、操作按钮 -->
             <div class="flex items-center justify-between gap-4 mb-3">
               <div class="flex items-center gap-3 flex-wrap">
-                <h3 class="text-lg font-semibold">请求详情</h3>
+                <h3 class="text-lg font-semibold">
+                  请求详情
+                </h3>
                 <div class="flex items-center gap-1 text-sm font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
                   <span>{{ detail?.model || '-' }}</span>
                   <template v-if="detail?.target_model">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3 flex-shrink-0">
-                      <path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      class="w-3 h-3 flex-shrink-0"
+                    >
+                      <path
+                        fill-rule="evenodd"
+                        d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z"
+                        clip-rule="evenodd"
+                      />
                     </svg>
                     <span>{{ detail.target_model }}</span>
                   </template>
                 </div>
-                <Badge v-if="detail?.status_code === 200" variant="success">{{ detail.status_code }}</Badge>
-                <Badge v-else-if="detail" variant="destructive">{{ detail.status_code }}</Badge>
-                <Badge variant="outline" class="text-xs" v-if="detail">{{ detail.is_stream ? '流式' : '标准' }}</Badge>
+                <Badge
+                  v-if="detail?.status_code === 200"
+                  variant="success"
+                >
+                  {{ detail.status_code }}
+                </Badge>
+                <Badge
+                  v-else-if="detail"
+                  variant="destructive"
+                >
+                  {{ detail.status_code }}
+                </Badge>
+                <Badge
+                  v-if="detail"
+                  variant="outline"
+                  class="text-xs"
+                >
+                  {{ detail.is_stream ? '流式' : '标准' }}
+                </Badge>
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <Button
@@ -37,18 +67,30 @@
                   size="icon"
                   class="h-8 w-8"
                   :disabled="loading"
-                  @click="refreshDetail"
                   title="刷新"
+                  @click="refreshDetail"
                 >
-                  <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': loading }" />
+                  <RefreshCw
+                    class="w-4 h-4"
+                    :class="{ 'animate-spin': loading }"
+                  />
                 </Button>
-                <Button variant="ghost" size="icon" class="h-8 w-8" @click="handleClose" title="关闭">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-8 w-8"
+                  title="关闭"
+                  @click="handleClose"
+                >
                   <X class="w-4 h-4" />
                 </Button>
               </div>
             </div>
             <!-- 第二行：关键元信息 -->
-            <div v-if="detail" class="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <div
+              v-if="detail"
+              class="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
+            >
               <span class="flex items-center gap-1">
                 <span class="font-medium text-foreground">ID:</span>
                 <span class="font-mono">{{ detail.request_id || detail.id }}</span>
@@ -67,21 +109,32 @@
           <!-- 可滚动内容区域 -->
           <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 scrollbar-stable">
             <!-- Loading State -->
-            <div v-if="loading" class="py-8 space-y-4">
+            <div
+              v-if="loading"
+              class="py-8 space-y-4"
+            >
               <Skeleton class="h-8 w-full" />
               <Skeleton class="h-32 w-full" />
               <Skeleton class="h-64 w-full" />
             </div>
 
             <!-- Error State -->
-            <Card v-else-if="error" class="border-red-200 dark:border-red-800">
+            <Card
+              v-else-if="error"
+              class="border-red-200 dark:border-red-800"
+            >
               <div class="p-4">
-                <p class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
+                <p class="text-sm text-red-600 dark:text-red-400">
+                  {{ error }}
+                </p>
               </div>
             </Card>
 
             <!-- Detail Content -->
-            <div v-else-if="detail" class="space-y-4">
+            <div
+              v-else-if="detail"
+              class="space-y-4"
+            >
               <!-- 费用与性能概览 -->
               <Card>
                 <div class="p-4">
@@ -93,7 +146,10 @@
                         ${{ ((typeof detail.cost === 'object' ? detail.cost?.total : detail.cost) || detail.total_cost || 0).toFixed(6) }}
                       </span>
                     </div>
-                    <Separator orientation="vertical" class="h-6 mx-6" />
+                    <Separator
+                      orientation="vertical"
+                      class="h-6 mx-6"
+                    />
                     <div class="flex items-center">
                       <span class="text-xs text-muted-foreground w-[56px]">响应时间</span>
                       <span class="text-lg font-bold">{{ detail.response_time_ms ? formatResponseTime(detail.response_time_ms).value : 'N/A' }}</span>
@@ -111,7 +167,11 @@
                     <span class="text-foreground">|</span>
                     <span>总输入上下文: <span class="font-mono font-medium text-foreground">{{ formatNumber(totalInputContext) }}</span></span>
                     <span class="text-muted-foreground/60">(输入 {{ formatNumber(detail.tokens?.input || detail.input_tokens || 0) }} + 缓存创建 {{ formatNumber(detail.cache_creation_input_tokens || 0) }} + 缓存读取 {{ formatNumber(detail.cache_read_input_tokens || 0) }})</span>
-                    <Badge v-if="displayTiers.length > 1" variant="outline" class="text-[10px] px-1.5 py-0 h-4">
+                    <Badge
+                      v-if="displayTiers.length > 1"
+                      variant="outline"
+                      class="text-[10px] px-1.5 py-0 h-4"
+                    >
                       命中第 {{ currentTierIndex + 1 }} 阶
                     </Badge>
                   </div>
@@ -129,13 +189,20 @@
                       <!-- 阶梯标题行 -->
                       <div class="flex items-center justify-between text-xs">
                         <div class="flex items-center gap-2">
-                          <span class="font-medium" :class="index === currentTierIndex ? 'text-primary' : 'text-muted-foreground'">
+                          <span
+                            class="font-medium"
+                            :class="index === currentTierIndex ? 'text-primary' : 'text-muted-foreground'"
+                          >
                             第 {{ index + 1 }} 阶
                           </span>
                           <span class="text-muted-foreground">
                             {{ getTierRangeText(tier, index, displayTiers) }}
                           </span>
-                          <Badge v-if="index === currentTierIndex" variant="default" class="text-[10px] px-1.5 py-0 h-4">
+                          <Badge
+                            v-if="index === currentTierIndex"
+                            variant="default"
+                            class="text-[10px] px-1.5 py-0 h-4"
+                          >
                             当前
                           </Badge>
                         </div>
@@ -161,7 +228,10 @@
                             <span class="text-sm font-semibold font-mono flex-1 text-center">{{ detail.tokens?.input || detail.input_tokens || 0 }}</span>
                             <span class="text-xs font-mono">${{ (detail.cost?.input || detail.input_cost || 0).toFixed(6) }}</span>
                           </div>
-                          <Separator orientation="vertical" class="h-4 mx-4" />
+                          <Separator
+                            orientation="vertical"
+                            class="h-4 mx-4"
+                          />
                           <div class="flex items-center flex-1">
                             <span class="text-xs text-muted-foreground w-[56px]">输出</span>
                             <span class="text-sm font-semibold font-mono flex-1 text-center">{{ detail.tokens?.output || detail.output_tokens || 0 }}</span>
@@ -175,7 +245,10 @@
                             <span class="text-sm font-semibold font-mono flex-1 text-center">{{ detail.cache_creation_input_tokens || 0 }}</span>
                             <span class="text-xs font-mono">${{ (detail.cache_creation_cost || 0).toFixed(6) }}</span>
                           </div>
-                          <Separator orientation="vertical" class="h-4 mx-4" />
+                          <Separator
+                            orientation="vertical"
+                            class="h-4 mx-4"
+                          />
                           <div class="flex items-center flex-1">
                             <span class="text-xs text-muted-foreground w-[56px]">缓存读取</span>
                             <span class="text-sm font-semibold font-mono flex-1 text-center">{{ detail.cache_read_input_tokens || 0 }}</span>
@@ -183,13 +256,19 @@
                           </div>
                         </div>
                         <!-- 按次计费 -->
-                        <div v-if="detail.request_cost" class="flex items-center">
+                        <div
+                          v-if="detail.request_cost"
+                          class="flex items-center"
+                        >
                           <div class="flex items-center flex-1">
                             <span class="text-xs text-muted-foreground w-[56px]">按次计费</span>
-                            <span class="text-sm font-semibold font-mono flex-1 text-center"></span>
+                            <span class="text-sm font-semibold font-mono flex-1 text-center" />
                             <span class="text-xs font-mono">${{ detail.request_cost.toFixed(6) }}</span>
                           </div>
-                          <Separator orientation="vertical" class="h-4 mx-4 invisible" />
+                          <Separator
+                            orientation="vertical"
+                            class="h-4 mx-4 invisible"
+                          />
                           <div class="flex items-center flex-1 invisible">
                             <span class="text-xs text-muted-foreground w-[56px]">占位</span>
                             <span class="text-sm font-semibold font-mono flex-1 text-center">0</span>
@@ -211,11 +290,18 @@
               </div>
 
               <!-- 错误信息卡片 -->
-              <Card v-if="detail.error_message" class="border-red-200 dark:border-red-800">
+              <Card
+                v-if="detail.error_message"
+                class="border-red-200 dark:border-red-800"
+              >
                 <div class="p-4">
-                  <h4 class="text-sm font-semibold text-red-600 dark:text-red-400 mb-2">错误信息</h4>
+                  <h4 class="text-sm font-semibold text-red-600 dark:text-red-400 mb-2">
+                    错误信息
+                  </h4>
                   <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
-                    <p class="text-sm text-red-800 dark:text-red-300">{{ detail.error_message }}</p>
+                    <p class="text-sm text-red-800 dark:text-red-300">
+                      {{ detail.error_message }}
+                    </p>
                   </div>
                 </div>
               </Card>
@@ -223,7 +309,10 @@
               <!-- Tabs 区域 -->
               <Card>
                 <div class="p-4">
-                  <Tabs v-model="activeTab" :default-value="activeTab">
+                  <Tabs
+                    v-model="activeTab"
+                    :default-value="activeTab"
+                  >
                     <!-- Tab + 图标工具栏同行 -->
                     <div class="flex items-center justify-between border-b pb-2 mb-3">
                       <!-- 左侧 Tab -->
@@ -231,11 +320,11 @@
                         <button
                           v-for="tab in visibleTabs"
                           :key="tab.name"
-                          @click="activeTab = tab.name"
                           class="px-3 py-1.5 text-sm transition-colors border-b-2 -mb-[9px]"
                           :class="activeTab === tab.name
                             ? 'border-primary text-foreground font-medium'
                             : 'border-transparent text-muted-foreground hover:text-foreground'"
+                          @click="activeTab = tab.name"
                         >
                           {{ tab.label }}
                         </button>
@@ -245,56 +334,71 @@
                         <!-- 请求头专用：对比/客户端/提供商 切换组 -->
                         <template v-if="activeTab === 'request-headers' && hasProviderHeaders">
                           <button
-                            :title="'对比'"
-                            @click="viewMode = 'compare'"
+                            title="对比"
                             class="p-1.5 rounded transition-colors"
                             :class="viewMode === 'compare' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
+                            @click="viewMode = 'compare'"
                           >
                             <Columns2 class="w-4 h-4" />
                           </button>
                           <button
-                            :title="'客户端'"
-                            @click="viewMode = 'formatted'; dataSource = 'client'"
+                            title="客户端"
                             class="p-1.5 rounded transition-colors"
                             :class="viewMode === 'formatted' && dataSource === 'client' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
+                            @click="viewMode = 'formatted'; dataSource = 'client'"
                           >
                             <Monitor class="w-4 h-4" />
                           </button>
                           <button
-                            :title="'提供商'"
-                            @click="viewMode = 'formatted'; dataSource = 'provider'"
+                            title="提供商"
                             class="p-1.5 rounded transition-colors"
                             :class="viewMode === 'formatted' && dataSource === 'provider' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
+                            @click="viewMode = 'formatted'; dataSource = 'provider'"
                           >
                             <Server class="w-4 h-4" />
                           </button>
-                          <Separator orientation="vertical" class="h-4 mx-1" />
+                          <Separator
+                            orientation="vertical"
+                            class="h-4 mx-1"
+                          />
                         </template>
                         <!-- 展开/收缩 -->
                         <button
                           :title="currentExpandDepth === 0 ? '展开全部' : '收缩全部'"
-                          @click="currentExpandDepth === 0 ? expandAll() : collapseAll()"
                           class="p-1.5 rounded transition-colors"
                           :class="viewMode === 'compare'
                             ? 'text-muted-foreground/40 cursor-not-allowed'
                             : 'text-muted-foreground hover:bg-muted'"
                           :disabled="viewMode === 'compare'"
+                          @click="currentExpandDepth === 0 ? expandAll() : collapseAll()"
                         >
-                          <Maximize2 v-if="currentExpandDepth === 0" class="w-4 h-4" />
-                          <Minimize2 v-else class="w-4 h-4" />
+                          <Maximize2
+                            v-if="currentExpandDepth === 0"
+                            class="w-4 h-4"
+                          />
+                          <Minimize2
+                            v-else
+                            class="w-4 h-4"
+                          />
                         </button>
                         <!-- 复制 -->
                         <button
                           :title="copiedStates[activeTab] ? '已复制' : '复制'"
-                          @click="copyJsonToClipboard(activeTab)"
                           class="p-1.5 rounded transition-colors"
                           :class="viewMode === 'compare'
                             ? 'text-muted-foreground/40 cursor-not-allowed'
                             : 'text-muted-foreground hover:bg-muted'"
                           :disabled="viewMode === 'compare'"
+                          @click="copyJsonToClipboard(activeTab)"
                         >
-                          <Check v-if="copiedStates[activeTab]" class="w-4 h-4 text-green-500" />
-                          <Copy v-else class="w-4 h-4" />
+                          <Check
+                            v-if="copiedStates[activeTab]"
+                            class="w-4 h-4 text-green-500"
+                          />
+                          <Copy
+                            v-else
+                            class="w-4 h-4"
+                          />
                         </button>
                       </div>
                     </div>
@@ -613,9 +717,9 @@ function formatApiFormat(format: string | null | undefined): string {
 
 function formatNumber(num: number): string {
   if (num >= 1_000_000) {
-    return (num / 1_000_000).toFixed(1) + 'M'
+    return `${(num / 1_000_000).toFixed(1)  }M`
   } else if (num >= 1_000) {
-    return (num / 1_000).toFixed(1) + 'K'
+    return `${(num / 1_000).toFixed(1)  }K`
   }
   return num.toLocaleString()
 }

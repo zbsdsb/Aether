@@ -7,13 +7,21 @@
     size="2xl"
     @update:model-value="handleDialogUpdate"
   >
-    <form @submit.prevent="handleSubmit" class="space-y-6">
+    <form
+      class="space-y-6"
+      @submit.prevent="handleSubmit"
+    >
       <!-- 基本信息 -->
       <div class="space-y-4">
-        <h3 class="text-sm font-medium border-b pb-2">基本信息</h3>
+        <h3 class="text-sm font-medium border-b pb-2">
+          基本信息
+        </h3>
 
         <!-- 添加模式显示提供商标识 -->
-        <div v-if="!isEditMode" class="space-y-2">
+        <div
+          v-if="!isEditMode"
+          class="space-y-2"
+        >
           <Label for="name">提供商标识 *</Label>
           <Input
             id="name"
@@ -21,7 +29,9 @@
             placeholder="例如: openai-primary"
             required
           />
-          <p class="text-xs text-muted-foreground">唯一ID，创建后不可修改</p>
+          <p class="text-xs text-muted-foreground">
+            唯一ID，创建后不可修改
+          </p>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
@@ -58,18 +68,29 @@
 
       <!-- 计费与限流 -->
       <div class="space-y-4">
-        <h3 class="text-sm font-medium border-b pb-2">计费与限流</h3>
+        <h3 class="text-sm font-medium border-b pb-2">
+          计费与限流
+        </h3>
         <div class="grid grid-cols-2 gap-4">
           <div class="space-y-2">
             <Label>计费类型</Label>
-            <Select v-model="form.billing_type" v-model:open="billingTypeSelectOpen">
+            <Select
+              v-model="form.billing_type"
+              v-model:open="billingTypeSelectOpen"
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="monthly_quota">月卡额度</SelectItem>
-                <SelectItem value="pay_as_you_go">按量付费</SelectItem>
-                <SelectItem value="free_tier">免费套餐</SelectItem>
+                <SelectItem value="monthly_quota">
+                  月卡额度
+                </SelectItem>
+                <SelectItem value="pay_as_you_go">
+                  按量付费
+                </SelectItem>
+                <SelectItem value="free_tier">
+                  免费套餐
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -86,7 +107,10 @@
         </div>
 
         <!-- 月卡配置 -->
-        <div v-if="form.billing_type === 'monthly_quota'" class="grid grid-cols-2 gap-4 p-3 border rounded-lg bg-muted/50">
+        <div
+          v-if="form.billing_type === 'monthly_quota'"
+          class="grid grid-cols-2 gap-4 p-3 border rounded-lg bg-muted/50"
+        >
           <div class="space-y-2">
             <Label class="text-xs">周期额度 (USD)</Label>
             <Input
@@ -114,13 +138,25 @@
               周期开始时间
               <span class="text-red-500">*</span>
             </Label>
-            <Input v-model="form.quota_last_reset_at" type="datetime-local" class="h-9" />
-            <p class="text-xs text-muted-foreground">系统会自动统计从该时间点开始的使用量</p>
+            <Input
+              v-model="form.quota_last_reset_at"
+              type="datetime-local"
+              class="h-9"
+            />
+            <p class="text-xs text-muted-foreground">
+              系统会自动统计从该时间点开始的使用量
+            </p>
           </div>
           <div class="space-y-2">
             <Label class="text-xs">过期时间</Label>
-            <Input v-model="form.quota_expires_at" type="datetime-local" class="h-9" />
-            <p class="text-xs text-muted-foreground">留空表示永久有效</p>
+            <Input
+              v-model="form.quota_expires_at"
+              type="datetime-local"
+              class="h-9"
+            />
+            <p class="text-xs text-muted-foreground">
+              留空表示永久有效
+            </p>
           </div>
         </div>
       </div>
@@ -130,14 +166,14 @@
       <Button
         type="button"
         variant="outline"
-        @click="handleCancel"
         :disabled="loading"
+        @click="handleCancel"
       >
         取消
       </Button>
       <Button
-        @click="handleSubmit"
         :disabled="loading || !form.display_name || (!isEditMode && !form.name)"
+        @click="handleSubmit"
       >
         {{ loading ? (isEditMode ? '保存中...' : '创建中...') : (isEditMode ? '保存' : '创建') }}
       </Button>
@@ -147,16 +183,18 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Dialog } from '@/components/ui'
-import Button from '@/components/ui/button.vue'
-import Input from '@/components/ui/input.vue'
-import Textarea from '@/components/ui/textarea.vue'
-import Label from '@/components/ui/label.vue'
-import Select from '@/components/ui/select.vue'
-import SelectTrigger from '@/components/ui/select-trigger.vue'
-import SelectValue from '@/components/ui/select-value.vue'
-import SelectContent from '@/components/ui/select-content.vue'
-import SelectItem from '@/components/ui/select-item.vue'
+import {
+  Dialog,
+  Button,
+  Input,
+  Textarea,
+  Label,
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui'
 import { Server, SquarePen } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { useFormDialog } from '@/composables/useFormDialog'

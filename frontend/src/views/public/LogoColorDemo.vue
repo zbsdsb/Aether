@@ -1,8 +1,12 @@
 <template>
   <div class="min-h-screen bg-[#fafaf7] dark:bg-[#191714] p-8">
     <div class="max-w-7xl mx-auto">
-      <h1 class="text-3xl font-bold text-center mb-2 text-[#191919] dark:text-white">Logo 颜色方案对比</h1>
-      <p class="text-center text-[#666663] dark:text-gray-400 mb-8">点击任意方案可以放大预览</p>
+      <h1 class="text-3xl font-bold text-center mb-2 text-[#191919] dark:text-white">
+        Logo 颜色方案对比
+      </h1>
+      <p class="text-center text-[#666663] dark:text-gray-400 mb-8">
+        点击任意方案可以放大预览
+      </p>
 
       <!-- Color schemes grid -->
       <div class="grid grid-cols-2 md:grid-cols-3 gap-6">
@@ -14,8 +18,10 @@
           @click="selectScheme(index)"
         >
           <!-- Scheme name badge -->
-          <div class="absolute top-3 left-3 px-2 py-1 rounded-full text-xs font-medium"
-            :style="{ backgroundColor: scheme.primary + '20', color: scheme.primary }">
+          <div
+            class="absolute top-3 left-3 px-2 py-1 rounded-full text-xs font-medium"
+            :style="{ backgroundColor: scheme.primary + '20', color: scheme.primary }"
+          >
             {{ scheme.name }}
           </div>
 
@@ -27,10 +33,25 @@
               xmlns="http://www.w3.org/2000/svg"
             >
               <defs>
-                <linearGradient :id="`gradient-${index}`" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" :stop-color="scheme.primary" />
-                  <stop offset="50%" :stop-color="scheme.secondary" />
-                  <stop offset="100%" :stop-color="scheme.primary" />
+                <linearGradient
+                  :id="`gradient-${index}`"
+                  x1="0%"
+                  y1="0%"
+                  x2="100%"
+                  y2="100%"
+                >
+                  <stop
+                    offset="0%"
+                    :stop-color="scheme.primary"
+                  />
+                  <stop
+                    offset="50%"
+                    :stop-color="scheme.secondary"
+                  />
+                  <stop
+                    offset="100%"
+                    :stop-color="scheme.primary"
+                  />
                 </linearGradient>
               </defs>
 
@@ -62,20 +83,22 @@
               <div
                 class="w-8 h-8 rounded-full border-2 border-white shadow"
                 :style="{ backgroundColor: scheme.primary }"
-              ></div>
+              />
               <span class="text-xs text-[#666663] dark:text-gray-400 mt-1">{{ scheme.primary }}</span>
             </div>
             <div class="flex flex-col items-center">
               <div
                 class="w-8 h-8 rounded-full border-2 border-white shadow"
                 :style="{ backgroundColor: scheme.secondary }"
-              ></div>
+              />
               <span class="text-xs text-[#666663] dark:text-gray-400 mt-1">{{ scheme.secondary }}</span>
             </div>
           </div>
 
           <!-- Description -->
-          <p class="text-center text-sm text-[#666663] dark:text-gray-400 mt-3">{{ scheme.description }}</p>
+          <p class="text-center text-sm text-[#666663] dark:text-gray-400 mt-3">
+            {{ scheme.description }}
+          </p>
         </div>
       </div>
 
@@ -95,11 +118,21 @@
                 {{ colorSchemes[selectedScheme].name }}
               </h2>
               <button
-                @click="showPreview = false"
                 class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                @click="showPreview = false"
               >
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
@@ -126,7 +159,7 @@
                 <div
                   class="w-6 h-6 rounded-full border-2 border-white shadow"
                   :style="{ backgroundColor: colorSchemes[selectedScheme].primary }"
-                ></div>
+                />
                 <span class="text-sm font-mono text-[#666663] dark:text-gray-400">
                   {{ colorSchemes[selectedScheme].primary }}
                 </span>
@@ -135,7 +168,7 @@
                 <div
                   class="w-6 h-6 rounded-full border-2 border-white shadow"
                   :style="{ backgroundColor: colorSchemes[selectedScheme].secondary }"
-                ></div>
+                />
                 <span class="text-sm font-mono text-[#666663] dark:text-gray-400">
                   {{ colorSchemes[selectedScheme].secondary }}
                 </span>
@@ -145,8 +178,8 @@
             <!-- Apply button -->
             <div class="mt-6 text-center">
               <button
-                @click="applyScheme"
                 class="px-6 py-2 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition"
+                @click="applyScheme"
               >
                 应用此方案
               </button>
@@ -161,8 +194,18 @@
           to="/"
           class="inline-flex items-center gap-2 px-4 py-2 text-[#666663] dark:text-gray-400 hover:text-[#191919] dark:hover:text-white transition"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M15 19l-7-7 7-7"
+            />
           </svg>
           返回首页
         </RouterLink>

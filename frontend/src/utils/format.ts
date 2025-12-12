@@ -13,22 +13,22 @@ export function formatTokens(num: number | undefined | null): string {
   if (num < 1000000) {
     const thousands = num / 1000
     if (thousands >= 100) {
-      return Math.round(thousands) + 'K'
+      return `${Math.round(thousands)  }K`
     } else if (thousands >= 10) {
-      return thousands.toFixed(1) + 'K'
+      return `${thousands.toFixed(1)  }K`
     } else {
-      return thousands.toFixed(2) + 'K'
+      return `${thousands.toFixed(2)  }K`
     }
   }
 
   // For values >= 1M, show in millions
   const millions = num / 1000000
   if (millions >= 100) {
-    return Math.round(millions) + 'M'
+    return `${Math.round(millions)  }M`
   } else if (millions >= 10) {
-    return millions.toFixed(1) + 'M'
+    return `${millions.toFixed(1)  }M`
   } else {
-    return millions.toFixed(2) + 'M'
+    return `${millions.toFixed(2)  }M`
   }
 }
 
@@ -43,7 +43,7 @@ export function formatCurrency(amount: number | undefined | null): string {
     const formatted = amount.toFixed(8)
     // Remove trailing zeros but keep at least 2 decimal places
     const trimmed = formatted.replace(/(\.\d\d)0+$/, '$1')
-    return '$' + trimmed
+    return `$${  trimmed}`
   }
 
   // For small amounts (< $0.0001), show up to 6 decimal places
@@ -51,7 +51,7 @@ export function formatCurrency(amount: number | undefined | null): string {
     const formatted = amount.toFixed(6)
     // Remove trailing zeros but keep at least 2 decimal places
     const trimmed = formatted.replace(/(\.\d\d)0+$/, '$1')
-    return '$' + trimmed
+    return `$${  trimmed}`
   }
 
   // For small amounts (< $0.01), show up to 5 decimal places
@@ -59,7 +59,7 @@ export function formatCurrency(amount: number | undefined | null): string {
     const formatted = amount.toFixed(5)
     // Remove trailing zeros but keep at least 2 decimal places
     const trimmed = formatted.replace(/(\.\d\d)0+$/, '$1')
-    return '$' + trimmed
+    return `$${  trimmed}`
   }
 
   // For amounts less than $1, show 4 decimal places
@@ -67,7 +67,7 @@ export function formatCurrency(amount: number | undefined | null): string {
     const formatted = amount.toFixed(4)
     // Remove trailing zeros but keep at least 2 decimal places
     const trimmed = formatted.replace(/(\.\d\d)0+$/, '$1')
-    return '$' + trimmed
+    return `$${  trimmed}`
   }
 
   // For amounts $1-$100, show 2-3 decimal places
@@ -75,11 +75,11 @@ export function formatCurrency(amount: number | undefined | null): string {
     const formatted = amount.toFixed(3)
     // Remove trailing zeros but keep at least 2 decimal places
     const trimmed = formatted.replace(/(\.\d\d)0+$/, '$1')
-    return '$' + trimmed
+    return `$${  trimmed}`
   }
 
   // For larger amounts, show 2 decimal places
-  return '$' + amount.toFixed(2)
+  return `$${  amount.toFixed(2)}`
 }
 
 // Number formatting with locale support
@@ -111,9 +111,9 @@ export function formatModelPrice(price: number | undefined | null): string {
 
   // Price is already per 1M tokens, no conversion needed
   if (price < 1) {
-    return '$' + price.toFixed(4).replace(/\.?0+$/, '').padEnd(price.toFixed(4).indexOf('.') + 3, '0')
+    return `$${  price.toFixed(4).replace(/\.?0+$/, '').padEnd(price.toFixed(4).indexOf('.') + 3, '0')}`
   } else {
-    return '$' + price.toFixed(2)
+    return `$${  price.toFixed(2)}`
   }
 }
 

@@ -8,8 +8,8 @@
       <button
         v-for="(section, index) in sections"
         :key="index"
-        @click="scrollToSection(index)"
         class="scroll-indicator-btn group"
+        @click="scrollToSection(index)"
       >
         <span class="scroll-indicator-label">{{ section.name }}</span>
         <div
@@ -28,9 +28,14 @@
             class="flex items-center gap-3 group/logo cursor-pointer"
             @click="scrollToSection(0)"
           >
-            <HeaderLogo size="h-9 w-9" className="text-[#191919] dark:text-white" />
+            <HeaderLogo
+              size="h-9 w-9"
+              class-name="text-[#191919] dark:text-white"
+            />
             <div class="flex flex-col justify-center">
-              <h1 class="text-lg font-bold text-[#191919] dark:text-white leading-none">Aether</h1>
+              <h1 class="text-lg font-bold text-[#191919] dark:text-white leading-none">
+                Aether
+              </h1>
               <span class="text-[10px] text-[#91918d] dark:text-muted-foreground leading-none mt-1.5 font-medium tracking-wide">API Gateway</span>
             </div>
           </div>
@@ -40,11 +45,11 @@
             <button
               v-for="(section, index) in sections"
               :key="index"
-              @click="scrollToSection(index)"
               class="group relative px-3 py-2 text-sm font-medium transition"
               :class="currentSection === index
                 ? 'text-[#cc785c] dark:text-[#d4a27f]'
                 : 'text-[#666663] dark:text-muted-foreground hover:text-[#191919] dark:hover:text-white'"
+              @click="scrollToSection(index)"
             >
               {{ section.name }}
               <div
@@ -57,13 +62,22 @@
           <!-- Right Actions -->
           <div class="flex items-center gap-3">
             <button
-              @click="toggleDarkMode"
               class="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
               :title="themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色模式' : '浅色模式'"
+              @click="toggleDarkMode"
             >
-              <SunMoon v-if="themeMode === 'system'" class="h-4 w-4" />
-              <Sun v-else-if="themeMode === 'light'" class="h-4 w-4" />
-              <Moon v-else class="h-4 w-4" />
+              <SunMoon
+                v-if="themeMode === 'system'"
+                class="h-4 w-4"
+              />
+              <Sun
+                v-else-if="themeMode === 'light'"
+                class="h-4 w-4"
+              />
+              <Moon
+                v-else
+                class="h-4 w-4"
+              />
             </button>
 
             <RouterLink
@@ -75,8 +89,8 @@
             </RouterLink>
             <button
               v-else
-              @click="showLoginDialog = true"
               class="rounded-xl bg-[#cc785c] px-4 py-2 text-sm font-medium text-white shadow-lg shadow-[#cc785c]/30 transition hover:bg-[#d4a27f]"
+              @click="showLoginDialog = true"
             >
               登录
             </button>
@@ -123,7 +137,8 @@
                 :disable-ripple="currentSection === SECTIONS.GEMINI || currentSection === SECTIONS.FEATURES"
                 :anim-delay="logoTransitionDelay"
                 :static="currentSection === SECTIONS.FEATURES"
-                :class="[currentLogoClass, 'logo-active']"
+                class="logo-active"
+                :class="[currentLogoClass]"
               />
             </div>
           </Transition>
@@ -131,7 +146,10 @@
       </div>
 
       <!-- Section 0: Introduction -->
-      <section ref="section0" class="min-h-screen snap-start flex items-center justify-center px-16 lg:px-20 py-20">
+      <section
+        ref="section0"
+        class="min-h-screen snap-start flex items-center justify-center px-16 lg:px-20 py-20"
+      >
         <div class="max-w-4xl mx-auto text-center">
           <div class="h-80 w-full mb-16" />
           <h1
@@ -144,13 +162,13 @@
             class="mb-8 text-xl text-[#666663] dark:text-gray-300 max-w-2xl mx-auto transition-all duration-700"
             :style="getDescStyle(SECTIONS.HOME)"
           >
-            AI 开发工具统一接入平台<br />
+            AI 开发工具统一接入平台<br>
             整合 Claude Code、Codex CLI、Gemini CLI 等多个 AI 编程助手
           </p>
           <button
-            @click="scrollToSection(SECTIONS.CLAUDE)"
             class="mt-16 transition-all duration-700 cursor-pointer hover:scale-110"
             :style="getScrollIndicatorStyle(SECTIONS.HOME)"
+            @click="scrollToSection(SECTIONS.CLAUDE)"
           >
             <ChevronDown class="h-8 w-8 mx-auto text-[#91918d] dark:text-muted-foreground/80 animate-bounce" />
           </button>
@@ -160,12 +178,12 @@
       <!-- Section 1: Claude Code -->
       <CliSection
         ref="section1"
+        v-model:platform-value="claudePlatform"
         title="Claude Code"
         description="直接在您的终端中释放Claude的原始力量。瞬间搜索百万行代码库。将数小时的流程转化为单一命令。您的工具。您的流程。您的代码库,以思维速度进化。"
         :badge-icon="Code2"
         badge-text="IDE 集成"
         badge-class="bg-[#cc785c]/10 dark:bg-amber-900/30 border border-[#cc785c]/20 dark:border-amber-800 text-[#cc785c] dark:text-amber-400"
-        v-model:platform-value="claudePlatform"
         :platform-options="platformPresets.claude.options"
         :install-command="claudeInstallCommand"
         :config-files="[{ path: '~/.claude/settings.json', content: claudeConfig, language: 'json' }]"
@@ -180,12 +198,12 @@
       <!-- Section 2: Codex CLI -->
       <CliSection
         ref="section2"
+        v-model:platform-value="codexPlatform"
         title="Codex CLI"
         description="Codex CLI 是一款可在本地终端运行的编程助手工具，它能够读取、修改并执行用户指定目录中的代码。"
         :badge-icon="Terminal"
         badge-text="命令行工具"
         badge-class="bg-[#cc785c]/10 dark:bg-emerald-900/30 border border-[#cc785c]/20 dark:border-emerald-800 text-[#cc785c] dark:text-emerald-400"
-        v-model:platform-value="codexPlatform"
         :platform-options="platformPresets.codex.options"
         :install-command="codexInstallCommand"
         :config-files="[
@@ -203,12 +221,12 @@
       <!-- Section 3: Gemini CLI -->
       <CliSection
         ref="section3"
+        v-model:platform-value="geminiPlatform"
         title="Gemini CLI"
         description="Gemini CLI 是一款开源人工智能代理，可将 Gemini 的强大功能直接带入你的终端。它提供了对 Gemini 的轻量级访问，为你提供了从提示符到我们模型的最直接路径。"
         :badge-icon="Sparkles"
         badge-text="多模态 AI"
         badge-class="bg-[#cc785c]/10 dark:bg-primary/20 border border-[#cc785c]/20 dark:border-primary/30 text-[#cc785c] dark:text-primary"
-        v-model:platform-value="geminiPlatform"
         :platform-options="platformPresets.gemini.options"
         :install-command="geminiInstallCommand"
         :config-files="[
@@ -228,7 +246,10 @@
       </CliSection>
 
       <!-- Section 4: Features -->
-      <section ref="section4" class="min-h-screen snap-start flex items-center justify-center px-16 lg:px-20 py-20 relative overflow-hidden">
+      <section
+        ref="section4"
+        class="min-h-screen snap-start flex items-center justify-center px-16 lg:px-20 py-20 relative overflow-hidden"
+      >
         <div class="max-w-4xl mx-auto text-center relative z-10">
           <div
             class="inline-flex items-center gap-2 rounded-full bg-[#cc785c]/10 dark:bg-purple-500/20 border border-[#cc785c]/20 dark:border-purple-500/40 px-4 py-2 text-sm font-medium text-[#cc785c] dark:text-purple-300 mb-6 backdrop-blur-sm transition-all duration-500"
@@ -273,8 +294,12 @@
                     : 'text-[#cc785c] dark:text-[#d4a27f] animate-spin'"
                 />
               </div>
-              <h3 class="text-lg font-bold text-[#191919] dark:text-white mb-2">{{ feature.title }}</h3>
-              <p class="text-sm text-[#666663] dark:text-[#c9c3b4]">{{ feature.desc }}</p>
+              <h3 class="text-lg font-bold text-[#191919] dark:text-white mb-2">
+                {{ feature.title }}
+              </h3>
+              <p class="text-sm text-[#666663] dark:text-[#c9c3b4]">
+                {{ feature.desc }}
+              </p>
               <div
                 class="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
                 :class="feature.status === 'completed'
@@ -286,7 +311,10 @@
             </div>
           </div>
 
-          <div class="mt-12 transition-all duration-700" :style="getButtonsStyle(SECTIONS.FEATURES)">
+          <div
+            class="mt-12 transition-all duration-700"
+            :style="getButtonsStyle(SECTIONS.FEATURES)"
+          >
             <RouterLink
               v-if="authStore.isAuthenticated"
               :to="dashboardPath"
@@ -297,8 +325,8 @@
             </RouterLink>
             <button
               v-else
-              @click="showLoginDialog = true"
               class="inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-primary/30 transition hover:shadow-primary/50 hover:scale-105"
+              @click="showLoginDialog = true"
             >
               <Rocket class="h-5 w-5" />
               立即开始使用
@@ -312,11 +340,22 @@
     <footer class="relative z-10 border-t border-[#cc785c]/10 dark:border-[rgba(227,224,211,0.12)] bg-[#fafaf7]/90 dark:bg-[#191714]/95 backdrop-blur-md py-8">
       <div class="mx-auto max-w-7xl px-6">
         <div class="flex flex-col items-center justify-between gap-4 sm:flex-row">
-          <p class="text-sm text-[#91918d] dark:text-muted-foreground">© 2025 Aether. 团队内部使用</p>
+          <p class="text-sm text-[#91918d] dark:text-muted-foreground">
+            © 2025 Aether. 团队内部使用
+          </p>
           <div class="flex items-center gap-6 text-sm text-[#91918d] dark:text-muted-foreground">
-            <a href="#" class="transition hover:text-[#191919] dark:hover:text-white">使用条款</a>
-            <a href="#" class="transition hover:text-[#191919] dark:hover:text-white">隐私政策</a>
-            <a href="#" class="transition hover:text-[#191919] dark:hover:text-white">技术支持</a>
+            <a
+              href="#"
+              class="transition hover:text-[#191919] dark:hover:text-white"
+            >使用条款</a>
+            <a
+              href="#"
+              class="transition hover:text-[#191919] dark:hover:text-white"
+            >隐私政策</a>
+            <a
+              href="#"
+              class="transition hover:text-[#191919] dark:hover:text-white"
+            >技术支持</a>
           </div>
         </div>
       </div>

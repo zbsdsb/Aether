@@ -2,6 +2,8 @@
  * 解析 API 错误响应，提取友好的错误信息
  */
 
+import { isApiError } from '@/types/api-error'
+
 /**
  * Pydantic 验证错误项
  */
@@ -9,7 +11,7 @@ interface ValidationError {
   loc: (string | number)[]
   msg: string
   type: string
-  ctx?: Record<string, any>
+  ctx?: Record<string, unknown>
 }
 
 /**
@@ -138,11 +140,14 @@ function formatValidationError(error: ValidationError): string {
  * @param defaultMessage 默认错误信息
  * @returns 格式化的错误信息
  */
-export function parseApiError(err: any, defaultMessage: string = '操作失败'): string {
+export function parseApiError(err: unknown, defaultMessage: string = '操作失败'): string {
   if (!err) return defaultMessage
 
   // 处理网络错误
-  if (!err.response) {
+  if (!isApiError(err) || !err.response) {
+    if (err instanceof Error) {
+      return err.message || defaultMessage
+    }
     return '无法连接到服务器，请检查网络连接'
   }
 
@@ -169,8 +174,8 @@ export function parseApiError(err: any, defaultMessage: string = '操作失败')
   // 3. 处理对象错误
   if (typeof detail === 'object') {
     // 可能是自定义错误对象
-    if (detail.message) {
-      return detail.message
+    if ((detail as Record<string, unknown>).message) {
+      return String((detail as Record<string, unknown>).message)
     }
     // 尝试 JSON 序列化
     try {
@@ -186,7 +191,7 @@ export function parseApiError(err: any, defaultMessage: string = '操作失败')
 /**
  * 解析并提取第一个错误信息（用于简短提示）
  */
-export function parseApiErrorShort(err: any, defaultMessage: string = '操作失败'): string {
+export function parseApiErrorShort(err: unknown, defaultMessage: string = '操作失败'): string {
   const fullError = parseApiError(err, defaultMessage)
 
   // 如果有多行错误，只取第一行

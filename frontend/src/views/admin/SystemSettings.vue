@@ -1,8 +1,14 @@
 <template>
   <PageContainer>
-    <PageHeader title="系统设置" description="管理系统级别的配置和参数">
+    <PageHeader
+      title="系统设置"
+      description="管理系统级别的配置和参数"
+    >
       <template #actions>
-        <Button @click="saveSystemConfig" :disabled="loading">
+        <Button
+          :disabled="loading"
+          @click="saveSystemConfig"
+        >
           {{ loading ? '保存中...' : '保存所有配置' }}
         </Button>
       </template>
@@ -10,10 +16,16 @@
 
     <div class="mt-6 space-y-6">
       <!-- 基础配置 -->
-      <CardSection title="基础配置" description="配置系统默认参数">
+      <CardSection
+        title="基础配置"
+        description="配置系统默认参数"
+      >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <Label for="default-quota" class="block text-sm font-medium">
+            <Label
+              for="default-quota"
+              class="block text-sm font-medium"
+            >
               默认用户配额(美元)
             </Label>
             <Input
@@ -30,7 +42,10 @@
           </div>
 
           <div>
-            <Label for="rate-limit" class="block text-sm font-medium">
+            <Label
+              for="rate-limit"
+              class="block text-sm font-medium"
+            >
               每分钟请求限制
             </Label>
             <Input
@@ -44,19 +59,24 @@
               0 表示不限制
             </p>
           </div>
-
         </div>
       </CardSection>
 
       <!-- 用户注册配置 -->
-      <CardSection title="用户注册" description="控制用户注册和验证">
+      <CardSection
+        title="用户注册"
+        description="控制用户注册和验证"
+      >
         <div class="space-y-4">
           <div class="flex items-center space-x-2">
             <Checkbox
               id="enable-registration"
               v-model:checked="systemConfig.enable_registration"
             />
-            <Label for="enable-registration" class="cursor-pointer">
+            <Label
+              for="enable-registration"
+              class="cursor-pointer"
+            >
               开放用户注册
             </Label>
           </div>
@@ -66,7 +86,10 @@
               id="require-email-verification"
               v-model:checked="systemConfig.require_email_verification"
             />
-            <Label for="require-email-verification" class="cursor-pointer">
+            <Label
+              for="require-email-verification"
+              class="cursor-pointer"
+            >
               需要邮箱验证
             </Label>
           </div>
@@ -74,10 +97,16 @@
       </CardSection>
 
       <!-- API Key 管理配置 -->
-      <CardSection title="API Key 管理" description="API Key 相关配置">
+      <CardSection
+        title="API Key 管理"
+        description="API Key 相关配置"
+      >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <Label for="api-key-expire" class="block text-sm font-medium">
+            <Label
+              for="api-key-expire"
+              class="block text-sm font-medium"
+            >
               API密钥过期天数
             </Label>
             <Input
@@ -99,7 +128,10 @@
                 v-model:checked="systemConfig.auto_delete_expired_keys"
               />
               <div>
-                <Label for="auto-delete-expired-keys" class="cursor-pointer">
+                <Label
+                  for="auto-delete-expired-keys"
+                  class="cursor-pointer"
+                >
                   自动删除过期 Key
                 </Label>
                 <p class="text-xs text-muted-foreground">
@@ -112,20 +144,38 @@
       </CardSection>
 
       <!-- 日志记录配置 -->
-      <CardSection title="日志记录" description="控制请求日志的记录方式和内容">
+      <CardSection
+        title="日志记录"
+        description="控制请求日志的记录方式和内容"
+      >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <Label for="request-log-level" class="block text-sm font-medium mb-2">
+            <Label
+              for="request-log-level"
+              class="block text-sm font-medium mb-2"
+            >
               记录详细程度
             </Label>
-            <Select v-model="systemConfig.request_log_level" v-model:open="logLevelSelectOpen">
-              <SelectTrigger id="request-log-level" class="mt-1">
+            <Select
+              v-model="systemConfig.request_log_level"
+              v-model:open="logLevelSelectOpen"
+            >
+              <SelectTrigger
+                id="request-log-level"
+                class="mt-1"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="basic">BASIC - 基本信息 (~1KB/条)</SelectItem>
-                <SelectItem value="headers">HEADERS - 含请求头 (~2-3KB/条)</SelectItem>
-                <SelectItem value="full">FULL - 完整请求响应 (~50KB/条)</SelectItem>
+                <SelectItem value="basic">
+                  BASIC - 基本信息 (~1KB/条)
+                </SelectItem>
+                <SelectItem value="headers">
+                  HEADERS - 含请求头 (~2-3KB/条)
+                </SelectItem>
+                <SelectItem value="full">
+                  FULL - 完整请求响应 (~50KB/条)
+                </SelectItem>
               </SelectContent>
             </Select>
             <p class="mt-1 text-xs text-muted-foreground">
@@ -134,7 +184,10 @@
           </div>
 
           <div>
-            <Label for="max-request-body-size" class="block text-sm font-medium">
+            <Label
+              for="max-request-body-size"
+              class="block text-sm font-medium"
+            >
               最大请求体大小 (KB)
             </Label>
             <Input
@@ -150,7 +203,10 @@
           </div>
 
           <div>
-            <Label for="max-response-body-size" class="block text-sm font-medium">
+            <Label
+              for="max-response-body-size"
+              class="block text-sm font-medium"
+            >
               最大响应体大小 (KB)
             </Label>
             <Input
@@ -166,7 +222,10 @@
           </div>
 
           <div>
-            <Label for="sensitive-headers" class="block text-sm font-medium">
+            <Label
+              for="sensitive-headers"
+              class="block text-sm font-medium"
+            >
               敏感请求头
             </Label>
             <Input
@@ -183,7 +242,10 @@
       </CardSection>
 
       <!-- 日志清理策略 -->
-      <CardSection title="日志清理策略" description="配置日志的分级保留和自动清理">
+      <CardSection
+        title="日志清理策略"
+        description="配置日志的分级保留和自动清理"
+      >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div class="md:col-span-2">
             <div class="flex items-center space-x-2 mb-4">
@@ -191,7 +253,10 @@
                 id="enable-auto-cleanup"
                 v-model:checked="systemConfig.enable_auto_cleanup"
               />
-              <Label for="enable-auto-cleanup" class="cursor-pointer">
+              <Label
+                for="enable-auto-cleanup"
+                class="cursor-pointer"
+              >
                 启用自动清理任务
               </Label>
               <span class="text-xs text-muted-foreground ml-2">
@@ -201,7 +266,10 @@
           </div>
 
           <div>
-            <Label for="detail-log-retention-days" class="block text-sm font-medium">
+            <Label
+              for="detail-log-retention-days"
+              class="block text-sm font-medium"
+            >
               详细日志保留天数
             </Label>
             <Input
@@ -217,7 +285,10 @@
           </div>
 
           <div>
-            <Label for="compressed-log-retention-days" class="block text-sm font-medium">
+            <Label
+              for="compressed-log-retention-days"
+              class="block text-sm font-medium"
+            >
               压缩日志保留天数
             </Label>
             <Input
@@ -233,7 +304,10 @@
           </div>
 
           <div>
-            <Label for="header-retention-days" class="block text-sm font-medium">
+            <Label
+              for="header-retention-days"
+              class="block text-sm font-medium"
+            >
               请求头保留天数
             </Label>
             <Input
@@ -249,7 +323,10 @@
           </div>
 
           <div>
-            <Label for="log-retention-days" class="block text-sm font-medium">
+            <Label
+              for="log-retention-days"
+              class="block text-sm font-medium"
+            >
               完整日志保留天数
             </Label>
             <Input
@@ -265,7 +342,10 @@
           </div>
 
           <div>
-            <Label for="cleanup-batch-size" class="block text-sm font-medium">
+            <Label
+              for="cleanup-batch-size"
+              class="block text-sm font-medium"
+            >
               每批次清理记录数
             </Label>
             <Input
@@ -283,7 +363,9 @@
 
         <!-- 清理策略说明 -->
         <div class="mt-4 p-4 bg-muted/50 rounded-lg">
-          <h4 class="text-sm font-medium mb-2">清理策略说明</h4>
+          <h4 class="text-sm font-medium mb-2">
+            清理策略说明
+          </h4>
           <div class="text-xs text-muted-foreground space-y-1">
             <p>1. <strong>详细日志阶段</strong>: 保留完整的 request_body 和 response_body</p>
             <p>2. <strong>压缩日志阶段</strong>: body 字段被压缩存储，节省空间</p>

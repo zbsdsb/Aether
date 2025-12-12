@@ -1,8 +1,13 @@
 <template>
   <Card class="p-4 !overflow-visible">
     <div class="flex items-center justify-between mb-3">
-      <p class="text-sm font-semibold">{{ title }}</p>
-      <div v-if="hasData" class="flex items-center gap-1 text-[11px] text-muted-foreground flex-shrink-0">
+      <p class="text-sm font-semibold">
+        {{ title }}
+      </p>
+      <div
+        v-if="hasData"
+        class="flex items-center gap-1 text-[11px] text-muted-foreground flex-shrink-0"
+      >
         <span class="flex-shrink-0">少</span>
         <div
           v-for="(level, index) in legendLevels"
@@ -18,7 +23,10 @@
       :data="data"
       :show-header="false"
     />
-    <div v-else class="h-full min-h-[160px] flex items-center justify-center text-sm text-muted-foreground">
+    <div
+      v-else
+      class="h-full min-h-[160px] flex items-center justify-center text-sm text-muted-foreground"
+    >
       暂无活跃数据
     </div>
   </Card>

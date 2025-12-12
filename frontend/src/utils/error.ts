@@ -2,19 +2,10 @@
  * 从后端响应中提取错误消息
  * 后端统一返回格式: {"error": {"type": "...", "message": "..."}}
  */
-export function extractErrorMessage(error: any, defaultMessage = '操作失败'): string {
-  // 优先从响应中提取错误消息
-  if (error.response?.data?.error?.message) {
-    return error.response.data.error.message
-  }
+import { type ApiError, isApiError, getErrorMessage as _getErrorMessage } from '@/types/api-error'
 
-  // 如果是网络错误或其他异常
-  if (error.message) {
-    return error.message
-  }
-
-  // 返回默认消息
-  return defaultMessage
+export function extractErrorMessage(error: unknown, defaultMessage = '操作失败'): string {
+  return _getErrorMessage(error, defaultMessage)
 }
 
 /**
@@ -38,8 +29,8 @@ export type ErrorType = typeof ErrorType[keyof typeof ErrorType]
 /**
  * 从后端响应中提取错误类型
  */
-export function extractErrorType(error: any): ErrorType | null {
-  if (error.response?.data?.error?.type) {
+export function extractErrorType(error: unknown): ErrorType | null {
+  if (isApiError(error) && error.response?.data?.error?.type) {
     return error.response.data.error.type as ErrorType
   }
   return null
@@ -48,6 +39,10 @@ export function extractErrorType(error: any): ErrorType | null {
 /**
  * 检查是否为特定类型的错误
  */
-export function isErrorType(error: any, type: ErrorType): boolean {
+export function isErrorType(error: unknown, type: ErrorType): boolean {
   return extractErrorType(error) === type
 }
+
+// 重新导出类型
+export type { ApiError }
+export { isApiError }

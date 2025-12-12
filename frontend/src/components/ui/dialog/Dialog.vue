@@ -1,6 +1,10 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="fixed inset-0 overflow-y-auto" :style="{ zIndex: containerZIndex }">
+    <div
+      v-if="isOpen"
+      class="fixed inset-0 overflow-y-auto"
+      :style="{ zIndex: containerZIndex }"
+    >
       <!-- 背景遮罩 -->
       <Transition
         enter-active-class="duration-200 ease-out"
@@ -30,21 +34,38 @@
         >
           <div
             v-if="isOpen"
-            @click.stop
             class="relative transform rounded-lg bg-background text-left shadow-2xl transition-all sm:my-8 sm:w-full border border-border"
             :style="{ zIndex: contentZIndex }"
             :class="maxWidthClass"
+            @click.stop
           >
             <!-- Header 区域：优先使用 slot，否则使用 title prop -->
             <slot name="header">
-              <div v-if="title" class="border-b border-border px-6 py-4">
+              <div
+                v-if="title"
+                class="border-b border-border px-6 py-4"
+              >
                 <div class="flex items-center gap-3">
-                  <div v-if="icon" class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 flex-shrink-0" :class="iconClass">
-                    <component :is="icon" class="h-5 w-5 text-primary" />
+                  <div
+                    v-if="icon"
+                    class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 flex-shrink-0"
+                    :class="iconClass"
+                  >
+                    <component
+                      :is="icon"
+                      class="h-5 w-5 text-primary"
+                    />
                   </div>
                   <div class="flex-1 min-w-0">
-                    <h3 class="text-lg font-semibold text-foreground leading-tight">{{ title }}</h3>
-                    <p v-if="description" class="text-xs text-muted-foreground">{{ description }}</p>
+                    <h3 class="text-lg font-semibold text-foreground leading-tight">
+                      {{ title }}
+                    </h3>
+                    <p
+                      v-if="description"
+                      class="text-xs text-muted-foreground"
+                    >
+                      {{ description }}
+                    </p>
                   </div>
                 </div>
               </div>

@@ -204,7 +204,7 @@ class ApiClient {
         await this.refreshPromise
         originalRequest.headers.Authorization = `Bearer ${this.getToken()}`
         return this.client.request(originalRequest)
-      } catch (refreshError) {
+      } catch {
         return Promise.reject(error)
       }
     }

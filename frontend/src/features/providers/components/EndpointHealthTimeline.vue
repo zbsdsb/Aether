@@ -2,16 +2,26 @@
   <div class="w-full space-y-1">
     <!-- 时间线 -->
     <div class="flex items-center gap-px h-6 w-full">
-      <TooltipProvider v-for="(segment, index) in segments" :key="index" :delay-duration="100">
+      <TooltipProvider
+        v-for="(segment, index) in segments"
+        :key="index"
+        :delay-duration="100"
+      >
         <Tooltip>
           <TooltipTrigger as-child>
             <div
               class="flex-1 h-full rounded-sm transition-all duration-150 cursor-pointer hover:scale-y-110 hover:brightness-110"
               :class="segment.color"
-            ></div>
+            />
           </TooltipTrigger>
-          <TooltipContent side="top" :side-offset="8" class="max-w-xs">
-            <div class="text-xs whitespace-pre-line">{{ segment.tooltip }}</div>
+          <TooltipContent
+            side="top"
+            :side-offset="8"
+            class="max-w-xs"
+          >
+            <div class="text-xs whitespace-pre-line">
+              {{ segment.tooltip }}
+            </div>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

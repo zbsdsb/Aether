@@ -1,12 +1,17 @@
 <template>
   <div class="space-y-4">
     <!-- 提供商表格 -->
-    <Card variant="default" class="overflow-hidden">
+    <Card
+      variant="default"
+      class="overflow-hidden"
+    >
       <!-- 标题和操作栏 -->
       <div class="px-6 py-3.5 border-b border-border/50">
         <div class="flex items-center justify-between gap-4">
           <!-- 左侧：标题 -->
-          <h3 class="text-base font-semibold text-foreground">提供商管理</h3>
+          <h3 class="text-base font-semibold text-foreground">
+            提供商管理
+          </h3>
 
           <!-- 右侧：操作区 -->
           <div class="flex items-center gap-2">
@@ -27,8 +32,8 @@
             <!-- 调度策略 -->
             <button
               class="group inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md border border-border/50 bg-muted/20 hover:bg-muted/40 hover:border-primary/40 transition-all duration-200 text-xs"
-              @click="openPriorityDialog"
               title="点击调整调度策略"
+              @click="openPriorityDialog"
             >
               <span class="text-muted-foreground/80">调度:</span>
               <span class="font-medium text-foreground/90">{{ priorityModeConfig.label }}</span>
@@ -42,23 +47,32 @@
               variant="ghost"
               size="icon"
               class="h-8 w-8"
-              @click="openAddProviderDialog"
               title="新增提供商"
+              @click="openAddProviderDialog"
             >
               <Plus class="w-3.5 h-3.5" />
             </Button>
-            <RefreshButton :loading="loading" @click="loadProviders" />
+            <RefreshButton
+              :loading="loading"
+              @click="loadProviders"
+            />
           </div>
         </div>
       </div>
 
       <!-- 加载状态 -->
-      <div v-if="loading" class="flex items-center justify-center py-12">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div
+        v-if="loading"
+        class="flex items-center justify-center py-12"
+      >
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
 
       <!-- 空状态 -->
-      <div v-else-if="filteredProviders.length === 0" class="flex flex-col items-center justify-center py-16 text-center">
+      <div
+        v-else-if="filteredProviders.length === 0"
+        class="flex flex-col items-center justify-center py-16 text-center"
+      >
         <div class="text-muted-foreground mb-2">
           <template v-if="searchQuery">
             未找到匹配 "{{ searchQuery }}" 的提供商
@@ -67,24 +81,48 @@
             暂无提供商，点击右上角添加
           </template>
         </div>
-        <Button v-if="searchQuery" variant="outline" size="sm" @click="searchQuery = ''">
+        <Button
+          v-if="searchQuery"
+          variant="outline"
+          size="sm"
+          @click="searchQuery = ''"
+        >
           清除搜索
         </Button>
       </div>
 
       <!-- 桌面端表格 -->
-      <div v-else class="overflow-x-auto">
+      <div
+        v-else
+        class="overflow-x-auto"
+      >
         <Table>
           <TableHeader>
             <TableRow class="border-b border-border/40 hover:bg-transparent">
-              <TableHead class="w-[150px] h-11 font-medium text-foreground/80">提供商信息</TableHead>
-              <TableHead class="w-[100px] h-11 font-medium text-foreground/80">计费类型</TableHead>
-              <TableHead class="w-[120px] h-11 font-medium text-foreground/80">官网</TableHead>
-              <TableHead class="w-[120px] h-11 font-medium text-foreground/80 text-center">资源统计</TableHead>
-              <TableHead class="w-[240px] h-11 font-medium text-foreground/80">端点健康</TableHead>
-              <TableHead class="w-[140px] h-11 font-medium text-foreground/80">配额/限流</TableHead>
-              <TableHead class="w-[80px] h-11 font-medium text-foreground/80 text-center">状态</TableHead>
-              <TableHead class="w-[120px] h-11 font-medium text-foreground/80 text-center">操作</TableHead>
+              <TableHead class="w-[150px] h-11 font-medium text-foreground/80">
+                提供商信息
+              </TableHead>
+              <TableHead class="w-[100px] h-11 font-medium text-foreground/80">
+                计费类型
+              </TableHead>
+              <TableHead class="w-[120px] h-11 font-medium text-foreground/80">
+                官网
+              </TableHead>
+              <TableHead class="w-[120px] h-11 font-medium text-foreground/80 text-center">
+                资源统计
+              </TableHead>
+              <TableHead class="w-[240px] h-11 font-medium text-foreground/80">
+                端点健康
+              </TableHead>
+              <TableHead class="w-[140px] h-11 font-medium text-foreground/80">
+                配额/限流
+              </TableHead>
+              <TableHead class="w-[80px] h-11 font-medium text-foreground/80 text-center">
+                状态
+              </TableHead>
+              <TableHead class="w-[120px] h-11 font-medium text-foreground/80 text-center">
+                操作
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -102,7 +140,10 @@
                 </div>
               </TableCell>
               <TableCell class="py-3.5">
-                <Badge variant="outline" class="text-xs font-normal border-border/50">
+                <Badge
+                  variant="outline"
+                  class="text-xs font-normal border-border/50"
+                >
                   {{ formatBillingType(provider.billing_type || 'pay_as_you_go') }}
                 </Badge>
               </TableCell>
@@ -113,12 +154,15 @@
                   target="_blank"
                   rel="noopener noreferrer"
                   class="text-xs text-primary/80 hover:text-primary hover:underline truncate block max-w-[100px]"
-                  @click.stop
                   :title="provider.website"
+                  @click.stop
                 >
                   {{ formatWebsiteDisplay(provider.website) }}
                 </a>
-                <span v-else class="text-xs text-muted-foreground/50">-</span>
+                <span
+                  v-else
+                  class="text-xs text-muted-foreground/50"
+                >-</span>
               </TableCell>
               <TableCell class="py-3.5 text-center">
                 <div class="space-y-0.5 text-xs">
@@ -154,39 +198,60 @@
                     <span
                       class="w-1.5 h-1.5 rounded-full"
                       :class="getEndpointDotColor(endpoint, provider)"
-                    ></span>
+                    />
                     {{ endpoint.api_format }}
                   </span>
                 </div>
-                <span v-else class="text-xs text-muted-foreground/50">暂无端点</span>
+                <span
+                  v-else
+                  class="text-xs text-muted-foreground/50"
+                >暂无端点</span>
               </TableCell>
               <TableCell class="py-3.5">
                 <div class="space-y-0.5 text-xs">
-                  <div v-if="provider.billing_type === 'monthly_quota'" class="text-muted-foreground/70">
-                    配额: <span class="font-semibold" :class="getQuotaUsedColorClass(provider)">${{ (provider.monthly_used_usd ?? 0).toFixed(2) }}</span> / <span class="font-medium">${{ (provider.monthly_quota_usd ?? 0).toFixed(2) }}</span>
+                  <div
+                    v-if="provider.billing_type === 'monthly_quota'"
+                    class="text-muted-foreground/70"
+                  >
+                    配额: <span
+                      class="font-semibold"
+                      :class="getQuotaUsedColorClass(provider)"
+                    >${{ (provider.monthly_used_usd ?? 0).toFixed(2) }}</span> / <span class="font-medium">${{ (provider.monthly_quota_usd ?? 0).toFixed(2) }}</span>
                   </div>
-                  <div v-if="rpmUsage(provider)" class="flex items-center gap-1">
+                  <div
+                    v-if="rpmUsage(provider)"
+                    class="flex items-center gap-1"
+                  >
                     <span class="text-muted-foreground/70">RPM:</span>
                     <span class="font-medium text-foreground/80">{{ rpmUsage(provider) }}</span>
                   </div>
-                  <div v-if="provider.billing_type !== 'monthly_quota' && !rpmUsage(provider)" class="text-muted-foreground/50">
+                  <div
+                    v-if="provider.billing_type !== 'monthly_quota' && !rpmUsage(provider)"
+                    class="text-muted-foreground/50"
+                  >
                     无限制
                   </div>
                 </div>
               </TableCell>
               <TableCell class="py-3.5 text-center">
-                <Badge :variant="provider.is_active ? 'success' : 'secondary'" class="text-xs">
+                <Badge
+                  :variant="provider.is_active ? 'success' : 'secondary'"
+                  class="text-xs"
+                >
                   {{ provider.is_active ? '活跃' : '已停用' }}
                 </Badge>
               </TableCell>
-              <TableCell class="py-3.5" @click.stop>
+              <TableCell
+                class="py-3.5"
+                @click.stop
+              >
                 <div class="flex items-center justify-center gap-0.5">
                   <Button
                     variant="ghost"
                     size="icon"
                     class="h-7 w-7 text-muted-foreground/70 hover:text-foreground"
-                    @click="openProviderDrawer(provider.id)"
                     title="查看详情"
+                    @click="openProviderDrawer(provider.id)"
                   >
                     <Eye class="h-3.5 w-3.5" />
                   </Button>
@@ -194,8 +259,8 @@
                     variant="ghost"
                     size="icon"
                     class="h-7 w-7 text-muted-foreground/70 hover:text-foreground"
-                    @click="openEditProviderDialog(provider)"
                     title="编辑提供商"
+                    @click="openEditProviderDialog(provider)"
                   >
                     <Edit class="h-3.5 w-3.5" />
                   </Button>
@@ -203,8 +268,8 @@
                     variant="ghost"
                     size="icon"
                     class="h-7 w-7 text-muted-foreground/70 hover:text-foreground"
-                    @click="toggleProviderStatus(provider)"
                     :title="provider.is_active ? '停用提供商' : '启用提供商'"
+                    @click="toggleProviderStatus(provider)"
                   >
                     <Power class="h-3.5 w-3.5" />
                   </Button>
@@ -212,8 +277,8 @@
                     variant="ghost"
                     size="icon"
                     class="h-7 w-7 text-muted-foreground/70 hover:text-destructive"
-                    @click="handleDeleteProvider(provider)"
                     title="删除提供商"
+                    @click="handleDeleteProvider(provider)"
                   >
                     <Trash2 class="h-3.5 w-3.5" />
                   </Button>

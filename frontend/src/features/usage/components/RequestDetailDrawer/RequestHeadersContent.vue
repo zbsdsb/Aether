@@ -2,10 +2,16 @@
   <div>
     <!-- 对比模式 - 并排 Diff -->
     <div v-show="viewMode === 'compare'">
-      <div v-if="!detail.request_headers && !detail.provider_request_headers" class="text-sm text-muted-foreground">
+      <div
+        v-if="!detail.request_headers && !detail.provider_request_headers"
+        class="text-sm text-muted-foreground"
+      >
         无请求头信息
       </div>
-      <Card v-else class="bg-muted/30 overflow-hidden">
+      <Card
+        v-else
+        class="bg-muted/30 overflow-hidden"
+      >
         <!-- Diff 头部 -->
         <div class="flex border-b bg-muted/50">
           <div class="flex-1 px-3 py-2 text-xs text-muted-foreground border-r flex items-center justify-between">
@@ -23,25 +29,40 @@
           <div class="flex font-mono text-xs">
             <!-- 左侧：客户端 -->
             <div class="flex-1 border-r">
-              <template v-for="entry in sortedEntries" :key="'left-' + entry.key">
+              <template
+                v-for="entry in sortedEntries"
+                :key="'left-' + entry.key"
+              >
                 <!-- 删除的行 -->
-                <div v-if="entry.status === 'removed'" class="flex items-start bg-destructive/10 px-3 py-0.5">
+                <div
+                  v-if="entry.status === 'removed'"
+                  class="flex items-start bg-destructive/10 px-3 py-0.5"
+                >
                   <span class="text-destructive">
                     "{{ entry.key }}": "{{ entry.clientValue }}"
                   </span>
                 </div>
                 <!-- 修改的行 - 旧值 -->
-                <div v-else-if="entry.status === 'modified'" class="flex items-start bg-amber-500/10 px-3 py-0.5">
+                <div
+                  v-else-if="entry.status === 'modified'"
+                  class="flex items-start bg-amber-500/10 px-3 py-0.5"
+                >
                   <span class="text-amber-600 dark:text-amber-400">
                     "{{ entry.key }}": "{{ entry.clientValue }}"
                   </span>
                 </div>
                 <!-- 新增的行 - 左侧空白占位 -->
-                <div v-else-if="entry.status === 'added'" class="flex items-start bg-muted/30 px-3 py-0.5">
+                <div
+                  v-else-if="entry.status === 'added'"
+                  class="flex items-start bg-muted/30 px-3 py-0.5"
+                >
                   <span class="text-muted-foreground/30 italic">（无）</span>
                 </div>
                 <!-- 未变化的行 -->
-                <div v-else class="flex items-start px-3 py-0.5 hover:bg-muted/50">
+                <div
+                  v-else
+                  class="flex items-start px-3 py-0.5 hover:bg-muted/50"
+                >
                   <span class="text-muted-foreground">
                     "{{ entry.key }}": "{{ entry.clientValue }}"
                   </span>
@@ -50,27 +71,42 @@
             </div>
             <!-- 右侧：提供商 -->
             <div class="flex-1">
-              <template v-for="entry in sortedEntries" :key="'right-' + entry.key">
+              <template
+                v-for="entry in sortedEntries"
+                :key="'right-' + entry.key"
+              >
                 <!-- 删除的行 - 右侧空白占位 -->
-                <div v-if="entry.status === 'removed'" class="flex items-start bg-muted/30 px-3 py-0.5">
+                <div
+                  v-if="entry.status === 'removed'"
+                  class="flex items-start bg-muted/30 px-3 py-0.5"
+                >
                   <span class="text-muted-foreground/50 line-through">
                     "{{ entry.key }}": "{{ entry.clientValue }}"
                   </span>
                 </div>
                 <!-- 修改的行 - 新值 -->
-                <div v-else-if="entry.status === 'modified'" class="flex items-start bg-amber-500/10 px-3 py-0.5">
+                <div
+                  v-else-if="entry.status === 'modified'"
+                  class="flex items-start bg-amber-500/10 px-3 py-0.5"
+                >
                   <span class="text-amber-600 dark:text-amber-400">
                     "{{ entry.key }}": "{{ entry.providerValue }}"
                   </span>
                 </div>
                 <!-- 新增的行 -->
-                <div v-else-if="entry.status === 'added'" class="flex items-start bg-green-500/10 px-3 py-0.5">
+                <div
+                  v-else-if="entry.status === 'added'"
+                  class="flex items-start bg-green-500/10 px-3 py-0.5"
+                >
                   <span class="text-green-600 dark:text-green-400">
                     "{{ entry.key }}": "{{ entry.providerValue }}"
                   </span>
                 </div>
                 <!-- 未变化的行 -->
-                <div v-else class="flex items-start px-3 py-0.5 hover:bg-muted/50">
+                <div
+                  v-else
+                  class="flex items-start px-3 py-0.5 hover:bg-muted/50"
+                >
                   <span class="text-muted-foreground">
                     "{{ entry.key }}": "{{ entry.providerValue }}"
                   </span>
@@ -95,10 +131,16 @@
 
     <!-- 原始模式 -->
     <div v-show="viewMode === 'raw'">
-      <div v-if="!currentHeaderData || Object.keys(currentHeaderData).length === 0" class="text-sm text-muted-foreground">
+      <div
+        v-if="!currentHeaderData || Object.keys(currentHeaderData).length === 0"
+        class="text-sm text-muted-foreground"
+      >
         无请求头信息
       </div>
-      <Card v-else class="bg-muted/30">
+      <Card
+        v-else
+        class="bg-muted/30"
+      >
         <div class="p-4 overflow-x-auto">
           <pre class="text-xs font-mono whitespace-pre-wrap">{{ JSON.stringify(currentHeaderData, null, 2) }}</pre>
         </div>

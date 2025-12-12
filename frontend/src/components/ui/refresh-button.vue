@@ -7,7 +7,10 @@
     :title="title"
     @click="handleClick"
   >
-    <RefreshCcw class="w-3.5 h-3.5" :class="loading ? 'animate-spin' : ''" />
+    <RefreshCcw
+      class="w-3.5 h-3.5"
+      :class="loading ? 'animate-spin' : ''"
+    />
   </Button>
 </template>
 

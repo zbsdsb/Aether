@@ -7,203 +7,239 @@
     size="2xl"
     @update:model-value="handleDialogUpdate"
   >
-      <form @submit.prevent="handleSave" class="space-y-5" autocomplete="off">
-        <!-- 基本信息 -->
-        <div class="space-y-3">
-          <h3 class="text-sm font-medium border-b pb-2">基本信息</h3>
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <Label :for="keyNameInputId">密钥名称 *</Label>
-              <Input
-                :id="keyNameInputId"
-                :name="keyNameFieldName"
-                v-model="form.name"
-                required
-                placeholder="例如：主 Key、备用 Key 1"
-                maxlength="100"
-                autocomplete="off"
-                autocapitalize="none"
-                autocorrect="off"
-                spellcheck="false"
-                data-form-type="other"
-                data-lpignore="true"
-                data-1p-ignore="true"
-              />
-            </div>
-            <div>
-              <Label for="rate_multiplier">成本倍率 *</Label>
-              <Input
-                id="rate_multiplier"
-                v-model.number="form.rate_multiplier"
-                type="number"
-                step="0.01"
-                min="0.01"
-                required
-                placeholder="1.0"
-              />
-              <p class="text-xs text-muted-foreground mt-1">
-                真实成本 = 表面成本 × 倍率
-              </p>
-            </div>
-          </div>
-
+    <form
+      class="space-y-5"
+      autocomplete="off"
+      @submit.prevent="handleSave"
+    >
+      <!-- 基本信息 -->
+      <div class="space-y-3">
+        <h3 class="text-sm font-medium border-b pb-2">
+          基本信息
+        </h3>
+        <div class="grid grid-cols-2 gap-4">
           <div>
-            <Label :for="apiKeyInputId">API 密钥 {{ editingKey ? '' : '*' }}</Label>
+            <Label :for="keyNameInputId">密钥名称 *</Label>
             <Input
-              :id="apiKeyInputId"
-              :name="apiKeyFieldName"
-              v-model="form.api_key"
-              :type="apiKeyInputType"
-              :required="!editingKey"
-              :placeholder="editingKey ? editingKey.api_key_masked : 'sk-...'"
-              :class="getApiKeyInputClass()"
-              autocomplete="new-password"
+              :id="keyNameInputId"
+              v-model="form.name"
+              :name="keyNameFieldName"
+              required
+              placeholder="例如：主 Key、备用 Key 1"
+              maxlength="100"
+              autocomplete="off"
               autocapitalize="none"
               autocorrect="off"
               spellcheck="false"
               data-form-type="other"
               data-lpignore="true"
               data-1p-ignore="true"
-              @focus="apiKeyFocused = true"
-              @blur="apiKeyFocused = form.api_key.trim().length > 0"
             />
-            <p v-if="apiKeyError" class="text-xs text-destructive mt-1">
-              {{ apiKeyError }}
-            </p>
-            <p v-else-if="editingKey" class="text-xs text-muted-foreground mt-1">
-              留空表示不修改，输入新值则覆盖
-            </p>
           </div>
-
           <div>
-            <Label for="note">备注</Label>
+            <Label for="rate_multiplier">成本倍率 *</Label>
             <Input
-              id="note"
-              v-model="form.note"
-              placeholder="可选的备注信息"
+              id="rate_multiplier"
+              v-model.number="form.rate_multiplier"
+              type="number"
+              step="0.01"
+              min="0.01"
+              required
+              placeholder="1.0"
+            />
+            <p class="text-xs text-muted-foreground mt-1">
+              真实成本 = 表面成本 × 倍率
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <Label :for="apiKeyInputId">API 密钥 {{ editingKey ? '' : '*' }}</Label>
+          <Input
+            :id="apiKeyInputId"
+            v-model="form.api_key"
+            :name="apiKeyFieldName"
+            :type="apiKeyInputType"
+            :required="!editingKey"
+            :placeholder="editingKey ? editingKey.api_key_masked : 'sk-...'"
+            :class="getApiKeyInputClass()"
+            autocomplete="new-password"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            @focus="apiKeyFocused = true"
+            @blur="apiKeyFocused = form.api_key.trim().length > 0"
+          />
+          <p
+            v-if="apiKeyError"
+            class="text-xs text-destructive mt-1"
+          >
+            {{ apiKeyError }}
+          </p>
+          <p
+            v-else-if="editingKey"
+            class="text-xs text-muted-foreground mt-1"
+          >
+            留空表示不修改，输入新值则覆盖
+          </p>
+        </div>
+
+        <div>
+          <Label for="note">备注</Label>
+          <Input
+            id="note"
+            v-model="form.note"
+            placeholder="可选的备注信息"
+          />
+        </div>
+      </div>
+
+      <!-- 调度与限流 -->
+      <div class="space-y-3">
+        <h3 class="text-sm font-medium border-b pb-2">
+          调度与限流
+        </h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <Label for="internal_priority">内部优先级</Label>
+            <Input
+              id="internal_priority"
+              v-model.number="form.internal_priority"
+              type="number"
+              min="0"
+            />
+            <p class="text-xs text-muted-foreground mt-1">
+              数字越小越优先
+            </p>
+          </div>
+          <div>
+            <Label for="max_concurrent">最大并发</Label>
+            <Input
+              id="max_concurrent"
+              :model-value="form.max_concurrent ?? ''"
+              type="number"
+              min="1"
+              placeholder="留空启用自适应"
+              @update:model-value="(v) => form.max_concurrent = parseNumberInput(v)"
+            />
+            <p class="text-xs text-muted-foreground mt-1">
+              留空 = 自适应模式
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <Label for="rate_limit">速率限制(/分钟)</Label>
+            <Input
+              id="rate_limit"
+              :model-value="form.rate_limit ?? ''"
+              type="number"
+              min="1"
+              @update:model-value="(v) => form.rate_limit = parseNumberInput(v)"
+            />
+          </div>
+          <div>
+            <Label for="daily_limit">每日限制</Label>
+            <Input
+              id="daily_limit"
+              :model-value="form.daily_limit ?? ''"
+              type="number"
+              min="1"
+              @update:model-value="(v) => form.daily_limit = parseNumberInput(v)"
+            />
+          </div>
+          <div>
+            <Label for="monthly_limit">每月限制</Label>
+            <Input
+              id="monthly_limit"
+              :model-value="form.monthly_limit ?? ''"
+              type="number"
+              min="1"
+              @update:model-value="(v) => form.monthly_limit = parseNumberInput(v)"
             />
           </div>
         </div>
+      </div>
 
-        <!-- 调度与限流 -->
-        <div class="space-y-3">
-          <h3 class="text-sm font-medium border-b pb-2">调度与限流</h3>
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <Label for="internal_priority">内部优先级</Label>
-              <Input
-                id="internal_priority"
-                v-model.number="form.internal_priority"
-                type="number"
-                min="0"
-              />
-              <p class="text-xs text-muted-foreground mt-1">数字越小越优先</p>
-            </div>
-            <div>
-              <Label for="max_concurrent">最大并发</Label>
-              <Input
-                id="max_concurrent"
-                :model-value="form.max_concurrent ?? ''"
-                type="number"
-                min="1"
-                placeholder="留空启用自适应"
-                @update:model-value="(v) => form.max_concurrent = parseNumberInput(v)"
-              />
-              <p class="text-xs text-muted-foreground mt-1">留空 = 自适应模式</p>
-            </div>
+      <!-- 缓存与熔断 -->
+      <div class="space-y-3">
+        <h3 class="text-sm font-medium border-b pb-2">
+          缓存与熔断
+        </h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <Label for="cache_ttl_minutes">缓存 TTL (分钟)</Label>
+            <Input
+              id="cache_ttl_minutes"
+              :model-value="form.cache_ttl_minutes ?? ''"
+              type="number"
+              min="0"
+              max="60"
+              @update:model-value="(v) => form.cache_ttl_minutes = parseNumberInput(v, { min: 0, max: 60 }) ?? 5"
+            />
+            <p class="text-xs text-muted-foreground mt-1">
+              0 = 禁用缓存亲和性
+            </p>
           </div>
-
-          <div class="grid grid-cols-3 gap-4">
-            <div>
-              <Label for="rate_limit">速率限制(/分钟)</Label>
-              <Input
-                id="rate_limit"
-                :model-value="form.rate_limit ?? ''"
-                type="number"
-                min="1"
-                @update:model-value="(v) => form.rate_limit = parseNumberInput(v)"
-              />
-            </div>
-            <div>
-              <Label for="daily_limit">每日限制</Label>
-              <Input
-                id="daily_limit"
-                :model-value="form.daily_limit ?? ''"
-                type="number"
-                min="1"
-                @update:model-value="(v) => form.daily_limit = parseNumberInput(v)"
-              />
-            </div>
-            <div>
-              <Label for="monthly_limit">每月限制</Label>
-              <Input
-                id="monthly_limit"
-                :model-value="form.monthly_limit ?? ''"
-                type="number"
-                min="1"
-                @update:model-value="(v) => form.monthly_limit = parseNumberInput(v)"
-              />
-            </div>
+          <div>
+            <Label for="max_probe_interval_minutes">熔断探测间隔 (分钟)</Label>
+            <Input
+              id="max_probe_interval_minutes"
+              :model-value="form.max_probe_interval_minutes ?? ''"
+              type="number"
+              min="2"
+              max="32"
+              placeholder="32"
+              @update:model-value="(v) => form.max_probe_interval_minutes = parseNumberInput(v, { min: 2, max: 32 }) ?? 32"
+            />
+            <p class="text-xs text-muted-foreground mt-1">
+              范围 2-32 分钟
+            </p>
           </div>
         </div>
+      </div>
 
-        <!-- 缓存与熔断 -->
-        <div class="space-y-3">
-          <h3 class="text-sm font-medium border-b pb-2">缓存与熔断</h3>
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <Label for="cache_ttl_minutes">缓存 TTL (分钟)</Label>
-              <Input
-                id="cache_ttl_minutes"
-                :model-value="form.cache_ttl_minutes ?? ''"
-                type="number"
-                min="0"
-                max="60"
-                @update:model-value="(v) => form.cache_ttl_minutes = parseNumberInput(v, { min: 0, max: 60 }) ?? 5"
-              />
-              <p class="text-xs text-muted-foreground mt-1">0 = 禁用缓存亲和性</p>
-            </div>
-            <div>
-              <Label for="max_probe_interval_minutes">熔断探测间隔 (分钟)</Label>
-              <Input
-                id="max_probe_interval_minutes"
-                :model-value="form.max_probe_interval_minutes ?? ''"
-                type="number"
-                min="2"
-                max="32"
-                placeholder="32"
-                @update:model-value="(v) => form.max_probe_interval_minutes = parseNumberInput(v, { min: 2, max: 32 }) ?? 32"
-              />
-              <p class="text-xs text-muted-foreground mt-1">范围 2-32 分钟</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- 能力标签配置 -->
-        <div v-if="availableCapabilities.length > 0" class="space-y-3">
-          <h3 class="text-sm font-medium border-b pb-2">能力标签</h3>
-          <div class="flex flex-wrap gap-2">
-            <label
-              v-for="cap in availableCapabilities"
-              :key="cap.name"
-              class="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-muted/30 cursor-pointer text-sm"
+      <!-- 能力标签配置 -->
+      <div
+        v-if="availableCapabilities.length > 0"
+        class="space-y-3"
+      >
+        <h3 class="text-sm font-medium border-b pb-2">
+          能力标签
+        </h3>
+        <div class="flex flex-wrap gap-2">
+          <label
+            v-for="cap in availableCapabilities"
+            :key="cap.name"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-muted/30 cursor-pointer text-sm"
+          >
+            <input
+              type="checkbox"
+              :checked="form.capabilities[cap.name] || false"
+              class="rounded"
+              @change="form.capabilities[cap.name] = !form.capabilities[cap.name]"
             >
-              <input
-                type="checkbox"
-                :checked="form.capabilities[cap.name] || false"
-                @change="form.capabilities[cap.name] = !form.capabilities[cap.name]"
-                class="rounded"
-              />
-              <span>{{ cap.display_name }}</span>
-            </label>
-          </div>
+            <span>{{ cap.display_name }}</span>
+          </label>
         </div>
-
-      </form>
+      </div>
+    </form>
 
     <template #footer>
-      <Button @click="handleCancel" variant="outline">取消</Button>
-      <Button @click="handleSave" :disabled="saving">
+      <Button
+        variant="outline"
+        @click="handleCancel"
+      >
+        取消
+      </Button>
+      <Button
+        :disabled="saving"
+        @click="handleSave"
+      >
         {{ saving ? '保存中...' : '保存' }}
       </Button>
     </template>

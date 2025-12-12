@@ -1,22 +1,38 @@
 <template>
   <div class="container mx-auto px-4 py-8">
-    <h2 class="text-2xl font-bold text-foreground mb-6">个人设置</h2>
+    <h2 class="text-2xl font-bold text-foreground mb-6">
+      个人设置
+    </h2>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- 左侧：个人信息和密码 -->
       <div class="lg:col-span-2 space-y-6">
         <!-- 基本信息 -->
         <Card class="p-6">
-          <h3 class="text-lg font-medium text-foreground mb-4">基本信息</h3>
-          <form @submit.prevent="updateProfile" class="space-y-4">
+          <h3 class="text-lg font-medium text-foreground mb-4">
+            基本信息
+          </h3>
+          <form
+            class="space-y-4"
+            @submit.prevent="updateProfile"
+          >
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label for="username">用户名</Label>
-                <Input id="username" v-model="profileForm.username" class="mt-1" />
+                <Input
+                  id="username"
+                  v-model="profileForm.username"
+                  class="mt-1"
+                />
               </div>
               <div>
                 <Label for="email">邮箱</Label>
-                <Input id="email" v-model="profileForm.email" type="email" class="mt-1" />
+                <Input
+                  id="email"
+                  v-model="profileForm.email"
+                  type="email"
+                  class="mt-1"
+                />
               </div>
             </div>
 
@@ -32,11 +48,21 @@
 
             <div>
               <Label for="avatar">头像 URL</Label>
-              <Input id="avatar" v-model="preferencesForm.avatar_url" type="url" class="mt-1" />
-              <p class="mt-1 text-sm text-muted-foreground">输入头像图片的 URL 地址</p>
+              <Input
+                id="avatar"
+                v-model="preferencesForm.avatar_url"
+                type="url"
+                class="mt-1"
+              />
+              <p class="mt-1 text-sm text-muted-foreground">
+                输入头像图片的 URL 地址
+              </p>
             </div>
 
-            <Button type="submit" :disabled="savingProfile">
+            <Button
+              type="submit"
+              :disabled="savingProfile"
+            >
               {{ savingProfile ? '保存中...' : '保存修改' }}
             </Button>
           </form>
@@ -44,21 +70,44 @@
 
         <!-- 修改密码 -->
         <Card class="p-6">
-          <h3 class="text-lg font-medium text-foreground mb-4">修改密码</h3>
-          <form @submit.prevent="changePassword" class="space-y-4">
+          <h3 class="text-lg font-medium text-foreground mb-4">
+            修改密码
+          </h3>
+          <form
+            class="space-y-4"
+            @submit.prevent="changePassword"
+          >
             <div>
               <Label for="old-password">当前密码</Label>
-              <Input id="old-password" v-model="passwordForm.old_password" type="password" class="mt-1" />
+              <Input
+                id="old-password"
+                v-model="passwordForm.old_password"
+                type="password"
+                class="mt-1"
+              />
             </div>
             <div>
               <Label for="new-password">新密码</Label>
-              <Input id="new-password" v-model="passwordForm.new_password" type="password" class="mt-1" />
+              <Input
+                id="new-password"
+                v-model="passwordForm.new_password"
+                type="password"
+                class="mt-1"
+              />
             </div>
             <div>
               <Label for="confirm-password">确认新密码</Label>
-              <Input id="confirm-password" v-model="passwordForm.confirm_password" type="password" class="mt-1" />
+              <Input
+                id="confirm-password"
+                v-model="passwordForm.confirm_password"
+                type="password"
+                class="mt-1"
+              />
             </div>
-            <Button type="submit" :disabled="changingPassword">
+            <Button
+              type="submit"
+              :disabled="changingPassword"
+            >
               {{ changingPassword ? '修改中...' : '修改密码' }}
             </Button>
           </form>
@@ -66,7 +115,9 @@
 
         <!-- 偏好设置 -->
         <Card class="p-6">
-          <h3 class="text-lg font-medium text-foreground mb-4">偏好设置</h3>
+          <h3 class="text-lg font-medium text-foreground mb-4">
+            偏好设置
+          </h3>
           <div class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -76,13 +127,22 @@
                   v-model:open="themeSelectOpen"
                   @update:model-value="handleThemeChange"
                 >
-                  <SelectTrigger id="theme" class="mt-1">
+                  <SelectTrigger
+                    id="theme"
+                    class="mt-1"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="light">浅色</SelectItem>
-                    <SelectItem value="dark">深色</SelectItem>
-                    <SelectItem value="system">跟随系统</SelectItem>
+                    <SelectItem value="light">
+                      浅色
+                    </SelectItem>
+                    <SelectItem value="dark">
+                      深色
+                    </SelectItem>
+                    <SelectItem value="system">
+                      跟随系统
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -94,62 +154,91 @@
                   v-model:open="languageSelectOpen"
                   @update:model-value="handleLanguageChange"
                 >
-                  <SelectTrigger id="language" class="mt-1">
+                  <SelectTrigger
+                    id="language"
+                    class="mt-1"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="zh-CN">简体中文</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
+                    <SelectItem value="zh-CN">
+                      简体中文
+                    </SelectItem>
+                    <SelectItem value="en">
+                      English
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div>
                 <Label for="timezone">时区</Label>
-                <Input id="timezone" v-model="preferencesForm.timezone" placeholder="Asia/Shanghai" class="mt-1" />
+                <Input
+                  id="timezone"
+                  v-model="preferencesForm.timezone"
+                  placeholder="Asia/Shanghai"
+                  class="mt-1"
+                />
               </div>
             </div>
 
             <div class="space-y-3">
-              <h4 class="font-medium text-foreground">通知设置</h4>
+              <h4 class="font-medium text-foreground">
+                通知设置
+              </h4>
               <div class="space-y-3">
                 <div class="flex items-center justify-between py-2 border-b border-border/40 last:border-0">
                   <div class="flex-1">
-                    <Label for="email-notifications" class="text-sm font-medium cursor-pointer">
+                    <Label
+                      for="email-notifications"
+                      class="text-sm font-medium cursor-pointer"
+                    >
                       邮件通知
                     </Label>
-                    <p class="text-xs text-muted-foreground mt-1">接收系统重要通知</p>
+                    <p class="text-xs text-muted-foreground mt-1">
+                      接收系统重要通知
+                    </p>
                   </div>
                   <Switch
                     id="email-notifications"
                     v-model="preferencesForm.notifications.email"
-                    @update:modelValue="updatePreferences"
+                    @update:model-value="updatePreferences"
                   />
                 </div>
                 <div class="flex items-center justify-between py-2 border-b border-border/40 last:border-0">
                   <div class="flex-1">
-                    <Label for="usage-alerts" class="text-sm font-medium cursor-pointer">
+                    <Label
+                      for="usage-alerts"
+                      class="text-sm font-medium cursor-pointer"
+                    >
                       使用提醒
                     </Label>
-                    <p class="text-xs text-muted-foreground mt-1">当接近配额限制时提醒</p>
+                    <p class="text-xs text-muted-foreground mt-1">
+                      当接近配额限制时提醒
+                    </p>
                   </div>
                   <Switch
                     id="usage-alerts"
                     v-model="preferencesForm.notifications.usage_alerts"
-                    @update:modelValue="updatePreferences"
+                    @update:model-value="updatePreferences"
                   />
                 </div>
                 <div class="flex items-center justify-between py-2">
                   <div class="flex-1">
-                    <Label for="announcement-notifications" class="text-sm font-medium cursor-pointer">
+                    <Label
+                      for="announcement-notifications"
+                      class="text-sm font-medium cursor-pointer"
+                    >
                       公告通知
                     </Label>
-                    <p class="text-xs text-muted-foreground mt-1">接收系统公告</p>
+                    <p class="text-xs text-muted-foreground mt-1">
+                      接收系统公告
+                    </p>
                   </div>
                   <Switch
                     id="announcement-notifications"
                     v-model="preferencesForm.notifications.announcements"
-                    @update:modelValue="updatePreferences"
+                    @update:model-value="updatePreferences"
                   />
                 </div>
               </div>
@@ -162,7 +251,9 @@
       <div class="space-y-6">
         <!-- 账户信息 -->
         <Card class="p-6">
-          <h3 class="text-lg font-medium text-foreground mb-4">账户信息</h3>
+          <h3 class="text-lg font-medium text-foreground mb-4">
+            账户信息
+          </h3>
           <div class="space-y-3">
             <div class="flex justify-between">
               <span class="text-muted-foreground">角色</span>
@@ -193,7 +284,9 @@
 
         <!-- 使用配额 -->
         <Card class="p-6">
-          <h3 class="text-lg font-medium text-foreground mb-4">使用配额</h3>
+          <h3 class="text-lg font-medium text-foreground mb-4">
+            使用配额
+          </h3>
           <div class="space-y-4">
             <div>
               <div class="flex justify-between text-sm mb-1">
@@ -213,7 +306,7 @@
                 <div
                   class="bg-success h-2.5 rounded-full"
                   :style="`width: ${getUsagePercentage()}%`"
-                ></div>
+                />
               </div>
             </div>
           </div>

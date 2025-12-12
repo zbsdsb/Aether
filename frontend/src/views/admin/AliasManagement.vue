@@ -4,7 +4,9 @@
       <!-- 搜索和过滤区域 -->
       <div class="px-6 py-3.5 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
-          <h3 class="text-base font-semibold">别名管理</h3>
+          <h3 class="text-base font-semibold">
+            别名管理
+          </h3>
           <div class="flex items-center gap-2">
             <!-- 搜索框 -->
             <div class="relative">
@@ -20,14 +22,26 @@
             <div class="h-4 w-px bg-border" />
 
             <!-- 提供商过滤器 -->
-            <Select v-model:open="aliasProviderSelectOpen" :model-value="aliasProviderFilter" @update:model-value="aliasProviderFilter = $event">
+            <Select
+              v-model:open="aliasProviderSelectOpen"
+              :model-value="aliasProviderFilter"
+              @update:model-value="aliasProviderFilter = $event"
+            >
               <SelectTrigger class="w-40 h-8 text-xs border-border/60">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部别名</SelectItem>
-                <SelectItem value="global">仅全局别名</SelectItem>
-                <SelectItem v-for="provider in providers" :key="provider.id" :value="provider.id">
+                <SelectItem value="all">
+                  全部别名
+                </SelectItem>
+                <SelectItem value="global">
+                  仅全局别名
+                </SelectItem>
+                <SelectItem
+                  v-for="provider in providers"
+                  :key="provider.id"
+                  :value="provider.id"
+                >
                   {{ provider.display_name }}
                 </SelectItem>
               </SelectContent>
@@ -40,37 +54,61 @@
               variant="ghost"
               size="icon"
               class="h-8 w-8"
-              @click="openCreateAliasDialog"
               title="新建别名"
+              @click="openCreateAliasDialog"
             >
               <Plus class="w-3.5 h-3.5" />
             </Button>
-            <RefreshButton :loading="loadingAliases" @click="loadAliases" />
+            <RefreshButton
+              :loading="loadingAliases"
+              @click="loadAliases"
+            />
           </div>
         </div>
       </div>
-      <div v-if="loadingAliases" class="flex items-center justify-center py-12">
+      <div
+        v-if="loadingAliases"
+        class="flex items-center justify-center py-12"
+      >
         <Loader2 class="w-10 h-10 animate-spin text-primary" />
       </div>
       <div v-else>
         <Table class="text-sm">
           <TableHeader>
             <TableRow>
-              <TableHead class="w-[200px]">别名</TableHead>
-              <TableHead class="w-[280px]">关联模型</TableHead>
-              <TableHead class="w-[70px] text-center">类型</TableHead>
-              <TableHead class="w-[100px] text-center">作用域</TableHead>
-              <TableHead class="w-[70px] text-center">状态</TableHead>
-              <TableHead class="w-[100px] text-center">操作</TableHead>
+              <TableHead class="w-[200px]">
+                别名
+              </TableHead>
+              <TableHead class="w-[280px]">
+                关联模型
+              </TableHead>
+              <TableHead class="w-[70px] text-center">
+                类型
+              </TableHead>
+              <TableHead class="w-[100px] text-center">
+                作用域
+              </TableHead>
+              <TableHead class="w-[70px] text-center">
+                状态
+              </TableHead>
+              <TableHead class="w-[100px] text-center">
+                操作
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow v-if="filteredAliases.length === 0">
-              <TableCell colspan="6" class="text-center py-8 text-muted-foreground">
+              <TableCell
+                colspan="6"
+                class="text-center py-8 text-muted-foreground"
+              >
                 {{ aliasProviderFilter === 'global' ? '暂无全局别名' : '暂无别名' }}
               </TableCell>
             </TableRow>
-            <TableRow v-for="alias in paginatedAliases" :key="alias.id">
+            <TableRow
+              v-for="alias in paginatedAliases"
+              :key="alias.id"
+            >
               <TableCell>
                 <span class="font-mono font-medium">{{ alias.alias }}</span>
               </TableCell>
@@ -81,7 +119,10 @@
                 </div>
               </TableCell>
               <TableCell class="text-center">
-                <Badge variant="secondary" class="text-xs">
+                <Badge
+                  variant="secondary"
+                  class="text-xs"
+                >
                   {{ alias.mapping_type === 'mapping' ? '映射' : '别名' }}
                 </Badge>
               </TableCell>
@@ -102,7 +143,10 @@
                 </Badge>
               </TableCell>
               <TableCell class="text-center">
-                <Badge :variant="alias.is_active ? 'default' : 'secondary'" class="text-xs">
+                <Badge
+                  :variant="alias.is_active ? 'default' : 'secondary'"
+                  class="text-xs"
+                >
                   {{ alias.is_active ? '活跃' : '停用' }}
                 </Badge>
               </TableCell>
@@ -112,8 +156,8 @@
                     variant="ghost"
                     size="icon"
                     class="h-7 w-7"
-                    @click="openEditAliasDialog(alias)"
                     title="编辑别名"
+                    @click="openEditAliasDialog(alias)"
                   >
                     <Edit class="w-3.5 h-3.5" />
                   </Button>
@@ -121,8 +165,8 @@
                     variant="ghost"
                     size="icon"
                     class="h-7 w-7"
-                    @click="toggleAliasStatus(alias)"
                     :title="alias.is_active ? '停用别名' : '启用别名'"
+                    @click="toggleAliasStatus(alias)"
                   >
                     <Power class="w-3.5 h-3.5" />
                   </Button>
@@ -130,8 +174,8 @@
                     variant="ghost"
                     size="icon"
                     class="h-7 w-7"
-                    @click="confirmDeleteAlias(alias)"
                     title="删除别名"
+                    @click="confirmDeleteAlias(alias)"
                   >
                     <Trash2 class="w-3.5 h-3.5" />
                   </Button>

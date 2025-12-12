@@ -21,7 +21,11 @@ const itemClass = computed(() =>
 </script>
 
 <template>
-  <SelectItemPrimitive :class="itemClass" :value="value" :disabled="disabled">
+  <SelectItemPrimitive
+    :class="itemClass"
+    :value="value"
+    :disabled="disabled"
+  >
     <span class="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <SelectItemIndicator>
         <Check class="h-4 w-4" />

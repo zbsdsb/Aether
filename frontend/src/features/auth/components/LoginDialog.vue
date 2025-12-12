@@ -1,10 +1,17 @@
 <template>
-  <Dialog v-model="isOpen" size="lg">
+  <Dialog
+    v-model="isOpen"
+    size="lg"
+  >
     <div class="space-y-6">
       <!-- Logo 和标题 -->
       <div class="flex flex-col items-center text-center">
         <div class="mb-4 rounded-3xl border border-primary/30 dark:border-[#cc785c]/30 bg-primary/5 dark:bg-transparent p-4 shadow-inner shadow-white/40 dark:shadow-[#cc785c]/10">
-          <img src="/aether_adaptive.svg" alt="Logo" class="h-16 w-16" />
+          <img
+            src="/aether_adaptive.svg"
+            alt="Logo"
+            class="h-16 w-16"
+          >
         </div>
         <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">
           欢迎回来
@@ -12,11 +19,22 @@
       </div>
 
       <!-- Demo 模式提示 -->
-      <div v-if="isDemo" class="rounded-lg border border-primary/20 dark:border-primary/30 bg-primary/5 dark:bg-primary/10 p-4">
+      <div
+        v-if="isDemo"
+        class="rounded-lg border border-primary/20 dark:border-primary/30 bg-primary/5 dark:bg-primary/10 p-4"
+      >
         <div class="flex items-start gap-3">
           <div class="flex-shrink-0 text-primary dark:text-primary/90">
-            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd" />
+            <svg
+              class="h-5 w-5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z"
+                clip-rule="evenodd"
+              />
             </svg>
           </div>
           <div class="flex-1 min-w-0">
@@ -29,16 +47,16 @@
             <div class="mt-3 space-y-2">
               <button
                 type="button"
-                @click="fillDemoAccount('admin')"
                 class="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors group"
+                @click="fillDemoAccount('admin')"
               >
                 <span class="inline-flex items-center justify-center w-5 h-5 rounded bg-primary/20 dark:bg-primary/30 text-primary text-[10px] font-bold group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors">A</span>
                 <span>管理员：admin@demo.aether.io / demo123</span>
               </button>
               <button
                 type="button"
-                @click="fillDemoAccount('user')"
                 class="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors group"
+                @click="fillDemoAccount('user')"
               >
                 <span class="inline-flex items-center justify-center w-5 h-5 rounded bg-muted text-muted-foreground text-[10px] font-bold group-hover:bg-muted/80 transition-colors">U</span>
                 <span>普通用户：user@demo.aether.io / demo123</span>
@@ -49,7 +67,10 @@
       </div>
 
       <!-- 登录表单 -->
-      <form @submit.prevent="handleLogin" class="space-y-4">
+      <form
+        class="space-y-4"
+        @submit.prevent="handleLogin"
+      >
         <div class="space-y-2">
           <Label for="login-email">邮箱</Label>
           <Input
@@ -76,7 +97,10 @@
         </div>
 
         <!-- 提示信息 -->
-        <p v-if="!isDemo" class="text-xs text-slate-400 dark:text-muted-foreground/80">
+        <p
+          v-if="!isDemo"
+          class="text-xs text-slate-400 dark:text-muted-foreground/80"
+        >
           如需开通账户，请联系管理员配置访问权限
         </p>
       </form>
@@ -84,17 +108,17 @@
 
     <template #footer>
       <Button
-        @click="isOpen = false"
         type="button"
         variant="outline"
         class="w-full sm:w-auto border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-primary hover:border-primary/50 hover:bg-primary/5 dark:hover:text-primary dark:hover:border-primary/50 dark:hover:bg-primary/10"
+        @click="isOpen = false"
       >
         取消
       </Button>
       <Button
-        @click="handleLogin"
         :disabled="authStore.loading"
         class="w-full sm:w-auto bg-primary hover:bg-primary/90 text-white border-0"
+        @click="handleLogin"
       >
         {{ authStore.loading ? '登录中...' : '登录' }}
       </Button>

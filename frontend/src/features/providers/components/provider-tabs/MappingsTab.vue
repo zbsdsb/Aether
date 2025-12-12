@@ -10,10 +10,10 @@
         </div>
         <Button
           v-if="!hideAddButton"
-          @click="openCreateDialog"
           variant="outline"
           size="sm"
           class="h-8"
+          @click="openCreateDialog"
         >
           <Plus class="w-3.5 h-3.5 mr-1.5" />
           创建别名/映射
@@ -22,19 +22,36 @@
     </div>
 
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex items-center justify-center py-12">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    <div
+      v-if="loading"
+      class="flex items-center justify-center py-12"
+    >
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
     </div>
 
     <!-- 别名列表 -->
-    <div v-else-if="mappings.length > 0" class="overflow-x-auto">
+    <div
+      v-else-if="mappings.length > 0"
+      class="overflow-x-auto"
+    >
       <table class="w-full text-sm">
         <thead class="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
-            <th class="text-left px-4 py-3 font-semibold">名称</th>
-            <th class="text-left px-4 py-3 font-semibold w-24">类型</th>
-            <th class="text-left px-4 py-3 font-semibold">指向模型</th>
-            <th v-if="!hideAddButton" class="px-4 py-3 font-semibold w-28 text-center">操作</th>
+            <th class="text-left px-4 py-3 font-semibold">
+              名称
+            </th>
+            <th class="text-left px-4 py-3 font-semibold w-24">
+              类型
+            </th>
+            <th class="text-left px-4 py-3 font-semibold">
+              指向模型
+            </th>
+            <th
+              v-if="!hideAddButton"
+              class="px-4 py-3 font-semibold w-28 text-center"
+            >
+              操作
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -50,19 +67,25 @@
                   class="w-2 h-2 rounded-full shrink-0"
                   :class="mapping.is_active ? 'bg-green-500' : 'bg-gray-300'"
                   :title="mapping.is_active ? '活跃' : '停用'"
-                ></span>
+                />
                 <span class="font-mono">{{ mapping.alias }}</span>
               </div>
             </td>
             <td class="px-4 py-3">
-              <Badge variant="secondary" class="text-xs">
+              <Badge
+                variant="secondary"
+                class="text-xs"
+              >
                 {{ mapping.mapping_type === 'mapping' ? '映射' : '别名' }}
               </Badge>
             </td>
             <td class="px-4 py-3">
               {{ mapping.global_model_display_name || mapping.global_model_name }}
             </td>
-            <td v-if="!hideAddButton" class="px-4 py-3">
+            <td
+              v-if="!hideAddButton"
+              class="px-4 py-3"
+            >
               <div class="flex justify-center gap-1.5">
                 <Button
                   variant="ghost"
@@ -78,8 +101,8 @@
                   size="icon"
                   class="h-8 w-8"
                   :disabled="togglingId === mapping.id"
-                  @click="toggleActive(mapping)"
                   :title="mapping.is_active ? '点击停用' : '点击启用'"
+                  @click="toggleActive(mapping)"
                 >
                   <Power class="w-3.5 h-3.5" />
                 </Button>
@@ -100,10 +123,17 @@
     </div>
 
     <!-- 空状态 -->
-    <div v-else class="p-8 text-center text-muted-foreground">
+    <div
+      v-else
+      class="p-8 text-center text-muted-foreground"
+    >
       <ArrowLeftRight class="w-12 h-12 mx-auto mb-3 opacity-50" />
-      <p class="text-sm">暂无特定别名/映射</p>
-      <p class="text-xs mt-1">点击上方按钮添加</p>
+      <p class="text-sm">
+        暂无特定别名/映射
+      </p>
+      <p class="text-xs mt-1">
+        点击上方按钮添加
+      </p>
     </div>
   </Card>
 

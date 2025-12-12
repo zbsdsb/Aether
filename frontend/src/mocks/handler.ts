@@ -384,7 +384,7 @@ function generateMockUsageRecords(count: number = 100) {
       is_stream: apiFormat.includes('CLI'),
       status_code: status === 'failed' ? [500, 502, 429, 400][Math.floor(Math.random() * 4)] : 200,
       error_message: status === 'failed' ? ['Rate limit exceeded', 'Internal server error', 'Model overloaded'][Math.floor(Math.random() * 3)] : undefined,
-      status: status,
+      status,
       created_at: createdAt.toISOString(),
       has_fallback: Math.random() > 0.9,
       request_metadata: model.provider === 'google' ? { model_version: 'gemini-3-pro-preview-2025-01' } : undefined

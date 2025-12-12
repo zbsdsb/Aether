@@ -5,7 +5,7 @@
     :autocomplete="autocompleteAttr"
     v-bind="$attrs"
     @input="handleInput"
-  />
+  >
 </template>
 
 <script setup lang="ts">

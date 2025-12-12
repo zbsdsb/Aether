@@ -1,42 +1,56 @@
 <template>
   <Dialog
     :model-value="open"
-    @update:model-value="handleDialogUpdate"
     :title="dialogTitle"
     :description="dialogDescription"
     :icon="dialogIcon"
     size="md"
+    @update:model-value="handleDialogUpdate"
   >
-    <form @submit.prevent="handleSubmit" class="space-y-4">
+    <form
+      class="space-y-4"
+      @submit.prevent="handleSubmit"
+    >
       <!-- 模式选择（仅创建时显示） -->
-      <div v-if="!isEditMode" class="space-y-2">
+      <div
+        v-if="!isEditMode"
+        class="space-y-2"
+      >
         <Label>创建类型 *</Label>
         <div class="grid grid-cols-2 gap-3">
           <button
             type="button"
-            @click="form.mapping_type = 'alias'"
+            class="p-3 rounded-lg border-2 text-left transition-all"
             :class="[
-              'p-3 rounded-lg border-2 text-left transition-all',
               form.mapping_type === 'alias'
                 ? 'border-primary bg-primary/5'
                 : 'border-border hover:border-primary/50'
             ]"
+            @click="form.mapping_type = 'alias'"
           >
-            <div class="font-medium text-sm">别名</div>
-            <div class="text-xs text-muted-foreground mt-1">名称简写，按目标模型计费</div>
+            <div class="font-medium text-sm">
+              别名
+            </div>
+            <div class="text-xs text-muted-foreground mt-1">
+              名称简写，按目标模型计费
+            </div>
           </button>
           <button
             type="button"
-            @click="form.mapping_type = 'mapping'"
+            class="p-3 rounded-lg border-2 text-left transition-all"
             :class="[
-              'p-3 rounded-lg border-2 text-left transition-all',
               form.mapping_type === 'mapping'
                 ? 'border-primary bg-primary/5'
                 : 'border-border hover:border-primary/50'
             ]"
+            @click="form.mapping_type = 'mapping'"
           >
-            <div class="font-medium text-sm">映射</div>
-            <div class="text-xs text-muted-foreground mt-1">模型降级，按源模型计费</div>
+            <div class="font-medium text-sm">
+              映射
+            </div>
+            <div class="text-xs text-muted-foreground mt-1">
+              模型降级，按源模型计费
+            </div>
           </button>
         </div>
       </div>
@@ -54,20 +68,37 @@
       </div>
 
       <!-- Provider 选择/作用范围 -->
-      <div v-if="showProviderSelect" class="space-y-2">
+      <div
+        v-if="showProviderSelect"
+        class="space-y-2"
+      >
         <Label>作用范围</Label>
         <!-- 固定 Provider 时显示只读 -->
-        <div v-if="fixedProvider" class="px-3 py-2 border rounded-md bg-muted/50 text-sm">
+        <div
+          v-if="fixedProvider"
+          class="px-3 py-2 border rounded-md bg-muted/50 text-sm"
+        >
           仅 {{ fixedProvider.display_name || fixedProvider.name }}
         </div>
         <!-- 否则显示可选择的下拉 -->
-        <Select v-else v-model:open="providerSelectOpen" :model-value="form.provider_id || 'global'" @update:model-value="handleProviderChange">
+        <Select
+          v-else
+          v-model:open="providerSelectOpen"
+          :model-value="form.provider_id || 'global'"
+          @update:model-value="handleProviderChange"
+        >
           <SelectTrigger class="w-full">
             <SelectValue placeholder="选择作用范围" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="global">全局（所有 Provider）</SelectItem>
-            <SelectItem v-for="p in providers" :key="p.id" :value="p.id">
+            <SelectItem value="global">
+              全局（所有 Provider）
+            </SelectItem>
+            <SelectItem
+              v-for="p in providers"
+              :key="p.id"
+              :value="p.id"
+            >
               仅 {{ p.display_name || p.name }}
             </SelectItem>
           </SelectContent>
@@ -75,7 +106,10 @@
       </div>
 
       <!-- 别名模式：别名名称 -->
-      <div v-if="form.mapping_type === 'alias'" class="space-y-2">
+      <div
+        v-if="form.mapping_type === 'alias'"
+        class="space-y-2"
+      >
         <Label for="alias-name">别名名称 *</Label>
         <Input
           id="alias-name"
@@ -90,10 +124,21 @@
       </div>
 
       <!-- 映射模式：选择源模型 -->
-      <div v-else class="space-y-2">
+      <div
+        v-else
+        class="space-y-2"
+      >
         <Label>源模型 (用户请求的模型) *</Label>
-        <Select v-model:open="sourceModelSelectOpen" :model-value="form.alias" @update:model-value="form.alias = $event" :disabled="isEditMode">
-          <SelectTrigger class="w-full" :class="{ 'opacity-50': isEditMode }">
+        <Select
+          v-model:open="sourceModelSelectOpen"
+          :model-value="form.alias"
+          :disabled="isEditMode"
+          @update:model-value="form.alias = $event"
+        >
+          <SelectTrigger
+            class="w-full"
+            :class="{ 'opacity-50': isEditMode }"
+          >
             <SelectValue placeholder="请选择源模型" />
           </SelectTrigger>
           <SelectContent>
@@ -117,12 +162,20 @@
           {{ form.mapping_type === 'alias' ? '目标模型 *' : '目标模型 (实际处理请求) *' }}
         </Label>
         <!-- 固定目标模型时显示只读信息 -->
-        <div v-if="fixedTargetModel" class="px-3 py-2 border rounded-md bg-muted/50">
+        <div
+          v-if="fixedTargetModel"
+          class="px-3 py-2 border rounded-md bg-muted/50"
+        >
           <span class="font-medium">{{ fixedTargetModel.display_name }}</span>
           <span class="text-muted-foreground ml-1">({{ fixedTargetModel.name }})</span>
         </div>
         <!-- 否则显示下拉选择 -->
-        <Select v-else v-model:open="targetModelSelectOpen" :model-value="form.global_model_id" @update:model-value="form.global_model_id = $event">
+        <Select
+          v-else
+          v-model:open="targetModelSelectOpen"
+          :model-value="form.global_model_id"
+          @update:model-value="form.global_model_id = $event"
+        >
           <SelectTrigger class="w-full">
             <SelectValue placeholder="请选择模型" />
           </SelectTrigger>
@@ -137,15 +190,24 @@
           </SelectContent>
         </Select>
       </div>
-
     </form>
 
     <template #footer>
-      <Button type="button" variant="outline" @click="handleCancel">
+      <Button
+        type="button"
+        variant="outline"
+        @click="handleCancel"
+      >
         取消
       </Button>
-      <Button @click="handleSubmit" :disabled="submitting">
-        <Loader2 v-if="submitting" class="w-4 h-4 mr-2 animate-spin" />
+      <Button
+        :disabled="submitting"
+        @click="handleSubmit"
+      >
+        <Loader2
+          v-if="submitting"
+          class="w-4 h-4 mr-2 animate-spin"
+        />
         {{ isEditMode ? '保存' : '创建' }}
       </Button>
     </template>

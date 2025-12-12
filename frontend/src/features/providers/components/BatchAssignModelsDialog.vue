@@ -1,11 +1,11 @@
 <template>
   <Dialog
     :model-value="open"
-    @update:model-value="$emit('update:open', $event)"
     title="批量添加关联模型"
     description="为提供商批量添加模型实现，提供商将自动继承模型的价格和能力，可在添加后单独修改"
     :icon="Layers"
     size="4xl"
+    @update:model-value="$emit('update:open', $event)"
   >
     <template #default>
       <div class="space-y-4">
@@ -13,10 +13,17 @@
         <div class="rounded-lg border bg-muted/30 p-4">
           <div class="flex items-start justify-between">
             <div>
-              <p class="font-semibold text-lg">{{ providerName }}</p>
-              <p class="text-sm text-muted-foreground font-mono">{{ providerIdentifier }}</p>
+              <p class="font-semibold text-lg">
+                {{ providerName }}
+              </p>
+              <p class="text-sm text-muted-foreground font-mono">
+                {{ providerIdentifier }}
+              </p>
             </div>
-            <Badge variant="outline" class="text-xs">
+            <Badge
+              variant="outline"
+              class="text-xs"
+            >
               当前 {{ existingModels.length }} 个模型
             </Badge>
           </div>
@@ -28,7 +35,9 @@
           <div class="flex-1 space-y-2">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
-                <p class="text-sm font-medium">可添加</p>
+                <p class="text-sm font-medium">
+                  可添加
+                </p>
                 <Button
                   v-if="availableModels.length > 0"
                   variant="ghost"
@@ -39,19 +48,33 @@
                   {{ isAllLeftSelected ? '取消全选' : '全选' }}
                 </Button>
               </div>
-              <Badge variant="secondary" class="text-xs">
+              <Badge
+                variant="secondary"
+                class="text-xs"
+              >
                 {{ availableModels.length }} 个
               </Badge>
             </div>
             <div class="border rounded-lg h-80 overflow-y-auto">
-              <div v-if="loadingGlobalModels" class="flex items-center justify-center h-full">
+              <div
+                v-if="loadingGlobalModels"
+                class="flex items-center justify-center h-full"
+              >
                 <Loader2 class="w-6 h-6 animate-spin text-primary" />
               </div>
-              <div v-else-if="availableModels.length === 0" class="flex flex-col items-center justify-center h-full text-muted-foreground">
+              <div
+                v-else-if="availableModels.length === 0"
+                class="flex flex-col items-center justify-center h-full text-muted-foreground"
+              >
                 <Layers class="w-10 h-10 mb-2 opacity-30" />
-                <p class="text-sm">所有模型均已关联</p>
+                <p class="text-sm">
+                  所有模型均已关联
+                </p>
               </div>
-              <div v-else class="p-2 space-y-1">
+              <div
+                v-else
+                class="p-2 space-y-1"
+              >
                 <div
                   v-for="model in availableModels"
                   :key="model.id"
@@ -67,8 +90,12 @@
                     @click.stop
                   />
                   <div class="flex-1 min-w-0">
-                    <p class="font-medium text-sm truncate">{{ model.display_name }}</p>
-                    <p class="text-xs text-muted-foreground truncate font-mono">{{ model.name }}</p>
+                    <p class="font-medium text-sm truncate">
+                      {{ model.display_name }}
+                    </p>
+                    <p class="text-xs text-muted-foreground truncate font-mono">
+                      {{ model.name }}
+                    </p>
                   </div>
                   <Badge
                     :variant="model.is_active ? 'outline' : 'secondary'"
@@ -90,11 +117,18 @@
               class="w-9 h-8"
               :class="selectedLeftIds.length > 0 && !submittingAdd ? 'border-primary' : ''"
               :disabled="selectedLeftIds.length === 0 || submittingAdd"
-              @click="batchAddSelected"
               title="添加选中"
+              @click="batchAddSelected"
             >
-              <Loader2 v-if="submittingAdd" class="w-4 h-4 animate-spin" />
-              <ChevronRight v-else class="w-6 h-6 stroke-[3]" :class="selectedLeftIds.length > 0 && !submittingAdd ? 'text-primary' : ''" />
+              <Loader2
+                v-if="submittingAdd"
+                class="w-4 h-4 animate-spin"
+              />
+              <ChevronRight
+                v-else
+                class="w-6 h-6 stroke-[3]"
+                :class="selectedLeftIds.length > 0 && !submittingAdd ? 'text-primary' : ''"
+              />
             </Button>
             <Button
               variant="outline"
@@ -102,11 +136,18 @@
               class="w-9 h-8"
               :class="selectedRightIds.length > 0 && !submittingRemove ? 'border-primary' : ''"
               :disabled="selectedRightIds.length === 0 || submittingRemove"
-              @click="batchRemoveSelected"
               title="移除选中"
+              @click="batchRemoveSelected"
             >
-              <Loader2 v-if="submittingRemove" class="w-4 h-4 animate-spin" />
-              <ChevronLeft v-else class="w-6 h-6 stroke-[3]" :class="selectedRightIds.length > 0 && !submittingRemove ? 'text-primary' : ''" />
+              <Loader2
+                v-if="submittingRemove"
+                class="w-4 h-4 animate-spin"
+              />
+              <ChevronLeft
+                v-else
+                class="w-6 h-6 stroke-[3]"
+                :class="selectedRightIds.length > 0 && !submittingRemove ? 'text-primary' : ''"
+              />
             </Button>
           </div>
 
@@ -114,7 +155,9 @@
           <div class="flex-1 space-y-2">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
-                <p class="text-sm font-medium">已添加</p>
+                <p class="text-sm font-medium">
+                  已添加
+                </p>
                 <Button
                   v-if="existingModels.length > 0"
                   variant="ghost"
@@ -125,16 +168,27 @@
                   {{ isAllRightSelected ? '取消全选' : '全选' }}
                 </Button>
               </div>
-              <Badge variant="secondary" class="text-xs">
+              <Badge
+                variant="secondary"
+                class="text-xs"
+              >
                 {{ existingModels.length }} 个
               </Badge>
             </div>
             <div class="border rounded-lg h-80 overflow-y-auto">
-              <div v-if="existingModels.length === 0" class="flex flex-col items-center justify-center h-full text-muted-foreground">
+              <div
+                v-if="existingModels.length === 0"
+                class="flex flex-col items-center justify-center h-full text-muted-foreground"
+              >
                 <Layers class="w-10 h-10 mb-2 opacity-30" />
-                <p class="text-sm">暂无关联模型</p>
+                <p class="text-sm">
+                  暂无关联模型
+                </p>
               </div>
-              <div v-else class="p-2 space-y-1">
+              <div
+                v-else
+                class="p-2 space-y-1"
+              >
                 <div
                   v-for="model in existingModels"
                   :key="'existing-' + model.id"
@@ -150,8 +204,12 @@
                     @click.stop
                   />
                   <div class="flex-1 min-w-0">
-                    <p class="font-medium text-sm truncate">{{ model.global_model_display_name || model.provider_model_name }}</p>
-                    <p class="text-xs text-muted-foreground truncate font-mono">{{ model.provider_model_name }}</p>
+                    <p class="font-medium text-sm truncate">
+                      {{ model.global_model_display_name || model.provider_model_name }}
+                    </p>
+                    <p class="text-xs text-muted-foreground truncate font-mono">
+                      {{ model.provider_model_name }}
+                    </p>
                   </div>
                   <Badge
                     :variant="model.is_active ? 'outline' : 'secondary'"

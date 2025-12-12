@@ -12,7 +12,10 @@
           :class="badgeClass"
           :style="badgeStyle"
         >
-          <component :is="badgeIcon" class="h-3 w-3" />
+          <component
+            :is="badgeIcon"
+            class="h-3 w-3"
+          />
           {{ badgeText }}
         </div>
 
@@ -37,20 +40,27 @@
           class="mb-4 transition-all duration-700 relative z-10"
           :style="cardStyleFn(0)"
         >
-          <div :class="[panelClasses.commandPanel, 'flex flex-wrap items-center gap-3 px-4 py-3']">
+          <div
+            class="flex flex-wrap items-center gap-3 px-4 py-3"
+            :class="[panelClasses.commandPanel]"
+          >
             <PlatformSelect
               :model-value="platformValue"
-              @update:model-value="$emit('update:platformValue', $event)"
               :options="platformOptions"
               class="shrink-0"
+              @update:model-value="$emit('update:platformValue', $event)"
             />
             <div class="flex-1 min-w-[180px]">
-              <CodeHighlight :code="installCommand" language="bash" dense />
+              <CodeHighlight
+                :code="installCommand"
+                language="bash"
+                dense
+              />
             </div>
             <button
-              @click="$emit('copy', installCommand)"
               :class="panelClasses.iconButtonSmall"
               title="复制配置"
+              @click="$emit('copy', installCommand)"
             >
               <Copy class="h-3.5 w-3.5" />
             </button>
@@ -65,16 +75,19 @@
           :class="idx < configFiles.length - 1 ? 'mb-3' : ''"
           :style="cardStyleFn(idx + 1)"
         >
-          <div :class="[panelClasses.configPanel, 'overflow-hidden']">
+          <div
+            class="overflow-hidden"
+            :class="[panelClasses.configPanel]"
+          >
             <div :class="panelClasses.panelHeader">
               <div class="flex items-center justify-between">
                 <span class="text-xs font-medium text-[#666663] dark:text-muted-foreground">
                   {{ config.path }}
                 </span>
                 <button
-                  @click="$emit('copy', config.content)"
                   :class="panelClasses.iconButtonSmall"
                   title="复制配置"
+                  @click="$emit('copy', config.content)"
                 >
                   <Copy class="h-3.5 w-3.5" />
                 </button>
@@ -82,7 +95,10 @@
             </div>
             <div :class="panelClasses.codeBody">
               <div class="config-code-wrapper">
-                <CodeHighlight :code="config.content" :language="config.language" />
+                <CodeHighlight
+                  :code="config.content"
+                  :language="config.language"
+                />
               </div>
             </div>
           </div>
@@ -90,7 +106,10 @@
       </div>
 
       <!-- Logo placeholder column -->
-      <div :class="logoOrder" class="flex items-center justify-center h-full min-h-[300px] relative">
+      <div
+        :class="logoOrder"
+        class="flex items-center justify-center h-full min-h-[300px] relative"
+      >
         <slot name="logo" />
       </div>
     </div>
@@ -104,6 +123,13 @@ import PlatformSelect from '@/components/PlatformSelect.vue'
 import CodeHighlight from '@/components/CodeHighlight.vue'
 import { panelClasses, type PlatformOption } from './home-config'
 
+const props = withDefaults(defineProps<Props>(), {
+  contentPosition: 'left'
+})
+defineEmits<{
+  copy: [text: string]
+  'update:platformValue': [value: string]
+}>()
 // Expose section element for parent scroll tracking
 const sectionRef = ref<HTMLElement | null>(null)
 defineExpose({ sectionEl: sectionRef })
@@ -132,15 +158,6 @@ interface Props {
   // Layout: 'left' means content on left, 'right' means content on right
   contentPosition?: 'left' | 'right'
 }
-
-const props = withDefaults(defineProps<Props>(), {
-  contentPosition: 'left'
-})
-
-defineEmits<{
-  copy: [text: string]
-  'update:platformValue': [value: string]
-}>()
 
 const contentOrder = computed(() =>
   props.contentPosition === 'right' ? 'md:order-2' : ''

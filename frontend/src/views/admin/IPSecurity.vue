@@ -6,8 +6,12 @@
         <div class="p-6">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-muted-foreground">黑名单 IP 数量</p>
-              <h3 class="text-2xl font-bold mt-2">{{ blacklistStats.total || 0 }}</h3>
+              <p class="text-sm font-medium text-muted-foreground">
+                黑名单 IP 数量
+              </p>
+              <h3 class="text-2xl font-bold mt-2">
+                {{ blacklistStats.total || 0 }}
+              </h3>
             </div>
             <div class="h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center">
               <ShieldX class="h-6 w-6 text-destructive" />
@@ -20,8 +24,12 @@
         <div class="p-6">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-muted-foreground">白名单 IP 数量</p>
-              <h3 class="text-2xl font-bold mt-2">{{ whitelistData.total || 0 }}</h3>
+              <p class="text-sm font-medium text-muted-foreground">
+                白名单 IP 数量
+              </p>
+              <h3 class="text-2xl font-bold mt-2">
+                {{ whitelistData.total || 0 }}
+              </h3>
             </div>
             <div class="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
               <ShieldCheck class="h-6 w-6 text-primary" />
@@ -32,76 +40,119 @@
     </div>
 
     <!-- IP 黑名单管理 -->
-    <Card variant="default" class="overflow-hidden">
+    <Card
+      variant="default"
+      class="overflow-hidden"
+    >
       <div class="px-6 py-3.5 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
           <div>
-            <h3 class="text-base font-semibold">IP 黑名单</h3>
-            <p class="text-xs text-muted-foreground mt-0.5">管理被禁止访问的 IP 地址</p>
+            <h3 class="text-base font-semibold">
+              IP 黑名单
+            </h3>
+            <p class="text-xs text-muted-foreground mt-0.5">
+              管理被禁止访问的 IP 地址
+            </p>
           </div>
           <div class="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
               class="h-8 w-8"
-              @click="showAddBlacklistDialog = true"
               title="添加黑名单"
+              @click="showAddBlacklistDialog = true"
             >
               <Plus class="w-3.5 h-3.5" />
             </Button>
-            <RefreshButton :loading="loadingBlacklist" @click="loadBlacklistStats" />
+            <RefreshButton
+              :loading="loadingBlacklist"
+              @click="loadBlacklistStats"
+            />
           </div>
         </div>
       </div>
 
-      <div v-if="loadingBlacklist" class="flex items-center justify-center py-12">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div
+        v-if="loadingBlacklist"
+        class="flex items-center justify-center py-12"
+      >
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
 
-      <div v-else class="p-6">
-        <div v-if="!blacklistStats.available" class="text-center py-8 text-muted-foreground">
+      <div
+        v-else
+        class="p-6"
+      >
+        <div
+          v-if="!blacklistStats.available"
+          class="text-center py-8 text-muted-foreground"
+        >
           <AlertCircle class="w-12 h-12 mx-auto mb-2 opacity-50" />
           <p>Redis 不可用，无法管理黑名单</p>
-          <p class="text-xs mt-1">{{ blacklistStats.error }}</p>
+          <p class="text-xs mt-1">
+            {{ blacklistStats.error }}
+          </p>
         </div>
-        <div v-else-if="blacklistStats.total === 0" class="text-center py-8 text-muted-foreground">
+        <div
+          v-else-if="blacklistStats.total === 0"
+          class="text-center py-8 text-muted-foreground"
+        >
           <ShieldX class="w-12 h-12 mx-auto mb-2 opacity-50" />
           <p>暂无黑名单 IP</p>
         </div>
-        <div v-else class="text-sm text-muted-foreground">
+        <div
+          v-else
+          class="text-sm text-muted-foreground"
+        >
           当前共有 <span class="font-semibold text-foreground">{{ blacklistStats.total }}</span> 个 IP 在黑名单中
         </div>
       </div>
     </Card>
 
     <!-- IP 白名单管理 -->
-    <Card variant="default" class="overflow-hidden">
+    <Card
+      variant="default"
+      class="overflow-hidden"
+    >
       <div class="px-6 py-3.5 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
           <div>
-            <h3 class="text-base font-semibold">IP 白名单</h3>
-            <p class="text-xs text-muted-foreground mt-0.5">管理可信任的 IP 地址（支持 CIDR 格式）</p>
+            <h3 class="text-base font-semibold">
+              IP 白名单
+            </h3>
+            <p class="text-xs text-muted-foreground mt-0.5">
+              管理可信任的 IP 地址（支持 CIDR 格式）
+            </p>
           </div>
           <div class="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
               class="h-8 w-8"
-              @click="showAddWhitelistDialog = true"
               title="添加白名单"
+              @click="showAddWhitelistDialog = true"
             >
               <Plus class="w-3.5 h-3.5" />
             </Button>
-            <RefreshButton :loading="loadingWhitelist" @click="loadWhitelist" />
+            <RefreshButton
+              :loading="loadingWhitelist"
+              @click="loadWhitelist"
+            />
           </div>
         </div>
       </div>
 
-      <div v-if="loadingWhitelist" class="flex items-center justify-center py-12">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div
+        v-if="loadingWhitelist"
+        class="flex items-center justify-center py-12"
+      >
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
 
-      <div v-else-if="whitelistData.whitelist.length === 0" class="text-center py-12 text-muted-foreground">
+      <div
+        v-else-if="whitelistData.whitelist.length === 0"
+        class="text-center py-12 text-muted-foreground"
+      >
         <ShieldCheck class="w-12 h-12 mx-auto mb-2 opacity-50" />
         <p>暂无白名单 IP</p>
       </div>
@@ -111,18 +162,25 @@
           <TableHeader>
             <TableRow>
               <TableHead>IP 地址 / CIDR</TableHead>
-              <TableHead class="text-right">操作</TableHead>
+              <TableHead class="text-right">
+                操作
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow v-for="ip in whitelistData.whitelist" :key="ip">
-              <TableCell class="font-mono text-sm">{{ ip }}</TableCell>
+            <TableRow
+              v-for="ip in whitelistData.whitelist"
+              :key="ip"
+            >
+              <TableCell class="font-mono text-sm">
+                {{ ip }}
+              </TableCell>
               <TableCell class="text-right">
                 <Button
                   variant="ghost"
                   size="sm"
-                  @click="handleRemoveFromWhitelist(ip)"
                   class="h-8 px-3"
+                  @click="handleRemoveFromWhitelist(ip)"
                 >
                   <Trash2 class="w-4 h-4 mr-1.5" />
                   移除
@@ -174,11 +232,16 @@
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" @click="showAddBlacklistDialog = false">取消</Button>
+          <Button
+            variant="ghost"
+            @click="showAddBlacklistDialog = false"
+          >
+            取消
+          </Button>
           <Button
             variant="destructive"
-            @click="handleAddToBlacklist"
             :disabled="!blacklistForm.ip_address || !blacklistForm.reason"
+            @click="handleAddToBlacklist"
           >
             添加到黑名单
           </Button>
@@ -209,10 +272,15 @@
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" @click="showAddWhitelistDialog = false">取消</Button>
           <Button
-            @click="handleAddToWhitelist"
+            variant="ghost"
+            @click="showAddWhitelistDialog = false"
+          >
+            取消
+          </Button>
+          <Button
             :disabled="!whitelistForm.ip_address"
+            @click="handleAddToWhitelist"
           >
             添加到白名单
           </Button>

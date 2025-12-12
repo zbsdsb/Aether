@@ -1,8 +1,14 @@
 <template>
   <div class="space-y-6 pb-8">
-    <Card variant="default" class="overflow-hidden">
+    <Card
+      variant="default"
+      class="overflow-hidden"
+    >
       <!-- 加载状态 -->
-      <div v-if="loading" class="py-16 text-center space-y-4">
+      <div
+        v-if="loading"
+        class="py-16 text-center space-y-4"
+      >
         <Skeleton class="mx-auto h-10 w-10 rounded-full" />
         <Skeleton class="mx-auto h-4 w-32" />
       </div>
@@ -11,10 +17,15 @@
         <div class="px-6 py-3.5 border-b border-border/60">
           <div class="flex items-center justify-between gap-4">
             <div>
-              <h3 class="text-base font-semibold">独立余额 API Keys</h3>
+              <h3 class="text-base font-semibold">
+                独立余额 API Keys
+              </h3>
               <p class="text-xs text-muted-foreground mt-0.5">
                 活跃 {{ activeKeyCount }} · 禁用 {{ inactiveKeyCount }} · 无限 Key {{ unlimitedKeyCount }}
-                <span v-if="expiringSoonCount > 0" class="text-amber-600"> · 即将到期 {{ expiringSoonCount }}</span>
+                <span
+                  v-if="expiringSoonCount > 0"
+                  class="text-amber-600"
+                > · 即将到期 {{ expiringSoonCount }}</span>
               </p>
             </div>
             <div class="flex items-center gap-2">
@@ -33,24 +44,38 @@
               <div class="h-4 w-px bg-border" />
 
               <!-- 状态筛选 -->
-              <Select v-model="filterStatus" v-model:open="filterStatusOpen">
+              <Select
+                v-model="filterStatus"
+                v-model:open="filterStatusOpen"
+              >
                 <SelectTrigger class="w-28 h-8 text-xs border-border/60">
                   <SelectValue placeholder="全部状态" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="status in statusFilters" :key="status.value" :value="status.value">
+                  <SelectItem
+                    v-for="status in statusFilters"
+                    :key="status.value"
+                    :value="status.value"
+                  >
                     {{ status.label }}
                   </SelectItem>
                 </SelectContent>
               </Select>
 
               <!-- 余额类型筛选 -->
-              <Select v-model="filterBalance" v-model:open="filterBalanceOpen">
+              <Select
+                v-model="filterBalance"
+                v-model:open="filterBalanceOpen"
+              >
                 <SelectTrigger class="w-28 h-8 text-xs border-border/60">
                   <SelectValue placeholder="全部类型" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="balance in balanceFilters" :key="balance.value" :value="balance.value">
+                  <SelectItem
+                    v-for="balance in balanceFilters"
+                    :key="balance.value"
+                    :value="balance.value"
+                  >
                     {{ balance.label }}
                   </SelectItem>
                 </SelectContent>
@@ -64,14 +89,17 @@
                 variant="ghost"
                 size="icon"
                 class="h-8 w-8"
-                @click="openCreateDialog"
                 title="创建独立 Key"
+                @click="openCreateDialog"
               >
                 <Plus class="w-3.5 h-3.5" />
               </Button>
 
               <!-- 刷新按钮 -->
-              <RefreshButton :loading="loading" @click="loadApiKeys" />
+              <RefreshButton
+                :loading="loading"
+                @click="loadApiKeys"
+              />
             </div>
           </div>
         </div>
@@ -80,33 +108,59 @@
           <Table>
             <TableHeader>
               <TableRow class="border-b border-border/60 hover:bg-transparent">
-                <TableHead class="w-[200px] h-12 font-semibold">密钥信息</TableHead>
-                <TableHead class="w-[160px] h-12 font-semibold">余额 (已用/总额)</TableHead>
-                <TableHead class="w-[130px] h-12 font-semibold">使用统计</TableHead>
-                <TableHead class="w-[110px] h-12 font-semibold">有效期</TableHead>
-                <TableHead class="w-[140px] h-12 font-semibold">最近使用</TableHead>
-                <TableHead class="w-[70px] h-12 font-semibold text-center">状态</TableHead>
-                <TableHead class="w-[130px] h-12 font-semibold text-center">操作</TableHead>
+                <TableHead class="w-[200px] h-12 font-semibold">
+                  密钥信息
+                </TableHead>
+                <TableHead class="w-[160px] h-12 font-semibold">
+                  余额 (已用/总额)
+                </TableHead>
+                <TableHead class="w-[130px] h-12 font-semibold">
+                  使用统计
+                </TableHead>
+                <TableHead class="w-[110px] h-12 font-semibold">
+                  有效期
+                </TableHead>
+                <TableHead class="w-[140px] h-12 font-semibold">
+                  最近使用
+                </TableHead>
+                <TableHead class="w-[70px] h-12 font-semibold text-center">
+                  状态
+                </TableHead>
+                <TableHead class="w-[130px] h-12 font-semibold text-center">
+                  操作
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-if="filteredApiKeys.length === 0">
-                <TableCell colspan="7" class="h-64 text-center">
+                <TableCell
+                  colspan="7"
+                  class="h-64 text-center"
+                >
                   <div class="flex flex-col items-center justify-center space-y-4">
                     <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-muted">
                       <Key class="h-8 w-8 text-muted-foreground" />
                     </div>
                     <div v-if="hasActiveFilters">
-                      <h3 class="text-lg font-semibold">未找到匹配的 Key</h3>
+                      <h3 class="text-lg font-semibold">
+                        未找到匹配的 Key
+                      </h3>
                       <p class="mt-2 text-sm text-muted-foreground">
                         尝试调整筛选条件
                       </p>
-                      <Button variant="outline" size="sm" class="mt-3" @click="clearFilters">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        class="mt-3"
+                        @click="clearFilters"
+                      >
                         清除筛选
                       </Button>
                     </div>
                     <div v-else>
-                      <h3 class="text-lg font-semibold">暂无独立余额 Key</h3>
+                      <h3 class="text-lg font-semibold">
+                        暂无独立余额 Key
+                      </h3>
                       <p class="mt-2 text-sm text-muted-foreground">
                         点击右上角按钮创建独立余额 Key
                       </p>
@@ -114,10 +168,17 @@
                   </div>
                 </TableCell>
               </TableRow>
-              <TableRow v-for="apiKey in filteredApiKeys" :key="apiKey.id" class="border-b border-border/40 hover:bg-muted/30 transition-colors">
+              <TableRow
+                v-for="apiKey in filteredApiKeys"
+                :key="apiKey.id"
+                class="border-b border-border/40 hover:bg-muted/30 transition-colors"
+              >
                 <TableCell class="py-4">
                   <div class="space-y-1">
-                    <div class="text-sm font-semibold text-foreground truncate" :title="apiKey.name || '未命名 Key'">
+                    <div
+                      class="text-sm font-semibold text-foreground truncate"
+                      :title="apiKey.name || '未命名 Key'"
+                    >
                       {{ apiKey.name || '未命名 Key' }}
                     </div>
                     <div class="flex items-center gap-1.5">
@@ -128,8 +189,8 @@
                         variant="ghost"
                         size="icon"
                         class="h-6 w-6"
-                        @click="copyKeyPrefix(apiKey)"
                         title="复制完整密钥"
+                        @click="copyKeyPrefix(apiKey)"
                       >
                         <Copy class="h-3 w-3" />
                       </Button>
@@ -159,21 +220,42 @@
                 </TableCell>
                 <TableCell class="py-4">
                   <div class="text-xs">
-                    <div v-if="apiKey.expires_at" class="space-y-1">
-                      <div class="text-foreground">{{ formatDate(apiKey.expires_at) }}</div>
-                      <div class="text-muted-foreground">{{ getRelativeTime(apiKey.expires_at) }}</div>
+                    <div
+                      v-if="apiKey.expires_at"
+                      class="space-y-1"
+                    >
+                      <div class="text-foreground">
+                        {{ formatDate(apiKey.expires_at) }}
+                      </div>
+                      <div class="text-muted-foreground">
+                        {{ getRelativeTime(apiKey.expires_at) }}
+                      </div>
                     </div>
-                    <div v-else class="text-muted-foreground">永不过期</div>
+                    <div
+                      v-else
+                      class="text-muted-foreground"
+                    >
+                      永不过期
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell class="py-4">
                   <div class="text-xs">
-                    <span v-if="apiKey.last_used_at" class="text-foreground">{{ formatDate(apiKey.last_used_at) }}</span>
-                    <span v-else class="text-muted-foreground">暂无记录</span>
+                    <span
+                      v-if="apiKey.last_used_at"
+                      class="text-foreground"
+                    >{{ formatDate(apiKey.last_used_at) }}</span>
+                    <span
+                      v-else
+                      class="text-muted-foreground"
+                    >暂无记录</span>
                   </div>
                 </TableCell>
                 <TableCell class="py-4 text-center">
-                  <Badge :variant="apiKey.is_active ? 'success' : 'destructive'" class="font-medium">
+                  <Badge
+                    :variant="apiKey.is_active ? 'success' : 'destructive'"
+                    class="font-medium"
+                  >
                     {{ apiKey.is_active ? '活跃' : '禁用' }}
                   </Badge>
                 </TableCell>
@@ -183,8 +265,8 @@
                       variant="ghost"
                       size="icon"
                       class="h-8 w-8"
-                      @click="editApiKey(apiKey)"
                       title="编辑"
+                      @click="editApiKey(apiKey)"
                     >
                       <SquarePen class="h-4 w-4" />
                     </Button>
@@ -192,8 +274,8 @@
                       variant="ghost"
                       size="icon"
                       class="h-8 w-8"
-                      @click="openAddBalanceDialog(apiKey)"
                       title="调整余额"
+                      @click="openAddBalanceDialog(apiKey)"
                     >
                       <DollarSign class="h-4 w-4" />
                     </Button>
@@ -201,8 +283,8 @@
                       variant="ghost"
                       size="icon"
                       class="h-8 w-8"
-                      @click="toggleApiKey(apiKey)"
                       :title="apiKey.is_active ? '禁用' : '启用'"
+                      @click="toggleApiKey(apiKey)"
                     >
                       <Power class="h-4 w-4" />
                     </Button>
@@ -210,8 +292,8 @@
                       variant="ghost"
                       size="icon"
                       class="h-8 w-8"
-                      @click="deleteApiKey(apiKey)"
                       title="删除"
+                      @click="deleteApiKey(apiKey)"
                     >
                       <Trash2 class="h-4 w-4" />
                     </Button>
@@ -223,11 +305,20 @@
         </div>
 
         <div class="xl:hidden divide-y divide-border/40">
-          <div v-if="apiKeys.length === 0" class="p-8 text-center">
+          <div
+            v-if="apiKeys.length === 0"
+            class="p-8 text-center"
+          >
             <Key class="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
-            <p class="text-muted-foreground">暂无独立余额 Key</p>
+            <p class="text-muted-foreground">
+              暂无独立余额 Key
+            </p>
           </div>
-          <div v-for="apiKey in apiKeys" :key="apiKey.id" class="p-4 sm:p-5 hover:bg-muted/30 transition-colors">
+          <div
+            v-for="apiKey in apiKeys"
+            :key="apiKey.id"
+            class="p-4 sm:p-5 hover:bg-muted/30 transition-colors"
+          >
             <div class="space-y-4">
               <div class="flex items-start justify-between gap-3">
                 <div class="space-y-2">
@@ -239,17 +330,23 @@
                       variant="ghost"
                       size="icon"
                       class="h-7 w-7 hover:bg-muted flex-shrink-0"
-                      @click="copyKeyPrefix(apiKey)"
                       title="复制完整密钥"
+                      @click="copyKeyPrefix(apiKey)"
                     >
                       <Copy class="h-3.5 w-3.5" />
                     </Button>
                   </div>
-                  <div class="text-sm font-semibold text-foreground" :class="{ 'text-muted-foreground': !apiKey.name }">
+                  <div
+                    class="text-sm font-semibold text-foreground"
+                    :class="{ 'text-muted-foreground': !apiKey.name }"
+                  >
                     {{ apiKey.name || '未命名 Key' }}
                   </div>
                 </div>
-                <Badge :variant="apiKey.is_active ? 'success' : 'destructive'" class="text-xs flex-shrink-0">
+                <Badge
+                  :variant="apiKey.is_active ? 'success' : 'destructive'"
+                  class="text-xs flex-shrink-0"
+                >
                   {{ apiKey.is_active ? '活跃' : '禁用' }}
                 </Badge>
               </div>
@@ -281,7 +378,10 @@
                   <span>总费用</span>
                   <span>${{ (apiKey.total_cost_usd || 0).toFixed(4) }}</span>
                 </div>
-                <div v-if="isBalanceLimited(apiKey)" class="h-1.5 rounded-full bg-background/40 overflow-hidden">
+                <div
+                  v-if="isBalanceLimited(apiKey)"
+                  class="h-1.5 rounded-full bg-background/40 overflow-hidden"
+                >
                   <div
                     class="h-full rounded-full bg-emerald-500"
                     :style="{ width: `${getBalanceProgress(apiKey)}%` }"
@@ -291,19 +391,32 @@
 
               <div class="grid grid-cols-2 gap-2 text-xs">
                 <div class="p-2 bg-muted/40 rounded-lg">
-                  <div class="text-muted-foreground mb-1">速率限制</div>
-                  <div class="font-semibold">{{ apiKey.rate_limit ? `${apiKey.rate_limit}/min` : '未设置' }}</div>
+                  <div class="text-muted-foreground mb-1">
+                    速率限制
+                  </div>
+                  <div class="font-semibold">
+                    {{ apiKey.rate_limit ? `${apiKey.rate_limit}/min` : '未设置' }}
+                  </div>
                 </div>
                 <div class="p-2 bg-muted/40 rounded-lg">
-                  <div class="text-muted-foreground mb-1">请求次数</div>
-                  <div class="font-semibold">{{ (apiKey.total_requests || 0).toLocaleString() }}</div>
+                  <div class="text-muted-foreground mb-1">
+                    请求次数
+                  </div>
+                  <div class="font-semibold">
+                    {{ (apiKey.total_requests || 0).toLocaleString() }}
+                  </div>
                 </div>
                 <div class="p-2 bg-muted/40 rounded-lg col-span-2">
-                  <div class="text-muted-foreground mb-1">有效期</div>
+                  <div class="text-muted-foreground mb-1">
+                    有效期
+                  </div>
                   <div class="font-semibold">
                     {{ apiKey.expires_at ? formatDate(apiKey.expires_at) : '永不过期' }}
                   </div>
-                  <div v-if="apiKey.expires_at" class="text-[11px] text-muted-foreground">
+                  <div
+                    v-if="apiKey.expires_at"
+                    class="text-[11px] text-muted-foreground"
+                  >
                     {{ getRelativeTime(apiKey.expires_at) }}
                   </div>
                 </div>
@@ -313,10 +426,15 @@
                 <p>创建: {{ formatDate(apiKey.created_at) }}</p>
                 <p>
                   最近使用:
-                  <span v-if="apiKey.last_used_at" class="font-medium text-foreground">{{ formatDate(apiKey.last_used_at) }}</span>
+                  <span
+                    v-if="apiKey.last_used_at"
+                    class="font-medium text-foreground"
+                  >{{ formatDate(apiKey.last_used_at) }}</span>
                   <span v-else>暂无记录</span>
                 </p>
-                <p v-if="apiKey.expires_at">过期后: {{ apiKey.auto_delete_on_expiry ? '自动删除' : '仅禁用' }}</p>
+                <p v-if="apiKey.expires_at">
+                  过期后: {{ apiKey.auto_delete_on_expiry ? '自动删除' : '仅禁用' }}
+                </p>
               </div>
 
               <div class="grid grid-cols-2 gap-2">
@@ -373,15 +491,18 @@
 
     <!-- 创建/编辑独立Key对话框 -->
     <StandaloneKeyFormDialog
+      ref="keyFormDialogRef"
       :open="showKeyFormDialog"
       :api-key="editingKeyData"
       @close="closeKeyFormDialog"
       @submit="handleKeyFormSubmit"
-      ref="keyFormDialogRef"
     />
 
     <!-- 新 Key 显示对话框 -->
-    <Dialog v-model="showNewKeyDialog" size="lg">
+    <Dialog
+      v-model="showNewKeyDialog"
+      size="lg"
+    >
       <template #header>
         <div class="border-b border-border px-6 py-4">
           <div class="flex items-center gap-3">
@@ -389,8 +510,12 @@
               <CheckCircle class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-foreground leading-tight">创建成功</h3>
-              <p class="text-xs text-muted-foreground">请妥善保管, 切勿泄露给他人.</p>
+              <h3 class="text-lg font-semibold text-foreground leading-tight">
+                创建成功
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                请妥善保管, 切勿泄露给他人.
+              </p>
             </div>
           </div>
         </div>
@@ -401,14 +526,17 @@
           <Label class="text-sm font-medium">API Key</Label>
           <div class="flex items-center gap-2">
             <Input
+              ref="keyInput"
               type="text"
               :value="newKeyValue"
               readonly
               class="flex-1 font-mono text-sm bg-muted/50 h-11"
               @click="selectKey"
-              ref="keyInput"
             />
-            <Button @click="copyKey" class="h-11">
+            <Button
+              class="h-11"
+              @click="copyKey"
+            >
               复制
             </Button>
           </div>
@@ -416,12 +544,20 @@
       </div>
 
       <template #footer>
-        <Button @click="closeNewKeyDialog" class="h-10 px-5">确定</Button>
+        <Button
+          class="h-10 px-5"
+          @click="closeNewKeyDialog"
+        >
+          确定
+        </Button>
       </template>
     </Dialog>
 
     <!-- 余额调整对话框 -->
-    <Dialog v-model="showAddBalanceDialog" size="md">
+    <Dialog
+      v-model="showAddBalanceDialog"
+      size="md"
+    >
       <template #header>
         <div class="border-b border-border px-6 py-4">
           <div class="flex items-center gap-3">
@@ -429,8 +565,12 @@
               <DollarSign class="h-5 w-5 text-blue-600 dark:text-blue-400" />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-foreground leading-tight">余额调整</h3>
-              <p class="text-xs text-muted-foreground">增加或扣除 API Key 余额</p>
+              <h3 class="text-lg font-semibold text-foreground leading-tight">
+                余额调整
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                增加或扣除 API Key 余额
+              </p>
             </div>
           </div>
         </div>
@@ -438,7 +578,9 @@
 
       <div class="space-y-4">
         <div class="p-3 bg-muted/50 rounded-lg text-sm">
-          <div class="font-medium mb-2">当前余额信息</div>
+          <div class="font-medium mb-2">
+            当前余额信息
+          </div>
           <div class="space-y-1 text-xs text-muted-foreground">
             <div>已用: <span class="font-semibold text-foreground">${{ (addBalanceKey.balance_used_usd || 0).toFixed(2) }}</span></div>
             <div>当前余额: <span class="font-semibold text-foreground">${{ (addBalanceKey.current_balance_usd || 0).toFixed(2) }}</span></div>
@@ -446,7 +588,10 @@
         </div>
 
         <div class="space-y-2">
-          <Label for="addBalanceAmount" class="text-sm font-medium">调整金额 (USD)</Label>
+          <Label
+            for="addBalanceAmount"
+            class="text-sm font-medium"
+          >调整金额 (USD)</Label>
           <Input
             id="addBalanceAmount"
             :model-value="addBalanceAmount ?? ''"
@@ -457,13 +602,22 @@
             @update:model-value="(v) => addBalanceAmount = parseNumberInput(v, { allowFloat: true })"
           />
           <p class="text-xs text-muted-foreground">
-            <span v-if="addBalanceAmount && addBalanceAmount > 0" class="text-emerald-600">
+            <span
+              v-if="addBalanceAmount && addBalanceAmount > 0"
+              class="text-emerald-600"
+            >
               增加 ${{ addBalanceAmount.toFixed(2) }}，调整后余额: ${{ ((addBalanceKey.current_balance_usd || 0) + addBalanceAmount).toFixed(2) }}
             </span>
-            <span v-else-if="addBalanceAmount && addBalanceAmount < 0" class="text-rose-600">
+            <span
+              v-else-if="addBalanceAmount && addBalanceAmount < 0"
+              class="text-rose-600"
+            >
               扣除 ${{ Math.abs(addBalanceAmount).toFixed(2) }}，调整后余额: ${{ Math.max(0, (addBalanceKey.current_balance_usd || 0) + addBalanceAmount).toFixed(2) }}
             </span>
-            <span v-else class="text-muted-foreground">
+            <span
+              v-else
+              class="text-muted-foreground"
+            >
               输入正数增加余额，负数扣除余额
             </span>
           </p>
@@ -472,10 +626,18 @@
 
       <template #footer>
         <div class="flex gap-3 justify-end">
-          <Button variant="outline" @click="showAddBalanceDialog = false" class="h-10 px-5">
+          <Button
+            variant="outline"
+            class="h-10 px-5"
+            @click="showAddBalanceDialog = false"
+          >
             取消
           </Button>
-          <Button @click="handleAddBalance" :disabled="addingBalance || !addBalanceAmount || addBalanceAmount === 0" class="h-10 px-5">
+          <Button
+            :disabled="addingBalance || !addBalanceAmount || addBalanceAmount === 0"
+            class="h-10 px-5"
+            @click="handleAddBalance"
+          >
             {{ addingBalance ? '调整中...' : '确认调整' }}
           </Button>
         </div>

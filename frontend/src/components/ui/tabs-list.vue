@@ -1,5 +1,8 @@
 <template>
-  <div :class="listClass" ref="listRef">
+  <div
+    ref="listRef"
+    :class="listClass"
+  >
     <!-- 滑动指示器 - 放在按钮前面 -->
     <div
       class="tabs-indicator"

@@ -5,7 +5,7 @@
     :checked="isChecked"
     v-bind="$attrs"
     @change="handleChange"
-  />
+  >
 </template>
 
 <script setup lang="ts">

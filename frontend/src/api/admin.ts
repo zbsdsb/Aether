@@ -59,7 +59,7 @@ export const adminApi = {
     is_active?: boolean
   }): Promise<AdminApiKeysResponse> {
     const response = await apiClient.get<AdminApiKeysResponse>('/api/admin/api-keys', {
-      params: params
+      params
     })
     return response.data
   },

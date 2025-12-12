@@ -19,5 +19,9 @@ const imageClass = computed(() =>
 </script>
 
 <template>
-  <AvatarImagePrimitive :class="imageClass" :src="src || ''" :alt="alt" />
+  <AvatarImagePrimitive
+    :class="imageClass"
+    :src="src || ''"
+    :alt="alt"
+  />
 </template>

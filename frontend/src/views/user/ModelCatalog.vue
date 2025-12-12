@@ -6,7 +6,9 @@
       <div class="px-6 py-3.5 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
           <!-- 左侧：标题 -->
-          <h3 class="text-base font-semibold">可用模型</h3>
+          <h3 class="text-base font-semibold">
+            可用模型
+          </h3>
 
           <!-- 右侧：操作区 -->
           <div class="flex items-center gap-2">
@@ -29,8 +31,8 @@
               <button
                 class="px-2.5 h-full text-xs transition-colors"
                 :class="capabilityFilters.vision ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-                @click="capabilityFilters.vision = !capabilityFilters.vision"
                 title="Vision"
+                @click="capabilityFilters.vision = !capabilityFilters.vision"
               >
                 <Eye class="w-3.5 h-3.5" />
               </button>
@@ -38,8 +40,8 @@
               <button
                 class="px-2.5 h-full text-xs transition-colors"
                 :class="capabilityFilters.toolUse ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-                @click="capabilityFilters.toolUse = !capabilityFilters.toolUse"
                 title="Tool Use"
+                @click="capabilityFilters.toolUse = !capabilityFilters.toolUse"
               >
                 <Wrench class="w-3.5 h-3.5" />
               </button>
@@ -47,8 +49,8 @@
               <button
                 class="px-2.5 h-full text-xs transition-colors"
                 :class="capabilityFilters.extendedThinking ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-                @click="capabilityFilters.extendedThinking = !capabilityFilters.extendedThinking"
                 title="Extended Thinking"
+                @click="capabilityFilters.extendedThinking = !capabilityFilters.extendedThinking"
               >
                 <Brain class="w-3.5 h-3.5" />
               </button>
@@ -57,7 +59,10 @@
             <div class="h-4 w-px bg-border" />
 
             <!-- 刷新按钮 -->
-            <RefreshButton :loading="loading" @click="refreshData" />
+            <RefreshButton
+              :loading="loading"
+              @click="refreshData"
+            />
           </div>
         </div>
       </div>
@@ -66,21 +71,37 @@
         <Table class="table-fixed w-full">
           <TableHeader>
             <TableRow class="border-b border-border/60 hover:bg-transparent">
-              <TableHead class="w-[140px] h-12 font-semibold">模型名称</TableHead>
-              <TableHead class="w-[120px] h-12 font-semibold">模型偏好</TableHead>
-              <TableHead class="w-[100px] h-12 font-semibold">能力</TableHead>
-              <TableHead class="w-[140px] h-12 font-semibold text-center">价格 ($/M)</TableHead>
-              <TableHead class="w-[70px] h-12 font-semibold text-center">状态</TableHead>
+              <TableHead class="w-[140px] h-12 font-semibold">
+                模型名称
+              </TableHead>
+              <TableHead class="w-[120px] h-12 font-semibold">
+                模型偏好
+              </TableHead>
+              <TableHead class="w-[100px] h-12 font-semibold">
+                能力
+              </TableHead>
+              <TableHead class="w-[140px] h-12 font-semibold text-center">
+                价格 ($/M)
+              </TableHead>
+              <TableHead class="w-[70px] h-12 font-semibold text-center">
+                状态
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow v-if="loading">
-              <TableCell colspan="5" class="text-center py-12">
+              <TableCell
+                colspan="5"
+                class="text-center py-12"
+              >
                 <Loader2 class="w-6 h-6 animate-spin mx-auto" />
               </TableCell>
             </TableRow>
             <TableRow v-else-if="filteredModels.length === 0">
-              <TableCell colspan="5" class="text-center py-12 text-muted-foreground">
+              <TableCell
+                colspan="5"
+                class="text-center py-12 text-muted-foreground"
+              >
                 没有找到匹配的模型
               </TableCell>
             </TableRow>
@@ -115,8 +136,8 @@
                       <button
                         v-for="cap in getModelSupportedCapabilitiesDetails(model)"
                         :key="cap.name"
+                        class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all"
                         :class="[
-                          'inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all',
                           isCapabilityEnabled(model.name, cap.name)
                             ? 'bg-primary text-primary-foreground'
                             : 'bg-transparent text-muted-foreground border border-dashed border-muted-foreground/50 hover:border-primary/50 hover:text-foreground'
@@ -124,19 +145,40 @@
                         :title="cap.description"
                         @click.stop="toggleCapability(model.name, cap.name)"
                       >
-                        <Check v-if="isCapabilityEnabled(model.name, cap.name)" class="w-3 h-3" />
-                        <Plus v-else class="w-3 h-3" />
+                        <Check
+                          v-if="isCapabilityEnabled(model.name, cap.name)"
+                          class="w-3 h-3"
+                        />
+                        <Plus
+                          v-else
+                          class="w-3 h-3"
+                        />
                         {{ cap.short_name || cap.display_name }}
                       </button>
                     </template>
-                    <span v-else class="text-muted-foreground text-xs">-</span>
+                    <span
+                      v-else
+                      class="text-muted-foreground text-xs"
+                    >-</span>
                   </div>
                 </TableCell>
                 <TableCell class="py-4">
                   <div class="flex gap-1.5">
-                    <Eye v-if="model.default_supports_vision" class="w-4 h-4 text-muted-foreground" title="Vision" />
-                    <Wrench v-if="model.default_supports_function_calling" class="w-4 h-4 text-muted-foreground" title="Tool Use" />
-                    <Brain v-if="model.default_supports_extended_thinking" class="w-4 h-4 text-muted-foreground" title="Extended Thinking" />
+                    <Eye
+                      v-if="model.default_supports_vision"
+                      class="w-4 h-4 text-muted-foreground"
+                      title="Vision"
+                    />
+                    <Wrench
+                      v-if="model.default_supports_function_calling"
+                      class="w-4 h-4 text-muted-foreground"
+                      title="Tool Use"
+                    />
+                    <Brain
+                      v-if="model.default_supports_extended_thinking"
+                      class="w-4 h-4 text-muted-foreground"
+                      title="Extended Thinking"
+                    />
                   </div>
                 </TableCell>
                 <TableCell class="py-4 text-center">
@@ -148,7 +190,11 @@
                       <span class="text-muted-foreground mx-1">/</span>
                       <span class="text-muted-foreground">Out:</span>
                       <span class="font-mono ml-1">{{ getFirstTierPrice(model, 'output')?.toFixed(2) || '-' }}</span>
-                      <span v-if="hasTieredPricing(model)" class="ml-1 text-muted-foreground" title="阶梯计费">[阶梯]</span>
+                      <span
+                        v-if="hasTieredPricing(model)"
+                        class="ml-1 text-muted-foreground"
+                        title="阶梯计费"
+                      >[阶梯]</span>
                     </div>
                     <!-- 按次计费 -->
                     <div v-if="model.default_price_per_request && model.default_price_per_request > 0">
@@ -156,7 +202,12 @@
                       <span class="font-mono ml-1">${{ model.default_price_per_request.toFixed(3) }}/次</span>
                     </div>
                     <!-- 无计费配置 -->
-                    <div v-if="!getFirstTierPrice(model, 'input') && !getFirstTierPrice(model, 'output') && !model.default_price_per_request" class="text-muted-foreground">-</div>
+                    <div
+                      v-if="!getFirstTierPrice(model, 'input') && !getFirstTierPrice(model, 'output') && !model.default_price_per_request"
+                      class="text-muted-foreground"
+                    >
+                      -
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell class="py-4 text-center">
@@ -177,7 +228,7 @@
         :total="filteredModels.length"
         :page-size="pageSize"
         @update:current="currentPage = $event"
-        @update:pageSize="pageSize = $event"
+        @update:page-size="pageSize = $event"
       />
     </Card>
 

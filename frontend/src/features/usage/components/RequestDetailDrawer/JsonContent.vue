@@ -1,16 +1,25 @@
 <template>
   <div>
-    <div v-if="!data || (typeof data === 'object' && Object.keys(data).length === 0)" class="text-sm text-muted-foreground">
+    <div
+      v-if="!data || (typeof data === 'object' && Object.keys(data).length === 0)"
+      class="text-sm text-muted-foreground"
+    >
       {{ emptyMessage }}
     </div>
     <!-- 纯字符串数据（非 JSON 对象） -->
-    <Card v-else-if="typeof data === 'string'" class="bg-muted/30 overflow-hidden">
+    <Card
+      v-else-if="typeof data === 'string'"
+      class="bg-muted/30 overflow-hidden"
+    >
       <div class="p-4 overflow-x-auto max-h-[500px] overflow-y-auto">
         <pre class="text-xs font-mono whitespace-pre-wrap">{{ data }}</pre>
       </div>
     </Card>
     <!-- 非 JSON 响应（如 HTML 错误页面） -->
-    <Card v-else-if="data.raw_response && data.metadata?.parse_error" class="bg-muted/30 overflow-hidden">
+    <Card
+      v-else-if="data.raw_response && data.metadata?.parse_error"
+      class="bg-muted/30 overflow-hidden"
+    >
       <div class="p-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">
         <div class="flex items-start gap-2">
           <span class="text-amber-600 dark:text-amber-400 text-sm font-medium">Warning: 响应解析失败</span>
@@ -21,12 +30,24 @@
         <pre class="text-xs font-mono whitespace-pre-wrap text-muted-foreground">{{ data.raw_response }}</pre>
       </div>
     </Card>
-    <Card v-else class="bg-muted/30 overflow-hidden">
+    <Card
+      v-else
+      class="bg-muted/30 overflow-hidden"
+    >
       <!-- JSON 查看器 -->
-      <div class="json-viewer" :class="{ 'theme-dark': isDark }">
+      <div
+        class="json-viewer"
+        :class="{ 'theme-dark': isDark }"
+      >
         <div class="json-lines">
-          <template v-for="line in visibleLines" :key="line.displayId">
-            <div class="json-line" :class="{ 'has-fold': line.canFold }">
+          <template
+            v-for="line in visibleLines"
+            :key="line.displayId"
+          >
+            <div
+              class="json-line"
+              :class="{ 'has-fold': line.canFold }"
+            >
               <!-- 行号区域（包含折叠按钮） -->
               <div class="line-number-area">
                 <span
@@ -34,22 +55,31 @@
                   class="fold-button"
                   @click="toggleFold(line.blockId)"
                 >
-                  <ChevronRight v-if="collapsedBlocks.has(line.blockId)" class="fold-icon" />
-                  <ChevronDown v-else class="fold-icon" />
+                  <ChevronRight
+                    v-if="collapsedBlocks.has(line.blockId)"
+                    class="fold-icon"
+                  />
+                  <ChevronDown
+                    v-else
+                    class="fold-icon"
+                  />
                 </span>
                 <span class="line-number">{{ line.displayLineNumber }}</span>
               </div>
               <!-- 内容区域 -->
               <div class="line-content-area">
                 <!-- 缩进 -->
-                <span class="indent" :style="{ width: `${line.indent * 16}px` }"></span>
+                <span
+                  class="indent"
+                  :style="{ width: `${line.indent * 16}px` }"
+                />
                 <!-- 内容 -->
                 <span
                   class="line-content"
                   :class="{ 'clickable-collapsed': line.canFold && collapsedBlocks.has(line.blockId) }"
                   @click="line.canFold && collapsedBlocks.has(line.blockId) && toggleFold(line.blockId)"
                   v-html="getDisplayHtml(line)"
-                ></span>
+                />
               </div>
             </div>
           </template>

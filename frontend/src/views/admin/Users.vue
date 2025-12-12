@@ -1,11 +1,16 @@
 <template>
   <div class="space-y-6 pb-8">
     <!-- 用户表格 -->
-    <Card variant="default" class="overflow-hidden">
+    <Card
+      variant="default"
+      class="overflow-hidden"
+    >
       <!-- 标题和筛选器 -->
       <div class="px-6 py-3.5 border-b border-border/60">
         <div class="flex items-center justify-between gap-4">
-          <h3 class="text-base font-semibold">用户管理</h3>
+          <h3 class="text-base font-semibold">
+            用户管理
+          </h3>
 
           <!-- 筛选器和操作按钮 -->
           <div class="flex items-center gap-2">
@@ -25,26 +30,44 @@
             <div class="h-4 w-px bg-border" />
 
             <!-- 角色筛选 -->
-            <Select v-model="filterRole" v-model:open="filterRoleOpen">
+            <Select
+              v-model="filterRole"
+              v-model:open="filterRoleOpen"
+            >
               <SelectTrigger class="w-32 h-8 text-xs border-border/60">
                 <SelectValue placeholder="全部角色" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部角色</SelectItem>
-                <SelectItem value="admin">管理员</SelectItem>
-                <SelectItem value="user">普通用户</SelectItem>
+                <SelectItem value="all">
+                  全部角色
+                </SelectItem>
+                <SelectItem value="admin">
+                  管理员
+                </SelectItem>
+                <SelectItem value="user">
+                  普通用户
+                </SelectItem>
               </SelectContent>
             </Select>
 
             <!-- 状态筛选 -->
-            <Select v-model="filterStatus" v-model:open="filterStatusOpen">
+            <Select
+              v-model="filterStatus"
+              v-model:open="filterStatusOpen"
+            >
               <SelectTrigger class="w-28 h-8 text-xs border-border/60">
                 <SelectValue placeholder="全部状态" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部状态</SelectItem>
-                <SelectItem value="active">活跃</SelectItem>
-                <SelectItem value="inactive">禁用</SelectItem>
+                <SelectItem value="all">
+                  全部状态
+                </SelectItem>
+                <SelectItem value="active">
+                  活跃
+                </SelectItem>
+                <SelectItem value="inactive">
+                  禁用
+                </SelectItem>
               </SelectContent>
             </Select>
 
@@ -56,14 +79,17 @@
               variant="ghost"
               size="icon"
               class="h-8 w-8"
-              @click="openCreateDialog"
               title="新增用户"
+              @click="openCreateDialog"
             >
               <Plus class="w-3.5 h-3.5" />
             </Button>
 
             <!-- 刷新按钮 -->
-            <RefreshButton :loading="usersStore.loading || loadingStats" @click="refreshUsers" />
+            <RefreshButton
+              :loading="usersStore.loading || loadingStats"
+              @click="refreshUsers"
+            />
           </div>
         </div>
       </div>
@@ -71,112 +97,192 @@
       <!-- 桌面端表格 -->
       <div class="hidden xl:block overflow-x-auto">
         <Table>
-        <TableHeader>
-          <TableRow class="border-b border-border/60 hover:bg-transparent">
-            <TableHead class="w-[200px] h-12 font-semibold">用户信息</TableHead>
-            <TableHead class="w-[180px] h-12 font-semibold">邮箱</TableHead>
-            <TableHead class="w-[180px] h-12 font-semibold">使用统计</TableHead>
-            <TableHead class="w-[180px] h-12 font-semibold">配额(美元)</TableHead>
-            <TableHead class="w-[110px] h-12 font-semibold">创建时间</TableHead>
-            <TableHead class="w-[90px] h-12 font-semibold text-center">状态</TableHead>
-            <TableHead class="w-[220px] h-12 font-semibold text-center">操作</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow v-for="user in paginatedUsers" :key="user.id" class="border-b border-border/40 hover:bg-muted/30 transition-colors">
-            <TableCell class="py-4">
-              <div class="flex items-center gap-3">
-                <Avatar class="h-10 w-10 ring-2 ring-background shadow-md">
-                  <AvatarFallback class="bg-primary text-sm font-bold text-white">
-                    {{ user.username.charAt(0).toUpperCase() }}
-                  </AvatarFallback>
-                </Avatar>
-                <div class="flex-1 min-w-0">
-                  <div class="truncate text-sm font-semibold mb-1" :title="user.username">{{ user.username }}</div>
-                  <Badge :variant="user.role === 'admin' ? 'default' : 'secondary'" class="text-xs px-2 py-0.5">
-                    {{ user.role === 'admin' ? '管理员' : '普通用户' }}
-                  </Badge>
+          <TableHeader>
+            <TableRow class="border-b border-border/60 hover:bg-transparent">
+              <TableHead class="w-[200px] h-12 font-semibold">
+                用户信息
+              </TableHead>
+              <TableHead class="w-[180px] h-12 font-semibold">
+                邮箱
+              </TableHead>
+              <TableHead class="w-[180px] h-12 font-semibold">
+                使用统计
+              </TableHead>
+              <TableHead class="w-[180px] h-12 font-semibold">
+                配额(美元)
+              </TableHead>
+              <TableHead class="w-[110px] h-12 font-semibold">
+                创建时间
+              </TableHead>
+              <TableHead class="w-[90px] h-12 font-semibold text-center">
+                状态
+              </TableHead>
+              <TableHead class="w-[220px] h-12 font-semibold text-center">
+                操作
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow
+              v-for="user in paginatedUsers"
+              :key="user.id"
+              class="border-b border-border/40 hover:bg-muted/30 transition-colors"
+            >
+              <TableCell class="py-4">
+                <div class="flex items-center gap-3">
+                  <Avatar class="h-10 w-10 ring-2 ring-background shadow-md">
+                    <AvatarFallback class="bg-primary text-sm font-bold text-white">
+                      {{ user.username.charAt(0).toUpperCase() }}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div class="flex-1 min-w-0">
+                    <div
+                      class="truncate text-sm font-semibold mb-1"
+                      :title="user.username"
+                    >
+                      {{ user.username }}
+                    </div>
+                    <Badge
+                      :variant="user.role === 'admin' ? 'default' : 'secondary'"
+                      class="text-xs px-2 py-0.5"
+                    >
+                      {{ user.role === 'admin' ? '管理员' : '普通用户' }}
+                    </Badge>
+                  </div>
                 </div>
-              </div>
-            </TableCell>
-            <TableCell class="py-4">
-              <span class="block truncate text-sm text-muted-foreground" :title="user.email || '-'">
-                {{ user.email || '-' }}
-              </span>
-            </TableCell>
-            <TableCell class="py-4">
-              <div v-if="userStats[user.id]" class="space-y-1 text-xs">
-                <div class="flex items-center text-muted-foreground">
-                  <span class="w-14">请求:</span>
-                  <span class="font-medium text-foreground">{{ formatNumber(userStats[user.id]?.request_count) }}</span>
-                </div>
-                <div class="flex items-center text-muted-foreground">
-                  <span class="w-14">Tokens:</span>
-                  <span class="font-medium text-foreground">{{ formatTokens(userStats[user.id]?.total_tokens ?? 0) }}</span>
-                </div>
-                <div class="flex items-center text-muted-foreground">
-                  <span class="w-14">费用:</span>
-                  <span class="font-medium text-foreground">${{ formatCurrency(userStats[user.id]?.total_cost) }}</span>
-                </div>
-              </div>
-              <div v-else class="text-xs text-muted-foreground">
-                <span v-if="loadingStats">加载中...</span>
-                <span v-else>无数据</span>
-              </div>
-            </TableCell>
-            <TableCell class="py-4">
-              <div class="space-y-1.5 text-xs">
-                <div v-if="user.quota_usd != null" class="text-muted-foreground">
-                  当前: <span class="font-semibold text-foreground">${{ (user.used_usd || 0).toFixed(2) }}</span> / <span class="font-medium">${{ user.quota_usd.toFixed(2) }}</span>
-                </div>
-                <div v-else class="text-muted-foreground">
-                  当前: <span class="font-semibold text-foreground">${{ (user.used_usd || 0).toFixed(2) }}</span> / <span class="font-medium text-amber-600">无限制</span>
-                </div>
-                <div class="text-muted-foreground">累计: <span class="font-medium text-foreground">${{ (user.total_usd || 0).toFixed(2) }}</span></div>
-              </div>
-            </TableCell>
-            <TableCell class="py-4 text-xs text-muted-foreground">
-              {{ formatDate(user.created_at) }}
-            </TableCell>
-            <TableCell class="py-4 text-center">
-              <Badge :variant="user.is_active ? 'success' : 'destructive'" class="font-medium px-3 py-1">
-                {{ user.is_active ? '活跃' : '禁用' }}
-              </Badge>
-            </TableCell>
-            <TableCell class="py-4">
-              <div class="flex justify-center gap-1">
-                <Button variant="ghost" size="icon" class="h-8 w-8" @click="editUser(user)" title="编辑用户">
-                  <SquarePen class="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" class="h-8 w-8" @click="manageApiKeys(user)" title="查看API Keys">
-                  <Key class="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class="h-8 w-8"
-                  @click="toggleUserStatus(user)"
-                  :title="user.is_active ? '禁用用户' : '启用用户'"
+              </TableCell>
+              <TableCell class="py-4">
+                <span
+                  class="block truncate text-sm text-muted-foreground"
+                  :title="user.email || '-'"
                 >
-                  <PauseCircle v-if="user.is_active" class="h-4 w-4" />
-                  <PlayCircle v-else class="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" class="h-8 w-8" @click="resetQuota(user)" title="重置配额">
-                  <RotateCcw class="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" class="h-8 w-8" @click="deleteUser(user)" title="删除用户">
-                  <Trash2 class="h-4 w-4" />
-                </Button>
-              </div>
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
+                  {{ user.email || '-' }}
+                </span>
+              </TableCell>
+              <TableCell class="py-4">
+                <div
+                  v-if="userStats[user.id]"
+                  class="space-y-1 text-xs"
+                >
+                  <div class="flex items-center text-muted-foreground">
+                    <span class="w-14">请求:</span>
+                    <span class="font-medium text-foreground">{{ formatNumber(userStats[user.id]?.request_count) }}</span>
+                  </div>
+                  <div class="flex items-center text-muted-foreground">
+                    <span class="w-14">Tokens:</span>
+                    <span class="font-medium text-foreground">{{ formatTokens(userStats[user.id]?.total_tokens ?? 0) }}</span>
+                  </div>
+                  <div class="flex items-center text-muted-foreground">
+                    <span class="w-14">费用:</span>
+                    <span class="font-medium text-foreground">${{ formatCurrency(userStats[user.id]?.total_cost) }}</span>
+                  </div>
+                </div>
+                <div
+                  v-else
+                  class="text-xs text-muted-foreground"
+                >
+                  <span v-if="loadingStats">加载中...</span>
+                  <span v-else>无数据</span>
+                </div>
+              </TableCell>
+              <TableCell class="py-4">
+                <div class="space-y-1.5 text-xs">
+                  <div
+                    v-if="user.quota_usd != null"
+                    class="text-muted-foreground"
+                  >
+                    当前: <span class="font-semibold text-foreground">${{ (user.used_usd || 0).toFixed(2) }}</span> / <span class="font-medium">${{ user.quota_usd.toFixed(2) }}</span>
+                  </div>
+                  <div
+                    v-else
+                    class="text-muted-foreground"
+                  >
+                    当前: <span class="font-semibold text-foreground">${{ (user.used_usd || 0).toFixed(2) }}</span> / <span class="font-medium text-amber-600">无限制</span>
+                  </div>
+                  <div class="text-muted-foreground">
+                    累计: <span class="font-medium text-foreground">${{ (user.total_usd || 0).toFixed(2) }}</span>
+                  </div>
+                </div>
+              </TableCell>
+              <TableCell class="py-4 text-xs text-muted-foreground">
+                {{ formatDate(user.created_at) }}
+              </TableCell>
+              <TableCell class="py-4 text-center">
+                <Badge
+                  :variant="user.is_active ? 'success' : 'destructive'"
+                  class="font-medium px-3 py-1"
+                >
+                  {{ user.is_active ? '活跃' : '禁用' }}
+                </Badge>
+              </TableCell>
+              <TableCell class="py-4">
+                <div class="flex justify-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                    title="编辑用户"
+                    @click="editUser(user)"
+                  >
+                    <SquarePen class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                    title="查看API Keys"
+                    @click="manageApiKeys(user)"
+                  >
+                    <Key class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                    :title="user.is_active ? '禁用用户' : '启用用户'"
+                    @click="toggleUserStatus(user)"
+                  >
+                    <PauseCircle
+                      v-if="user.is_active"
+                      class="h-4 w-4"
+                    />
+                    <PlayCircle
+                      v-else
+                      class="h-4 w-4"
+                    />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                    title="重置配额"
+                    @click="resetQuota(user)"
+                  >
+                    <RotateCcw class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                    title="删除用户"
+                    @click="deleteUser(user)"
+                  >
+                    <Trash2 class="h-4 w-4" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
       </div>
 
       <!-- 移动端卡片列表 -->
       <div class="xl:hidden divide-y divide-border/40">
-        <div v-for="user in paginatedUsers" :key="user.id" class="p-4 sm:p-5 hover:bg-muted/30 transition-colors">
+        <div
+          v-for="user in paginatedUsers"
+          :key="user.id"
+          class="p-4 sm:p-5 hover:bg-muted/30 transition-colors"
+        >
           <!-- 用户头部 -->
           <div class="flex items-start justify-between mb-3 sm:mb-4">
             <div class="flex items-center gap-2 sm:gap-3">
@@ -186,13 +292,21 @@
                 </AvatarFallback>
               </Avatar>
               <div class="min-w-0">
-                <div class="font-semibold text-sm sm:text-base mb-1 truncate">{{ user.username }}</div>
-                <Badge :variant="user.role === 'admin' ? 'default' : 'secondary'" class="text-xs">
+                <div class="font-semibold text-sm sm:text-base mb-1 truncate">
+                  {{ user.username }}
+                </div>
+                <Badge
+                  :variant="user.role === 'admin' ? 'default' : 'secondary'"
+                  class="text-xs"
+                >
                   {{ user.role === 'admin' ? '管理员' : '普通用户' }}
                 </Badge>
               </div>
             </div>
-            <Badge :variant="user.is_active ? 'success' : 'destructive'" class="font-medium text-xs flex-shrink-0">
+            <Badge
+              :variant="user.is_active ? 'success' : 'destructive'"
+              class="font-medium text-xs flex-shrink-0"
+            >
               {{ user.is_active ? '活跃' : '禁用' }}
             </Badge>
           </div>
@@ -204,18 +318,33 @@
               <span class="ml-2 text-foreground truncate block sm:inline">{{ user.email || '-' }}</span>
             </div>
 
-            <div v-if="userStats[user.id]" class="grid grid-cols-2 gap-2 p-2 sm:p-3 bg-muted/50 rounded-lg text-xs">
+            <div
+              v-if="userStats[user.id]"
+              class="grid grid-cols-2 gap-2 p-2 sm:p-3 bg-muted/50 rounded-lg text-xs"
+            >
               <div>
-                <div class="text-muted-foreground mb-1">请求次数</div>
-                <div class="font-semibold text-sm text-foreground">{{ formatNumber(userStats[user.id]?.request_count) }}</div>
+                <div class="text-muted-foreground mb-1">
+                  请求次数
+                </div>
+                <div class="font-semibold text-sm text-foreground">
+                  {{ formatNumber(userStats[user.id]?.request_count) }}
+                </div>
               </div>
               <div>
-                <div class="text-muted-foreground mb-1">Tokens</div>
-                <div class="font-semibold text-sm text-foreground">{{ formatTokens(userStats[user.id]?.total_tokens ?? 0) }}</div>
+                <div class="text-muted-foreground mb-1">
+                  Tokens
+                </div>
+                <div class="font-semibold text-sm text-foreground">
+                  {{ formatTokens(userStats[user.id]?.total_tokens ?? 0) }}
+                </div>
               </div>
               <div class="col-span-2">
-                <div class="text-muted-foreground mb-1">消费金额</div>
-                <div class="font-semibold text-sm text-foreground">${{ formatCurrency(userStats[user.id]?.total_cost) }}</div>
+                <div class="text-muted-foreground mb-1">
+                  消费金额
+                </div>
+                <div class="font-semibold text-sm text-foreground">
+                  ${{ formatCurrency(userStats[user.id]?.total_cost) }}
+                </div>
               </div>
             </div>
 
@@ -241,11 +370,21 @@
 
           <!-- 操作按钮 - 响应式布局 -->
           <div class="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5 sm:gap-2">
-            <Button variant="outline" size="sm" class="text-xs sm:text-sm h-8 sm:h-9 sm:flex-1 sm:min-w-[90px]" @click="editUser(user)">
+            <Button
+              variant="outline"
+              size="sm"
+              class="text-xs sm:text-sm h-8 sm:h-9 sm:flex-1 sm:min-w-[90px]"
+              @click="editUser(user)"
+            >
               <SquarePen class="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5" />
               <span class="hidden sm:inline">编辑</span>
             </Button>
-            <Button variant="outline" size="sm" class="text-xs sm:text-sm h-8 sm:h-9 sm:flex-1 sm:min-w-[100px]" @click="manageApiKeys(user)">
+            <Button
+              variant="outline"
+              size="sm"
+              class="text-xs sm:text-sm h-8 sm:h-9 sm:flex-1 sm:min-w-[100px]"
+              @click="manageApiKeys(user)"
+            >
               <Key class="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5" />
               <span class="hidden sm:inline">API Keys</span>
             </Button>
@@ -256,15 +395,31 @@
               :class="user.is_active ? 'text-amber-600' : 'text-emerald-600'"
               @click="toggleUserStatus(user)"
             >
-              <PauseCircle v-if="user.is_active" class="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5" />
-              <PlayCircle v-else class="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5" />
+              <PauseCircle
+                v-if="user.is_active"
+                class="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5"
+              />
+              <PlayCircle
+                v-else
+                class="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5"
+              />
               <span class="hidden sm:inline">{{ user.is_active ? '禁用' : '启用' }}</span>
             </Button>
-            <Button variant="outline" size="sm" class="text-xs sm:text-sm h-8 sm:h-9" @click="resetQuota(user)">
+            <Button
+              variant="outline"
+              size="sm"
+              class="text-xs sm:text-sm h-8 sm:h-9"
+              @click="resetQuota(user)"
+            >
               <RotateCcw class="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5" />
               <span class="hidden sm:inline">重置</span>
             </Button>
-            <Button variant="outline" size="sm" class="col-span-2 text-xs sm:text-sm h-8 sm:h-9 text-rose-600 sm:col-span-1" @click="deleteUser(user)">
+            <Button
+              variant="outline"
+              size="sm"
+              class="col-span-2 text-xs sm:text-sm h-8 sm:h-9 text-rose-600 sm:col-span-1"
+              @click="deleteUser(user)"
+            >
               <Trash2 class="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5" />
               <span class="hidden sm:inline">删除</span>
             </Button>
@@ -284,15 +439,18 @@
 
     <!-- 用户表单对话框（创建/编辑共用） -->
     <UserFormDialog
+      ref="userFormDialogRef"
       :open="showUserFormDialog"
       :user="editingUser"
       @close="closeUserFormDialog"
       @submit="handleUserFormSubmit"
-      ref="userFormDialogRef"
     />
 
     <!-- API Keys 管理对话框 -->
-    <Dialog v-model="showApiKeysDialog" size="xl">
+    <Dialog
+      v-model="showApiKeysDialog"
+      size="xl"
+    >
       <template #header>
         <div class="border-b border-border px-6 py-4">
           <div class="flex items-center gap-3">
@@ -300,8 +458,12 @@
               <Key class="h-5 w-5 text-kraft" />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-foreground leading-tight">管理 API Keys</h3>
-              <p class="text-xs text-muted-foreground">查看和管理用户的 API 密钥</p>
+              <h3 class="text-lg font-semibold text-foreground leading-tight">
+                管理 API Keys
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                查看和管理用户的 API 密钥
+              </p>
             </div>
           </div>
         </div>
@@ -341,9 +503,9 @@
                       {{ apiKey.key_display || 'sk-****' }}
                     </code>
                     <button
-                      @click="copyFullKey(apiKey)"
                       class="p-0.5 hover:bg-muted rounded transition-colors"
                       title="复制完整密钥"
+                      @click="copyFullKey(apiKey)"
                     >
                       <Copy class="w-3 h-3 text-muted-foreground" />
                     </button>
@@ -364,8 +526,8 @@
                   variant="ghost"
                   size="icon"
                   class="h-8 w-8"
-                  @click="deleteApiKey(apiKey)"
                   title="删除"
+                  @click="deleteApiKey(apiKey)"
                 >
                   <Trash2 class="h-4 w-4" />
                 </Button>
@@ -382,23 +544,40 @@
               <Key class="h-6 w-6 text-muted-foreground/50" />
             </div>
             <div>
-              <p class="mb-1 text-base font-semibold text-foreground">暂无 API Keys</p>
-              <p class="text-sm text-muted-foreground">点击下方按钮创建</p>
+              <p class="mb-1 text-base font-semibold text-foreground">
+                暂无 API Keys
+              </p>
+              <p class="text-sm text-muted-foreground">
+                点击下方按钮创建
+              </p>
             </div>
           </div>
         </div>
       </div>
 
       <template #footer>
-        <Button variant="outline" @click="showApiKeysDialog = false" class="h-10 px-5">取消</Button>
-        <Button @click="createApiKey" class="h-10 px-5" :disabled="creatingApiKey">
+        <Button
+          variant="outline"
+          class="h-10 px-5"
+          @click="showApiKeysDialog = false"
+        >
+          取消
+        </Button>
+        <Button
+          class="h-10 px-5"
+          :disabled="creatingApiKey"
+          @click="createApiKey"
+        >
           {{ creatingApiKey ? '创建中...' : '创建' }}
         </Button>
       </template>
     </Dialog>
 
     <!-- 新 API Key 显示对话框 -->
-    <Dialog v-model="showNewApiKeyDialog" size="lg">
+    <Dialog
+      v-model="showNewApiKeyDialog"
+      size="lg"
+    >
       <template #header>
         <div class="border-b border-border px-6 py-4">
           <div class="flex items-center gap-3">
@@ -406,8 +585,12 @@
               <CheckCircle class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-foreground leading-tight">创建成功</h3>
-              <p class="text-xs text-muted-foreground">请妥善保管, 切勿泄露给他人.</p>
+              <h3 class="text-lg font-semibold text-foreground leading-tight">
+                创建成功
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                请妥善保管, 切勿泄露给他人.
+              </p>
             </div>
           </div>
         </div>
@@ -418,14 +601,17 @@
           <Label class="text-sm font-medium">API Key</Label>
           <div class="flex items-center gap-2">
             <Input
+              ref="apiKeyInput"
               type="text"
               :value="newApiKey"
               readonly
               class="flex-1 font-mono text-sm bg-muted/50 h-11"
               @click="selectApiKey"
-              ref="apiKeyInput"
             />
-            <Button @click="copyApiKey" class="h-11">
+            <Button
+              class="h-11"
+              @click="copyApiKey"
+            >
               复制
             </Button>
           </div>
@@ -433,7 +619,12 @@
       </div>
 
       <template #footer>
-        <Button @click="closeNewApiKeyDialog" class="h-10 px-5">确定</Button>
+        <Button
+          class="h-10 px-5"
+          @click="closeNewApiKeyDialog"
+        >
+          确定
+        </Button>
       </template>
     </Dialog>
   </div>

@@ -9,9 +9,14 @@
   >
     <div class="space-y-4 py-2">
       <!-- 已选模型展示 -->
-      <div v-if="selectedModels.length > 0" class="space-y-2">
+      <div
+        v-if="selectedModels.length > 0"
+        class="space-y-2"
+      >
         <div class="flex items-center justify-between px-1">
-          <div class="text-xs font-medium text-muted-foreground">已选模型 ({{ selectedModels.length }})</div>
+          <div class="text-xs font-medium text-muted-foreground">
+            已选模型 ({{ selectedModels.length }})
+          </div>
           <Button
             type="button"
             variant="ghost"
@@ -43,26 +48,40 @@
       <!-- 模型列表区域 -->
       <div class="space-y-2">
         <div class="flex items-center justify-between px-1">
-          <div class="text-xs font-medium text-muted-foreground">可选模型列表</div>
-          <div v-if="!loadingModels && availableModels.length > 0" class="text-[10px] text-muted-foreground/60">
+          <div class="text-xs font-medium text-muted-foreground">
+            可选模型列表
+          </div>
+          <div
+            v-if="!loadingModels && availableModels.length > 0"
+            class="text-[10px] text-muted-foreground/60"
+          >
             共 {{ availableModels.length }} 个模型
           </div>
         </div>
 
         <!-- 加载状态 -->
-        <div v-if="loadingModels" class="flex flex-col items-center justify-center py-12 space-y-3">
-          <div class="animate-spin rounded-full h-8 w-8 border-2 border-primary/20 border-t-primary"></div>
+        <div
+          v-if="loadingModels"
+          class="flex flex-col items-center justify-center py-12 space-y-3"
+        >
+          <div class="animate-spin rounded-full h-8 w-8 border-2 border-primary/20 border-t-primary" />
           <span class="text-xs text-muted-foreground">正在加载模型列表...</span>
         </div>
 
         <!-- 无模型 -->
-        <div v-else-if="availableModels.length === 0" class="flex flex-col items-center justify-center py-12 text-muted-foreground border border-dashed rounded-lg bg-muted/10">
+        <div
+          v-else-if="availableModels.length === 0"
+          class="flex flex-col items-center justify-center py-12 text-muted-foreground border border-dashed rounded-lg bg-muted/10"
+        >
           <Box class="w-10 h-10 mb-2 opacity-20" />
           <span class="text-sm">暂无可选模型</span>
         </div>
 
         <!-- 模型列表 -->
-        <div v-else class="max-h-[320px] overflow-y-auto pr-1 space-y-1.5 custom-scrollbar">
+        <div
+          v-else
+          class="max-h-[320px] overflow-y-auto pr-1 space-y-1.5 custom-scrollbar"
+        >
           <div
             v-for="model in availableModels"
             :key="model.global_model_name"
@@ -86,7 +105,10 @@
             <div class="flex-1 min-w-0">
               <div class="flex items-center justify-between gap-2">
                 <span class="text-sm font-medium truncate text-foreground/90">{{ model.display_name }}</span>
-                <span v-if="hasPricing(model)" class="text-[10px] font-mono text-muted-foreground/80 bg-muted/30 px-1.5 py-0.5 rounded border border-border/30 shrink-0">
+                <span
+                  v-if="hasPricing(model)"
+                  class="text-[10px] font-mono text-muted-foreground/80 bg-muted/30 px-1.5 py-0.5 rounded border border-border/30 shrink-0"
+                >
                   {{ formatPricingShort(model) }}
                 </span>
               </div>
@@ -101,9 +123,22 @@
 
     <template #footer>
       <div class="flex items-center justify-end gap-2 w-full pt-2">
-        <Button @click="handleCancel" variant="outline" class="h-9">取消</Button>
-        <Button @click="handleSave" :disabled="saving" class="h-9 min-w-[80px]">
-          <Loader2 v-if="saving" class="w-3.5 h-3.5 mr-1.5 animate-spin" />
+        <Button
+          variant="outline"
+          class="h-9"
+          @click="handleCancel"
+        >
+          取消
+        </Button>
+        <Button
+          :disabled="saving"
+          class="h-9 min-w-[80px]"
+          @click="handleSave"
+        >
+          <Loader2
+            v-if="saving"
+            class="w-3.5 h-3.5 mr-1.5 animate-spin"
+          />
           {{ saving ? '保存中' : '保存配置' }}
         </Button>
       </div>
