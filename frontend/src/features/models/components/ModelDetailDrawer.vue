@@ -14,12 +14,12 @@
         />
 
         <!-- 抽屉内容 -->
-        <Card class="relative h-full w-[700px] rounded-none shadow-2xl overflow-y-auto">
-          <div class="sticky top-0 z-10 bg-background border-b p-6">
-            <div class="flex items-start justify-between gap-4">
+        <Card class="relative h-full w-full sm:w-[700px] sm:max-w-[90vw] rounded-none shadow-2xl overflow-y-auto">
+          <div class="sticky top-0 z-10 bg-background border-b p-4 sm:p-6">
+            <div class="flex items-start justify-between gap-3 sm:gap-4">
               <div class="space-y-1 flex-1 min-w-0">
                 <div class="flex items-center gap-2">
-                  <h3 class="text-xl font-bold truncate">
+                  <h3 class="text-lg sm:text-xl font-bold truncate">
                     {{ model.display_name }}
                   </h3>
                   <Badge
@@ -76,12 +76,12 @@
             </div>
           </div>
 
-          <div class="p-6">
+          <div class="p-4 sm:p-6">
             <!-- 自定义 Tab 切换 -->
             <div class="flex gap-1 p-1 bg-muted/40 rounded-lg mb-4">
               <button
                 type="button"
-                class="flex-1 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200"
+                class="flex-1 px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-md transition-all duration-200"
                 :class="[
                   detailTab === 'basic'
                     ? 'bg-primary text-primary-foreground shadow-sm'
@@ -93,7 +93,7 @@
               </button>
               <button
                 type="button"
-                class="flex-1 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200"
+                class="flex-1 px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-md transition-all duration-200"
                 :class="[
                   detailTab === 'providers'
                     ? 'bg-primary text-primary-foreground shadow-sm'
@@ -101,11 +101,12 @@
                 ]"
                 @click="detailTab = 'providers'"
               >
-                关联提供商
+                <span class="hidden sm:inline">关联提供商</span>
+                <span class="sm:hidden">提供商</span>
               </button>
               <button
                 type="button"
-                class="flex-1 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200"
+                class="flex-1 px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-md transition-all duration-200"
                 :class="[
                   detailTab === 'aliases'
                     ? 'bg-primary text-primary-foreground shadow-sm'
@@ -113,7 +114,8 @@
                 ]"
                 @click="detailTab = 'aliases'"
               >
-                别名/映射
+                <span class="hidden sm:inline">别名/映射</span>
+                <span class="sm:hidden">别名</span>
               </button>
             </div>
 
@@ -142,7 +144,7 @@
                 <h4 class="font-semibold text-sm">
                   模型能力
                 </h4>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div class="flex items-center gap-2 p-3 rounded-lg border">
                     <Zap class="w-5 h-5 text-muted-foreground" />
                     <div class="flex-1">
@@ -262,7 +264,7 @@
                   v-if="getTierCount(model.default_tiered_pricing) <= 1"
                   class="space-y-3"
                 >
-                  <div class="grid grid-cols-2 gap-3">
+                  <div class="grid grid-cols-2 sm:grid-cols-2 gap-3">
                     <!-- 按 Token 计费 -->
                     <div class="p-3 rounded-lg border">
                       <Label class="text-xs text-muted-foreground">输入价格 ($/M)</Label>
@@ -463,7 +465,9 @@
                   <Loader2 class="w-6 h-6 animate-spin text-primary" />
                 </div>
 
-                <Table v-else-if="providers.length > 0">
+                <template v-else-if="providers.length > 0">
+                  <!-- 桌面端表格 -->
+                  <Table class="hidden sm:table">
                   <TableHeader>
                     <TableRow class="border-b border-border/60 hover:bg-transparent">
                       <TableHead class="h-10 font-semibold">
@@ -589,13 +593,81 @@
                       </TableCell>
                     </TableRow>
                   </TableBody>
-                </Table>
+                  </Table>
 
-                <!-- 空状态 -->
+                  <!-- 移动端卡片列表 -->
+                  <div class="sm:hidden divide-y divide-border/40">
+                  <div
+                    v-for="provider in providers"
+                    :key="provider.id"
+                    class="p-4 space-y-3"
+                  >
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="flex items-center gap-2 min-w-0">
+                        <span
+                          class="w-2 h-2 rounded-full shrink-0"
+                          :class="provider.is_active ? 'bg-green-500' : 'bg-gray-300'"
+                        />
+                        <span class="font-medium truncate">{{ provider.display_name }}</span>
+                      </div>
+                      <div class="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7"
+                          @click="$emit('editProvider', provider)"
+                        >
+                          <Edit class="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7"
+                          @click="$emit('toggleProviderStatus', provider)"
+                        >
+                          <Power class="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7"
+                          @click="$emit('deleteProvider', provider)"
+                        >
+                          <Trash2 class="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs">
+                      <div class="flex gap-1">
+                        <Zap
+                          v-if="provider.supports_streaming"
+                          class="w-3.5 h-3.5 text-muted-foreground"
+                        />
+                        <Eye
+                          v-if="provider.supports_vision"
+                          class="w-3.5 h-3.5 text-muted-foreground"
+                        />
+                        <Wrench
+                          v-if="provider.supports_function_calling"
+                          class="w-3.5 h-3.5 text-muted-foreground"
+                        />
+                      </div>
+                      <div
+                        v-if="(provider.input_price_per_1m || 0) > 0 || (provider.output_price_per_1m || 0) > 0"
+                        class="text-muted-foreground font-mono"
+                      >
+                        ${{ (provider.input_price_per_1m || 0).toFixed(1) }}/${{ (provider.output_price_per_1m || 0).toFixed(1) }}
+                      </div>
+                    </div>
+                  </div>
+                  </div>
+                </template>
+
                 <div
                   v-else
                   class="text-center py-12"
                 >
+                  <!-- 空状态 -->
                   <Building2 class="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
                   <p class="text-sm text-muted-foreground">
                     暂无关联提供商
@@ -658,7 +730,9 @@
                   <Loader2 class="w-6 h-6 animate-spin text-primary" />
                 </div>
 
-                <Table v-else-if="aliases.length > 0">
+                <template v-else-if="aliases.length > 0">
+                  <!-- 桌面端表格 -->
+                  <Table class="hidden sm:table">
                   <TableHeader>
                     <TableRow class="border-b border-border/60 hover:bg-transparent">
                       <TableHead class="h-10 font-semibold">
@@ -749,13 +823,81 @@
                       </TableCell>
                     </TableRow>
                   </TableBody>
-                </Table>
+                  </Table>
 
-                <!-- 空状态 -->
+                  <!-- 移动端卡片列表 -->
+                  <div class="sm:hidden divide-y divide-border/40">
+                  <div
+                    v-for="alias in aliases"
+                    :key="alias.id"
+                    class="p-4 space-y-2"
+                  >
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="flex items-center gap-2 min-w-0 flex-1">
+                        <span
+                          class="w-2 h-2 rounded-full shrink-0"
+                          :class="alias.is_active ? 'bg-green-500' : 'bg-gray-300'"
+                        />
+                        <code class="text-sm font-medium bg-muted px-1.5 py-0.5 rounded truncate">{{ alias.alias }}</code>
+                      </div>
+                      <div class="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7"
+                          @click="$emit('editAlias', alias)"
+                        >
+                          <Edit class="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7"
+                          @click="$emit('toggleAliasStatus', alias)"
+                        >
+                          <Power class="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7"
+                          @click="$emit('deleteAlias', alias)"
+                        >
+                          <Trash2 class="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <Badge
+                        variant="secondary"
+                        class="text-xs"
+                      >
+                        {{ alias.mapping_type === 'mapping' ? '映射' : '别名' }}
+                      </Badge>
+                      <Badge
+                        v-if="alias.provider_id"
+                        variant="outline"
+                        class="text-xs truncate max-w-[120px]"
+                      >
+                        {{ alias.provider_name || 'Provider' }}
+                      </Badge>
+                      <Badge
+                        v-else
+                        variant="default"
+                        class="text-xs"
+                      >
+                        全局
+                      </Badge>
+                    </div>
+                  </div>
+                  </div>
+                </template>
+
                 <div
                   v-else
                   class="text-center py-12"
                 >
+                  <!-- 空状态 -->
                   <Tag class="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
                   <p class="text-sm text-muted-foreground">
                     暂无别名或映射

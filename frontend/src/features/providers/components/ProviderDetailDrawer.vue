@@ -14,7 +14,7 @@
         />
 
         <!-- 抽屉内容 -->
-        <Card class="relative h-full w-[700px] rounded-none shadow-2xl overflow-y-auto">
+        <Card class="relative h-full w-full sm:w-[700px] sm:max-w-[90vw] rounded-none shadow-2xl overflow-y-auto">
           <!-- 加载状态 -->
           <div
             v-if="loading"
@@ -25,11 +25,11 @@
 
           <template v-else-if="provider">
             <!-- 头部:名称 + 快捷操作 -->
-            <div class="sticky top-0 z-10 bg-background border-b p-6">
-              <div class="flex items-start justify-between gap-4">
+            <div class="sticky top-0 z-10 bg-background border-b p-4 sm:p-6">
+              <div class="flex items-start justify-between gap-3 sm:gap-4">
                 <div class="space-y-1 flex-1 min-w-0">
                   <div class="flex items-center gap-2">
-                    <h2 class="text-xl font-bold truncate">
+                    <h2 class="text-lg sm:text-xl font-bold truncate">
                       {{ provider.display_name }}
                     </h2>
                     <Badge
@@ -84,7 +84,7 @@
               </div>
             </div>
 
-            <div class="space-y-6 p-6">
+            <div class="space-y-6 p-4 sm:p-6">
               <!-- 配额使用情况 -->
               <Card
                 v-if="provider.billing_type === 'monthly_quota' && provider.monthly_quota_usd"
