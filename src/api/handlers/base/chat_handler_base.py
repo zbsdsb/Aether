@@ -382,7 +382,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             )
 
         except Exception as e:
-            logger.exception(f"流式请求失败: {e}")
+            self._log_request_error("流式请求失败", e)
             await self._record_stream_failure(ctx, e, original_headers, original_request_body)
             raise
 

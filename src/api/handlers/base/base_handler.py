@@ -395,3 +395,24 @@ class BaseMessageHandler:
 
         # 创建后台任务，不阻塞当前流
         asyncio.create_task(_do_update())
+
+    def _log_request_error(self, message: str, error: Exception) -> None:
+        """记录请求错误日志，对业务异常不打印堆栈
+
+        Args:
+            message: 错误消息前缀
+            error: 异常对象
+        """
+        from src.core.exceptions import (
+            ProviderException,
+            QuotaExceededException,
+            RateLimitException,
+            ModelNotSupportedException,
+        )
+
+        if isinstance(error, (ProviderException, QuotaExceededException, RateLimitException, ModelNotSupportedException)):
+            # 业务异常：简洁日志，不打印堆栈
+            logger.error(f"{message}: [{type(error).__name__}] {error}")
+        else:
+            # 未知异常：完整堆栈
+            logger.exception(f"{message}: {error}")

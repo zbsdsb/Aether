@@ -413,20 +413,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             )
 
         except Exception as e:
-            # 对于已知的业务异常，只记录简洁的错误信息，不输出完整堆栈
-            from src.core.exceptions import (
-                ProviderException,
-                QuotaExceededException,
-                RateLimitException,
-                ModelNotSupportedException,
-            )
-
-            if isinstance(e, (ProviderException, QuotaExceededException, RateLimitException, ModelNotSupportedException)):
-                # 业务异常：简洁日志
-                logger.error(f"流式请求失败: [{type(e).__name__}] {e}")
-            else:
-                # 未知异常：完整堆栈
-                logger.exception(f"流式请求失败: {e}")
+            self._log_request_error("流式请求失败", e)
             await self._record_stream_failure(ctx, e, original_headers, original_request_body)
             raise
 
