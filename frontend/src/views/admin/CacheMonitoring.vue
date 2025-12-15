@@ -18,10 +18,10 @@ import SelectContent from '@/components/ui/select-content.vue'
 import SelectItem from '@/components/ui/select-item.vue'
 import SelectValue from '@/components/ui/select-value.vue'
 import ScatterChart from '@/components/charts/ScatterChart.vue'
-import { Trash2, Eraser, Search, X, BarChart3, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { Trash2, Eraser, Search, X, BarChart3, ChevronDown, ChevronRight, Database, ArrowRight } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
-import { cacheApi, type CacheStats, type CacheConfig, type UserAffinity } from '@/api/cache'
+import { cacheApi, modelMappingCacheApi, type CacheStats, type CacheConfig, type UserAffinity, type ModelMappingCacheStats } from '@/api/cache'
 import type { TTLAnalysisUser } from '@/api/cache'
 import { formatNumber, formatTokens, formatCost, formatRemainingTime } from '@/utils/format'
 import {
@@ -46,6 +46,13 @@ const clearingRowAffinityKey = ref<string | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const currentTime = ref(Math.floor(Date.now() / 1000))
+
+// ==================== 模型映射缓存 ====================
+
+const modelMappingStats = ref<ModelMappingCacheStats | null>(null)
+const modelMappingLoading = ref(false)
+const clearingModelMapping = ref(false)
+const clearingModelName = ref<string | null>(null)
 
 const { success: showSuccess, error: showError, info: showInfo } = useToast()
 const { confirm: showConfirm } = useConfirm()
@@ -241,13 +248,87 @@ function stopCountdown() {
   }
 }
 
+// ==================== 模型映射缓存方法 ====================
+
+async function fetchModelMappingStats() {
+  modelMappingLoading.value = true
+  try {
+    modelMappingStats.value = await modelMappingCacheApi.getStats()
+  } catch (error) {
+    showError('获取模型映射缓存统计失败')
+    log.error('获取模型映射缓存统计失败', error)
+  } finally {
+    modelMappingLoading.value = false
+  }
+}
+
+async function clearAllModelMappingCache() {
+  const confirmed = await showConfirm({
+    title: '确认清除',
+    message: '确定要清除所有模型映射缓存吗？这会影响所有模型的名称解析。',
+    confirmText: '确认清除',
+    variant: 'destructive'
+  })
+
+  if (!confirmed) return
+
+  clearingModelMapping.value = true
+  try {
+    const result = await modelMappingCacheApi.clearAll()
+    showSuccess(`已清除 ${result.deleted_count} 个缓存键`)
+    await fetchModelMappingStats()
+  } catch (error) {
+    showError('清除模型映射缓存失败')
+    log.error('清除模型映射缓存失败', error)
+  } finally {
+    clearingModelMapping.value = false
+  }
+}
+
+async function clearModelMappingByName(modelName: string) {
+  clearingModelName.value = modelName
+  try {
+    await modelMappingCacheApi.clearByName(modelName)
+    showSuccess(`已清除 ${modelName} 的映射缓存`)
+    await fetchModelMappingStats()
+  } catch (error) {
+    showError('清除缓存失败')
+    log.error('清除模型映射缓存失败', error)
+  } finally {
+    clearingModelName.value = null
+  }
+}
+
+function formatTTL(ttl: number | null): string {
+  if (ttl === null || ttl < 0) return '-'
+  if (ttl < 60) return `${ttl}s`
+  const minutes = Math.floor(ttl / 60)
+  const seconds = ttl % 60
+  if (seconds === 0) return `${minutes}m`
+  return `${minutes}m${seconds}s`
+}
+
+function getUnmappedStatusBadge(status: string): { variant: 'default' | 'secondary' | 'destructive' | 'outline', text: string } {
+  switch (status) {
+    case 'not_found':
+      return { variant: 'secondary', text: '未找到' }
+    case 'invalid':
+      return { variant: 'destructive', text: '无效' }
+    case 'error':
+      return { variant: 'destructive', text: '错误' }
+    default:
+      return { variant: 'outline', text: status }
+  }
+}
+
 // ==================== 刷新所有数据 ====================
 
 async function refreshData() {
   await Promise.all([
     fetchCacheStats(),
     fetchCacheConfig(),
-    fetchAffinityList()
+    fetchAffinityList(),
+    fetchModelMappingStats()
   ])
 }
 
@@ -272,6 +353,7 @@ onMounted(() => {
   fetchCacheStats()
   fetchCacheConfig()
   fetchAffinityList()
+  fetchModelMappingStats()
   startCountdown()
   refreshAnalysis()
 })
@@ -597,6 +679,222 @@ onBeforeUnmount(() => {
         @update:current="currentPage = $event; handlePageChange()"
         @update:page-size="pageSize = $event"
       />
+    </Card>
+
+    <!-- 模型映射缓存管理 -->
+    <Card class="overflow-hidden">
+      <div class="px-4 sm:px-6 py-3 sm:py-3.5 border-b border-border/60">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+          <div class="flex items-center gap-3 shrink-0">
+            <Database class="h-5 w-5 text-muted-foreground hidden sm:block" />
+            <h3 class="text-sm sm:text-base font-semibold">
+              模型映射缓存
+            </h3>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-8 w-8 text-muted-foreground/70 hover:text-destructive"
+              title="清除全部映射缓存"
+              :disabled="clearingModelMapping || !modelMappingStats?.available"
+              @click="clearAllModelMappingCache"
+            >
+              <Eraser class="h-4 w-4" />
+            </Button>
+            <RefreshButton
+              :loading="modelMappingLoading"
+              @click="fetchModelMappingStats"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- 映射缓存表格 -->
+      <Table
+        v-if="modelMappingStats?.available && modelMappingStats.mappings && modelMappingStats.mappings.length > 0"
+        class="hidden md:table"
+      >
+        <TableHeader>
+          <TableRow>
+            <TableHead class="w-[25%]">
+              全局模型
+            </TableHead>
+            <TableHead class="w-8 text-center" />
+            <TableHead class="w-[30%]">
+              映射模型
+            </TableHead>
+            <TableHead class="w-[25%]">
+              提供商
+            </TableHead>
+            <TableHead class="w-[10%] text-center">
+              剩余
+            </TableHead>
+            <TableHead class="w-[5%] text-right">
+              操作
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow
+            v-for="mapping in modelMappingStats.mappings"
+            :key="mapping.mapping_name"
+          >
+            <TableCell>
+              <div v-if="mapping.global_model_name">
+                <div class="text-sm font-medium">
+                  {{ mapping.global_model_display_name || mapping.global_model_name }}
+                </div>
+                <div
+                  v-if="mapping.global_model_display_name && mapping.global_model_display_name !== mapping.global_model_name"
+                  class="text-xs text-muted-foreground font-mono"
+                >
+                  {{ mapping.global_model_name }}
+                </div>
+              </div>
+              <span
+                v-else
+                class="text-sm text-muted-foreground"
+              >-</span>
+            </TableCell>
+            <TableCell class="text-center">
+              <ArrowRight class="h-4 w-4 text-muted-foreground" />
+            </TableCell>
+            <TableCell>
+              <span class="text-sm font-mono">{{ mapping.mapping_name }}</span>
+            </TableCell>
+            <TableCell>
+              <div
+                v-if="mapping.providers && mapping.providers.length > 0"
+                class="flex flex-wrap gap-1"
+              >
+                <Badge
+                  v-for="provider in mapping.providers.slice(0, 3)"
+                  :key="provider"
+                  variant="outline"
+                  class="text-xs"
+                >
+                  {{ provider }}
+                </Badge>
+                <Badge
+                  v-if="mapping.providers.length > 3"
+                  variant="outline"
+                  class="text-xs"
+                >
+                  +{{ mapping.providers.length - 3 }}
+                </Badge>
+              </div>
+              <span
+                v-else
+                class="text-sm text-muted-foreground"
+              >-</span>
+            </TableCell>
+            <TableCell class="text-center">
+              <span class="text-xs text-muted-foreground">{{ formatTTL(mapping.ttl) }}</span>
+            </TableCell>
+            <TableCell class="text-right">
+              <Button
+                size="icon"
+                variant="ghost"
+                class="h-6 w-6 text-muted-foreground/50 hover:text-destructive"
+                :disabled="clearingModelName === mapping.mapping_name"
+                title="清除缓存"
+                @click="clearModelMappingByName(mapping.mapping_name)"
+              >
+                <X class="h-3.5 w-3.5" />
+              </Button>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+
+      <!-- 移动端卡片列表 -->
+      <div
+        v-if="modelMappingStats?.available && modelMappingStats.mappings && modelMappingStats.mappings.length > 0"
+        class="md:hidden divide-y divide-border/40"
+      >
+        <div
+          v-for="mapping in modelMappingStats.mappings"
+          :key="`m-${mapping.mapping_name}`"
+          class="p-4 space-y-2"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium truncate">{{ mapping.global_model_display_name || mapping.global_model_name || '-' }}</span>
+            <Button
+              size="icon"
+              variant="ghost"
+              class="h-6 w-6 text-muted-foreground/50 hover:text-destructive shrink-0"
+              :disabled="clearingModelName === mapping.mapping_name"
+              @click="clearModelMappingByName(mapping.mapping_name)"
+            >
+              <X class="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground">
+            <ArrowRight class="h-3.5 w-3.5 shrink-0" />
+            <span class="font-mono">{{ mapping.mapping_name }}</span>
+          </div>
+          <div
+            v-if="mapping.providers && mapping.providers.length > 0"
+            class="flex flex-wrap gap-1"
+          >
+            <Badge
+              v-for="provider in mapping.providers"
+              :key="provider"
+              variant="outline"
+              class="text-xs"
+            >
+              {{ provider }}
+            </Badge>
+          </div>
+        </div>
+      </div>
+
+      <!-- 未映射条目（NOT_FOUND 等） -->
+      <div
+        v-if="modelMappingStats?.available && modelMappingStats.unmapped && modelMappingStats.unmapped.length > 0"
+        class="px-6 py-4 border-t border-border/40"
+      >
+        <div class="text-xs text-muted-foreground mb-2">
+          未映射的缓存条目
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <Badge
+            v-for="entry in modelMappingStats.unmapped"
+            :key="entry.mapping_name"
+            :variant="getUnmappedStatusBadge(entry.status).variant"
+            class="text-xs font-mono cursor-pointer"
+            :title="`${getUnmappedStatusBadge(entry.status).text} - 点击清除`"
+            @click="clearModelMappingByName(entry.mapping_name)"
+          >
+            {{ entry.mapping_name }}
+          </Badge>
+        </div>
+      </div>
+
+      <!-- 无缓存状态 -->
+      <div
+        v-else-if="modelMappingStats?.available && (!modelMappingStats.mappings || modelMappingStats.mappings.length === 0) && (!modelMappingStats.unmapped || modelMappingStats.unmapped.length === 0)"
+        class="px-6 py-8 text-center text-sm text-muted-foreground"
+      >
+        暂无模型解析缓存
+      </div>
+
+      <!-- Redis 未启用 -->
+      <div
+        v-else-if="modelMappingStats && !modelMappingStats.available"
+        class="px-6 py-8 text-center text-sm text-muted-foreground"
+      >
+        {{ modelMappingStats.message || 'Redis 未启用' }}
+      </div>
+
+      <!-- 加载中 -->
+      <div
+        v-else-if="modelMappingLoading"
+        class="px-6 py-8 text-center text-sm text-muted-foreground"
+      >
+        加载中...
+      </div>
     </Card>
 
     <!-- TTL 分析区域 -->
