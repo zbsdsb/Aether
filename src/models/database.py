@@ -307,7 +307,8 @@ class Usage(Base):
     is_stream = Column(Boolean, default=False)  # 是否为流式请求
     status_code = Column(Integer)
     error_message = Column(Text, nullable=True)
-    response_time_ms = Column(Integer)  # 响应时间（毫秒）
+    response_time_ms = Column(Integer)  # 总响应时间（毫秒）
+    first_byte_time_ms = Column(Integer, nullable=True)  # 首字时间/TTFB（毫秒）
 
     # 请求状态追踪
     # pending: 请求开始处理中
