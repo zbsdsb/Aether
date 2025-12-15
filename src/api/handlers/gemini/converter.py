@@ -70,7 +70,7 @@ class ClaudeToGeminiConverter:
             return [{"text": content}]
 
         if isinstance(content, list):
-            parts = []
+            parts: List[Dict[str, Any]] = []
             for block in content:
                 if isinstance(block, str):
                     parts.append({"text": block})
@@ -249,6 +249,8 @@ class GeminiToClaudeConverter:
             "RECITATION": "content_filtered",
             "OTHER": "stop_sequence",
         }
+        if finish_reason is None:
+            return "end_turn"
         return mapping.get(finish_reason, "end_turn")
 
     def _create_empty_response(self) -> Dict[str, Any]:
@@ -365,7 +367,7 @@ class OpenAIToGeminiConverter:
             return [{"text": content}]
 
         if isinstance(content, list):
-            parts = []
+            parts: List[Dict[str, Any]] = []
             for item in content:
                 if isinstance(item, str):
                     parts.append({"text": item})
@@ -524,7 +526,7 @@ class GeminiToOpenAIConverter:
             "total_tokens": prompt_tokens + completion_tokens,
         }
 
-    def _convert_finish_reason(self, finish_reason: Optional[str]) -> Optional[str]:
+    def _convert_finish_reason(self, finish_reason: Optional[str]) -> str:
         """转换停止原因"""
         mapping = {
             "STOP": "stop",
@@ -533,6 +535,8 @@ class GeminiToOpenAIConverter:
             "RECITATION": "content_filter",
             "OTHER": "stop",
         }
+        if finish_reason is None:
+            return "stop"
         return mapping.get(finish_reason, "stop")
 
 

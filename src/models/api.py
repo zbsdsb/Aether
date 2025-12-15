@@ -334,7 +334,6 @@ class ProviderResponse(BaseModel):
     updated_at: datetime
     models_count: int = 0
     active_models_count: int = 0
-    model_mappings_count: int = 0
     api_keys_count: int = 0
 
     class Config:
@@ -346,7 +345,11 @@ class ModelCreate(BaseModel):
     """创建模型请求 - 价格和能力字段可选，为空时使用 GlobalModel 默认值"""
 
     provider_model_name: str = Field(
-        ..., min_length=1, max_length=200, description="Provider 侧的模型名称"
+        ..., min_length=1, max_length=200, description="Provider 侧的主模型名称"
+    )
+    provider_model_aliases: Optional[List[dict]] = Field(
+        None,
+        description="模型名称别名列表，格式: [{'name': 'alias1', 'priority': 1}, ...]",
     )
     global_model_id: str = Field(..., description="关联的 GlobalModel ID（必填）")
     # 按次计费配置 - 可选，为空时使用 GlobalModel 默认值
@@ -374,6 +377,10 @@ class ModelUpdate(BaseModel):
     """更新模型请求"""
 
     provider_model_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    provider_model_aliases: Optional[List[dict]] = Field(
+        None,
+        description="模型名称别名列表，格式: [{'name': 'alias1', 'priority': 1}, ...]",
+    )
     global_model_id: Optional[str] = None
     # 按次计费配置
     price_per_request: Optional[float] = Field(None, ge=0, description="每次请求固定费用")
@@ -398,6 +405,7 @@ class ModelResponse(BaseModel):
     provider_id: str
     global_model_id: Optional[str]
     provider_model_name: str
+    provider_model_aliases: Optional[List[dict]] = None
 
     # 按次计费配置
     price_per_request: Optional[float] = None
@@ -465,54 +473,6 @@ class ModelDetailResponse(BaseModel):
         from_attributes = True
 
 
-# ========== 模型映射 ==========
-class ModelMappingCreate(BaseModel):
-    """创建模型映射请求（源模型到目标模型的映射）"""
-
-    source_model: str = Field(..., min_length=1, max_length=200, description="源模型名或别名")
-    target_global_model_id: str = Field(..., description="目标 GlobalModel ID")
-    provider_id: Optional[str] = Field(None, description="Provider ID（为空时表示全局别名）")
-    mapping_type: str = Field(
-        "alias",
-        description="映射类型：alias=按目标模型计费（别名），mapping=按源模型计费（降级映射）",
-    )
-    is_active: bool = Field(True, description="是否启用")
-
-
-class ModelMappingUpdate(BaseModel):
-    """更新模型映射请求"""
-
-    source_model: Optional[str] = Field(
-        None, min_length=1, max_length=200, description="源模型名或别名"
-    )
-    target_global_model_id: Optional[str] = Field(None, description="目标 GlobalModel ID")
-    provider_id: Optional[str] = Field(None, description="Provider ID（为空时表示全局别名）")
-    mapping_type: Optional[str] = Field(
-        None, description="映射类型：alias=按目标模型计费（别名），mapping=按源模型计费（降级映射）"
-    )
-    is_active: Optional[bool] = None
-
-
-class ModelMappingResponse(BaseModel):
-    """模型映射响应"""
-
-    id: str
-    source_model: str
-    target_global_model_id: str
-    target_global_model_name: Optional[str]
-    target_global_model_display_name: Optional[str]
-    provider_id: Optional[str]
-    provider_name: Optional[str]
-    scope: str = Field(..., description="global 或 provider")
-    mapping_type: str = Field(..., description="映射类型：alias 或 mapping")
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
 # ========== 系统设置 ==========
 class SystemSettingsRequest(BaseModel):
     """系统设置请求"""
@@ -558,7 +518,6 @@ class PublicProviderResponse(BaseModel):
     # 统计信息
     models_count: int
     active_models_count: int
-    mappings_count: int
     endpoints_count: int  # 端点总数
     active_endpoints_count: int  # 活跃端点数
 
@@ -587,19 +546,6 @@ class PublicModelResponse(BaseModel):
     is_active: bool = True
 
 
-class PublicModelMappingResponse(BaseModel):
-    """公开的模型映射信息响应"""
-
-    id: str
-    source_model: str
-    target_global_model_id: str
-    target_global_model_name: Optional[str]
-    target_global_model_display_name: Optional[str]
-    provider_id: Optional[str] = None
-    scope: str = Field(..., description="global 或 provider")
-    is_active: bool
-
-
 class ProviderStatsResponse(BaseModel):
     """提供商统计信息响应"""
 
@@ -607,7 +553,6 @@ class ProviderStatsResponse(BaseModel):
     active_providers: int
     total_models: int
     active_models: int
-    total_mappings: int
     supported_formats: List[str]
 
 

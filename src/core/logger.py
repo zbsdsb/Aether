@@ -67,7 +67,7 @@ FILE_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:
 logger.remove()
 
 
-def _log_filter(record):
+def _log_filter(record: dict) -> bool:  # type: ignore[type-arg]
     return "watchfiles" not in record["name"]
 
 
@@ -76,7 +76,7 @@ if IS_DOCKER:
         sys.stdout,
         format=CONSOLE_FORMAT_PROD,
         level=LOG_LEVEL,
-        filter=_log_filter,
+        filter=_log_filter,  # type: ignore[arg-type]
         colorize=False,
     )
 else:
@@ -84,7 +84,7 @@ else:
         sys.stdout,
         format=CONSOLE_FORMAT_DEV,
         level=LOG_LEVEL,
-        filter=_log_filter,
+        filter=_log_filter,  # type: ignore[arg-type]
         colorize=True,
     )
 
@@ -97,7 +97,7 @@ if not DISABLE_FILE_LOG:
         log_dir / "app.log",
         format=FILE_FORMAT,
         level="DEBUG",
-        filter=_log_filter,
+        filter=_log_filter,  # type: ignore[arg-type]
         rotation="00:00",
         retention="30 days",
         compression="gz",
@@ -110,7 +110,7 @@ if not DISABLE_FILE_LOG:
         log_dir / "error.log",
         format=FILE_FORMAT,
         level="ERROR",
-        filter=_log_filter,
+        filter=_log_filter,  # type: ignore[arg-type]
         rotation="00:00",
         retention="30 days",
         compression="gz",

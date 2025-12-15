@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 
 class SSEEventParser:
@@ -8,7 +8,7 @@ class SSEEventParser:
         self._reset_buffer()
 
     def _reset_buffer(self) -> None:
-        self._buffer: Dict[str, Optional[str] | List[str]] = {
+        self._buffer: Dict[str, Union[Optional[str], List[str]]] = {
             "event": None,
             "data": [],
             "id": None,
@@ -17,16 +17,19 @@ class SSEEventParser:
 
     def _finalize_event(self) -> Optional[Dict[str, Optional[str]]]:
         data_lines = self._buffer.get("data", [])
-        if not data_lines:
+        if not isinstance(data_lines, list) or not data_lines:
             self._reset_buffer()
             return None
 
         data_str = "\n".join(data_lines)
-        event = {
-            "event": self._buffer.get("event"),
+        event_val = self._buffer.get("event")
+        id_val = self._buffer.get("id")
+        retry_val = self._buffer.get("retry")
+        event: Dict[str, Optional[str]] = {
+            "event": event_val if isinstance(event_val, str) else None,
             "data": data_str,
-            "id": self._buffer.get("id"),
-            "retry": self._buffer.get("retry"),
+            "id": id_val if isinstance(id_val, str) else None,
+            "retry": retry_val if isinstance(retry_val, str) else None,
         }
 
         self._reset_buffer()

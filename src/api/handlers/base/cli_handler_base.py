@@ -190,14 +190,17 @@ class CliMessageHandlerBase(BaseMessageHandler):
         """
         获取模型映射后的实际模型名
 
-        按优先级查找：映射 → 别名 → 直接匹配 GlobalModel
+        查找逻辑：
+        1. 直接通过 GlobalModel.name 匹配
+        2. 查找该 Provider 的 Model 实现
+        3. 使用 provider_model_name / provider_model_aliases 选择最终名称
 
         Args:
-            source_model: 用户请求的模型名（可能是别名）
+            source_model: 用户请求的模型名（必须是 GlobalModel.name）
             provider_id: Provider ID
 
         Returns:
-            映射后的 provider_model_name，如果没有找到映射则返回 None
+            映射后的 Provider 模型名，如果没有找到映射则返回 None
         """
         from src.services.model.mapper import ModelMapperMiddleware
 
@@ -207,7 +210,10 @@ class CliMessageHandlerBase(BaseMessageHandler):
         logger.debug(f"[CLI] _get_mapped_model: source={source_model}, provider={provider_id[:8]}..., mapping={mapping}")
 
         if mapping and mapping.model:
-            mapped_name = str(mapping.model.provider_model_name)
+            # 使用 select_provider_model_name 支持别名功能
+            # 传入 api_key.id 作为 affinity_key，实现相同用户稳定选择同一别名
+            affinity_key = self.api_key.id if self.api_key else None
+            mapped_name = mapping.model.select_provider_model_name(affinity_key)
             logger.debug(f"[CLI] 模型映射: {source_model} -> {mapped_name} (provider={provider_id[:8]}...)")
             return mapped_name
 

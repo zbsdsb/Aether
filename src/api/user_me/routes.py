@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
 from sqlalchemy import and_, func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from src.api.base.adapter import ApiAdapter, ApiMode
 from src.api.base.authenticated_adapter import AuthenticatedApiAdapter
@@ -713,7 +713,7 @@ class ListAvailableProvidersAdapter(AuthenticatedApiAdapter):
     async def handle(self, context):  # type: ignore[override]
         from sqlalchemy.orm import selectinload
 
-        from src.models.database import Model, ModelMapping, ProviderEndpoint
+        from src.models.database import Model, ProviderEndpoint
 
         db = context.db
 
@@ -764,53 +764,6 @@ class ListAvailableProvidersAdapter(AuthenticatedApiAdapter):
                         "supports_streaming": model.supports_streaming,
                     }
                 )
-
-            # 查询该 Provider 所有 Model 对应的 GlobalModel 的别名/映射
-            provider_model_global_ids = {
-                m.global_model_id for m in provider.models if m.global_model_id
-            }
-            if provider_model_global_ids:
-                # 查询全局别名 + Provider 特定映射
-                alias_mappings = (
-                    db.query(ModelMapping)
-                    .options(joinedload(ModelMapping.target_global_model))
-                    .filter(
-                        ModelMapping.target_global_model_id.in_(provider_model_global_ids),
-                        ModelMapping.is_active == True,
-                        (ModelMapping.provider_id == provider.id)
-                        | (ModelMapping.provider_id == None),
-                    )
-                    .all()
-                )
-                for alias_obj in alias_mappings:
-                    # 为这个别名找到该 Provider 的 Model 实现
-                    model = next(
-                        (
-                            m
-                            for m in provider.models
-                            if m.global_model_id == alias_obj.target_global_model_id
-                        ),
-                        None,
-                    )
-                    if model:
-                        models_data.append(
-                            {
-                                "id": alias_obj.id,
-                                "name": alias_obj.source_model,
-                                "display_name": (
-                                    alias_obj.target_global_model.display_name
-                                    if alias_obj.target_global_model
-                                    else alias_obj.source_model
-                                ),
-                                "input_price_per_1m": model.input_price_per_1m,
-                                "output_price_per_1m": model.output_price_per_1m,
-                                "cache_creation_price_per_1m": model.cache_creation_price_per_1m,
-                                "cache_read_price_per_1m": model.cache_read_price_per_1m,
-                                "supports_vision": model.supports_vision,
-                                "supports_function_calling": model.supports_function_calling,
-                                "supports_streaming": model.supports_streaming,
-                            }
-                        )
 
             result.append(
                 {

@@ -78,7 +78,10 @@ class OpenAIStreamParser:
             return None
 
         try:
-            return json.loads(line)
+            result = json.loads(line)
+            if isinstance(result, dict):
+                return result
+            return None
         except json.JSONDecodeError:
             return None
 
@@ -116,7 +119,8 @@ class OpenAIStreamParser:
         """
         choices = chunk.get("choices", [])
         if choices:
-            return choices[0].get("finish_reason")
+            reason = choices[0].get("finish_reason")
+            return str(reason) if reason is not None else None
         return None
 
     def extract_text_delta(self, chunk: Dict[str, Any]) -> Optional[str]:
@@ -156,7 +160,10 @@ class OpenAIStreamParser:
             return None
 
         delta = choices[0].get("delta", {})
-        return delta.get("tool_calls")
+        tool_calls = delta.get("tool_calls")
+        if isinstance(tool_calls, list):
+            return tool_calls
+        return None
 
     def extract_role(self, chunk: Dict[str, Any]) -> Optional[str]:
         """
@@ -175,7 +182,8 @@ class OpenAIStreamParser:
             return None
 
         delta = choices[0].get("delta", {})
-        return delta.get("role")
+        role = delta.get("role")
+        return str(role) if role is not None else None
 
 
 __all__ = ["OpenAIStreamParser"]

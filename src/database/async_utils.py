@@ -5,12 +5,12 @@
 
 import asyncio
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Coroutine, TypeVar
 
 T = TypeVar("T")
 
 
-async def run_in_executor(func: Callable[..., T], *args, **kwargs) -> T:
+async def run_in_executor(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """
     在线程池中运行同步函数,避免阻塞事件循环
 
@@ -21,7 +21,7 @@ async def run_in_executor(func: Callable[..., T], *args, **kwargs) -> T:
     return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
-def async_wrap_sync_db(func: Callable[..., T]) -> Callable[..., Any]:
+def async_wrap_sync_db(func: Callable[..., T]) -> Callable[..., Coroutine[Any, Any, T]]:
     """
     装饰器:包装同步数据库函数为异步函数
 
@@ -35,7 +35,7 @@ def async_wrap_sync_db(func: Callable[..., T]) -> Callable[..., Any]:
     """
 
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args: Any, **kwargs: Any) -> T:
         return await run_in_executor(func, *args, **kwargs)
 
     return wrapper

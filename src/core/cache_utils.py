@@ -115,7 +115,7 @@ class SyncLRUCache:
         """删除缓存值（通过索引）"""
         self.delete(key)
 
-    def keys(self):
+    def keys(self) -> list:
         """返回所有未过期的 key"""
         with self._lock:
             now = time.time()

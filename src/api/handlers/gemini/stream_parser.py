@@ -10,7 +10,7 @@ Gemini API 的流式响应格式与 Claude/OpenAI 不同:
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 
 class GeminiStreamParser:
@@ -32,18 +32,18 @@ class GeminiStreamParser:
     FINISH_REASON_RECITATION = "RECITATION"
     FINISH_REASON_OTHER = "OTHER"
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._buffer = ""
         self._in_array = False
         self._brace_depth = 0
 
-    def reset(self):
+    def reset(self) -> None:
         """重置解析器状态"""
         self._buffer = ""
         self._in_array = False
         self._brace_depth = 0
 
-    def parse_chunk(self, chunk: bytes | str) -> List[Dict[str, Any]]:
+    def parse_chunk(self, chunk: Union[bytes, str]) -> List[Dict[str, Any]]:
         """
         解析流式数据块
 
@@ -111,7 +111,10 @@ class GeminiStreamParser:
             return None
 
         try:
-            return json.loads(line.strip().rstrip(","))
+            result = json.loads(line.strip().rstrip(","))
+            if isinstance(result, dict):
+                return result
+            return None
         except json.JSONDecodeError:
             return None
 
@@ -216,7 +219,8 @@ class GeminiStreamParser:
         """
         candidates = event.get("candidates", [])
         if candidates:
-            return candidates[0].get("finishReason")
+            reason = candidates[0].get("finishReason")
+            return str(reason) if reason is not None else None
         return None
 
     def extract_text_delta(self, event: Dict[str, Any]) -> Optional[str]:
@@ -285,7 +289,8 @@ class GeminiStreamParser:
         Returns:
             模型版本，如果没有返回 None
         """
-        return event.get("modelVersion")
+        version = event.get("modelVersion")
+        return str(version) if version is not None else None
 
     def extract_safety_ratings(self, event: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
         """
@@ -301,7 +306,10 @@ class GeminiStreamParser:
         if not candidates:
             return None
 
-        return candidates[0].get("safetyRatings")
+        ratings = candidates[0].get("safetyRatings")
+        if isinstance(ratings, list):
+            return ratings
+        return None
 
 
 __all__ = ["GeminiStreamParser"]

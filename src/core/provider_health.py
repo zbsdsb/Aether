@@ -6,7 +6,7 @@
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 class ProviderHealthTracker:
@@ -32,7 +32,7 @@ class ProviderHealthTracker:
         # 存储优先级调整
         self.priority_adjustments: Dict[str, int] = {}
 
-    def record_success(self, provider_name: str):
+    def record_success(self, provider_name: str) -> None:
         """记录成功的请求"""
         current_time = time.time()
 
@@ -47,7 +47,7 @@ class ProviderHealthTracker:
             if self.priority_adjustments.get(provider_name, 0) < 0:
                 self.priority_adjustments[provider_name] += 1
 
-    def record_failure(self, provider_name: str):
+    def record_failure(self, provider_name: str) -> None:
         """记录失败的请求"""
         current_time = time.time()
 
@@ -93,7 +93,7 @@ class ProviderHealthTracker:
             "status": self._get_status_label(failure_rate, recent_failures),
         }
 
-    def _cleanup_old_records(self, provider_name: str, current_time: float):
+    def _cleanup_old_records(self, provider_name: str, current_time: float) -> None:
         """清理超出时间窗口的记录"""
         # 清理失败记录
         self.failures[provider_name] = [
@@ -130,7 +130,7 @@ class ProviderHealthTracker:
         adjustment = self.get_priority_adjustment(provider_name)
         return adjustment > -3
 
-    def reset_provider_health(self, provider_name: str):
+    def reset_provider_health(self, provider_name: str) -> None:
         """重置提供商的健康状态（管理员手动操作）"""
         self.failures[provider_name] = []
         self.successes[provider_name] = []
@@ -146,7 +146,7 @@ class SimpleProviderSelector:
     def __init__(self, health_tracker: ProviderHealthTracker):
         self.health_tracker = health_tracker
 
-    def select_provider(self, providers: list, specified_provider: Optional[str] = None):
+    def select_provider(self, providers: list, specified_provider: Optional[str] = None) -> Any:
         """
         选择提供商
 

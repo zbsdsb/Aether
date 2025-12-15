@@ -61,15 +61,18 @@ async def get_model_supported_capabilities(
     获取指定模型支持的能力列表
 
     Args:
-        model_name: 模型名称（如 claude-sonnet-4-20250514）
+        model_name: 模型名称（如 claude-sonnet-4-20250514，必须是 GlobalModel.name）
 
     Returns:
         模型支持的能力列表，以及每个能力的详细定义
     """
-    from src.services.model.mapping_resolver import get_model_mapping_resolver
+    from src.models.database import GlobalModel
 
-    mapping_resolver = get_model_mapping_resolver()
-    global_model = await mapping_resolver.get_global_model_by_request(db, model_name, None)
+    global_model = (
+        db.query(GlobalModel)
+        .filter(GlobalModel.name == model_name, GlobalModel.is_active == True)
+        .first()
+    )
 
     if not global_model:
         return {

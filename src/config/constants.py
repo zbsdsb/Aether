@@ -14,7 +14,6 @@ class CacheTTL:
     # Provider/Model 缓存 - 配置变更不频繁
     PROVIDER = 300  # 5分钟
     MODEL = 300  # 5分钟
-    MODEL_MAPPING = 300  # 5分钟
 
     # 缓存亲和性 - 对应 provider_api_key.cache_ttl_minutes 默认值
     CACHE_AFFINITY = 300  # 5分钟
@@ -32,9 +31,6 @@ class CacheSize:
 
     # 默认 LRU 缓存大小
     DEFAULT = 1000
-
-    # ModelMapping 缓存（可能有较多别名）
-    MODEL_MAPPING = 2000
 
 
 # ==============================================================================

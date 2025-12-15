@@ -5,7 +5,7 @@
 不再经过 Protocol 抽象层。
 """
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Type
 
 from src.api.handlers.base.response_parser import (
     ParsedChunk,
@@ -60,7 +60,7 @@ def _check_nested_error(response: Dict[str, Any]) -> Tuple[bool, Optional[Dict[s
 class OpenAIResponseParser(ResponseParser):
     """OpenAI 格式响应解析器"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         from src.api.handlers.openai.stream_parser import OpenAIStreamParser
 
         self._parser = OpenAIStreamParser()
@@ -146,7 +146,7 @@ class OpenAIResponseParser(ResponseParser):
         if choices:
             message = choices[0].get("message", {})
             content = message.get("content")
-            if content:
+            if isinstance(content, str):
                 return content
         return ""
 
@@ -158,7 +158,7 @@ class OpenAIResponseParser(ResponseParser):
 class OpenAICliResponseParser(OpenAIResponseParser):
     """OpenAI CLI 格式响应解析器"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.name = "OPENAI_CLI"
         self.api_format = "OPENAI_CLI"
@@ -167,7 +167,7 @@ class OpenAICliResponseParser(OpenAIResponseParser):
 class ClaudeResponseParser(ResponseParser):
     """Claude 格式响应解析器"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         from src.api.handlers.claude.stream_parser import ClaudeStreamParser
 
         self._parser = ClaudeStreamParser()
@@ -291,7 +291,7 @@ class ClaudeResponseParser(ResponseParser):
 class ClaudeCliResponseParser(ClaudeResponseParser):
     """Claude CLI 格式响应解析器"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.name = "CLAUDE_CLI"
         self.api_format = "CLAUDE_CLI"
@@ -300,7 +300,7 @@ class ClaudeCliResponseParser(ClaudeResponseParser):
 class GeminiResponseParser(ResponseParser):
     """Gemini 格式响应解析器"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         from src.api.handlers.gemini.stream_parser import GeminiStreamParser
 
         self._parser = GeminiStreamParser()
@@ -443,20 +443,20 @@ class GeminiResponseParser(ResponseParser):
 
         使用增强的错误检测逻辑，支持嵌套在 chunks 中的错误
         """
-        return self._parser.is_error_event(response)
+        return bool(self._parser.is_error_event(response))
 
 
 class GeminiCliResponseParser(GeminiResponseParser):
     """Gemini CLI 格式响应解析器"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.name = "GEMINI_CLI"
         self.api_format = "GEMINI_CLI"
 
 
 # 解析器注册表
-_PARSERS = {
+_PARSERS: Dict[str, Type[ResponseParser]] = {
     "CLAUDE": ClaudeResponseParser,
     "CLAUDE_CLI": ClaudeCliResponseParser,
     "OPENAI": OpenAIResponseParser,
@@ -498,6 +498,5 @@ __all__ = [
     "GeminiResponseParser",
     "GeminiCliResponseParser",
     "get_parser_for_format",
-    "get_parser_from_protocol",
     "is_cli_format",
 ]

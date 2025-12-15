@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import List, Sequence, Tuple, TypeVar
+from typing import Any, List, Sequence, Tuple, TypeVar
 
 from sqlalchemy.orm import Query
 
@@ -40,10 +40,10 @@ def paginate_sequence(
     return sliced, meta
 
 
-def build_pagination_payload(items: List[dict], meta: PaginationMeta, **extra) -> dict:
+def build_pagination_payload(items: List[dict], meta: PaginationMeta, **extra: Any) -> dict:
     """
     构建标准分页响应 payload。
     """
-    payload = {"items": items, "meta": meta.to_dict()}
+    payload: dict = {"items": items, "meta": meta.to_dict()}
     payload.update(extra)
     return payload

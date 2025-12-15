@@ -108,7 +108,10 @@ class ClaudeStreamParser:
             return None
 
         try:
-            return json.loads(line)
+            result = json.loads(line)
+            if isinstance(result, dict):
+                return result
+            return None
         except json.JSONDecodeError:
             return None
 
@@ -147,7 +150,8 @@ class ClaudeStreamParser:
         Returns:
             事件类型字符串
         """
-        return event.get("type")
+        event_type = event.get("type")
+        return str(event_type) if event_type is not None else None
 
     def extract_text_delta(self, event: Dict[str, Any]) -> Optional[str]:
         """
@@ -164,7 +168,8 @@ class ClaudeStreamParser:
 
         delta = event.get("delta", {})
         if delta.get("type") == self.DELTA_TEXT:
-            return delta.get("text")
+            text = delta.get("text")
+            return str(text) if text is not None else None
 
         return None
 
@@ -219,7 +224,8 @@ class ClaudeStreamParser:
             return None
 
         message = event.get("message", {})
-        return message.get("id")
+        msg_id = message.get("id")
+        return str(msg_id) if msg_id is not None else None
 
     def extract_stop_reason(self, event: Dict[str, Any]) -> Optional[str]:
         """
@@ -235,7 +241,8 @@ class ClaudeStreamParser:
             return None
 
         delta = event.get("delta", {})
-        return delta.get("stop_reason")
+        reason = delta.get("stop_reason")
+        return str(reason) if reason is not None else None
 
 
 __all__ = ["ClaudeStreamParser"]

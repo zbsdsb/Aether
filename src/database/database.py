@@ -347,7 +347,7 @@ def init_default_models(db: Session):
     """初始化默认模型配置"""
 
     # 注意：作为中转代理服务，不再预设模型配置
-    # 模型配置应该通过 Model 和 ModelMapping 表动态管理
+    # 模型配置应该通过 GlobalModel 和 Model 表动态管理
     # 这个函数保留用于未来可能的默认模型初始化
     pass
 
