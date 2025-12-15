@@ -120,6 +120,33 @@ class CacheService:
             logger.warning(f"缓存检查失败: {key} - {e}")
             return False
 
+    @staticmethod
+    async def incr(key: str, ttl_seconds: Optional[int] = None) -> int:
+        """
+        递增缓存值
+
+        Args:
+            key: 缓存键
+            ttl_seconds: 可选，如果提供则刷新 TTL
+
+        Returns:
+            递增后的值，如果失败返回 0
+        """
+        try:
+            redis = await get_redis_client(require_redis=False)
+            if not redis:
+                return 0
+
+            result = await redis.incr(key)
+            # 如果提供了 TTL，刷新过期时间
+            if ttl_seconds is not None:
+                await redis.expire(key, ttl_seconds)
+            return result
+
+        except Exception as e:
+            logger.warning(f"缓存递增失败: {key} - {e}")
+            return 0
+
 
 # 缓存键前缀
 class CacheKeys:
