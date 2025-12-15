@@ -148,6 +148,10 @@ class ModelService:
         if not model:
             raise NotFoundException(f"模型 {model_id} 不存在")
 
+        # 保存旧的别名，用于清除缓存
+        old_provider_model_name = model.provider_model_name
+        old_provider_model_aliases = model.provider_model_aliases
+
         # 更新字段
         update_data = model_data.model_dump(exclude_unset=True)
 
@@ -165,15 +169,28 @@ class ModelService:
             db.refresh(model)
 
             # 清除 Redis 缓存（异步执行，不阻塞返回）
+            # 先清除旧的别名缓存
             asyncio.create_task(
                 ModelCacheService.invalidate_model_cache(
                     model_id=model.id,
                     provider_id=model.provider_id,
                     global_model_id=model.global_model_id,
-                    provider_model_name=model.provider_model_name,
-                    provider_model_aliases=model.provider_model_aliases,
+                    provider_model_name=old_provider_model_name,
+                    provider_model_aliases=old_provider_model_aliases,
                 )
             )
+            # 再清除新的别名缓存（如果有变化）
+            if (model.provider_model_name != old_provider_model_name or
+                model.provider_model_aliases != old_provider_model_aliases):
+                asyncio.create_task(
+                    ModelCacheService.invalidate_model_cache(
+                        model_id=model.id,
+                        provider_id=model.provider_id,
+                        global_model_id=model.global_model_id,
+                        provider_model_name=model.provider_model_name,
+                        provider_model_aliases=model.provider_model_aliases,
+                    )
+                )
 
             # 清除内存缓存（ModelMapperMiddleware 实例）
             if model.provider_id and model.global_model_id:
@@ -215,11 +232,37 @@ class ModelService:
                 logger.warning(f"警告：删除模型 {model_id}（Provider: {model.provider_id[:8]}...）后，"
                     f"GlobalModel '{model.global_model_id}' 将没有任何活跃的关联提供商")
 
+        # 保存缓存清除所需的信息（删除后无法访问）
+        cache_info = {
+            "model_id": model.id,
+            "provider_id": model.provider_id,
+            "global_model_id": model.global_model_id,
+            "provider_model_name": model.provider_model_name,
+            "provider_model_aliases": model.provider_model_aliases,
+        }
+
         try:
             db.delete(model)
             db.commit()
-            logger.info(f"删除模型成功: id={model_id}, provider_model_name={model.provider_model_name}, "
-                f"global_model_id={model.global_model_id[:8] if model.global_model_id else 'None'}...")
+
+            # 清除 Redis 缓存
+            asyncio.create_task(
+                ModelCacheService.invalidate_model_cache(
+                    model_id=cache_info["model_id"],
+                    provider_id=cache_info["provider_id"],
+                    global_model_id=cache_info["global_model_id"],
+                    provider_model_name=cache_info["provider_model_name"],
+                    provider_model_aliases=cache_info["provider_model_aliases"],
+                )
+            )
+
+            # 清除内存缓存
+            if cache_info["provider_id"] and cache_info["global_model_id"]:
+                cache_service = get_cache_invalidation_service()
+                cache_service.on_model_changed(cache_info["provider_id"], cache_info["global_model_id"])
+
+            logger.info(f"删除模型成功: id={model_id}, provider_model_name={cache_info['provider_model_name']}, "
+                f"global_model_id={cache_info['global_model_id'][:8] if cache_info['global_model_id'] else 'None'}...")
         except Exception as e:
             db.rollback()
             logger.error(f"删除模型失败: {str(e)}")
