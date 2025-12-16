@@ -238,8 +238,8 @@ class GlobalModelResponse(BaseModel):
     # 按次计费配置
     default_price_per_request: Optional[float] = Field(None, description="每次请求固定费用")
     # 阶梯计费配置
-    default_tiered_pricing: TieredPricingConfig = Field(
-        ..., description="阶梯计费配置"
+    default_tiered_pricing: Optional[TieredPricingConfig] = Field(
+        default=None, description="阶梯计费配置"
     )
     # Key 能力配置 - 模型支持的能力列表
     supported_capabilities: Optional[List[str]] = Field(

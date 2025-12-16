@@ -415,7 +415,7 @@ const groupedModels = computed(() => {
   }
 
   // 转换为数组并排序
-  let result = Array.from(groups.values())
+  const result = Array.from(groups.values())
 
   // 如果有搜索词，把提供商名称/ID匹配的排在前面
   if (searchQuery.value) {

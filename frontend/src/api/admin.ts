@@ -1,5 +1,158 @@
 import apiClient from './client'
 
+// 配置导出数据结构
+export interface ConfigExportData {
+  version: string
+  exported_at: string
+  global_models: GlobalModelExport[]
+  providers: ProviderExport[]
+}
+
+// 用户导出数据结构
+export interface UsersExportData {
+  version: string
+  exported_at: string
+  users: UserExport[]
+}
+
+export interface UserExport {
+  email: string
+  username: string
+  password_hash: string
+  role: string
+  allowed_providers?: string[] | null
+  allowed_endpoints?: string[] | null
+  allowed_models?: string[] | null
+  model_capability_settings?: any
+  quota_usd?: number | null
+  used_usd?: number
+  total_usd?: number
+  is_active: boolean
+  api_keys: UserApiKeyExport[]
+}
+
+export interface UserApiKeyExport {
+  key_hash: string
+  key_encrypted?: string | null
+  name?: string | null
+  is_standalone: boolean
+  balance_used_usd?: number
+  current_balance_usd?: number | null
+  allowed_providers?: string[] | null
+  allowed_endpoints?: string[] | null
+  allowed_api_formats?: string[] | null
+  allowed_models?: string[] | null
+  rate_limit?: number
+  concurrent_limit?: number | null
+  force_capabilities?: any
+  is_active: boolean
+  auto_delete_on_expiry?: boolean
+  total_requests?: number
+  total_cost_usd?: number
+}
+
+export interface GlobalModelExport {
+  name: string
+  display_name: string
+  default_price_per_request?: number | null
+  default_tiered_pricing: any
+  supported_capabilities?: string[] | null
+  config?: any
+  is_active: boolean
+}
+
+export interface ProviderExport {
+  name: string
+  display_name: string
+  description?: string | null
+  website?: string | null
+  billing_type?: string | null
+  monthly_quota_usd?: number | null
+  quota_reset_day?: number
+  rpm_limit?: number | null
+  provider_priority?: number
+  is_active: boolean
+  rate_limit?: number | null
+  concurrent_limit?: number | null
+  config?: any
+  endpoints: EndpointExport[]
+  models: ModelExport[]
+}
+
+export interface EndpointExport {
+  api_format: string
+  base_url: string
+  headers?: any
+  timeout?: number
+  max_retries?: number
+  max_concurrent?: number | null
+  rate_limit?: number | null
+  is_active: boolean
+  custom_path?: string | null
+  config?: any
+  keys: KeyExport[]
+}
+
+export interface KeyExport {
+  api_key: string
+  name?: string | null
+  note?: string | null
+  rate_multiplier?: number
+  internal_priority?: number
+  global_priority?: number | null
+  max_concurrent?: number | null
+  rate_limit?: number | null
+  daily_limit?: number | null
+  monthly_limit?: number | null
+  allowed_models?: string[] | null
+  capabilities?: any
+  is_active: boolean
+}
+
+export interface ModelExport {
+  global_model_name: string | null
+  provider_model_name: string
+  provider_model_aliases?: any
+  price_per_request?: number | null
+  tiered_pricing?: any
+  supports_vision?: boolean | null
+  supports_function_calling?: boolean | null
+  supports_streaming?: boolean | null
+  supports_extended_thinking?: boolean | null
+  supports_image_generation?: boolean | null
+  is_active: boolean
+  config?: any
+}
+
+export interface ConfigImportRequest extends ConfigExportData {
+  merge_mode: 'skip' | 'overwrite' | 'error'
+}
+
+export interface UsersImportRequest extends UsersExportData {
+  merge_mode: 'skip' | 'overwrite' | 'error'
+}
+
+export interface UsersImportResponse {
+  message: string
+  stats: {
+    users: { created: number; updated: number; skipped: number }
+    api_keys: { created: number; skipped: number }
+    errors: string[]
+  }
+}
+
+export interface ConfigImportResponse {
+  message: string
+  stats: {
+    global_models: { created: number; updated: number; skipped: number }
+    providers: { created: number; updated: number; skipped: number }
+    endpoints: { created: number; updated: number; skipped: number }
+    keys: { created: number; updated: number; skipped: number }
+    models: { created: number; updated: number; skipped: number }
+    errors: string[]
+  }
+}
+
 // API密钥管理相关接口定义
 export interface AdminApiKey {
   id: string // UUID
@@ -171,6 +324,36 @@ export const adminApi = {
   async getApiFormats(): Promise<{ formats: Array<{ value: string; label: string; default_path: string; aliases: string[] }> }> {
     const response = await apiClient.get<{ formats: Array<{ value: string; label: string; default_path: string; aliases: string[] }> }>(
       '/api/admin/system/api-formats'
+    )
+    return response.data
+  },
+
+  // 导出配置
+  async exportConfig(): Promise<ConfigExportData> {
+    const response = await apiClient.get<ConfigExportData>('/api/admin/system/config/export')
+    return response.data
+  },
+
+  // 导入配置
+  async importConfig(data: ConfigImportRequest): Promise<ConfigImportResponse> {
+    const response = await apiClient.post<ConfigImportResponse>(
+      '/api/admin/system/config/import',
+      data
+    )
+    return response.data
+  },
+
+  // 导出用户数据
+  async exportUsers(): Promise<UsersExportData> {
+    const response = await apiClient.get<UsersExportData>('/api/admin/system/users/export')
+    return response.data
+  },
+
+  // 导入用户数据
+  async importUsers(data: UsersImportRequest): Promise<UsersImportResponse> {
+    const response = await apiClient.post<UsersImportResponse>(
+      '/api/admin/system/users/import',
+      data
     )
     return response.data
   }
