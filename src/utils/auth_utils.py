@@ -19,7 +19,7 @@ from ..models.database import User, UserRole
 security = HTTPBearer()
 
 
-def get_current_user(
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)
 ) -> User:
     """
@@ -41,7 +41,7 @@ def get_current_user(
     try:
         # 验证Token格式和签名
         try:
-            payload = AuthService.verify_token(token)
+            payload = await AuthService.verify_token(token)
         except HTTPException as token_error:
             # 保持原始的HTTP状态码（如401 Unauthorized），不要转换为403
             logger.error(f"Token验证失败: {token_error.status_code}: {token_error.detail}, Token前10位: {token[:10]}...")
@@ -122,7 +122,7 @@ def get_current_user(
         )
 
 
-def get_current_user_from_header(
+async def get_current_user_from_header(
     authorization: Optional[str] = Header(None), db: Session = Depends(get_db)
 ) -> User:
     """
@@ -144,7 +144,7 @@ def get_current_user_from_header(
     token = authorization.replace("Bearer ", "")
 
     try:
-        payload = AuthService.verify_token(token)
+        payload = await AuthService.verify_token(token)
         user_id = payload.get("user_id")
 
         if not user_id:
