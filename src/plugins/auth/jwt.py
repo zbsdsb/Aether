@@ -3,6 +3,7 @@ JWT认证插件
 支持JWT Bearer token认证
 """
 
+import hashlib
 from typing import Optional
 
 from fastapi import Request
@@ -46,8 +47,8 @@ class JwtAuthPlugin(AuthPlugin):
             logger.debug("未找到JWT token")
             return None
 
-        # 记录认证尝试的详细信息
-        logger.info(f"JWT认证尝试 - 路径: {request.url.path}, Token前20位: {token[:20]}...")
+        token_fingerprint = hashlib.sha256(token.encode()).hexdigest()[:12]
+        logger.info(f"JWT认证尝试 - 路径: {request.url.path}, token_fp={token_fingerprint}")
 
         try:
             # 验证JWT token

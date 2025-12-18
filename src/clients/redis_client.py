@@ -120,7 +120,7 @@ class RedisClientManager:
         if self._circuit_open_until and time.time() < self._circuit_open_until:
             remaining = self._circuit_open_until - time.time()
             logger.warning(
-                "Redis 客户端处于熔断状态，跳过初始化，剩余 %.1f 秒 (last_error: %s)",
+                "Redis 客户端处于熔断状态，跳过初始化，剩余 {:.1f} 秒 (last_error: {})",
                 remaining,
                 self._last_error,
             )
@@ -200,7 +200,7 @@ class RedisClientManager:
             if self._consecutive_failures >= self._circuit_threshold:
                 self._circuit_open_until = time.time() + self._circuit_reset_seconds
                 logger.warning(
-                    "Redis 初始化连续失败 %s 次，开启熔断 %s 秒。"
+                    "Redis 初始化连续失败 {} 次，开启熔断 {} 秒。"
                     "熔断期间以下功能将降级: 缓存亲和性、分布式并发控制、RPM限流。"
                     "可通过管理 API /api/admin/system/redis/reset-circuit 手动重置。",
                     self._consecutive_failures,

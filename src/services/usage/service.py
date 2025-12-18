@@ -1217,15 +1217,19 @@ class UsageService:
         request_id: str,
         status: str,
         error_message: Optional[str] = None,
+        provider: Optional[str] = None,
+        target_model: Optional[str] = None,
     ) -> Optional[Usage]:
         """
-        快速更新使用记录状态（不更新其他字段）
+        快速更新使用记录状态
 
         Args:
             db: 数据库会话
             request_id: 请求ID
             status: 新状态 (pending, streaming, completed, failed)
             error_message: 错误消息（仅在 failed 状态时使用）
+            provider: 提供商名称（可选，streaming 状态时更新）
+            target_model: 映射后的目标模型名（可选）
 
         Returns:
             更新后的 Usage 记录，如果未找到则返回 None
@@ -1239,6 +1243,10 @@ class UsageService:
         usage.status = status
         if error_message:
             usage.error_message = error_message
+        if provider:
+            usage.provider = provider
+        if target_model:
+            usage.target_model = target_model
 
         db.commit()
 

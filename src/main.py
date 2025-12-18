@@ -49,7 +49,7 @@ async def initialize_providers():
             # 从数据库加载所有活跃的提供商
             providers = (
                 db.query(Provider)
-                .filter(Provider.is_active == True)
+                .filter(Provider.is_active.is_(True))
                 .order_by(Provider.provider_priority.asc())
                 .all()
             )
@@ -122,6 +122,7 @@ async def lifespan(app: FastAPI):
     logger.info("初始化全局Redis客户端...")
     from src.clients.redis_client import get_redis_client
 
+    redis_client = None
     try:
         redis_client = await get_redis_client(require_redis=config.require_redis)
         if redis_client:
@@ -133,6 +134,7 @@ async def lifespan(app: FastAPI):
             logger.exception("[ERROR] Redis连接失败，应用启动中止")
             raise
         logger.warning(f"Redis连接失败，但配置允许降级，将继续使用内存模式: {e}")
+        redis_client = None
 
     # 初始化并发管理器（内部会使用Redis）
     logger.info("初始化并发管理器...")
@@ -312,7 +314,7 @@ if frontend_dist.exists():
         仅对非API路径生效
         """
         # 如果是API路径，不处理
-        if full_path.startswith("api/") or full_path.startswith("v1/"):
+        if full_path in {"api", "v1"} or full_path.startswith(("api/", "v1/")):
             raise HTTPException(status_code=404, detail="Not Found")
 
         # 返回index.html，让前端路由处理

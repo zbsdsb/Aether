@@ -297,11 +297,15 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         # 创建类型安全的流式上下文
         ctx = StreamContext(model=model, api_format=api_format)
 
+        # 创建更新状态的回调闭包（可以访问 ctx）
+        def update_streaming_status() -> None:
+            self._update_usage_to_streaming_with_ctx(ctx)
+
         # 创建流处理器
         stream_processor = StreamProcessor(
             request_id=self.request_id,
             default_parser=self.parser,
-            on_streaming_start=self._update_usage_to_streaming,
+            on_streaming_start=update_streaming_status,
         )
 
         # 定义请求函数

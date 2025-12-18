@@ -177,7 +177,7 @@ class ApiRequestPipeline:
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(status_code=401, detail="缺少管理员凭证")
 
-        token = authorization.replace("Bearer ", "").strip()
+        token = authorization[7:].strip()
         try:
             payload = await self.auth_service.verify_token(token, token_type="access")
         except HTTPException:
@@ -204,7 +204,7 @@ class ApiRequestPipeline:
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(status_code=401, detail="缺少用户凭证")
 
-        token = authorization.replace("Bearer ", "").strip()
+        token = authorization[7:].strip()
         try:
             payload = await self.auth_service.verify_token(token, token_type="access")
         except HTTPException:

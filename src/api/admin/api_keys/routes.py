@@ -223,7 +223,7 @@ class AdminCreateStandaloneKeyAdapter(AdminApiAdapter):
             allowed_providers=self.key_data.allowed_providers,
             allowed_api_formats=self.key_data.allowed_api_formats,
             allowed_models=self.key_data.allowed_models,
-            rate_limit=self.key_data.rate_limit or 100,
+            rate_limit=self.key_data.rate_limit,  # None 表示不限制
             expire_days=self.key_data.expire_days,
             initial_balance_usd=self.key_data.initial_balance_usd,
             is_standalone=True,  # 标记为独立Key

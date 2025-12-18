@@ -457,7 +457,7 @@ class StreamUsageTracker:
 
         logger.debug(f"ID:{self.request_id} | 开始跟踪流式响应 | 估算输入tokens:{self.input_tokens}")
 
-        # 更新状态为 streaming
+        # 更新状态为 streaming，同时更新 provider
         if self.request_id:
             try:
                 from src.services.usage.service import UsageService
@@ -465,6 +465,7 @@ class StreamUsageTracker:
                     db=self.db,
                     request_id=self.request_id,
                     status="streaming",
+                    provider=self.provider,
                 )
             except Exception as e:
                 logger.warning(f"更新使用记录状态为 streaming 失败: {e}")

@@ -3,6 +3,7 @@
 提供统一的用户认证和授权功能
 """
 
+import hashlib
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
@@ -44,10 +45,17 @@ async def get_current_user(
             payload = await AuthService.verify_token(token, token_type="access")
         except HTTPException as token_error:
             # 保持原始的HTTP状态码（如401 Unauthorized），不要转换为403
-            logger.error(f"Token验证失败: {token_error.status_code}: {token_error.detail}, Token前10位: {token[:10]}...")
+            token_fp = hashlib.sha256(token.encode()).hexdigest()[:12]
+            logger.error(
+                "Token验证失败: {}: {}, token_fp={}",
+                token_error.status_code,
+                token_error.detail,
+                token_fp,
+            )
             raise  # 重新抛出原始异常，保持状态码
         except Exception as token_error:
-            logger.error(f"Token验证失败: {token_error}, Token前10位: {token[:10]}...")
+            token_fp = hashlib.sha256(token.encode()).hexdigest()[:12]
+            logger.error("Token验证失败: {}, token_fp={}", token_error, token_fp)
             raise ForbiddenException("无效的Token")
 
         user_id = payload.get("user_id")
@@ -63,7 +71,8 @@ async def get_current_user(
             raise ForbiddenException("无效的认证凭据")
 
         # 仅在DEBUG模式下记录详细信息
-        logger.debug(f"尝试获取用户: user_id={user_id}, token前10位: {token[:10]}...")
+        token_fp = hashlib.sha256(token.encode()).hexdigest()[:12]
+        logger.debug("尝试获取用户: user_id={}, token_fp={}", user_id, token_fp)
 
         # 确保user_id是字符串格式（UUID）
         if not isinstance(user_id, str):

@@ -25,7 +25,7 @@
                 </h3>
                 <div class="flex items-center gap-1 text-sm font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
                   <span>{{ detail?.model || '-' }}</span>
-                  <template v-if="detail?.target_model">
+                  <template v-if="detail?.target_model && detail.target_model !== detail.model">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       viewBox="0 0 20 20"

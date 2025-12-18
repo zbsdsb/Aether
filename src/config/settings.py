@@ -105,6 +105,13 @@ class Config:
         self.llm_api_rate_limit = int(os.getenv("LLM_API_RATE_LIMIT", "100"))
         self.public_api_rate_limit = int(os.getenv("PUBLIC_API_RATE_LIMIT", "60"))
 
+        # 可信代理配置
+        # TRUSTED_PROXY_COUNT: 信任的代理层数（默认 1，即信任最近一层代理）
+        # 设置为 0 表示不信任任何代理头，直接使用连接 IP
+        # 当服务部署在 Nginx/CloudFlare 等反向代理后面时，设置为对应的代理层数
+        # 如果服务直接暴露公网，应设置为 0 以防止 IP 伪造
+        self.trusted_proxy_count = int(os.getenv("TRUSTED_PROXY_COUNT", "1"))
+
         # 异常处理配置
         # 设置为 True 时，ProxyException 会传播到路由层以便记录 provider_request_headers
         # 设置为 False 时，使用全局异常处理器统一处理

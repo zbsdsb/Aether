@@ -210,7 +210,15 @@ class ApiKeyService:
 
     @staticmethod
     def check_rate_limit(db: Session, api_key: ApiKey, window_minutes: int = 1) -> tuple[bool, int]:
-        """检查速率限制"""
+        """检查速率限制
+
+        Returns:
+            (is_allowed, remaining): 是否允许请求，剩余可用次数
+            当 rate_limit 为 None 时表示不限制，返回 (True, -1)
+        """
+        # 如果 rate_limit 为 None，表示不限制
+        if api_key.rate_limit is None:
+            return True, -1  # -1 表示无限制
 
         # 计算时间窗口
         window_start = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)

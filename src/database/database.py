@@ -153,7 +153,7 @@ def _log_pool_capacity():
     total_estimated = theoretical * workers
     safe_limit = config.pg_max_connections - config.pg_reserved_connections
     logger.info(
-        "数据库连接池配置: pool_size=%s, max_overflow=%s, workers=%s, total_estimated=%s, safe_limit=%s",
+        "数据库连接池配置: pool_size={}, max_overflow={}, workers={}, total_estimated={}, safe_limit={}",
         config.db_pool_size,
         config.db_max_overflow,
         workers,
@@ -162,7 +162,7 @@ def _log_pool_capacity():
     )
     if total_estimated > safe_limit:
         logger.warning(
-            "数据库连接池总需求可能超过 PostgreSQL 限制: %s > %s (pg_max_connections - reserved)，"
+            "数据库连接池总需求可能超过 PostgreSQL 限制: {} > {} (pg_max_connections - reserved)，"
             "建议调整 DB_POOL_SIZE/DB_MAX_OVERFLOW 或减少 worker 数",
             total_estimated,
             safe_limit,
@@ -260,7 +260,8 @@ def get_db(request: Request = None) -> Generator[Session, None, None]:  # type: 
 
     2. **管理后台 API**：
        - 路由层显式调用 db.commit()
-       - 每个操作独立提交，不依赖中间件
+       - 提交后设置 request.state.tx_committed_by_route = True
+       - 中间件看到此标志后跳过 commit，只负责 close
 
     3. **后台任务/调度器**：
        - 使用独立 Session（通过 create_session() 或 next(get_db())）
@@ -270,6 +271,17 @@ def get_db(request: Request = None) -> Generator[Session, None, None]:  # type: 
     ========
     - FastAPI 请求：通过 Depends(get_db) 注入，支持中间件管理的 session 复用
     - 非请求上下文：直接调用 get_db()，退化为独立 session 模式
+
+    路由层提交事务示例
+    ==================
+    ```python
+    @router.post("/example")
+    async def example(request: Request, db: Session = Depends(get_db)):
+        # ... 业务逻辑 ...
+        db.commit()
+        request.state.tx_committed_by_route = True  # 告知中间件已提交
+        return {"message": "success"}
+    ```
 
     注意事项
     ========

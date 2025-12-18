@@ -185,32 +185,13 @@
         </div>
       </CardSection>
 
-      <!-- API Key 管理配置 -->
+      <!-- 独立余额 Key 过期管理 -->
       <CardSection
-        title="API Key 管理"
-        description="API Key 相关配置"
+        title="独立余额 Key 过期管理"
+        description="独立余额 Key 的过期处理策略（普通用户 Key 不会过期）"
       >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <Label
-              for="api-key-expire"
-              class="block text-sm font-medium"
-            >
-              API密钥过期天数
-            </Label>
-            <Input
-              id="api-key-expire"
-              v-model.number="systemConfig.api_key_expire_days"
-              type="number"
-              placeholder="0"
-              class="mt-1"
-            />
-            <p class="mt-1 text-xs text-muted-foreground">
-              0 表示永不过期
-            </p>
-          </div>
-
-          <div class="flex items-center h-full pt-6">
+          <div class="flex items-center h-full">
             <div class="flex items-center space-x-2">
               <Checkbox
                 id="auto-delete-expired-keys"
@@ -224,7 +205,7 @@
                   自动删除过期 Key
                 </Label>
                 <p class="text-xs text-muted-foreground">
-                  关闭时仅禁用过期 Key
+                  关闭时仅禁用过期 Key，不会物理删除
                 </p>
               </div>
             </div>
@@ -448,6 +429,25 @@
               避免单次操作过大影响性能
             </p>
           </div>
+
+          <div>
+            <Label
+              for="audit-log-retention-days"
+              class="block text-sm font-medium"
+            >
+              审计日志保留天数
+            </Label>
+            <Input
+              id="audit-log-retention-days"
+              v-model.number="systemConfig.audit_log_retention_days"
+              type="number"
+              placeholder="30"
+              class="mt-1"
+            />
+            <p class="mt-1 text-xs text-muted-foreground">
+              超过后删除审计日志记录
+            </p>
+          </div>
         </div>
 
         <!-- 清理策略说明 -->
@@ -460,6 +460,7 @@
             <p>2. <strong>压缩日志阶段</strong>: body 字段被压缩存储，节省空间</p>
             <p>3. <strong>统计阶段</strong>: 仅保留 tokens、成本等统计信息</p>
             <p>4. <strong>归档删除</strong>: 超过保留期限后完全删除记录</p>
+            <p>5. <strong>审计日志</strong>: 独立清理，记录用户登录、操作等安全事件</p>
           </div>
         </div>
       </CardSection>
@@ -796,8 +797,7 @@ interface SystemConfig {
   // 用户注册
   enable_registration: boolean
   require_email_verification: boolean
-  // API Key 管理
-  api_key_expire_days: number
+  // 独立余额 Key 过期管理
   auto_delete_expired_keys: boolean
   // 日志记录
   request_log_level: string
@@ -811,6 +811,7 @@ interface SystemConfig {
   header_retention_days: number
   log_retention_days: number
   cleanup_batch_size: number
+  audit_log_retention_days: number
 }
 
 const loading = ref(false)
@@ -845,8 +846,7 @@ const systemConfig = ref<SystemConfig>({
   // 用户注册
   enable_registration: false,
   require_email_verification: false,
-  // API Key 管理
-  api_key_expire_days: 0,
+  // 独立余额 Key 过期管理
   auto_delete_expired_keys: false,
   // 日志记录
   request_log_level: 'basic',
@@ -860,6 +860,7 @@ const systemConfig = ref<SystemConfig>({
   header_retention_days: 90,
   log_retention_days: 365,
   cleanup_batch_size: 1000,
+  audit_log_retention_days: 30,
 })
 
 // 计算属性：KB 和 字节 之间的转换
@@ -901,8 +902,7 @@ async function loadSystemConfig() {
       // 用户注册
       'enable_registration',
       'require_email_verification',
-      // API Key 管理
-      'api_key_expire_days',
+      // 独立余额 Key 过期管理
       'auto_delete_expired_keys',
       // 日志记录
       'request_log_level',
@@ -916,6 +916,7 @@ async function loadSystemConfig() {
       'header_retention_days',
       'log_retention_days',
       'cleanup_batch_size',
+      'audit_log_retention_days',
     ]
 
     for (const key of configs) {
@@ -960,12 +961,7 @@ async function saveSystemConfig() {
         value: systemConfig.value.require_email_verification,
         description: '是否需要邮箱验证'
       },
-      // API Key 管理
-      {
-        key: 'api_key_expire_days',
-        value: systemConfig.value.api_key_expire_days,
-        description: 'API密钥过期天数'
-      },
+      // 独立余额 Key 过期管理
       {
         key: 'auto_delete_expired_keys',
         value: systemConfig.value.auto_delete_expired_keys,
@@ -1022,6 +1018,11 @@ async function saveSystemConfig() {
         key: 'cleanup_batch_size',
         value: systemConfig.value.cleanup_batch_size,
         description: '每批次清理的记录数'
+      },
+      {
+        key: 'audit_log_retention_days',
+        value: systemConfig.value.audit_log_retention_days,
+        description: '审计日志保留天数'
       },
     ]
 

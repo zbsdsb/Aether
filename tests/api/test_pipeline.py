@@ -361,3 +361,61 @@ class TestPipelineAdminAuth:
 
         assert result == mock_user
         assert mock_request.state.user_id == "admin-123"
+
+    @pytest.mark.asyncio
+    async def test_authenticate_admin_lowercase_bearer(self, pipeline: ApiRequestPipeline) -> None:
+        """测试 bearer (小写) 前缀也能正确解析"""
+        mock_user = MagicMock()
+        mock_user.id = "admin-123"
+        mock_user.is_active = True
+
+        mock_request = MagicMock()
+        mock_request.headers = {"authorization": "bearer valid-token"}
+        mock_request.state = MagicMock()
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
+
+        with patch.object(
+            pipeline.auth_service,
+            "verify_token",
+            new_callable=AsyncMock,
+            return_value={"user_id": "admin-123"},
+        ) as mock_verify:
+            result = await pipeline._authenticate_admin(mock_request, mock_db)
+
+        mock_verify.assert_awaited_once_with("valid-token", token_type="access")
+        assert result == mock_user
+
+
+class TestPipelineUserAuth:
+    """测试普通用户 JWT 认证"""
+
+    @pytest.fixture
+    def pipeline(self) -> ApiRequestPipeline:
+        return ApiRequestPipeline()
+
+    @pytest.mark.asyncio
+    async def test_authenticate_user_lowercase_bearer(self, pipeline: ApiRequestPipeline) -> None:
+        """测试 bearer (小写) 前缀也能正确解析"""
+        mock_user = MagicMock()
+        mock_user.id = "user-123"
+        mock_user.is_active = True
+
+        mock_request = MagicMock()
+        mock_request.headers = {"authorization": "bearer valid-token"}
+        mock_request.state = MagicMock()
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
+
+        with patch.object(
+            pipeline.auth_service,
+            "verify_token",
+            new_callable=AsyncMock,
+            return_value={"user_id": "user-123"},
+        ) as mock_verify:
+            result = await pipeline._authenticate_user(mock_request, mock_db)
+
+        mock_verify.assert_awaited_once_with("valid-token", token_type="access")
+        assert result == mock_user

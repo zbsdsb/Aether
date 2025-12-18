@@ -3,6 +3,7 @@
 """
 
 import os
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -169,7 +170,8 @@ class AuthService:
         key_record.last_used_at = datetime.now(timezone.utc)
         db.commit()  # 立即提交事务,释放数据库锁,避免阻塞后续请求
 
-        logger.debug(f"API认证成功: 用户 {user.email} (Key: {api_key[:10]}...)")
+        api_key_fp = hashlib.sha256(api_key.encode()).hexdigest()[:12]
+        logger.debug("API认证成功: 用户 {} (api_key_fp={})", user.email, api_key_fp)
         return user, key_record
 
     @staticmethod

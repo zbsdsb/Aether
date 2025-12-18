@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from src.core.logger import logger
 from src.database import create_session
-from src.models.database import Usage
+from src.models.database import AuditLog, Usage
 from src.services.system.config import SystemConfigService
 from src.services.system.scheduler import get_scheduler
 from src.services.system.stats_aggregator import StatsAggregatorService
@@ -91,6 +91,15 @@ class CleanupScheduler:
             name="Pending状态清理",
         )
 
+        # 审计日志清理 - 凌晨 4 点执行
+        scheduler.add_cron_job(
+            self._scheduled_audit_cleanup,
+            hour=4,
+            minute=0,
+            job_id="audit_cleanup",
+            name="审计日志清理",
+        )
+
         # 启动时执行一次初始化任务
         asyncio.create_task(self._run_startup_tasks())
 
@@ -144,6 +153,10 @@ class CleanupScheduler:
     async def _scheduled_pending_cleanup(self):
         """Pending 清理任务（定时调用）"""
         await self._perform_pending_cleanup()
+
+    async def _scheduled_audit_cleanup(self):
+        """审计日志清理任务（定时调用）"""
+        await self._perform_audit_cleanup()
 
     # ========== 实际任务实现 ==========
 
@@ -327,6 +340,70 @@ class CleanupScheduler:
         except Exception as e:
             logger.exception(f"清理 pending 请求失败: {e}")
             db.rollback()
+        finally:
+            db.close()
+
+    async def _perform_audit_cleanup(self):
+        """执行审计日志清理任务"""
+        db = create_session()
+        try:
+            # 检查是否启用自动清理
+            if not SystemConfigService.get_config(db, "enable_auto_cleanup", True):
+                logger.info("自动清理已禁用，跳过审计日志清理")
+                return
+
+            # 获取审计日志保留天数（默认 30 天，最少 7 天）
+            audit_retention_days = max(
+                SystemConfigService.get_config(db, "audit_log_retention_days", 30),
+                7,  # 最少保留 7 天，防止误配置删除所有审计日志
+            )
+            batch_size = SystemConfigService.get_config(db, "cleanup_batch_size", 1000)
+
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=audit_retention_days)
+
+            logger.info(f"开始清理 {audit_retention_days} 天前的审计日志...")
+
+            total_deleted = 0
+            while True:
+                # 先查询要删除的记录 ID（分批）
+                records_to_delete = (
+                    db.query(AuditLog.id)
+                    .filter(AuditLog.created_at < cutoff_time)
+                    .limit(batch_size)
+                    .all()
+                )
+
+                if not records_to_delete:
+                    break
+
+                record_ids = [r.id for r in records_to_delete]
+
+                # 执行删除
+                result = db.execute(
+                    delete(AuditLog)
+                    .where(AuditLog.id.in_(record_ids))
+                    .execution_options(synchronize_session=False)
+                )
+
+                rows_deleted = result.rowcount
+                db.commit()
+
+                total_deleted += rows_deleted
+                logger.debug(f"已删除 {rows_deleted} 条审计日志，累计 {total_deleted} 条")
+
+                await asyncio.sleep(0.1)
+
+            if total_deleted > 0:
+                logger.info(f"审计日志清理完成，共删除 {total_deleted} 条记录")
+            else:
+                logger.info("无需清理的审计日志")
+
+        except Exception as e:
+            logger.exception(f"审计日志清理失败: {e}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
         finally:
             db.close()
 

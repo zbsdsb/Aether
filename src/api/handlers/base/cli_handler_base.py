@@ -532,7 +532,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             async for chunk in stream_response.aiter_raw():
                 # 在第一次输出数据前更新状态为 streaming
                 if not streaming_status_updated:
-                    self._update_usage_to_streaming(ctx.request_id)
+                    self._update_usage_to_streaming_with_ctx(ctx)
                     streaming_status_updated = True
 
                 buffer += chunk
@@ -816,7 +816,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
             # 在第一次输出数据前更新状态为 streaming
             if prefetched_chunks:
-                self._update_usage_to_streaming(ctx.request_id)
+                self._update_usage_to_streaming_with_ctx(ctx)
 
             # 先处理预读的字节块
             for chunk in prefetched_chunks:

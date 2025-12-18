@@ -132,7 +132,7 @@
               type="number"
               min="1"
               max="10000"
-              placeholder="100"
+              placeholder="留空不限制"
               class="h-10"
               @update:model-value="(v) => form.rate_limit = parseNumberInput(v, { min: 1, max: 10000 })"
             />
@@ -376,7 +376,7 @@ const form = ref<StandaloneKeyFormData>({
   initial_balance_usd: 10,
   expire_days: undefined,
   never_expire: true,
-  rate_limit: 100,
+  rate_limit: undefined,
   auto_delete_on_expiry: false,
   allowed_providers: [],
   allowed_api_formats: [],
@@ -389,7 +389,7 @@ function resetForm() {
     initial_balance_usd: 10,
     expire_days: undefined,
     never_expire: true,
-    rate_limit: 100,
+    rate_limit: undefined,
     auto_delete_on_expiry: false,
     allowed_providers: [],
     allowed_api_formats: [],
@@ -408,7 +408,7 @@ function loadKeyData() {
     initial_balance_usd: props.apiKey.initial_balance_usd,
     expire_days: props.apiKey.expire_days,
     never_expire: props.apiKey.never_expire,
-    rate_limit: props.apiKey.rate_limit || 100,
+    rate_limit: props.apiKey.rate_limit,
     auto_delete_on_expiry: props.apiKey.auto_delete_on_expiry,
     allowed_providers: props.apiKey.allowed_providers || [],
     allowed_api_formats: props.apiKey.allowed_api_formats || [],

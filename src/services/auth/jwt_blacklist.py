@@ -63,14 +63,16 @@ class JWTBlacklistService:
 
             if ttl_seconds <= 0:
                 # Token 已经过期，不需要加入黑名单
-                logger.debug(f"Token 已过期，无需加入黑名单: {token[:10]}...")
+                token_fp = JWTBlacklistService._get_token_hash(token)[:12]
+                logger.debug("Token 已过期，无需加入黑名单: token_fp={}", token_fp)
                 return True
 
             # 存储到 Redis，设置 TTL 为 Token 过期时间
             # 值存储为原因字符串
             await redis_client.setex(redis_key, ttl_seconds, reason)
 
-            logger.info(f"Token 已加入黑名单: {token[:10]}... (原因: {reason}, TTL: {ttl_seconds}s)")
+            token_fp = JWTBlacklistService._get_token_hash(token)[:12]
+            logger.info("Token 已加入黑名单: token_fp={} (原因: {}, TTL: {}s)", token_fp, reason, ttl_seconds)
             return True
 
         except Exception as e:
@@ -109,7 +111,8 @@ class JWTBlacklistService:
             if exists:
                 # 获取黑名单原因（可选）
                 reason = await redis_client.get(redis_key)
-                logger.warning(f"检测到黑名单 Token: {token[:10]}... (原因: {reason})")
+                token_fp = JWTBlacklistService._get_token_hash(token)[:12]
+                logger.warning("检测到黑名单 Token: token_fp={} (原因: {})", token_fp, reason)
                 return True
 
             return False
@@ -148,9 +151,11 @@ class JWTBlacklistService:
             deleted = await redis_client.delete(redis_key)
 
             if deleted:
-                logger.info(f"Token 已从黑名单移除: {token[:10]}...")
+                token_fp = JWTBlacklistService._get_token_hash(token)[:12]
+                logger.info("Token 已从黑名单移除: token_fp={}", token_fp)
             else:
-                logger.debug(f"Token 不在黑名单中: {token[:10]}...")
+                token_fp = JWTBlacklistService._get_token_hash(token)[:12]
+                logger.debug("Token 不在黑名单中: token_fp={}", token_fp)
 
             return bool(deleted)
 

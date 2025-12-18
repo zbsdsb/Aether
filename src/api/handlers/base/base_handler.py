@@ -28,7 +28,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Dict, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Protocol, runtime_checkable
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -42,6 +42,9 @@ from src.services.orchestration.fallback_orchestrator import FallbackOrchestrato
 from src.services.provider.format import normalize_api_format
 from src.services.system.audit import audit_service
 from src.services.usage.service import UsageService
+
+if TYPE_CHECKING:
+    from src.api.handlers.base.stream_context import StreamContext
 
 
 
@@ -390,6 +393,41 @@ class BaseMessageHandler:
                         db=db,
                         request_id=target_request_id,
                         status="streaming",
+                    )
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.warning(f"[{target_request_id}] 更新 Usage 状态为 streaming 失败: {e}")
+
+        # 创建后台任务，不阻塞当前流
+        asyncio.create_task(_do_update())
+
+    def _update_usage_to_streaming_with_ctx(self, ctx: "StreamContext") -> None:
+        """更新 Usage 状态为 streaming，同时更新 provider 和 target_model
+
+        使用 asyncio 后台任务执行数据库更新，避免阻塞流式传输
+
+        Args:
+            ctx: 流式上下文，包含 provider_name 和 mapped_model
+        """
+        import asyncio
+        from src.database.database import get_db
+
+        target_request_id = self.request_id
+        provider = ctx.provider_name
+        target_model = ctx.mapped_model
+
+        async def _do_update() -> None:
+            try:
+                db_gen = get_db()
+                db = next(db_gen)
+                try:
+                    UsageService.update_usage_status(
+                        db=db,
+                        request_id=target_request_id,
+                        status="streaming",
+                        provider=provider,
+                        target_model=target_model,
                     )
                 finally:
                     db.close()
