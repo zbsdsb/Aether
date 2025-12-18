@@ -410,16 +410,22 @@ class StreamProcessor:
                 if now >= next_disconnect_check_at:
                     next_disconnect_check_at = now + disconnect_check_interval_s
                     if await is_disconnected():
-                        logger.warning(f"ID:{self.request_id} | Client disconnected")
-                        ctx.status_code = 499  # Client Closed Request
-                        ctx.error_message = "client_disconnected"
-
+                        # 如果响应已完成（收到 finish_reason），客户端断开不算失败
+                        if ctx.has_completion:
+                            logger.info(
+                                f"ID:{self.request_id} | Client disconnected after completion"
+                            )
+                        else:
+                            logger.warning(f"ID:{self.request_id} | Client disconnected")
+                            ctx.status_code = 499  # Client Closed Request
+                            ctx.error_message = "client_disconnected"
                         break
                 yield chunk
         except asyncio.CancelledError:
-            ctx.status_code = 499
-            ctx.error_message = "client_disconnected"
-
+            # 如果响应已完成，不标记为失败
+            if not ctx.has_completion:
+                ctx.status_code = 499
+                ctx.error_message = "client_disconnected"
             raise
         except Exception as e:
             ctx.status_code = 500

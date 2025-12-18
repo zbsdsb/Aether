@@ -1114,8 +1114,10 @@ class CliMessageHandlerBase(BaseMessageHandler):
             async for chunk in stream_generator:
                 yield chunk
         except asyncio.CancelledError:
-            ctx.status_code = 499
-            ctx.error_message = "Client disconnected"
+            # 如果响应已完成，不标记为失败
+            if not ctx.has_completion:
+                ctx.status_code = 499
+                ctx.error_message = "Client disconnected"
             raise
         except httpx.TimeoutException as e:
             ctx.status_code = 504
