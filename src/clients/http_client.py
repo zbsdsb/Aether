@@ -5,7 +5,7 @@
 
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -17,12 +17,17 @@ def build_proxy_url(proxy_config: Dict[str, Any]) -> Optional[str]:
     根据代理配置构建完整的代理 URL
 
     Args:
-        proxy_config: 代理配置字典，包含 url, username, password
+        proxy_config: 代理配置字典，包含 url, username, password, enabled
 
     Returns:
         完整的代理 URL，如 socks5://user:pass@host:port
+        如果 enabled=False 或无配置，返回 None
     """
     if not proxy_config:
+        return None
+
+    # 检查 enabled 字段，默认为 True（兼容旧数据）
+    if not proxy_config.get("enabled", True):
         return None
 
     proxy_url = proxy_config.get("url")
@@ -32,10 +37,17 @@ def build_proxy_url(proxy_config: Dict[str, Any]) -> Optional[str]:
     username = proxy_config.get("username")
     password = proxy_config.get("password")
 
-    if username and password:
+    # 只要有用户名就添加认证信息（密码可以为空）
+    if username:
         parsed = urlparse(proxy_url)
+        # URL 编码用户名和密码，处理特殊字符（如 @, :, /）
+        encoded_username = quote(username, safe="")
+        encoded_password = quote(password, safe="") if password else ""
         # 重新构建带认证的代理 URL
-        auth_proxy = f"{parsed.scheme}://{username}:{password}@{parsed.netloc}"
+        if encoded_password:
+            auth_proxy = f"{parsed.scheme}://{encoded_username}:{encoded_password}@{parsed.netloc}"
+        else:
+            auth_proxy = f"{parsed.scheme}://{encoded_username}@{parsed.netloc}"
         if parsed.path:
             auth_proxy += parsed.path
         return auth_proxy

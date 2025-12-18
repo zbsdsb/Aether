@@ -110,8 +110,8 @@ class ProviderEndpointResponse(BaseModel):
     # 额外配置
     config: Optional[Dict[str, Any]] = None
 
-    # 代理配置
-    proxy: Optional[Dict[str, Any]] = Field(default=None, description="代理配置")
+    # 代理配置（响应中密码已脱敏）
+    proxy: Optional[Dict[str, Any]] = Field(default=None, description="代理配置（密码已脱敏）")
 
     # 统计（从 Keys 聚合）
     total_keys: int = Field(default=0, description="总 Key 数量")

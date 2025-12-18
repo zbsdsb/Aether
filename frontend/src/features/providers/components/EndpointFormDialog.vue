@@ -9,7 +9,7 @@
   >
     <form
       class="space-y-6"
-      @submit.prevent="handleSubmit"
+      @submit.prevent="handleSubmit()"
     >
       <!-- API 配置 -->
       <div class="space-y-4">
@@ -139,14 +139,10 @@
           <h3 class="text-sm font-medium">
             代理配置
           </h3>
-          <label class="flex items-center gap-2 text-sm">
-            <input
-              v-model="proxyEnabled"
-              type="checkbox"
-              class="h-4 w-4 rounded border-gray-300"
-            >
-            启用代理
-          </label>
+          <div class="flex items-center gap-2">
+            <Switch v-model="proxyEnabled" />
+            <span class="text-sm text-muted-foreground">启用代理</span>
+          </div>
         </div>
 
         <div
@@ -159,29 +155,51 @@
               id="proxy_url"
               v-model="form.proxy_url"
               placeholder="http://host:port 或 socks5://host:port"
+              required
+              :class="proxyUrlError ? 'border-red-500' : ''"
             />
-            <p class="text-xs text-muted-foreground">
-              支持 HTTP、HTTPS、SOCKS4、SOCKS5 代理
+            <p
+              v-if="proxyUrlError"
+              class="text-xs text-red-500"
+            >
+              {{ proxyUrlError }}
+            </p>
+            <p
+              v-else
+              class="text-xs text-muted-foreground"
+            >
+              支持 HTTP、HTTPS、SOCKS5 代理
             </p>
           </div>
 
           <div class="grid grid-cols-2 gap-4">
             <div class="space-y-2">
-              <Label for="proxy_username">用户名（可选）</Label>
+              <Label for="proxy_user">用户名（可选）</Label>
               <Input
-                id="proxy_username"
+                :id="`proxy_user_${formId}`"
+                :name="`proxy_user_${formId}`"
                 v-model="form.proxy_username"
                 placeholder="代理认证用户名"
+                autocomplete="off"
+                data-form-type="other"
+                data-lpignore="true"
+                data-1p-ignore="true"
               />
             </div>
 
             <div class="space-y-2">
-              <Label for="proxy_password">密码（可选）</Label>
+              <Label :for="`proxy_pass_${formId}`">密码（可选）</Label>
               <Input
-                id="proxy_password"
+                :id="`proxy_pass_${formId}`"
+                :name="`proxy_pass_${formId}`"
                 v-model="form.proxy_password"
-                type="password"
-                placeholder="代理认证密码"
+                type="text"
+                :placeholder="passwordPlaceholder"
+                autocomplete="off"
+                data-form-type="other"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                :style="{ '-webkit-text-security': 'disc', 'text-security': 'disc' }"
               />
             </div>
           </div>
@@ -200,12 +218,24 @@
       </Button>
       <Button
         :disabled="loading || !form.base_url || (!isEditMode && !form.api_format)"
-        @click="handleSubmit"
+        @click="handleSubmit()"
       >
         {{ loading ? (isEditMode ? '保存中...' : '创建中...') : (isEditMode ? '保存修改' : '创建') }}
       </Button>
     </template>
   </Dialog>
+
+  <!-- 确认清空凭据对话框 -->
+  <AlertDialog
+    v-model="showClearCredentialsDialog"
+    title="清空代理凭据"
+    description="代理 URL 为空，但用户名和密码仍有值。是否清空这些凭据并继续保存？"
+    type="warning"
+    confirm-text="清空并保存"
+    cancel-text="返回编辑"
+    @confirm="confirmClearCredentials"
+    @cancel="showClearCredentialsDialog = false"
+  />
 </template>
 
 <script setup lang="ts">
@@ -220,7 +250,9 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
+  Switch,
 } from '@/components/ui'
+import AlertDialog from '@/components/common/AlertDialog.vue'
 import { Link, SquarePen } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { useFormDialog } from '@/composables/useFormDialog'
@@ -250,6 +282,10 @@ const { success, error: showError } = useToast()
 const loading = ref(false)
 const selectOpen = ref(false)
 const proxyEnabled = ref(false)
+const showClearCredentialsDialog = ref(false)  // 确认清空凭据对话框
+
+// 生成随机 ID 防止浏览器自动填充
+const formId = Math.random().toString(36).substring(2, 10)
 
 // 内部状态
 const internalOpen = computed(() => props.modelValue)
@@ -297,6 +333,53 @@ const defaultPathPlaceholder = computed(() => {
   return `留空使用默认路径：${defaultPath.value}`
 })
 
+// 检查是否有已保存的密码（后端返回 *** 表示有密码）
+const hasExistingPassword = computed(() => {
+  if (!props.endpoint?.proxy) return false
+  const proxy = props.endpoint.proxy as { password?: string }
+  return proxy?.password === MASKED_PASSWORD
+})
+
+// 密码输入框的 placeholder
+const passwordPlaceholder = computed(() => {
+  if (hasExistingPassword.value) {
+    return '已保存密码，留空保持不变'
+  }
+  return '代理认证密码'
+})
+
+// 代理 URL 验证
+const proxyUrlError = computed(() => {
+  // 只有启用代理且填写了 URL 时才验证
+  if (!proxyEnabled.value || !form.value.proxy_url) {
+    return ''
+  }
+  const url = form.value.proxy_url.trim()
+
+  // 检查禁止的特殊字符
+  if (/[\n\r]/.test(url)) {
+    return '代理 URL 包含非法字符'
+  }
+
+  // 验证协议（不支持 SOCKS4）
+  if (!/^(http|https|socks5):\/\//i.test(url)) {
+    return '代理 URL 必须以 http://, https:// 或 socks5:// 开头'
+  }
+  try {
+    const parsed = new URL(url)
+    if (!parsed.host) {
+      return '代理 URL 必须包含有效的 host'
+    }
+    // 禁止 URL 中内嵌认证信息
+    if (parsed.username || parsed.password) {
+      return '请勿在 URL 中包含用户名和密码，请使用独立的认证字段'
+    }
+  } catch {
+    return '代理 URL 格式无效'
+  }
+  return ''
+})
+
 // 组件挂载时加载API格式
 onMounted(() => {
   loadApiFormats()
@@ -320,11 +403,14 @@ function resetForm() {
   proxyEnabled.value = false
 }
 
+// 原始密码占位符（后端返回的脱敏标记）
+const MASKED_PASSWORD = '***'
+
 // 加载端点数据（编辑模式）
 function loadEndpointData() {
   if (!props.endpoint) return
 
-  const proxy = props.endpoint.proxy as { url?: string; username?: string; password?: string } | null
+  const proxy = props.endpoint.proxy as { url?: string; username?: string; password?: string; enabled?: boolean } | null
 
   form.value = {
     api_format: props.endpoint.api_format,
@@ -337,11 +423,12 @@ function loadEndpointData() {
     is_active: props.endpoint.is_active,
     proxy_url: proxy?.url || '',
     proxy_username: proxy?.username || '',
-    proxy_password: proxy?.password || '',
+    // 如果密码是脱敏标记，显示为空（让用户知道有密码但看不到）
+    proxy_password: proxy?.password === MASKED_PASSWORD ? '' : (proxy?.password || ''),
   }
 
-  // 如果有代理配置，启用代理开关
-  proxyEnabled.value = !!proxy?.url
+  // 根据 enabled 字段或 url 存在判断是否启用代理
+  proxyEnabled.value = proxy?.enabled ?? !!proxy?.url
 }
 
 // 使用 useFormDialog 统一处理对话框逻辑
@@ -355,20 +442,41 @@ const { isEditMode, handleDialogUpdate, handleCancel } = useFormDialog({
 })
 
 // 构建代理配置
-function buildProxyConfig() {
-  if (!proxyEnabled.value || !form.value.proxy_url) {
-    return undefined
+// - 有 URL 时始终保存配置，通过 enabled 字段控制是否启用
+// - 无 URL 时返回 null
+function buildProxyConfig(): { url: string; username?: string; password?: string; enabled: boolean } | null {
+  if (!form.value.proxy_url) {
+    // 没填 URL，无代理配置
+    return null
   }
   return {
     url: form.value.proxy_url,
     username: form.value.proxy_username || undefined,
     password: form.value.proxy_password || undefined,
+    enabled: proxyEnabled.value,  // 开关状态决定是否启用
   }
 }
 
 // 提交表单
-const handleSubmit = async () => {
+const handleSubmit = async (skipCredentialCheck = false) => {
   if (!props.provider && !props.endpoint) return
+
+  // 只在开关开启且填写了 URL 时验证
+  if (proxyEnabled.value && form.value.proxy_url && proxyUrlError.value) {
+    showError(proxyUrlError.value, '代理配置错误')
+    return
+  }
+
+  // 检查：开关开启但没有 URL，却有用户名或密码
+  const hasOrphanedCredentials = proxyEnabled.value
+    && !form.value.proxy_url
+    && (form.value.proxy_username || form.value.proxy_password)
+
+  if (hasOrphanedCredentials && !skipCredentialCheck) {
+    // 弹出确认对话框
+    showClearCredentialsDialog.value = true
+    return
+  }
 
   loading.value = true
   try {
@@ -416,5 +524,13 @@ const handleSubmit = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 确认清空凭据并继续保存
+const confirmClearCredentials = () => {
+  form.value.proxy_username = ''
+  form.value.proxy_password = ''
+  showClearCredentialsDialog.value = false
+  handleSubmit(true)  // 跳过凭据检查，直接提交
 }
 </script>

@@ -19,14 +19,33 @@ class ProxyConfig(BaseModel):
     url: str = Field(..., description="代理 URL (http://, https://, socks5://)")
     username: Optional[str] = Field(None, max_length=255, description="代理用户名")
     password: Optional[str] = Field(None, max_length=500, description="代理密码")
+    enabled: bool = Field(True, description="是否启用代理（false 时保留配置但不使用）")
 
     @field_validator("url")
     @classmethod
     def validate_proxy_url(cls, v: str) -> str:
         """验证代理 URL 格式"""
+        from urllib.parse import urlparse
+
         v = v.strip()
-        if not re.match(r"^(http|https|socks5|socks4)://", v, re.IGNORECASE):
-            raise ValueError("代理 URL 必须以 http://, https://, socks5:// 或 socks4:// 开头")
+
+        # 检查禁止的字符（防止注入）
+        if "\n" in v or "\r" in v:
+            raise ValueError("代理 URL 包含非法字符")
+
+        # 验证协议（不支持 SOCKS4）
+        if not re.match(r"^(http|https|socks5)://", v, re.IGNORECASE):
+            raise ValueError("代理 URL 必须以 http://, https:// 或 socks5:// 开头")
+
+        # 验证 URL 结构
+        parsed = urlparse(v)
+        if not parsed.netloc:
+            raise ValueError("代理 URL 必须包含有效的 host")
+
+        # 禁止 URL 中内嵌认证信息，强制使用独立字段
+        if parsed.username or parsed.password:
+            raise ValueError("请勿在 URL 中包含用户名和密码，请使用独立的认证字段")
+
         return v
 
 
