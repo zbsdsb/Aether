@@ -151,29 +151,46 @@ async def query_available_models(
             adapter_class = _get_adapter_for_format(api_format)
             if not adapter_class:
                 return [], f"Unknown API format: {api_format}"
-            return await adapter_class.fetch_models(
+            models, error = await adapter_class.fetch_models(
                 client, base_url, api_key_value, extra_headers
             )
+            # 确保所有模型都有 api_format 字段
+            for m in models:
+                if "api_format" not in m:
+                    m["api_format"] = api_format
+            return models, error
         except Exception as e:
             logger.error(f"Error fetching models from {api_format} endpoint: {e}")
             return [], f"{api_format}: {str(e)}"
 
+    # 限制并发请求数量，避免触发上游速率限制
+    MAX_CONCURRENT_REQUESTS = 5
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+    async def fetch_with_semaphore(
+        client: httpx.AsyncClient, config: dict
+    ) -> tuple[list, Optional[str]]:
+        async with semaphore:
+            return await fetch_endpoint_models(client, config)
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         results = await asyncio.gather(
-            *[fetch_endpoint_models(client, c) for c in endpoint_configs]
+            *[fetch_with_semaphore(client, c) for c in endpoint_configs]
         )
         for models, error in results:
             all_models.extend(models)
             if error:
                 errors.append(error)
 
-    # 按 model id 去重（保留第一个）
-    seen_ids: set[str] = set()
+    # 按 model id + api_format 去重（保留第一个）
+    seen_keys: set[str] = set()
     unique_models: list = []
     for model in all_models:
         model_id = model.get("id")
-        if model_id and model_id not in seen_ids:
-            seen_ids.add(model_id)
+        api_format = model.get("api_format", "")
+        unique_key = f"{model_id}:{api_format}"
+        if model_id and unique_key not in seen_keys:
+            seen_keys.add(unique_key)
             unique_models.append(model)
 
     error = "; ".join(errors) if errors else None

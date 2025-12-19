@@ -22,15 +22,17 @@ from src.models.api import (
 from src.models.pydantic_models import (
     BatchAssignModelsToProviderRequest,
     BatchAssignModelsToProviderResponse,
+    ImportFromUpstreamRequest,
+    ImportFromUpstreamResponse,
+    ImportFromUpstreamSuccessItem,
+    ImportFromUpstreamErrorItem,
+    ProviderAvailableSourceModel,
+    ProviderAvailableSourceModelsResponse,
 )
 from src.models.database import (
     GlobalModel,
     Model,
     Provider,
-)
-from src.models.pydantic_models import (
-    ProviderAvailableSourceModel,
-    ProviderAvailableSourceModelsResponse,
 )
 from src.services.model.service import ModelService
 
@@ -155,6 +157,28 @@ async def batch_assign_global_models_to_provider(
     adapter = AdminBatchAssignModelsToProviderAdapter(
         provider_id=provider_id, payload=payload
     )
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post(
+    "/{provider_id}/import-from-upstream",
+    response_model=ImportFromUpstreamResponse,
+)
+async def import_models_from_upstream(
+    provider_id: str,
+    payload: ImportFromUpstreamRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> ImportFromUpstreamResponse:
+    """
+    从上游提供商导入模型
+
+    流程：
+    1. 根据 model_ids 检查全局模型是否存在（按 name 匹配）
+    2. 如不存在，自动创建新的 GlobalModel（使用默认配置）
+    3. 创建 Model 关联到当前 Provider
+    """
+    adapter = AdminImportFromUpstreamAdapter(provider_id=provider_id, payload=payload)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -425,3 +449,130 @@ class AdminBatchAssignModelsToProviderAdapter(AdminApiAdapter):
             await invalidate_models_list_cache()
 
         return BatchAssignModelsToProviderResponse(success=success, errors=errors)
+
+
+@dataclass
+class AdminImportFromUpstreamAdapter(AdminApiAdapter):
+    """从上游提供商导入模型"""
+
+    provider_id: str
+    payload: ImportFromUpstreamRequest
+
+    async def handle(self, context):  # type: ignore[override]
+        db = context.db
+        provider = db.query(Provider).filter(Provider.id == self.provider_id).first()
+        if not provider:
+            raise NotFoundException("Provider not found", "provider")
+
+        success: list[ImportFromUpstreamSuccessItem] = []
+        errors: list[ImportFromUpstreamErrorItem] = []
+
+        # 默认阶梯计费配置（免费）
+        default_tiered_pricing = {
+            "tiers": [
+                {
+                    "up_to": None,
+                    "input_price_per_1m": 0.0,
+                    "output_price_per_1m": 0.0,
+                }
+            ]
+        }
+
+        for model_id in self.payload.model_ids:
+            # 输入验证：检查 model_id 长度
+            if not model_id or len(model_id) > 100:
+                errors.append(
+                    ImportFromUpstreamErrorItem(
+                        model_id=model_id[:50] + "..." if model_id and len(model_id) > 50 else model_id or "<empty>",
+                        error="Invalid model_id: must be 1-100 characters",
+                    )
+                )
+                continue
+
+            try:
+                # 使用 savepoint 确保单个模型导入的原子性
+                savepoint = db.begin_nested()
+                try:
+                    # 1. 检查是否已存在同名的 GlobalModel
+                    global_model = (
+                        db.query(GlobalModel).filter(GlobalModel.name == model_id).first()
+                    )
+                    created_global_model = False
+
+                    if not global_model:
+                        # 2. 创建新的 GlobalModel
+                        global_model = GlobalModel(
+                            name=model_id,
+                            display_name=model_id,
+                            default_tiered_pricing=default_tiered_pricing,
+                            is_active=True,
+                        )
+                        db.add(global_model)
+                        db.flush()
+                        created_global_model = True
+                        logger.info(
+                            f"Created new GlobalModel: {model_id} during upstream import"
+                        )
+
+                    # 3. 检查是否已存在关联
+                    existing = (
+                        db.query(Model)
+                        .filter(
+                            Model.provider_id == self.provider_id,
+                            Model.global_model_id == global_model.id,
+                        )
+                        .first()
+                    )
+                    if existing:
+                        # 已存在关联，提交 savepoint 并记录成功
+                        savepoint.commit()
+                        success.append(
+                            ImportFromUpstreamSuccessItem(
+                                model_id=model_id,
+                                global_model_id=global_model.id,
+                                global_model_name=global_model.name,
+                                provider_model_id=existing.id,
+                                created_global_model=created_global_model,
+                            )
+                        )
+                        continue
+
+                    # 4. 创建新的 Model 记录
+                    new_model = Model(
+                        provider_id=self.provider_id,
+                        global_model_id=global_model.id,
+                        provider_model_name=global_model.name,
+                        is_active=True,
+                    )
+                    db.add(new_model)
+                    db.flush()
+
+                    # 提交 savepoint
+                    savepoint.commit()
+                    success.append(
+                        ImportFromUpstreamSuccessItem(
+                            model_id=model_id,
+                            global_model_id=global_model.id,
+                            global_model_name=global_model.name,
+                            provider_model_id=new_model.id,
+                            created_global_model=created_global_model,
+                        )
+                    )
+                except Exception as e:
+                    # 回滚到 savepoint
+                    savepoint.rollback()
+                    raise e
+            except Exception as e:
+                logger.error(f"Error importing model {model_id}: {e}")
+                errors.append(ImportFromUpstreamErrorItem(model_id=model_id, error=str(e)))
+
+        db.commit()
+        logger.info(
+            f"Imported {len(success)} models from upstream to provider {provider.name} by {context.user.username}"
+        )
+
+        # 清除 /v1/models 列表缓存
+        if success:
+            await invalidate_models_list_cache()
+
+        return ImportFromUpstreamResponse(success=success, errors=errors)

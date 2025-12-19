@@ -495,3 +495,42 @@ export interface GlobalModelListResponse {
   models: GlobalModelResponse[]
   total: number
 }
+
+// ==================== 上游模型导入相关 ====================
+
+/**
+ * 上游模型（从提供商 API 获取的原始模型）
+ */
+export interface UpstreamModel {
+  id: string
+  owned_by?: string
+  display_name?: string
+  api_format?: string
+}
+
+/**
+ * 导入成功的模型信息
+ */
+export interface ImportFromUpstreamSuccessItem {
+  model_id: string
+  global_model_id: string
+  global_model_name: string
+  provider_model_id: string
+  created_global_model: boolean
+}
+
+/**
+ * 导入失败的模型信息
+ */
+export interface ImportFromUpstreamErrorItem {
+  model_id: string
+  error: string
+}
+
+/**
+ * 从上游提供商导入模型响应
+ */
+export interface ImportFromUpstreamResponse {
+  success: ImportFromUpstreamSuccessItem[]
+  errors: ImportFromUpstreamErrorItem[]
+}

@@ -5,6 +5,8 @@ import type {
   ModelUpdate,
   ModelCatalogResponse,
   ProviderAvailableSourceModelsResponse,
+  UpstreamModel,
+  ImportFromUpstreamResponse,
 } from './types'
 
 /**
@@ -116,6 +118,43 @@ export async function batchAssignModelsToProvider(
   const response = await client.post(
     `/api/admin/providers/${providerId}/assign-global-models`,
     { global_model_ids: globalModelIds }
+  )
+  return response.data
+}
+
+/**
+ * 查询提供商的上游模型列表
+ */
+export async function queryProviderUpstreamModels(
+  providerId: string
+): Promise<{
+  success: boolean
+  data: {
+    models: UpstreamModel[]
+    error: string | null
+  }
+  provider: {
+    id: string
+    name: string
+    display_name: string
+  }
+}> {
+  const response = await client.post('/api/admin/provider-query/models', {
+    provider_id: providerId,
+  })
+  return response.data
+}
+
+/**
+ * 从上游提供商导入模型
+ */
+export async function importModelsFromUpstream(
+  providerId: string,
+  modelIds: string[]
+): Promise<ImportFromUpstreamResponse> {
+  const response = await client.post(
+    `/api/admin/providers/${providerId}/import-from-upstream`,
+    { model_ids: modelIds }
   )
   return response.data
 }

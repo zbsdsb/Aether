@@ -301,6 +301,36 @@ class BatchAssignModelsToProviderResponse(BaseModel):
     errors: List[dict]
 
 
+class ImportFromUpstreamRequest(BaseModel):
+    """从上游提供商导入模型请求"""
+
+    model_ids: List[str] = Field(..., min_length=1, description="上游模型 ID 列表")
+
+
+class ImportFromUpstreamSuccessItem(BaseModel):
+    """导入成功的模型信息"""
+
+    model_id: str = Field(..., description="上游模型 ID")
+    global_model_id: str = Field(..., description="GlobalModel ID")
+    global_model_name: str = Field(..., description="GlobalModel 名称")
+    provider_model_id: str = Field(..., description="Provider Model ID")
+    created_global_model: bool = Field(..., description="是否新创建了 GlobalModel")
+
+
+class ImportFromUpstreamErrorItem(BaseModel):
+    """导入失败的模型信息"""
+
+    model_id: str = Field(..., description="上游模型 ID")
+    error: str = Field(..., description="错误信息")
+
+
+class ImportFromUpstreamResponse(BaseModel):
+    """从上游提供商导入模型响应"""
+
+    success: List[ImportFromUpstreamSuccessItem]
+    errors: List[ImportFromUpstreamErrorItem]
+
+
 __all__ = [
     "BatchAssignModelsToProviderRequest",
     "BatchAssignModelsToProviderResponse",
@@ -311,6 +341,10 @@ __all__ = [
     "GlobalModelResponse",
     "GlobalModelUpdate",
     "GlobalModelWithStats",
+    "ImportFromUpstreamErrorItem",
+    "ImportFromUpstreamRequest",
+    "ImportFromUpstreamResponse",
+    "ImportFromUpstreamSuccessItem",
     "ModelCapabilities",
     "ModelCatalogItem",
     "ModelCatalogProviderDetail",
