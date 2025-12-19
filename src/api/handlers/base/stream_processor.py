@@ -48,11 +48,11 @@ class StreamProcessor:
     """
 
     # 平滑输出参数
-    CHUNK_SIZE = 5  # 长文本每块字符数
-    MIN_DELAY_MS = 15  # 长文本延迟（毫秒）
-    MAX_DELAY_MS = 24  # 短文本延迟（毫秒）
-    SHORT_TEXT_THRESHOLD = 10  # 短文本阈值（逐字符输出）
-    LONG_TEXT_THRESHOLD = 50  # 长文本阈值（按块输出）
+    CHUNK_SIZE = 20  # 每块字符数
+    MIN_DELAY_MS = 8  # 长文本延迟（毫秒）
+    MAX_DELAY_MS = 15  # 短文本延迟（毫秒）
+    SHORT_TEXT_THRESHOLD = 20  # 短文本阈值
+    LONG_TEXT_THRESHOLD = 100  # 长文本阈值
 
     def __init__(
         self,
@@ -688,11 +688,11 @@ class _LightweightSmoother:
     只包含平滑输出所需的最小逻辑，不依赖 StreamProcessor 的其他功能。
     """
 
-    CHUNK_SIZE = 5
-    MIN_DELAY_MS = 15
-    MAX_DELAY_MS = 24
-    SHORT_TEXT_THRESHOLD = 10
-    LONG_TEXT_THRESHOLD = 50
+    CHUNK_SIZE = 20
+    MIN_DELAY_MS = 8
+    MAX_DELAY_MS = 15
+    SHORT_TEXT_THRESHOLD = 20
+    LONG_TEXT_THRESHOLD = 100
 
     def __init__(self) -> None:
         self._extractors: dict[str, ContentExtractor] = {}
