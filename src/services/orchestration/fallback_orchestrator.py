@@ -427,6 +427,9 @@ class FallbackOrchestrator:
             )
             # str(cause) 可能为空（如 httpx 超时异常），使用 repr() 作为备用
             error_msg = str(cause) or repr(cause)
+            # 如果是 ProviderNotAvailableException，附加上游响应
+            if hasattr(cause, "upstream_response") and cause.upstream_response:
+                error_msg = f"{error_msg} | 上游响应: {cause.upstream_response[:500]}"
             RequestCandidateService.mark_candidate_failed(
                 db=self.db,
                 candidate_id=candidate_record_id,
@@ -439,6 +442,9 @@ class FallbackOrchestrator:
 
         # 未知错误：记录失败并抛出
         error_msg = str(cause) or repr(cause)
+        # 如果是 ProviderNotAvailableException，附加上游响应
+        if hasattr(cause, "upstream_response") and cause.upstream_response:
+            error_msg = f"{error_msg} | 上游响应: {cause.upstream_response[:500]}"
         RequestCandidateService.mark_candidate_failed(
             db=self.db,
             candidate_id=candidate_record_id,

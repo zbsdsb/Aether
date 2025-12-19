@@ -639,6 +639,8 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
 
             logger.info(f"  [{self.request_id}] 发送非流式请求: Provider={provider.name}, "
                 f"模型={model} -> {mapped_model or '无映射'}")
+            logger.debug(f"  [{self.request_id}] 请求URL: {url}")
+            logger.debug(f"  [{self.request_id}] 请求体stream字段: {provider_payload.get('stream', 'N/A')}")
 
             # 创建 HTTP 客户端（支持代理配置）
             from src.clients.http_client import HTTPClientPool
@@ -662,10 +664,32 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                         response_headers=response_headers,
                     )
                 elif resp.status_code >= 500:
-                    raise ProviderNotAvailableException(f"提供商服务不可用: {provider.name}")
-                elif resp.status_code != 200:
+                    # 记录响应体以便调试
+                    error_body = ""
+                    try:
+                        error_body = resp.text[:1000]
+                        logger.error(f"  [{self.request_id}] 上游返回5xx错误: status={resp.status_code}, body={error_body[:500]}")
+                    except Exception:
+                        pass
                     raise ProviderNotAvailableException(
-                        f"提供商返回错误: {provider.name}, 状态: {resp.status_code}"
+                        f"提供商服务不可用: {provider.name}",
+                        provider_name=str(provider.name),
+                        upstream_status=resp.status_code,
+                        upstream_response=error_body,
+                    )
+                elif resp.status_code != 200:
+                    # 记录非200响应以便调试
+                    error_body = ""
+                    try:
+                        error_body = resp.text[:1000]
+                        logger.warning(f"  [{self.request_id}] 上游返回非200: status={resp.status_code}, body={error_body[:500]}")
+                    except Exception:
+                        pass
+                    raise ProviderNotAvailableException(
+                        f"提供商返回错误: {provider.name}, 状态: {resp.status_code}",
+                        provider_name=str(provider.name),
+                        upstream_status=resp.status_code,
+                        upstream_response=error_body,
                     )
 
                 response_json = resp.json()

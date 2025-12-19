@@ -188,12 +188,16 @@ class ProviderNotAvailableException(ProviderException):
         message: str,
         provider_name: Optional[str] = None,
         request_metadata: Optional[Any] = None,
+        upstream_status: Optional[int] = None,
+        upstream_response: Optional[str] = None,
     ):
         super().__init__(
             message=message,
             provider_name=provider_name,
             request_metadata=request_metadata,
         )
+        self.upstream_status = upstream_status
+        self.upstream_response = upstream_response
 
 
 class ProviderTimeoutException(ProviderException):

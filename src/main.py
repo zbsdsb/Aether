@@ -4,13 +4,10 @@
 """
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from src.api.admin import router as admin_router
 from src.api.announcements import router as announcement_router
@@ -299,33 +296,6 @@ app.include_router(dashboard_router)  # 仪表盘端点
 app.include_router(public_router)  # 公开API端点（用户可查看提供商和模型）
 app.include_router(monitoring_router)  # 监控端点
 
-# 静态文件服务（前端构建产物）
-# 检查前端构建目录是否存在
-frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
-if frontend_dist.exists():
-    # 挂载静态资源目录
-    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
-
-    # SPA catch-all路由 - 必须放在最后
-    @app.get("/{full_path:path}")
-    async def serve_spa(request: Request, full_path: str):
-        """
-        处理所有未匹配的GET请求，返回index.html供前端路由处理
-        仅对非API路径生效
-        """
-        # 如果是API路径，不处理
-        if full_path in {"api", "v1"} or full_path.startswith(("api/", "v1/")):
-            raise HTTPException(status_code=404, detail="Not Found")
-
-        # 返回index.html，让前端路由处理
-        index_file = frontend_dist / "index.html"
-        if index_file.exists():
-            return FileResponse(str(index_file))
-        else:
-            raise HTTPException(status_code=404, detail="Frontend not built")
-
-else:
-    logger.warning("前端构建目录不存在，前端路由将无法使用")
 
 
 def main():
