@@ -66,6 +66,7 @@ export interface UserAffinity {
   key_name: string | null
   key_prefix: string | null  // Provider Key 脱敏显示（前4...后4）
   rate_multiplier: number
+  global_model_id: string | null  // 原始的 global_model_id（用于删除）
   model_name: string | null  // 模型名称（如 claude-haiku-4-5-20250514）
   model_display_name: string | null  // 模型显示名称（如 Claude Haiku 4.5）
   api_format: string | null  // API 格式 (claude/openai)
@@ -117,6 +118,18 @@ export const cacheApi = {
    */
   async clearUserCache(userIdentifier: string): Promise<void> {
     await api.delete(`/api/admin/monitoring/cache/users/${userIdentifier}`)
+  },
+
+  /**
+   * 清除单条缓存亲和性
+   *
+   * @param affinityKey API Key ID
+   * @param endpointId Endpoint ID
+   * @param modelId GlobalModel ID
+   * @param apiFormat API 格式 (claude/openai)
+   */
+  async clearSingleAffinity(affinityKey: string, endpointId: string, modelId: string, apiFormat: string): Promise<void> {
+    await api.delete(`/api/admin/monitoring/cache/affinity/${affinityKey}/${endpointId}/${modelId}/${apiFormat}`)
   },
 
   /**

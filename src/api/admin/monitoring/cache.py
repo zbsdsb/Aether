@@ -186,6 +186,30 @@ async def clear_user_cache(
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
+@router.delete("/affinity/{affinity_key}/{endpoint_id}/{model_id}/{api_format}")
+async def clear_single_affinity(
+    affinity_key: str,
+    endpoint_id: str,
+    model_id: str,
+    api_format: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Any:
+    """
+    Clear a single cache affinity entry
+
+    Parameters:
+    - affinity_key: API Key ID
+    - endpoint_id: Endpoint ID
+    - model_id: Model ID (GlobalModel ID)
+    - api_format: API format (claude/openai)
+    """
+    adapter = AdminClearSingleAffinityAdapter(
+        affinity_key=affinity_key, endpoint_id=endpoint_id, model_id=model_id, api_format=api_format
+    )
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
 @router.delete("")
 async def clear_all_cache(
     request: Request,
@@ -655,6 +679,7 @@ class AdminListAffinitiesAdapter(AdminApiAdapter):
                 "key_name": key.name if key else None,
                 "key_prefix": provider_key_masked,
                 "rate_multiplier": key.rate_multiplier if key else 1.0,
+                "global_model_id": affinity.get("model_name"),  # 原始的 global_model_id
                 "model_name": (
                     global_model_map.get(affinity.get("model_name")).name
                     if affinity.get("model_name") and global_model_map.get(affinity.get("model_name"))
@@ -814,6 +839,65 @@ class AdminClearUserCacheAdapter(AdminApiAdapter):
             raise
         except Exception as exc:
             logger.exception(f"清除用户缓存亲和性失败: {exc}")
+            raise HTTPException(status_code=500, detail=f"清除失败: {exc}")
+
+
+@dataclass
+class AdminClearSingleAffinityAdapter(AdminApiAdapter):
+    affinity_key: str
+    endpoint_id: str
+    model_id: str
+    api_format: str
+
+    async def handle(self, context: ApiRequestContext) -> Dict[str, Any]:  # type: ignore[override]
+        db = context.db
+        try:
+            redis_client = get_redis_client_sync()
+            affinity_mgr = await get_affinity_manager(redis_client)
+
+            # 直接获取指定的亲和性记录（无需遍历全部）
+            existing_affinity = await affinity_mgr.get_affinity(
+                self.affinity_key, self.api_format, self.model_id
+            )
+
+            if not existing_affinity:
+                raise HTTPException(status_code=404, detail="未找到指定的缓存亲和性记录")
+
+            # 验证 endpoint_id 是否匹配
+            if existing_affinity.endpoint_id != self.endpoint_id:
+                raise HTTPException(status_code=404, detail="未找到指定的缓存亲和性记录")
+
+            # 失效单条记录
+            await affinity_mgr.invalidate_affinity(
+                self.affinity_key, self.api_format, self.model_id, endpoint_id=self.endpoint_id
+            )
+
+            # 获取用于日志的信息
+            api_key = db.query(ApiKey).filter(ApiKey.id == self.affinity_key).first()
+            api_key_name = api_key.name if api_key else None
+
+            logger.info(
+                f"已清除单条缓存亲和性: affinity_key={self.affinity_key[:8]}..., "
+                f"endpoint_id={self.endpoint_id[:8]}..., model_id={self.model_id[:8]}..."
+            )
+
+            context.add_audit_metadata(
+                action="cache_clear_single",
+                affinity_key=self.affinity_key,
+                endpoint_id=self.endpoint_id,
+                model_id=self.model_id,
+            )
+            return {
+                "status": "ok",
+                "message": f"已清除缓存亲和性: {api_key_name or self.affinity_key[:8]}",
+                "affinity_key": self.affinity_key,
+                "endpoint_id": self.endpoint_id,
+                "model_id": self.model_id,
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception(f"清除单条缓存亲和性失败: {exc}")
             raise HTTPException(status_code=500, detail=f"清除失败: {exc}")
 
 

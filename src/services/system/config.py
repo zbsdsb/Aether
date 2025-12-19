@@ -78,19 +78,6 @@ class SystemConfigService:
             "value": False,
             "description": "是否自动删除过期的API Key（True=物理删除，False=仅禁用），仅管理员可配置",
         },
-        # 流式平滑输出配置
-        "stream_smoothing_enabled": {
-            "value": False,
-            "description": "是否启用流式平滑输出，自动根据文本长度调整输出速度",
-        },
-        "stream_smoothing_chunk_size": {
-            "value": 20,
-            "description": "流式平滑输出每个小块的字符数",
-        },
-        "stream_smoothing_delay_ms": {
-            "value": 8,
-            "description": "流式平滑输出每个小块之间的延迟毫秒数",
-        },
     }
 
     @classmethod

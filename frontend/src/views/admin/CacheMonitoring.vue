@@ -142,32 +142,37 @@ async function resetAffinitySearch() {
   await fetchAffinityList()
 }
 
-async function clearUserCache(identifier: string, displayName?: string) {
-  const target = identifier?.trim()
-  if (!target) {
-    showError('无法识别标识符')
+async function clearSingleAffinity(item: UserAffinity) {
+  const affinityKey = item.affinity_key?.trim()
+  const endpointId = item.endpoint_id?.trim()
+  const modelId = item.global_model_id?.trim()
+  const apiFormat = item.api_format?.trim()
+
+  if (!affinityKey || !endpointId || !modelId || !apiFormat) {
+    showError('缓存记录信息不完整，无法删除')
     return
   }
 
-  const label = displayName || target
+  const label = item.user_api_key_name || affinityKey
+  const modelLabel = item.model_display_name || item.model_name || modelId
   const confirmed = await showConfirm({
     title: '确认清除',
-    message: `确定要清除 ${label} 的缓存吗？`,
+    message: `确定要清除 ${label} 在模型 ${modelLabel} 上的缓存亲和性吗？`,
     confirmText: '确认清除',
     variant: 'destructive'
   })
 
   if (!confirmed) return
 
-  clearingRowAffinityKey.value = target
+  clearingRowAffinityKey.value = affinityKey
   try {
-    await cacheApi.clearUserCache(target)
+    await cacheApi.clearSingleAffinity(affinityKey, endpointId, modelId, apiFormat)
     showSuccess('清除成功')
     await fetchCacheStats()
     await fetchAffinityList(tableKeyword.value.trim() || undefined)
   } catch (error) {
     showError('清除失败')
-    log.error('清除用户缓存失败', error)
+    log.error('清除单条缓存失败', error)
   } finally {
     clearingRowAffinityKey.value = null
   }
@@ -618,7 +623,7 @@ onBeforeUnmount(() => {
                 class="h-7 w-7 text-muted-foreground/70 hover:text-destructive"
                 :disabled="clearingRowAffinityKey === item.affinity_key"
                 title="清除缓存"
-                @click="clearUserCache(item.affinity_key, item.user_api_key_name || item.affinity_key)"
+                @click="clearSingleAffinity(item)"
               >
                 <Trash2 class="h-3.5 w-3.5" />
               </Button>
@@ -668,7 +673,7 @@ onBeforeUnmount(() => {
               variant="ghost"
               class="h-7 w-7 text-muted-foreground/70 hover:text-destructive shrink-0"
               :disabled="clearingRowAffinityKey === item.affinity_key"
-              @click="clearUserCache(item.affinity_key, item.user_api_key_name || item.affinity_key)"
+              @click="clearSingleAffinity(item)"
             >
               <Trash2 class="h-3.5 w-3.5" />
             </Button>
