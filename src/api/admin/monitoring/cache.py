@@ -1236,7 +1236,7 @@ class AdminModelMappingCacheStatsAdapter(AdminApiAdapter):
                         try:
                             cached_data = json.loads(cached_str)
                             provider_model_name = cached_data.get("provider_model_name")
-                            provider_model_mappings = cached_data.get("provider_model_mappings", [])
+                            cached_model_mappings = cached_data.get("provider_model_mappings", [])
 
                             # 获取 Provider 和 GlobalModel 信息
                             provider = provider_map.get(provider_id)
@@ -1245,8 +1245,8 @@ class AdminModelMappingCacheStatsAdapter(AdminApiAdapter):
                             if provider and global_model:
                                 # 提取映射名称
                                 mapping_names = []
-                                if provider_model_mappings:
-                                    for mapping_entry in provider_model_mappings:
+                                if cached_model_mappings:
+                                    for mapping_entry in cached_model_mappings:
                                         if isinstance(mapping_entry, dict) and mapping_entry.get("name"):
                                             mapping_names.append(mapping_entry["name"])
 
