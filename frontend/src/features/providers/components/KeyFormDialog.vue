@@ -260,6 +260,7 @@ import {
   updateEndpointKey,
   getAllCapabilities,
   type EndpointAPIKey,
+  type EndpointAPIKeyUpdate,
   type ProviderEndpoint,
   type CapabilityDefinition
 } from '@/api/endpoints'
@@ -386,10 +387,11 @@ function loadKeyData() {
     api_key: '',
     rate_multiplier: props.editingKey.rate_multiplier || 1.0,
     internal_priority: props.editingKey.internal_priority ?? 50,
-    max_concurrent: props.editingKey.max_concurrent || undefined,
-    rate_limit: props.editingKey.rate_limit || undefined,
-    daily_limit: props.editingKey.daily_limit || undefined,
-    monthly_limit: props.editingKey.monthly_limit || undefined,
+    // 保留原始的 null/undefined 状态，null 表示自适应模式
+    max_concurrent: props.editingKey.max_concurrent ?? undefined,
+    rate_limit: props.editingKey.rate_limit ?? undefined,
+    daily_limit: props.editingKey.daily_limit ?? undefined,
+    monthly_limit: props.editingKey.monthly_limit ?? undefined,
     cache_ttl_minutes: props.editingKey.cache_ttl_minutes ?? 5,
     max_probe_interval_minutes: props.editingKey.max_probe_interval_minutes ?? 32,
     note: props.editingKey.note || '',
@@ -439,12 +441,17 @@ async function handleSave() {
   saving.value = true
   try {
     if (props.editingKey) {
-      // 更新
-      const updateData: any = {
+      // 更新模式
+      // 注意：max_concurrent 需要显式发送 null 来切换到自适应模式
+      // undefined 会在 JSON 中被忽略，所以用 null 表示"清空/自适应"
+      const updateData: EndpointAPIKeyUpdate = {
         name: form.value.name,
         rate_multiplier: form.value.rate_multiplier,
         internal_priority: form.value.internal_priority,
-        max_concurrent: form.value.max_concurrent,
+        // 显式使用 null 表示自适应模式，这样后端能区分"未提供"和"设置为 null"
+        // 注意：只有 max_concurrent 需要这种处理，因为它有"自适应模式"的概念
+        // 其他限制字段（rate_limit 等）不支持"清空"操作，undefined 会被 JSON 忽略即不更新
+        max_concurrent: form.value.max_concurrent === undefined ? null : form.value.max_concurrent,
         rate_limit: form.value.rate_limit,
         daily_limit: form.value.daily_limit,
         monthly_limit: form.value.monthly_limit,

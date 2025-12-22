@@ -226,8 +226,11 @@ class EndpointAPIKeyUpdate(BaseModel):
     global_priority: Optional[int] = Field(
         default=None, description="全局 Key 优先级（全局 Key 优先模式，数字越小越优先）"
     )
-    # 注意：max_concurrent=None 表示不更新，要切换为自适应模式请使用专用 API
-    max_concurrent: Optional[int] = Field(default=None, ge=1, description="最大并发数")
+    # max_concurrent: 使用特殊标记区分"未提供"和"设置为 null（自适应模式）"
+    # - 不提供字段：不更新
+    # - 提供 null：切换为自适应模式
+    # - 提供数字：设置固定并发限制
+    max_concurrent: Optional[int] = Field(default=None, ge=1, description="最大并发数（null=自适应模式）")
     rate_limit: Optional[int] = Field(default=None, ge=1, description="速率限制")
     daily_limit: Optional[int] = Field(default=None, ge=1, description="每日限制")
     monthly_limit: Optional[int] = Field(default=None, ge=1, description="每月限制")

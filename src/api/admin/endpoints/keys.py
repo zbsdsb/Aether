@@ -246,6 +246,15 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
         if "api_key" in update_data:
             update_data["api_key"] = crypto_service.encrypt(update_data["api_key"])
 
+        # 特殊处理 max_concurrent：需要区分"未提供"和"显式设置为 null"
+        # 当 max_concurrent 被显式设置时（在 model_fields_set 中），即使值为 None 也应该更新
+        if "max_concurrent" in self.key_data.model_fields_set:
+            update_data["max_concurrent"] = self.key_data.max_concurrent
+            # 切换到自适应模式时，清空学习到的并发限制，让系统重新学习
+            if self.key_data.max_concurrent is None:
+                update_data["learned_max_concurrent"] = None
+                logger.info("Key %s 切换为自适应并发模式", self.key_id)
+
         for field, value in update_data.items():
             setattr(key, field, value)
         key.updated_at = datetime.now(timezone.utc)
@@ -253,7 +262,7 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
         db.commit()
         db.refresh(key)
 
-        logger.info(f"[OK] 更新 Key: ID={self.key_id}, Updates={list(update_data.keys())}")
+        logger.info("[OK] 更新 Key: ID=%s, Updates=%s", self.key_id, list(update_data.keys()))
 
         try:
             decrypted_key = crypto_service.decrypt(key.api_key)

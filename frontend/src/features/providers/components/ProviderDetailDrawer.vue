@@ -483,9 +483,9 @@
                                   <span
                                     v-if="key.max_concurrent || key.is_adaptive"
                                     class="text-muted-foreground"
-                                    :title="key.is_adaptive ? `自适应并发限制（学习值: ${key.learned_max_concurrent ?? '未学习'}）` : '固定并发限制'"
+                                    :title="key.is_adaptive ? `自适应并发限制（学习值: ${key.learned_max_concurrent ?? '未学习'}）` : `固定并发限制: ${key.max_concurrent}`"
                                   >
-                                    {{ key.is_adaptive ? '自适应' : '固定' }}并发: {{ key.learned_max_concurrent || key.max_concurrent || 3 }}
+                                    {{ key.is_adaptive ? '自适应' : '固定' }}并发: {{ key.is_adaptive ? (key.learned_max_concurrent ?? '学习中') : key.max_concurrent }}
                                   </span>
                                 </div>
                               </div>

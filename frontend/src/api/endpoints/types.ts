@@ -110,6 +110,24 @@ export interface EndpointAPIKey {
   request_results_window?: Array<{ ts: number; ok: boolean }>  // 请求结果滑动窗口
 }
 
+export interface EndpointAPIKeyUpdate {
+  name?: string
+  api_key?: string  // 仅在需要更新时提供
+  rate_multiplier?: number
+  internal_priority?: number
+  global_priority?: number | null
+  max_concurrent?: number | null  // null 表示切换为自适应模式
+  rate_limit?: number
+  daily_limit?: number
+  monthly_limit?: number
+  allowed_models?: string[] | null
+  capabilities?: Record<string, boolean> | null
+  cache_ttl_minutes?: number
+  max_probe_interval_minutes?: number
+  note?: string
+  is_active?: boolean
+}
+
 export interface EndpointHealthDetail {
   api_format: string
   health_score: number

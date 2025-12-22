@@ -77,7 +77,10 @@ class ConcurrencyDefaults:
     MAX_CONCURRENT_LIMIT = 200
 
     # 最小并发限制下限
-    MIN_CONCURRENT_LIMIT = 1
+    # 设置为 3 而不是 1，因为预留机制（10%预留给缓存用户）会导致
+    # 当 learned_max_concurrent=1 时新用户实际可用槽位为 0，永远无法命中
+    # 注意：当 limit < 10 时，预留机制实际不生效（预留槽位 = 0），这是可接受的
+    MIN_CONCURRENT_LIMIT = 3
 
     # === 探测性扩容参数 ===
     # 探测性扩容间隔（分钟）- 长时间无 429 且有流量时尝试扩容
