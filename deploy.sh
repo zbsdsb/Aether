@@ -179,7 +179,13 @@ else
     echo ">>> Dependencies unchanged."
 fi
 
-# 检查代码是否变化，或者 base 重建了（app 依赖 base）
+# 检查代码或迁移是否变化，或者 base 重建了（app 依赖 base）
+# 注意：迁移文件打包在镜像中，所以迁移变化也需要重建 app 镜像
+MIGRATION_CHANGED=false
+if check_migration_changed; then
+    MIGRATION_CHANGED=true
+fi
+
 if ! docker image inspect aether-app:latest >/dev/null 2>&1; then
     echo ">>> App image not found, building..."
     build_app
@@ -190,6 +196,10 @@ elif [ "$BASE_REBUILT" = true ]; then
     NEED_RESTART=true
 elif check_code_changed; then
     echo ">>> Code changed, rebuilding app image..."
+    build_app
+    NEED_RESTART=true
+elif [ "$MIGRATION_CHANGED" = true ]; then
+    echo ">>> Migration files changed, rebuilding app image..."
     build_app
     NEED_RESTART=true
 else
@@ -204,9 +214,9 @@ else
     echo ">>> No changes detected, skipping restart."
 fi
 
-# 检查迁移变化
-if check_migration_changed; then
-    echo ">>> Migration files changed, running database migration..."
+# 检查迁移变化（如果前面已经检测到变化并重建了镜像，这里直接运行迁移）
+if [ "$MIGRATION_CHANGED" = true ]; then
+    echo ">>> Running database migration..."
     sleep 3
     run_migration
 else
