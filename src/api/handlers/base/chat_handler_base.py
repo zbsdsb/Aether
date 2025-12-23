@@ -484,9 +484,8 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
 
             stream_response.raise_for_status()
 
-            # 使用字节流迭代器（避免 aiter_lines 的性能问题）
-            # aiter_raw() 返回原始数据块，无缓冲，实现真正的流式传输
-            byte_iterator = stream_response.aiter_raw()
+            # 使用字节流迭代器（避免 aiter_lines 的性能问题, aiter_bytes 会自动解压 gzip/deflate）
+            byte_iterator = stream_response.aiter_bytes()
 
             # 预读检测嵌套错误
             prefetched_chunks = await stream_processor.prefetch_and_check_error(
