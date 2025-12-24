@@ -301,6 +301,7 @@ function stopGlobalAutoRefresh() {
 function handleAutoRefreshChange(value: boolean) {
   globalAutoRefresh.value = value
   if (value) {
+    refreshData() // 立即刷新一次
     startGlobalAutoRefresh()
   } else {
     stopGlobalAutoRefresh()

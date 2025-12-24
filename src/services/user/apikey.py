@@ -59,14 +59,15 @@ class ApiKeyService:
         if expire_days:
             expires_at = datetime.now(timezone.utc) + timedelta(days=expire_days)
 
+        # 空数组转为 None（表示不限制）
         api_key = ApiKey(
             user_id=user_id,
             key_hash=key_hash,
             key_encrypted=key_encrypted,
             name=name or f"API Key {datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-            allowed_providers=allowed_providers,
-            allowed_api_formats=allowed_api_formats,
-            allowed_models=allowed_models,
+            allowed_providers=allowed_providers or None,
+            allowed_api_formats=allowed_api_formats or None,
+            allowed_models=allowed_models or None,
             rate_limit=rate_limit,
             concurrent_limit=concurrent_limit,
             expires_at=expires_at,
@@ -141,8 +142,18 @@ class ApiKeyService:
             "auto_delete_on_expiry",
         ]
 
+        # 允许显式设置为空数组/None 的字段（空数组会转为 None，表示"全部"）
+        nullable_list_fields = {"allowed_providers", "allowed_api_formats", "allowed_models"}
+
         for field, value in kwargs.items():
-            if field in updatable_fields and value is not None:
+            if field not in updatable_fields:
+                continue
+            # 对于 nullable_list_fields，空数组应该转为 None（表示不限制）
+            if field in nullable_list_fields:
+                if value is not None:
+                    # 空数组转为 None（表示允许全部）
+                    setattr(api_key, field, value if value else None)
+            elif value is not None:
                 setattr(api_key, field, value)
 
         api_key.updated_at = datetime.now(timezone.utc)

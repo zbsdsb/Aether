@@ -1046,9 +1046,10 @@ async function handleKeyFormSubmit(data: StandaloneKeyFormData) {
         rate_limit: data.rate_limit,
         expire_days: data.never_expire ? null : (data.expire_days || null),
         auto_delete_on_expiry: data.auto_delete_on_expiry,
-        allowed_providers: data.allowed_providers.length > 0 ? data.allowed_providers : undefined,
-        allowed_api_formats: data.allowed_api_formats.length > 0 ? data.allowed_api_formats : undefined,
-        allowed_models: data.allowed_models.length > 0 ? data.allowed_models : undefined
+        // 空数组表示清除限制（允许全部），后端会将空数组存为 NULL
+        allowed_providers: data.allowed_providers,
+        allowed_api_formats: data.allowed_api_formats,
+        allowed_models: data.allowed_models
       }
       await adminApi.updateApiKey(data.id, updateData)
       success('API Key 更新成功')
@@ -1064,9 +1065,10 @@ async function handleKeyFormSubmit(data: StandaloneKeyFormData) {
         rate_limit: data.rate_limit,
         expire_days: data.never_expire ? null : (data.expire_days || null),
         auto_delete_on_expiry: data.auto_delete_on_expiry,
-        allowed_providers: data.allowed_providers.length > 0 ? data.allowed_providers : undefined,
-        allowed_api_formats: data.allowed_api_formats.length > 0 ? data.allowed_api_formats : undefined,
-        allowed_models: data.allowed_models.length > 0 ? data.allowed_models : undefined
+        // 空数组表示不设置限制（允许全部），后端会将空数组存为 NULL
+        allowed_providers: data.allowed_providers,
+        allowed_api_formats: data.allowed_api_formats,
+        allowed_models: data.allowed_models
       }
       const response = await adminApi.createStandaloneApiKey(createData)
       newKeyValue.value = response.key
