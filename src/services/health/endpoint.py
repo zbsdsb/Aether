@@ -234,8 +234,8 @@ class EndpointHealthService:
                 for api_format in format_key_mapping.keys()
             }
 
-        # 计算时间范围
-        interval_minutes = (lookback_hours * 60) // segments
+        # 计算时间范围（使用秒级精度避免整除导致的除零错误）
+        segment_seconds = (lookback_hours * 3600) / segments
         start_time = now - timedelta(hours=lookback_hours)
 
         # 使用 RequestCandidate 表查询所有尝试记录
@@ -243,7 +243,7 @@ class EndpointHealthService:
         final_statuses = ["success", "failed", "skipped"]
 
         segment_expr = func.floor(
-            func.extract('epoch', RequestCandidate.created_at - start_time) / (interval_minutes * 60)
+            func.extract('epoch', RequestCandidate.created_at - start_time) / segment_seconds
         ).label('segment_idx')
 
         candidate_stats = (
