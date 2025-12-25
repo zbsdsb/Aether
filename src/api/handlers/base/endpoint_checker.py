@@ -1243,7 +1243,7 @@ class EndpointCheckOrchestrator:
                     api_format=api_format,
                 )
 
-                logger.info(f"[{request.api_format}] Usage calculated successfully: {usage_data}")
+                logger.info(f"[{request.api_format}] Usage calculated successfully: {result.usage_data}")
             except Exception as e:
                 logger.error(f"[{request.api_format}] Failed to calculate usage: {e}")
                 import traceback

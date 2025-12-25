@@ -193,6 +193,7 @@ import {
   type ProviderModelAlias
 } from '@/api/endpoints'
 import { updateModel } from '@/api/endpoints/models'
+import { parseTestModelError } from '@/utils/errorParser'
 
 const props = defineProps<{
   provider: any
@@ -368,8 +369,6 @@ async function testMapping(group: any, mapping: any) {
       apiFormat = group.model.effective_api_format || group.model.api_format
     }
 
-    console.log(`测试映射 ${mapping.name}，使用 API Format: ${apiFormat}`)
-
     const result = await testModel({
       provider_id: props.provider.id,
       model_name: mapping.name,  // 使用映射名称进行测试
@@ -388,37 +387,7 @@ async function testMapping(group: any, mapping: any) {
         showSuccess(`流式测试成功，预览: ${result.data.content_preview}`)
       }
     } else {
-      // 根据不同的错误类型显示更详细的信息
-      let errorMsg = result.error || '测试失败'
-
-      // 检查HTTP状态码错误
-      if (result.data?.response?.status_code) {
-        const status = result.data.response.status_code
-        if (status === 403) {
-          errorMsg = '认证失败: API密钥无效或客户端类型不被允许'
-        } else if (status === 401) {
-          errorMsg = '认证失败: API密钥无效或已过期'
-        } else if (status === 404) {
-          errorMsg = '模型不存在: 请检查模型名称是否正确'
-        } else if (status === 429) {
-          errorMsg = '请求频率过高: 请稍后重试'
-        } else if (status >= 500) {
-          errorMsg = `服务器错误: HTTP ${status}`
-        } else {
-          errorMsg = `请求失败: HTTP ${status}`
-        }
-      }
-
-      // 尝试从错误响应中提取更多信息
-      if (result.data?.response?.error) {
-        if (typeof result.data.response.error === 'string') {
-          errorMsg = result.data.response.error
-        } else if (result.data.response.error?.message) {
-          errorMsg = result.data.response.error.message
-        }
-      }
-
-      showError(`映射测试失败: ${errorMsg}`)
+      showError(`映射测试失败: ${parseTestModelError(result)}`)
     }
   } catch (err: any) {
     const errorMsg = err.response?.data?.detail || err.message || '测试请求失败'

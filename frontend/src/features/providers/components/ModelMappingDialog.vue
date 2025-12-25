@@ -518,7 +518,7 @@ function initForm() {
     upstreamModels.value = []
   }
 }
- 
+
 // 处理模型选择变更
 function handleModelChange(value: string) {
   formData.value.modelId = value
