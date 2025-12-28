@@ -650,6 +650,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
+import { useClipboard } from '@/composables/useClipboard'
 import { adminApi, type AdminApiKey, type CreateStandaloneApiKeyRequest } from '@/api/admin'
 
 import {
@@ -693,6 +694,7 @@ import { log } from '@/utils/logger'
 
 const { success, error } = useToast()
 const { confirmDanger } = useConfirm()
+const { copyToClipboard } = useClipboard()
 
 const apiKeys = ref<AdminApiKey[]>([])
 const loading = ref(false)
@@ -927,20 +929,14 @@ function selectKey() {
 }
 
 async function copyKey() {
-  try {
-    await navigator.clipboard.writeText(newKeyValue.value)
-    success('API Key 已复制到剪贴板')
-  } catch {
-    error('复制失败，请手动复制')
-  }
+  await copyToClipboard(newKeyValue.value)
 }
 
 async function copyKeyPrefix(apiKey: AdminApiKey) {
   try {
     // 调用后端 API 获取完整密钥
     const response = await adminApi.getFullApiKey(apiKey.id)
-    await navigator.clipboard.writeText(response.key)
-    success('完整密钥已复制到剪贴板')
+    await copyToClipboard(response.key)
   } catch (err) {
     log.error('复制密钥失败:', err)
     error('复制失败，请重试')

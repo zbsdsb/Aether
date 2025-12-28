@@ -4,11 +4,11 @@ import { log } from '@/utils/logger'
 export function useClipboard() {
   const { success, error: showError } = useToast()
 
-  async function copyToClipboard(text: string): Promise<boolean> {
+  async function copyToClipboard(text: string, showToast = true): Promise<boolean> {
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text)
-        success('已复制到剪贴板')
+        if (showToast) success('已复制到剪贴板')
         return true
       }
 
@@ -25,17 +25,17 @@ export function useClipboard() {
       try {
         const successful = document.execCommand('copy')
         if (successful) {
-          success('已复制到剪贴板')
+          if (showToast) success('已复制到剪贴板')
           return true
         }
-        showError('复制失败，请手动复制')
+        if (showToast) showError('复制失败，请手动复制')
         return false
       } finally {
         document.body.removeChild(textArea)
       }
     } catch (err) {
       log.error('复制失败:', err)
-      showError('复制失败，请手动选择文本进行复制')
+      if (showToast) showError('复制失败，请手动选择文本进行复制')
       return false
     }
   }

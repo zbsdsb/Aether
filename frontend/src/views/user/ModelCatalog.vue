@@ -342,6 +342,7 @@ import {
   Plus,
 } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
+import { useClipboard } from '@/composables/useClipboard'
 import {
   Card,
   Table,
@@ -370,6 +371,7 @@ import { useRowClick } from '@/composables/useRowClick'
 import { log } from '@/utils/logger'
 
 const { success, error: showError } = useToast()
+const { copyToClipboard } = useClipboard()
 
 // 状态
 const loading = ref(false)
@@ -563,16 +565,6 @@ function getFirstTierPrice(model: PublicGlobalModel, type: 'input' | 'output'): 
 function hasTieredPricing(model: PublicGlobalModel): boolean {
   const tiered = model.default_tiered_pricing
   return (tiered?.tiers?.length || 0) > 1
-}
-
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    success('已复制')
-  } catch (err) {
-    log.error('复制失败:', err)
-    showError('复制失败')
-  }
 }
 
 onMounted(() => {

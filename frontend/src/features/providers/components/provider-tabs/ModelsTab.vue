@@ -224,6 +224,7 @@ import { Box, Edit, Trash2, Layers, Eye, Wrench, Zap, Brain, Power, Copy, Image,
 import Card from '@/components/ui/card.vue'
 import Button from '@/components/ui/button.vue'
 import { useToast } from '@/composables/useToast'
+import { useClipboard } from '@/composables/useClipboard'
 import { getProviderModels, testModel, type Model } from '@/api/endpoints'
 import { updateModel } from '@/api/endpoints/models'
 import { parseTestModelError } from '@/utils/errorParser'
@@ -239,6 +240,7 @@ const emit = defineEmits<{
 }>()
 
 const { error: showError, success: showSuccess } = useToast()
+const { copyToClipboard } = useClipboard()
 
 // 状态
 const loading = ref(false)
@@ -257,12 +259,7 @@ const sortedModels = computed(() => {
 
 // 复制模型 ID 到剪贴板
 async function copyModelId(modelId: string) {
-  try {
-    await navigator.clipboard.writeText(modelId)
-    showSuccess('已复制到剪贴板')
-  } catch {
-    showError('复制失败', '错误')
-  }
+  await copyToClipboard(modelId)
 }
 
 // 加载模型

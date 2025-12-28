@@ -700,6 +700,7 @@ import {
 } from 'lucide-vue-next'
 import { useEscapeKey } from '@/composables/useEscapeKey'
 import { useToast } from '@/composables/useToast'
+import { useClipboard } from '@/composables/useClipboard'
 import Card from '@/components/ui/card.vue'
 import Badge from '@/components/ui/badge.vue'
 import Button from '@/components/ui/button.vue'
@@ -731,6 +732,7 @@ const emit = defineEmits<{
   'refreshProviders': []
 }>()
 const { success: showSuccess, error: showError } = useToast()
+const { copyToClipboard } = useClipboard()
 
 interface Props {
   model: GlobalModelResponse | null
@@ -760,16 +762,6 @@ function handleBackdropClick() {
 function handleClose() {
   if (!props.hasBlockingDialogOpen) {
     emit('update:open', false)
-  }
-}
-
-// 复制到剪贴板
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    showSuccess('已复制')
-  } catch {
-    showError('复制失败')
   }
 }
 

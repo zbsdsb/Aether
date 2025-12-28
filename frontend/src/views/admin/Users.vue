@@ -701,6 +701,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useUsersStore } from '@/stores/users'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
+import { useClipboard } from '@/composables/useClipboard'
 import { usageApi, type UsageByUser } from '@/api/usage'
 import { adminApi } from '@/api/admin'
 
@@ -748,6 +749,7 @@ import { log } from '@/utils/logger'
 
 const { success, error } = useToast()
 const { confirmDanger, confirmWarning } = useConfirm()
+const { copyToClipboard } = useClipboard()
 const usersStore = useUsersStore()
 
 // 用户表单对话框状态
@@ -1001,12 +1003,7 @@ function selectApiKey() {
 }
 
 async function copyApiKey() {
-  try {
-    await navigator.clipboard.writeText(newApiKey.value)
-    success('API Key已复制到剪贴板')
-  } catch {
-    error('复制失败，请手动复制')
-  }
+  await copyToClipboard(newApiKey.value)
 }
 
 async function closeNewApiKeyDialog() {
@@ -1035,8 +1032,7 @@ async function copyFullKey(apiKey: any) {
   try {
     // 调用后端 API 获取完整密钥
     const response = await adminApi.getFullApiKey(apiKey.id)
-    await navigator.clipboard.writeText(response.key)
-    success('完整密钥已复制到剪贴板')
+    await copyToClipboard(response.key)
   } catch (err: any) {
     log.error('复制密钥失败:', err)
     error(err.response?.data?.error?.message || err.response?.data?.detail || '未知错误', '复制密钥失败')

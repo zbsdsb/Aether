@@ -661,6 +661,7 @@ import Button from '@/components/ui/button.vue'
 import Badge from '@/components/ui/badge.vue'
 import Card from '@/components/ui/card.vue'
 import { useToast } from '@/composables/useToast'
+import { useClipboard } from '@/composables/useClipboard'
 import { getProvider, getProviderEndpoints } from '@/api/endpoints'
 import {
   KeyFormDialog,
@@ -706,6 +707,7 @@ const emit = defineEmits<{
 }>()
 
 const { error: showError, success: showSuccess } = useToast()
+const { copyToClipboard } = useClipboard()
 
 const loading = ref(false)
 const provider = ref<any>(null)
@@ -1248,16 +1250,6 @@ function getHealthScoreBarColor(score: number): string {
   if (score >= 0.8) return 'bg-green-500 dark:bg-green-400'
   if (score >= 0.5) return 'bg-yellow-500 dark:bg-yellow-400'
   return 'bg-red-500 dark:bg-red-400'
-}
-
-// 复制到剪贴板
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    showSuccess('已复制到剪贴板')
-  } catch {
-    showError('复制失败', '错误')
-  }
 }
 
 // 加载 Provider 信息

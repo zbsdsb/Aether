@@ -473,6 +473,7 @@
 import { ref, watch, computed } from 'vue'
 import Button from '@/components/ui/button.vue'
 import { useEscapeKey } from '@/composables/useEscapeKey'
+import { useClipboard } from '@/composables/useClipboard'
 import Card from '@/components/ui/card.vue'
 import Badge from '@/components/ui/badge.vue'
 import Separator from '@/components/ui/separator.vue'
@@ -505,6 +506,7 @@ const copiedStates = ref<Record<string, boolean>>({})
 const viewMode = ref<'compare' | 'formatted' | 'raw'>('compare')
 const currentExpandDepth = ref(1)
 const dataSource = ref<'client' | 'provider'>('client')
+const { copyToClipboard } = useClipboard()
 const historicalPricing = ref<{
   input_price: string
   output_price: string
@@ -784,7 +786,7 @@ function copyJsonToClipboard(tabName: string) {
   }
 
   if (data) {
-    navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+    copyToClipboard(JSON.stringify(data, null, 2), false)
     copiedStates.value[tabName] = true
     setTimeout(() => {
       copiedStates.value[tabName] = false

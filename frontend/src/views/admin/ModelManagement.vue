@@ -713,6 +713,7 @@ import ProviderModelFormDialog from '@/features/providers/components/ProviderMod
 import type { Model } from '@/api/endpoints'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
+import { useClipboard } from '@/composables/useClipboard'
 import { useRowClick } from '@/composables/useRowClick'
 import { parseApiError } from '@/utils/errorParser'
 import {
@@ -743,6 +744,7 @@ import { getProvidersSummary } from '@/api/endpoints/providers'
 import { getAllCapabilities, type CapabilityDefinition } from '@/api/endpoints'
 
 const { success, error: showError } = useToast()
+const { copyToClipboard } = useClipboard()
 
 // 状态
 const loading = ref(false)
@@ -1064,16 +1066,6 @@ const { handleMouseDown, shouldTriggerRowClick } = useRowClick()
 function handleRowClick(event: MouseEvent, model: GlobalModelResponse) {
   if (!shouldTriggerRowClick(event)) return
   selectModel(model)
-}
-
-// 复制到剪贴板
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    success('已复制')
-  } catch {
-    showError('复制失败')
-  }
 }
 
 async function selectModel(model: GlobalModelResponse) {
