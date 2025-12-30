@@ -274,6 +274,13 @@ class GlobalModelListResponse(BaseModel):
     total: int
 
 
+class GlobalModelProvidersResponse(BaseModel):
+    """GlobalModel 关联提供商列表响应"""
+
+    providers: List[ModelCatalogProviderDetail]
+    total: int
+
+
 class BatchAssignToProvidersRequest(BaseModel):
     """批量为 Provider 添加 GlobalModel 实现"""
 

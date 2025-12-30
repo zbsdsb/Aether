@@ -737,6 +737,7 @@ import {
   updateGlobalModel,
   deleteGlobalModel,
   batchAssignToProviders,
+  getGlobalModelProviders,
   type GlobalModelResponse,
 } from '@/api/global-models'
 import { log } from '@/utils/logger'
@@ -1080,42 +1081,32 @@ async function selectModel(model: GlobalModelResponse) {
 async function loadModelProviders(_globalModelId: string) {
   loadingModelProviders.value = true
   try {
-    // 使用 ModelCatalog API 获取详细的关联提供商信息
-    const { getModelCatalog } = await import('@/api/endpoints')
-    const catalogResponse = await getModelCatalog()
+    // 使用新的 API 获取所有关联提供商（包括非活跃的）
+    const response = await getGlobalModelProviders(_globalModelId)
 
-    // 查找当前 GlobalModel 对应的 catalog item
-    const catalogItem = catalogResponse.models.find(
-      m => m.global_model_name === selectedModel.value?.name
-    )
-
-    if (catalogItem) {
-      // 转换为展示格式，包含完整的模型实现信息
-      selectedModelProviders.value = catalogItem.providers.map(p => ({
-        id: p.provider_id,
-        model_id: p.model_id,
-        display_name: p.provider_display_name || p.provider_name,
-        identifier: p.provider_name,
-        provider_type: 'API',
-        target_model: p.target_model,
-        is_active: p.is_active,
-        // 价格信息
-        input_price_per_1m: p.input_price_per_1m,
-        output_price_per_1m: p.output_price_per_1m,
-        cache_creation_price_per_1m: p.cache_creation_price_per_1m,
-        cache_read_price_per_1m: p.cache_read_price_per_1m,
-        cache_1h_creation_price_per_1m: p.cache_1h_creation_price_per_1m,
-        price_per_request: p.price_per_request,
-        effective_tiered_pricing: p.effective_tiered_pricing,
-        tier_count: p.tier_count,
-        // 能力信息
-        supports_vision: p.supports_vision,
-        supports_function_calling: p.supports_function_calling,
-        supports_streaming: p.supports_streaming
-      }))
-    } else {
-      selectedModelProviders.value = []
-    }
+    // 转换为展示格式
+    selectedModelProviders.value = response.providers.map(p => ({
+      id: p.provider_id,
+      model_id: p.model_id,
+      display_name: p.provider_display_name || p.provider_name,
+      identifier: p.provider_name,
+      provider_type: 'API',
+      target_model: p.target_model,
+      is_active: p.is_active,
+      // 价格信息
+      input_price_per_1m: p.input_price_per_1m,
+      output_price_per_1m: p.output_price_per_1m,
+      cache_creation_price_per_1m: p.cache_creation_price_per_1m,
+      cache_read_price_per_1m: p.cache_read_price_per_1m,
+      cache_1h_creation_price_per_1m: p.cache_1h_creation_price_per_1m,
+      price_per_request: p.price_per_request,
+      effective_tiered_pricing: p.effective_tiered_pricing,
+      tier_count: p.tier_count,
+      // 能力信息
+      supports_vision: p.supports_vision,
+      supports_function_calling: p.supports_function_calling,
+      supports_streaming: p.supports_streaming
+    }))
   } catch (err: any) {
     log.error('加载关联提供商失败:', err)
     showError(parseApiError(err, '加载关联提供商失败'), '错误')

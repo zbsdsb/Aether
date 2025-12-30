@@ -4,7 +4,8 @@ import type {
   GlobalModelUpdate,
   GlobalModelResponse,
   GlobalModelWithStats,
-  GlobalModelListResponse
+  GlobalModelListResponse,
+  ModelCatalogProviderDetail,
 } from './types'
 
 /**
@@ -80,6 +81,19 @@ export async function batchAssignToProviders(
   const response = await client.post(
     `/api/admin/models/global/${globalModelId}/assign-to-providers`,
     data
+  )
+  return response.data
+}
+
+/**
+ * 获取 GlobalModel 的所有关联提供商（包括非活跃的）
+ */
+export async function getGlobalModelProviders(globalModelId: string): Promise<{
+  providers: ModelCatalogProviderDetail[]
+  total: number
+}> {
+  const response = await client.get(
+    `/api/admin/models/global/${globalModelId}/providers`
   )
   return response.data
 }

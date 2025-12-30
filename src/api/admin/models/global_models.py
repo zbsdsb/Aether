@@ -5,7 +5,7 @@ GlobalModel Admin API
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
@@ -19,9 +19,11 @@ from src.models.pydantic_models import (
     BatchAssignToProvidersResponse,
     GlobalModelCreate,
     GlobalModelListResponse,
+    GlobalModelProvidersResponse,
     GlobalModelResponse,
     GlobalModelUpdate,
     GlobalModelWithStats,
+    ModelCatalogProviderDetail,
 )
 from src.services.model.global_model import GlobalModelService
 
@@ -105,6 +107,17 @@ async def batch_assign_to_providers(
 ) -> BatchAssignToProvidersResponse:
     """批量为多个 Provider 添加 GlobalModel 实现"""
     adapter = AdminBatchAssignToProvidersAdapter(global_model_id=global_model_id, payload=payload)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.get("/{global_model_id}/providers", response_model=GlobalModelProvidersResponse)
+async def get_global_model_providers(
+    request: Request,
+    global_model_id: str,
+    db: Session = Depends(get_db),
+) -> GlobalModelProvidersResponse:
+    """获取 GlobalModel 的所有关联提供商（包括非活跃的）"""
+    adapter = AdminGetGlobalModelProvidersAdapter(global_model_id=global_model_id)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -275,3 +288,61 @@ class AdminBatchAssignToProvidersAdapter(AdminApiAdapter):
         logger.info(f"批量为 Provider 添加 GlobalModel: global_model_id={self.global_model_id} success={len(result['success'])} errors={len(result['errors'])}")
 
         return BatchAssignToProvidersResponse(**result)
+
+
+@dataclass
+class AdminGetGlobalModelProvidersAdapter(AdminApiAdapter):
+    """获取 GlobalModel 的所有关联提供商（包括非活跃的）"""
+
+    global_model_id: str
+
+    async def handle(self, context):  # type: ignore[override]
+        from sqlalchemy.orm import joinedload
+
+        from src.models.database import Model
+
+        global_model = GlobalModelService.get_global_model(context.db, self.global_model_id)
+
+        # 获取所有关联的 Model（包括非活跃的）
+        models = (
+            context.db.query(Model)
+            .options(joinedload(Model.provider), joinedload(Model.global_model))
+            .filter(Model.global_model_id == global_model.id)
+            .all()
+        )
+
+        provider_entries = []
+        for model in models:
+            provider = model.provider
+            if not provider:
+                continue
+
+            effective_tiered = model.get_effective_tiered_pricing()
+            tier_count = len(effective_tiered.get("tiers", [])) if effective_tiered else 1
+
+            provider_entries.append(
+                ModelCatalogProviderDetail(
+                    provider_id=provider.id,
+                    provider_name=provider.name,
+                    provider_display_name=provider.display_name,
+                    model_id=model.id,
+                    target_model=model.provider_model_name,
+                    input_price_per_1m=model.get_effective_input_price(),
+                    output_price_per_1m=model.get_effective_output_price(),
+                    cache_creation_price_per_1m=model.get_effective_cache_creation_price(),
+                    cache_read_price_per_1m=model.get_effective_cache_read_price(),
+                    cache_1h_creation_price_per_1m=model.get_effective_1h_cache_creation_price(),
+                    price_per_request=model.get_effective_price_per_request(),
+                    effective_tiered_pricing=effective_tiered,
+                    tier_count=tier_count,
+                    supports_vision=model.get_effective_supports_vision(),
+                    supports_function_calling=model.get_effective_supports_function_calling(),
+                    supports_streaming=model.get_effective_supports_streaming(),
+                    is_active=bool(model.is_active),
+                )
+            )
+
+        return GlobalModelProvidersResponse(
+            providers=provider_entries,
+            total=len(provider_entries),
+        )

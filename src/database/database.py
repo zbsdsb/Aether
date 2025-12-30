@@ -360,6 +360,9 @@ def init_db():
 
     注意：数据库表结构由 Alembic 管理，部署时请运行 ./migrate.sh
     """
+    import sys
+    from sqlalchemy.exc import OperationalError
+
     logger.info("初始化数据库...")
 
     # 确保引擎已创建
@@ -381,6 +384,38 @@ def init_db():
 
         db.commit()
         logger.info("数据库初始化完成")
+
+    except OperationalError as e:
+        db.rollback()
+        # 提取数据库连接信息用于提示
+        db_url = config.database_url
+        # 隐藏密码，只显示 host:port/database
+        if "@" in db_url:
+            db_info = db_url.split("@")[-1]
+        else:
+            db_info = db_url
+
+        import os
+
+        # 直接打印到 stderr，确保消息显示
+        print("", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        print("数据库连接失败", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        print("", file=sys.stderr)
+        print(f"无法连接到数据库: {db_info}", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("请检查以下事项:", file=sys.stderr)
+        print("  1. PostgreSQL 服务是否正在运行", file=sys.stderr)
+        print("  2. 数据库连接配置是否正确 (DATABASE_URL)", file=sys.stderr)
+        print("  3. 数据库用户名和密码是否正确", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("如果使用 Docker，请先运行:", file=sys.stderr)
+        print("  docker-compose up -d postgres redis", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        # 使用 os._exit 直接退出，避免 uvicorn 捕获并打印堆栈
+        os._exit(1)
 
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")

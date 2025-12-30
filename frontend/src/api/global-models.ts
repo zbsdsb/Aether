@@ -20,4 +20,5 @@ export {
   updateGlobalModel,
   deleteGlobalModel,
   batchAssignToProviders,
+  getGlobalModelProviders,
 } from './endpoints/global-models'
