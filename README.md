@@ -167,7 +167,7 @@ cd frontend && npm install && npm run dev
 ## 联系作者
 
 <p align="center">
-  <img src="docs/author/qq_qrcode.JPG" width="200" alt="QQ二维码">
+  <img src="docs/author/qq_qrcode.jpg" width="200" alt="QQ二维码">
 </p>
 
 ## Star History
