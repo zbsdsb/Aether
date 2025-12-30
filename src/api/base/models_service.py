@@ -114,6 +114,7 @@ class AccessRestrictions:
 
     allowed_providers: Optional[list[str]] = None  # 允许的 Provider ID 列表
     allowed_models: Optional[list[str]] = None  # 允许的模型名称列表
+    allowed_api_formats: Optional[list[str]] = None  # 允许的 API 格式列表
 
     @classmethod
     def from_api_key_and_user(
@@ -130,6 +131,7 @@ class AccessRestrictions:
         """
         allowed_providers: Optional[list[str]] = None
         allowed_models: Optional[list[str]] = None
+        allowed_api_formats: Optional[list[str]] = None
 
         # 优先使用 API Key 的限制
         if api_key:
@@ -137,15 +139,36 @@ class AccessRestrictions:
                 allowed_providers = api_key.allowed_providers
             if api_key.allowed_models is not None:
                 allowed_models = api_key.allowed_models
+            if api_key.allowed_api_formats is not None:
+                allowed_api_formats = api_key.allowed_api_formats
 
         # 如果 API Key 没有限制，检查 User 的限制
+        # 注意: User 没有 allowed_api_formats 字段
         if user:
             if allowed_providers is None and user.allowed_providers is not None:
                 allowed_providers = user.allowed_providers
             if allowed_models is None and user.allowed_models is not None:
                 allowed_models = user.allowed_models
 
-        return cls(allowed_providers=allowed_providers, allowed_models=allowed_models)
+        return cls(
+            allowed_providers=allowed_providers,
+            allowed_models=allowed_models,
+            allowed_api_formats=allowed_api_formats,
+        )
+
+    def is_api_format_allowed(self, api_format: str) -> bool:
+        """
+        检查 API 格式是否被允许
+
+        Args:
+            api_format: API 格式 (如 "OPENAI", "CLAUDE", "GEMINI")
+
+        Returns:
+            True 如果格式被允许，False 否则
+        """
+        if self.allowed_api_formats is None:
+            return True
+        return api_format in self.allowed_api_formats
 
     def is_model_allowed(self, model_id: str, provider_id: str) -> bool:
         """

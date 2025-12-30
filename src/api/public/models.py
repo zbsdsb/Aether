@@ -104,6 +104,35 @@ def _get_formats_for_api(api_format: str) -> list[str]:
         return _OPENAI_FORMATS
 
 
+def _build_empty_list_response(api_format: str) -> dict:
+    """根据 API 格式构建空列表响应"""
+    if api_format == "claude":
+        return {"data": [], "has_more": False, "first_id": None, "last_id": None}
+    elif api_format == "gemini":
+        return {"models": []}
+    else:
+        return {"object": "list", "data": []}
+
+
+def _filter_formats_by_restrictions(
+    formats: list[str], restrictions: AccessRestrictions, api_format: str
+) -> Tuple[list[str], Optional[dict]]:
+    """
+    根据访问限制过滤 API 格式
+
+    Returns:
+        (过滤后的格式列表, 空响应或None)
+        如果过滤后为空，返回对应格式的空响应
+    """
+    if restrictions.allowed_api_formats is None:
+        return formats, None
+    filtered = [f for f in formats if f in restrictions.allowed_api_formats]
+    if not filtered:
+        logger.info(f"[Models] API Key 不允许访问格式 {api_format}")
+        return [], _build_empty_list_response(api_format)
+    return filtered, None
+
+
 def _authenticate(db: Session, api_key: Optional[str]) -> Tuple[Optional[User], Optional[ApiKey]]:
     """
     认证 API Key
@@ -383,16 +412,15 @@ async def list_models(
     # 构建访问限制
     restrictions = AccessRestrictions.from_api_key_and_user(key_record, user)
 
+    # 检查 API 格式限制
     formats = _get_formats_for_api(api_format)
+    formats, empty_response = _filter_formats_by_restrictions(formats, restrictions, api_format)
+    if empty_response is not None:
+        return empty_response
 
     available_provider_ids = get_available_provider_ids(db, formats)
     if not available_provider_ids:
-        if api_format == "claude":
-            return {"data": [], "has_more": False, "first_id": None, "last_id": None}
-        elif api_format == "gemini":
-            return {"models": []}
-        else:
-            return {"object": "list", "data": []}
+        return _build_empty_list_response(api_format)
 
     models = await list_available_models(db, available_provider_ids, formats, restrictions)
     logger.debug(f"[Models] 返回 {len(models)} 个模型")
@@ -430,7 +458,11 @@ async def retrieve_model(
     # 构建访问限制
     restrictions = AccessRestrictions.from_api_key_and_user(key_record, user)
 
+    # 检查 API 格式限制
     formats = _get_formats_for_api(api_format)
+    formats, _ = _filter_formats_by_restrictions(formats, restrictions, api_format)
+    if not formats:
+        return _build_404_response(model_id, api_format)
 
     available_provider_ids = get_available_provider_ids(db, formats)
     model_info = find_model_by_id(db, model_id, available_provider_ids, formats, restrictions)
@@ -469,11 +501,18 @@ async def list_models_gemini(
     # 构建访问限制
     restrictions = AccessRestrictions.from_api_key_and_user(key_record, user)
 
-    available_provider_ids = get_available_provider_ids(db, _GEMINI_FORMATS)
+    # 检查 API 格式限制
+    formats, empty_response = _filter_formats_by_restrictions(
+        _GEMINI_FORMATS, restrictions, "gemini"
+    )
+    if empty_response is not None:
+        return empty_response
+
+    available_provider_ids = get_available_provider_ids(db, formats)
     if not available_provider_ids:
         return {"models": []}
 
-    models = await list_available_models(db, available_provider_ids, _GEMINI_FORMATS, restrictions)
+    models = await list_available_models(db, available_provider_ids, formats, restrictions)
     logger.debug(f"[Models] 返回 {len(models)} 个模型")
     response = _build_gemini_list_response(models, page_size, page_token)
     logger.debug(f"[Models] Gemini 响应: {response}")
@@ -503,9 +542,14 @@ async def get_model_gemini(
     # 构建访问限制
     restrictions = AccessRestrictions.from_api_key_and_user(key_record, user)
 
-    available_provider_ids = get_available_provider_ids(db, _GEMINI_FORMATS)
+    # 检查 API 格式限制
+    formats, _ = _filter_formats_by_restrictions(_GEMINI_FORMATS, restrictions, "gemini")
+    if not formats:
+        return _build_404_response(model_id, "gemini")
+
+    available_provider_ids = get_available_provider_ids(db, formats)
     model_info = find_model_by_id(
-        db, model_id, available_provider_ids, _GEMINI_FORMATS, restrictions
+        db, model_id, available_provider_ids, formats, restrictions
     )
 
     if not model_info:
