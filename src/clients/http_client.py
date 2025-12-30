@@ -9,6 +9,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
+from src.config import config
 from src.core.logger import logger
 
 
@@ -83,10 +84,10 @@ class HTTPClientPool:
                 http2=False,  # 暂时禁用HTTP/2以提高兼容性
                 verify=True,  # 启用SSL验证
                 timeout=httpx.Timeout(
-                    connect=10.0,  # 连接超时
-                    read=300.0,  # 读取超时(5分钟,适合流式响应)
-                    write=60.0,  # 写入超时(60秒,支持大请求体)
-                    pool=5.0,  # 连接池超时
+                    connect=config.http_connect_timeout,
+                    read=config.http_read_timeout,
+                    write=config.http_write_timeout,
+                    pool=config.http_pool_timeout,
                 ),
                 limits=httpx.Limits(
                     max_connections=100,  # 最大连接数
@@ -111,15 +112,20 @@ class HTTPClientPool:
         """
         if name not in cls._clients:
             # 合并默认配置和自定义配置
-            config = {
+            default_config = {
                 "http2": False,
                 "verify": True,
-                "timeout": httpx.Timeout(10.0, read=300.0),
+                "timeout": httpx.Timeout(
+                    connect=config.http_connect_timeout,
+                    read=config.http_read_timeout,
+                    write=config.http_write_timeout,
+                    pool=config.http_pool_timeout,
+                ),
                 "follow_redirects": True,
             }
-            config.update(kwargs)
+            default_config.update(kwargs)
 
-            cls._clients[name] = httpx.AsyncClient(**config)
+            cls._clients[name] = httpx.AsyncClient(**default_config)
             logger.debug(f"创建命名HTTP客户端: {name}")
 
         return cls._clients[name]
@@ -151,14 +157,19 @@ class HTTPClientPool:
             async with HTTPClientPool.get_temp_client() as client:
                 response = await client.get('https://example.com')
         """
-        config = {
+        default_config = {
             "http2": False,
             "verify": True,
-            "timeout": httpx.Timeout(10.0),
+            "timeout": httpx.Timeout(
+                connect=config.http_connect_timeout,
+                read=config.http_read_timeout,
+                write=config.http_write_timeout,
+                pool=config.http_pool_timeout,
+            ),
         }
-        config.update(kwargs)
+        default_config.update(kwargs)
 
-        client = httpx.AsyncClient(**config)
+        client = httpx.AsyncClient(**default_config)
         try:
             yield client
         finally:
@@ -182,25 +193,30 @@ class HTTPClientPool:
         Returns:
             配置好的 httpx.AsyncClient 实例
         """
-        config: Dict[str, Any] = {
+        client_config: Dict[str, Any] = {
             "http2": False,
             "verify": True,
             "follow_redirects": True,
         }
 
         if timeout:
-            config["timeout"] = timeout
+            client_config["timeout"] = timeout
         else:
-            config["timeout"] = httpx.Timeout(10.0, read=300.0)
+            client_config["timeout"] = httpx.Timeout(
+                connect=config.http_connect_timeout,
+                read=config.http_read_timeout,
+                write=config.http_write_timeout,
+                pool=config.http_pool_timeout,
+            )
 
         # 添加代理配置
         proxy_url = build_proxy_url(proxy_config) if proxy_config else None
         if proxy_url:
-            config["proxy"] = proxy_url
+            client_config["proxy"] = proxy_url
             logger.debug(f"创建带代理的HTTP客户端: {proxy_config.get('url', 'unknown')}")
 
-        config.update(kwargs)
-        return httpx.AsyncClient(**config)
+        client_config.update(kwargs)
+        return httpx.AsyncClient(**client_config)
 
 
 # 便捷访问函数
