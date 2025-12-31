@@ -2,7 +2,7 @@
 认证相关API端点
 """
 
-from typing import Optional
+from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -26,6 +26,8 @@ from src.models.api import (
     RegistrationSettingsResponse,
     SendVerificationCodeRequest,
     SendVerificationCodeResponse,
+    VerificationStatusRequest,
+    VerificationStatusResponse,
     VerifyEmailRequest,
     VerifyEmailResponse,
 )
@@ -33,10 +35,55 @@ from src.models.database import AuditEventType, User, UserRole
 from src.services.auth.service import AuthService
 from src.services.rate_limit.ip_limiter import IPRateLimiter
 from src.services.system.audit import AuditService
-from src.services.system.config import ConfigService
+from src.services.system.config import SystemConfigService
 from src.services.user.service import UserService
-from src.services.verification import EmailSenderService, EmailVerificationService
+from src.services.email import EmailSenderService, EmailVerificationService
 from src.utils.request_utils import get_client_ip, get_user_agent
+
+
+def validate_email_suffix(db: Session, email: str) -> Tuple[bool, Optional[str]]:
+    """
+    验证邮箱后缀是否允许注册
+
+    Args:
+        db: 数据库会话
+        email: 邮箱地址
+
+    Returns:
+        (是否允许, 错误信息)
+    """
+    # 获取邮箱后缀限制配置
+    mode = SystemConfigService.get_config(db, "email_suffix_mode", default="none")
+
+    if mode == "none":
+        return True, None
+
+    # 获取邮箱后缀列表
+    suffix_list = SystemConfigService.get_config(db, "email_suffix_list", default=[])
+    if not suffix_list:
+        # 没有配置后缀列表时，不限制
+        return True, None
+
+    # 确保 suffix_list 是列表类型
+    if isinstance(suffix_list, str):
+        suffix_list = [s.strip().lower() for s in suffix_list.split(",") if s.strip()]
+
+    # 获取邮箱后缀
+    if "@" not in email:
+        return False, "邮箱格式无效"
+
+    email_suffix = email.split("@")[1].lower()
+
+    if mode == "whitelist":
+        # 白名单模式：只允许列出的后缀
+        if email_suffix not in suffix_list:
+            return False, f"该邮箱后缀不在允许列表中，仅支持: {', '.join(suffix_list)}"
+    elif mode == "blacklist":
+        # 黑名单模式：拒绝列出的后缀
+        if email_suffix in suffix_list:
+            return False, f"该邮箱后缀 ({email_suffix}) 不允许注册"
+
+    return True, None
 
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -100,6 +147,13 @@ async def send_verification_code(request: Request, db: Session = Depends(get_db)
 async def verify_email(request: Request, db: Session = Depends(get_db)):
     """验证邮箱验证码"""
     adapter = AuthVerifyEmailAdapter()
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post("/verification-status", response_model=VerificationStatusResponse)
+async def verification_status(request: Request, db: Session = Depends(get_db)):
+    """查询邮箱验证状态"""
+    adapter = AuthVerificationStatusAdapter()
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -242,16 +296,12 @@ class AuthRegistrationSettingsAdapter(AuthPublicAdapter):
         """公开返回注册相关配置"""
         db = context.db
 
-        enable_registration = ConfigService.get_config(db, "enable_registration", default=False)
-        require_verification = ConfigService.get_config(db, "require_email_verification", default=False)
-        expire_minutes = ConfigService.get_config(
-            db, "verification_code_expire_minutes", default=30
-        )
+        enable_registration = SystemConfigService.get_config(db, "enable_registration", default=False)
+        require_verification = SystemConfigService.get_config(db, "require_email_verification", default=False)
 
         return RegistrationSettingsResponse(
             enable_registration=bool(enable_registration),
             require_email_verification=bool(require_verification),
-            verification_code_expire_minutes=expire_minutes,
         ).model_dump()
 
 
@@ -287,8 +337,26 @@ class AuthRegisterAdapter(AuthPublicAdapter):
             db.commit()
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="系统暂不开放注册")
 
+        # 检查邮箱后缀是否允许
+        suffix_allowed, suffix_error = validate_email_suffix(db, register_request.email)
+        if not suffix_allowed:
+            logger.warning(f"注册失败：邮箱后缀不允许: {register_request.email}")
+            AuditService.log_event(
+                db=db,
+                event_type=AuditEventType.UNAUTHORIZED_ACCESS,
+                description=f"Registration attempt rejected - email suffix not allowed: {register_request.email}",
+                ip_address=client_ip,
+                user_agent=user_agent,
+                metadata={"email": register_request.email, "reason": "email_suffix_not_allowed"},
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=suffix_error,
+            )
+
         # 检查是否需要邮箱验证
-        require_verification = ConfigService.get_config(db, "require_email_verification", default=False)
+        require_verification = SystemConfigService.get_config(db, "require_email_verification", default=False)
 
         if require_verification:
             # 检查邮箱是否已验证
@@ -318,11 +386,14 @@ class AuthRegisterAdapter(AuthPublicAdapter):
                 metadata={"email": user.email, "username": user.username, "role": user.role.value},
             )
 
-            # 注册成功后清除验证状态 - 在 commit 之前清理，避免竞态条件
-            if require_verification:
-                await EmailVerificationService.clear_verification(register_request.email)
-
             db.commit()
+
+            # 注册成功后清除验证状态（在 commit 后清理，即使清理失败也不影响注册结果）
+            if require_verification:
+                try:
+                    await EmailVerificationService.clear_verification(register_request.email)
+                except Exception as e:
+                    logger.warning(f"清理验证状态失败: {e}")
 
             return RegisterResponse(
                 user_id=user.id,
@@ -373,8 +444,8 @@ class AuthChangePasswordAdapter(AuthenticatedApiAdapter):
         user = context.user
         if not user.verify_password(old_password):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="旧密码错误")
-        if len(new_password) < 8:
-            raise InvalidRequestException("密码长度至少8位")
+        if len(new_password) < 6:
+            raise InvalidRequestException("密码长度至少6位")
         user.set_password(new_password)
         context.db.commit()
         logger.info(f"用户修改密码: {user.email}")
@@ -447,25 +518,26 @@ class AuthSendVerificationCodeAdapter(AuthPublicAdapter):
                 detail=f"请求过于频繁，请在 {reset_after} 秒后重试",
             )
 
-        # 获取验证码过期时间配置
-        expire_minutes = ConfigService.get_config(
-            db, "verification_code_expire_minutes", default=30
-        )
-
-        # 检查邮箱是否已注册 - 静默处理，不暴露邮箱注册状态
+        # 检查邮箱是否已注册
         existing_user = db.query(User).filter(User.email == email).first()
         if existing_user:
-            # 不发送验证码，但返回成功信息，防止邮箱枚举攻击
-            logger.warning(f"尝试为已注册邮箱发送验证码: {email}")
-            return SendVerificationCodeResponse(
-                success=True,
-                message="验证码已发送",
-                expire_minutes=expire_minutes,
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该邮箱已被注册，请直接登录或使用其他邮箱",
             )
 
-        # 生成并发送验证码
+        # 检查邮箱后缀是否允许
+        suffix_allowed, suffix_error = validate_email_suffix(db, email)
+        if not suffix_allowed:
+            logger.warning(f"邮箱后缀不允许: {email}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=suffix_error,
+            )
+
+        # 生成并发送验证码（使用服务中的默认配置）
         success, code_or_error, error_detail = await EmailVerificationService.send_verification_code(
-            email, expire_minutes=expire_minutes
+            email
         )
 
         if not success:
@@ -476,6 +548,7 @@ class AuthSendVerificationCodeAdapter(AuthPublicAdapter):
             )
 
         # 发送邮件
+        expire_minutes = EmailVerificationService.DEFAULT_CODE_EXPIRE_MINUTES
         email_success, email_error = await EmailSenderService.send_verification_code(
             db=db, to_email=email, code=code_or_error, expire_minutes=expire_minutes
         )
@@ -537,3 +610,54 @@ class AuthVerifyEmailAdapter(AuthPublicAdapter):
         logger.info(f"邮箱验证成功: {email}")
 
         return VerifyEmailResponse(message="邮箱验证成功", success=True).model_dump()
+
+
+class AuthVerificationStatusAdapter(AuthPublicAdapter):
+    async def handle(self, context):  # type: ignore[override]
+        """查询邮箱验证状态"""
+        payload = context.ensure_json_body()
+
+        try:
+            status_request = VerificationStatusRequest.model_validate(payload)
+        except ValidationError as exc:
+            errors = []
+            for error in exc.errors():
+                field = " -> ".join(str(x) for x in error["loc"])
+                errors.append(f"{field}: {error['msg']}")
+            raise InvalidRequestException("输入验证失败: " + "; ".join(errors))
+
+        client_ip = get_client_ip(context.request)
+        email = status_request.email
+
+        # IP 速率限制检查（验证状态查询：20次/分钟）
+        allowed, remaining, reset_after = await IPRateLimiter.check_limit(
+            client_ip, "verification_status", limit=20
+        )
+        if not allowed:
+            logger.warning(f"验证状态查询请求超过速率限制: IP={client_ip}, 剩余={remaining}")
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"请求过于频繁，请在 {reset_after} 秒后重试",
+            )
+
+        # 获取验证状态
+        status_data = await EmailVerificationService.get_verification_status(email)
+
+        # 计算冷却剩余时间
+        cooldown_remaining = None
+        if status_data.get("has_pending_code") and status_data.get("created_at"):
+            from datetime import datetime, timezone
+
+            created_at = datetime.fromisoformat(status_data["created_at"])
+            elapsed = (datetime.now(timezone.utc) - created_at).total_seconds()
+            cooldown = EmailVerificationService.SEND_COOLDOWN_SECONDS - int(elapsed)
+            if cooldown > 0:
+                cooldown_remaining = cooldown
+
+        return VerificationStatusResponse(
+            email=email,
+            has_pending_code=status_data.get("has_pending_code", False),
+            is_verified=status_data.get("is_verified", False),
+            cooldown_remaining=cooldown_remaining,
+            code_expires_in=status_data.get("code_expires_in"),
+        ).model_dump()

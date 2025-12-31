@@ -161,8 +161,8 @@ class VerifyEmailRequest(BaseModel):
             raise ValueError("邮箱格式无效")
         return v.lower()
 
-    @classmethod
     @field_validator("code")
+    @classmethod
     def validate_code(cls, v):
         """验证验证码格式"""
         v = v.strip()
@@ -180,12 +180,39 @@ class VerifyEmailResponse(BaseModel):
     success: bool
 
 
+class VerificationStatusRequest(BaseModel):
+    """验证状态查询请求"""
+
+    email: str = Field(..., min_length=3, max_length=255, description="邮箱地址")
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v):
+        """验证邮箱格式"""
+        v = v.strip().lower()
+        if not v:
+            raise ValueError("邮箱不能为空")
+        email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        if not re.match(email_pattern, v):
+            raise ValueError("邮箱格式无效")
+        return v
+
+
+class VerificationStatusResponse(BaseModel):
+    """验证状态响应"""
+
+    email: str
+    has_pending_code: bool = Field(description="是否有待验证的验证码")
+    is_verified: bool = Field(description="邮箱是否已验证")
+    cooldown_remaining: Optional[int] = Field(None, description="发送冷却剩余秒数")
+    code_expires_in: Optional[int] = Field(None, description="验证码剩余有效秒数")
+
+
 class RegistrationSettingsResponse(BaseModel):
     """注册设置响应（公开接口返回）"""
 
     enable_registration: bool
     require_email_verification: bool
-    verification_code_expire_minutes: Optional[int] = 30
 
 
 # ========== 用户管理 ==========

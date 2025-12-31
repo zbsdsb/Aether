@@ -168,19 +168,28 @@ class SystemConfigService:
             db, "default_provider", provider_name, "系统默认提供商，当用户未设置个人提供商时使用"
         )
 
-    @staticmethod
-    def get_all_configs(db: Session) -> list:
+    # 敏感配置项，不返回实际值
+    SENSITIVE_KEYS = {"smtp_password"}
+
+    @classmethod
+    def get_all_configs(cls, db: Session) -> list:
         """获取所有系统配置"""
         configs = db.query(SystemConfig).all()
-        return [
-            {
+        result = []
+        for config in configs:
+            item = {
                 "key": config.key,
-                "value": config.value,
                 "description": config.description,
                 "updated_at": config.updated_at.isoformat(),
             }
-            for config in configs
-        ]
+            # 对敏感配置，只返回是否已设置的标志，不返回实际值
+            if config.key in cls.SENSITIVE_KEYS:
+                item["value"] = None
+                item["is_set"] = bool(config.value)
+            else:
+                item["value"] = config.value
+            result.append(item)
+        return result
 
     @classmethod
     def delete_config(cls, db: Session, key: str) -> bool:

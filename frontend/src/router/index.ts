@@ -107,6 +107,11 @@ const routes: RouteRecordRaw[] = [
         component: () => importWithRetry(() => import('@/views/admin/SystemSettings.vue'))
       },
       {
+        path: 'email',
+        name: 'EmailSettings',
+        component: () => importWithRetry(() => import('@/views/admin/EmailSettings.vue'))
+      },
+      {
         path: 'audit-logs',
         name: 'AuditLogs',
         component: () => importWithRetry(() => import('@/views/admin/AuditLogs.vue'))

@@ -13,6 +13,7 @@ from src.core.exceptions import InvalidRequestException, NotFoundException, tran
 from src.database import get_db
 from src.models.api import SystemSettingsRequest, SystemSettingsResponse
 from src.models.database import ApiKey, Provider, Usage, User
+from src.services.email.email_template import EmailTemplate
 from src.services.system.config import SystemConfigService
 
 router = APIRouter(prefix="/api/admin/system", tags=["Admin - System"])
@@ -126,6 +127,52 @@ async def test_smtp(request: Request, db: Session = Depends(get_db)):
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
+# -------- 邮件模板 API --------
+
+
+@router.get("/email/templates")
+async def get_email_templates(request: Request, db: Session = Depends(get_db)):
+    """获取所有邮件模板（管理员）"""
+    adapter = AdminGetEmailTemplatesAdapter()
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.get("/email/templates/{template_type}")
+async def get_email_template(
+    template_type: str, request: Request, db: Session = Depends(get_db)
+):
+    """获取指定类型的邮件模板（管理员）"""
+    adapter = AdminGetEmailTemplateAdapter(template_type=template_type)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.put("/email/templates/{template_type}")
+async def update_email_template(
+    template_type: str, request: Request, db: Session = Depends(get_db)
+):
+    """更新邮件模板（管理员）"""
+    adapter = AdminUpdateEmailTemplateAdapter(template_type=template_type)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post("/email/templates/{template_type}/preview")
+async def preview_email_template(
+    template_type: str, request: Request, db: Session = Depends(get_db)
+):
+    """预览邮件模板（管理员）"""
+    adapter = AdminPreviewEmailTemplateAdapter(template_type=template_type)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post("/email/templates/{template_type}/reset")
+async def reset_email_template(
+    template_type: str, request: Request, db: Session = Depends(get_db)
+):
+    """重置邮件模板为默认值（管理员）"""
+    adapter = AdminResetEmailTemplateAdapter(template_type=template_type)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
 # -------- 系统设置适配器 --------
 
 
@@ -203,10 +250,16 @@ class AdminGetAllConfigsAdapter(AdminApiAdapter):
 class AdminGetSystemConfigAdapter(AdminApiAdapter):
     key: str
 
+    # 敏感配置项，不返回实际值
+    SENSITIVE_KEYS = {"smtp_password"}
+
     async def handle(self, context):  # type: ignore[override]
         value = SystemConfigService.get_config(context.db, self.key)
         if value is None:
             raise NotFoundException(f"配置项 '{self.key}' 不存在")
+        # 对敏感配置，只返回是否已设置的标志，不返回实际值
+        if self.key in self.SENSITIVE_KEYS:
+            return {"key": self.key, "value": None, "is_set": bool(value)}
         return {"key": self.key, "value": value}
 
 
@@ -214,18 +267,31 @@ class AdminGetSystemConfigAdapter(AdminApiAdapter):
 class AdminSetSystemConfigAdapter(AdminApiAdapter):
     key: str
 
+    # 需要加密存储的配置项
+    ENCRYPTED_KEYS = {"smtp_password"}
+
     async def handle(self, context):  # type: ignore[override]
         payload = context.ensure_json_body()
+        value = payload.get("value")
+
+        # 对敏感配置进行加密
+        if self.key in self.ENCRYPTED_KEYS and value:
+            from src.core.crypto import crypto_service
+            value = crypto_service.encrypt(value)
+
         config = SystemConfigService.set_config(
             context.db,
             self.key,
-            payload.get("value"),
+            value,
             payload.get("description"),
         )
 
+        # 返回时不暴露加密后的值
+        display_value = "********" if self.key in self.ENCRYPTED_KEYS else config.value
+
         return {
             "key": config.key,
-            "value": config.value,
+            "value": display_value,
             "description": config.description,
             "updated_at": config.updated_at.isoformat(),
         }
@@ -1096,28 +1162,40 @@ class AdminImportUsersAdapter(AdminApiAdapter):
 class AdminTestSmtpAdapter(AdminApiAdapter):
     async def handle(self, context):  # type: ignore[override]
         """测试 SMTP 连接"""
-        from src.services.system.config import ConfigService
-        from src.services.verification.email_sender import EmailSenderService
+        from src.core.crypto import crypto_service
+        from src.services.system.config import SystemConfigService
+        from src.services.email.email_sender import EmailSenderService
 
         db = context.db
         payload = context.ensure_json_body() or {}
 
+        # 获取密码：优先使用前端传入的明文密码，否则从数据库获取并解密
+        smtp_password = payload.get("smtp_password")
+        if not smtp_password:
+            encrypted_password = SystemConfigService.get_config(db, "smtp_password")
+            if encrypted_password:
+                try:
+                    smtp_password = crypto_service.decrypt(encrypted_password, silent=True)
+                except Exception:
+                    # 解密失败，可能是旧的未加密密码
+                    smtp_password = encrypted_password
+
         # 前端可传入未保存的配置，优先使用前端值，否则回退数据库
         config = {
-            "smtp_host": payload.get("smtp_host") or ConfigService.get_config(db, "smtp_host"),
-            "smtp_port": payload.get("smtp_port") or ConfigService.get_config(db, "smtp_port", default=587),
-            "smtp_user": payload.get("smtp_user") or ConfigService.get_config(db, "smtp_user"),
-            "smtp_password": payload.get("smtp_password") or ConfigService.get_config(db, "smtp_password"),
+            "smtp_host": payload.get("smtp_host") or SystemConfigService.get_config(db, "smtp_host"),
+            "smtp_port": payload.get("smtp_port") or SystemConfigService.get_config(db, "smtp_port", default=587),
+            "smtp_user": payload.get("smtp_user") or SystemConfigService.get_config(db, "smtp_user"),
+            "smtp_password": smtp_password,
             "smtp_use_tls": payload.get("smtp_use_tls")
             if payload.get("smtp_use_tls") is not None
-            else ConfigService.get_config(db, "smtp_use_tls", default=True),
+            else SystemConfigService.get_config(db, "smtp_use_tls", default=True),
             "smtp_use_ssl": payload.get("smtp_use_ssl")
             if payload.get("smtp_use_ssl") is not None
-            else ConfigService.get_config(db, "smtp_use_ssl", default=False),
+            else SystemConfigService.get_config(db, "smtp_use_ssl", default=False),
             "smtp_from_email": payload.get("smtp_from_email")
-            or ConfigService.get_config(db, "smtp_from_email"),
+            or SystemConfigService.get_config(db, "smtp_from_email"),
             "smtp_from_name": payload.get("smtp_from_name")
-            or ConfigService.get_config(db, "smtp_from_name", default="Aether"),
+            or SystemConfigService.get_config(db, "smtp_from_name", default="Aether"),
         }
 
         # 验证必要配置
@@ -1144,10 +1222,200 @@ class AdminTestSmtpAdapter(AdminApiAdapter):
             else:
                 return {
                     "success": False,
-                    "message": f"SMTP 连接测试失败: {error_msg}"
+                    "message": error_msg
                 }
         except Exception as e:
             return {
                 "success": False,
-                "message": f"SMTP 连接测试失败: {str(e)}"
+                "message": str(e)
             }
+
+
+# -------- 邮件模板适配器 --------
+
+
+class AdminGetEmailTemplatesAdapter(AdminApiAdapter):
+    """获取所有邮件模板"""
+
+    async def handle(self, context):  # type: ignore[override]
+        db = context.db
+        templates = []
+
+        for template_type, type_info in EmailTemplate.TEMPLATE_TYPES.items():
+            # 获取自定义模板或默认模板
+            template = EmailTemplate.get_template(db, template_type)
+            default_template = EmailTemplate.get_default_template(template_type)
+
+            # 检查是否使用了自定义模板
+            is_custom = (
+                template["subject"] != default_template["subject"]
+                or template["html"] != default_template["html"]
+            )
+
+            templates.append(
+                {
+                    "type": template_type,
+                    "name": type_info["name"],
+                    "variables": type_info["variables"],
+                    "subject": template["subject"],
+                    "html": template["html"],
+                    "is_custom": is_custom,
+                }
+            )
+
+        return {"templates": templates}
+
+
+@dataclass
+class AdminGetEmailTemplateAdapter(AdminApiAdapter):
+    """获取指定类型的邮件模板"""
+
+    template_type: str
+
+    async def handle(self, context):  # type: ignore[override]
+        # 验证模板类型
+        if self.template_type not in EmailTemplate.TEMPLATE_TYPES:
+            raise NotFoundException(f"模板类型 '{self.template_type}' 不存在")
+
+        db = context.db
+        type_info = EmailTemplate.TEMPLATE_TYPES[self.template_type]
+        template = EmailTemplate.get_template(db, self.template_type)
+        default_template = EmailTemplate.get_default_template(self.template_type)
+
+        is_custom = (
+            template["subject"] != default_template["subject"]
+            or template["html"] != default_template["html"]
+        )
+
+        return {
+            "type": self.template_type,
+            "name": type_info["name"],
+            "variables": type_info["variables"],
+            "subject": template["subject"],
+            "html": template["html"],
+            "is_custom": is_custom,
+            "default_subject": default_template["subject"],
+            "default_html": default_template["html"],
+        }
+
+
+@dataclass
+class AdminUpdateEmailTemplateAdapter(AdminApiAdapter):
+    """更新邮件模板"""
+
+    template_type: str
+
+    async def handle(self, context):  # type: ignore[override]
+        # 验证模板类型
+        if self.template_type not in EmailTemplate.TEMPLATE_TYPES:
+            raise NotFoundException(f"模板类型 '{self.template_type}' 不存在")
+
+        db = context.db
+        payload = context.ensure_json_body()
+
+        subject = payload.get("subject")
+        html = payload.get("html")
+
+        # 至少需要提供一个字段
+        if subject is None and html is None:
+            raise InvalidRequestException("请提供 subject 或 html")
+
+        # 保存模板
+        subject_key = f"email_template_{self.template_type}_subject"
+        html_key = f"email_template_{self.template_type}_html"
+
+        if subject is not None:
+            if subject:
+                SystemConfigService.set_config(db, subject_key, subject)
+            else:
+                # 空字符串表示删除自定义值，恢复默认
+                SystemConfigService.delete_config(db, subject_key)
+
+        if html is not None:
+            if html:
+                SystemConfigService.set_config(db, html_key, html)
+            else:
+                SystemConfigService.delete_config(db, html_key)
+
+        return {"message": "模板保存成功"}
+
+
+@dataclass
+class AdminPreviewEmailTemplateAdapter(AdminApiAdapter):
+    """预览邮件模板"""
+
+    template_type: str
+
+    async def handle(self, context):  # type: ignore[override]
+        # 验证模板类型
+        if self.template_type not in EmailTemplate.TEMPLATE_TYPES:
+            raise NotFoundException(f"模板类型 '{self.template_type}' 不存在")
+
+        db = context.db
+        payload = context.ensure_json_body() or {}
+
+        # 获取模板 HTML（优先使用请求体中的，否则使用数据库中的）
+        html = payload.get("html")
+        if not html:
+            template = EmailTemplate.get_template(db, self.template_type)
+            html = template["html"]
+
+        # 获取预览变量
+        type_info = EmailTemplate.TEMPLATE_TYPES[self.template_type]
+
+        # 构建预览变量，使用请求中的值或默认示例值
+        preview_variables = {}
+        default_values = {
+            "app_name": SystemConfigService.get_config(db, "email_app_name")
+            or SystemConfigService.get_config(db, "smtp_from_name", default="Aether"),
+            "code": "123456",
+            "expire_minutes": "30",
+            "email": "example@example.com",
+            "reset_link": "https://example.com/reset?token=abc123",
+        }
+
+        for var in type_info["variables"]:
+            preview_variables[var] = payload.get(var, default_values.get(var, f"{{{{{var}}}}}"))
+
+        # 渲染模板
+        rendered_html = EmailTemplate.render_template(html, preview_variables)
+
+        return {
+            "html": rendered_html,
+            "variables": preview_variables,
+        }
+
+
+@dataclass
+class AdminResetEmailTemplateAdapter(AdminApiAdapter):
+    """重置邮件模板为默认值"""
+
+    template_type: str
+
+    async def handle(self, context):  # type: ignore[override]
+        # 验证模板类型
+        if self.template_type not in EmailTemplate.TEMPLATE_TYPES:
+            raise NotFoundException(f"模板类型 '{self.template_type}' 不存在")
+
+        db = context.db
+
+        # 删除自定义模板
+        subject_key = f"email_template_{self.template_type}_subject"
+        html_key = f"email_template_{self.template_type}_html"
+
+        SystemConfigService.delete_config(db, subject_key)
+        SystemConfigService.delete_config(db, html_key)
+
+        # 返回默认模板
+        default_template = EmailTemplate.get_default_template(self.template_type)
+        type_info = EmailTemplate.TEMPLATE_TYPES[self.template_type]
+
+        return {
+            "message": "模板已重置为默认值",
+            "template": {
+                "type": self.template_type,
+                "name": type_info["name"],
+                "subject": default_template["subject"],
+                "html": default_template["html"],
+            },
+        }

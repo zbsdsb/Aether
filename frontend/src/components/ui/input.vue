@@ -3,6 +3,9 @@
     :class="inputClass"
     :value="modelValue"
     :autocomplete="autocompleteAttr"
+    :data-lpignore="disableAutofill ? 'true' : undefined"
+    :data-1p-ignore="disableAutofill ? 'true' : undefined"
+    :data-form-type="disableAutofill ? 'other' : undefined"
     v-bind="$attrs"
     @input="handleInput"
   >
@@ -16,6 +19,7 @@ interface Props {
   modelValue?: string | number
   class?: string
   autocomplete?: string
+  disableAutofill?: boolean
 }
 
 const props = defineProps<Props>()
@@ -23,7 +27,12 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
-const autocompleteAttr = computed(() => props.autocomplete ?? 'off')
+const autocompleteAttr = computed(() => {
+  if (props.disableAutofill) {
+    return 'one-time-code'
+  }
+  return props.autocomplete ?? 'off'
+})
 
 const inputClass = computed(() =>
   cn(

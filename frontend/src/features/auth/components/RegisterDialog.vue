@@ -3,42 +3,41 @@
     v-model:open="isOpen"
     size="lg"
   >
-    <DialogContent>
-      <!-- Logo -->
-      <div class="flex justify-center mb-6">
-        <div
-          class="w-16 h-16 rounded-full border-2 border-primary/20 flex items-center justify-center bg-primary/5"
-        >
+    <div class="space-y-6">
+      <!-- Logo 和标题 -->
+      <div class="flex flex-col items-center text-center">
+        <div class="mb-4 rounded-3xl border border-primary/30 dark:border-[#cc785c]/30 bg-primary/5 dark:bg-transparent p-4 shadow-inner shadow-white/40 dark:shadow-[#cc785c]/10">
           <img
-            src="@/assets/logo.svg"
+            src="/aether_adaptive.svg"
             alt="Logo"
-            class="w-10 h-10"
+            class="h-16 w-16"
           >
         </div>
+        <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">
+          注册新账户
+        </h2>
+        <p class="mt-1 text-sm text-muted-foreground">
+          请填写您的邮箱和个人信息完成注册
+        </p>
       </div>
 
-      <DialogHeader>
-        <DialogTitle class="text-center text-2xl">
-          注册新账户
-        </DialogTitle>
-        <DialogDescription class="text-center">
-          请填写您的邮箱和个人信息完成注册
-        </DialogDescription>
-      </DialogHeader>
-
+      <!-- 注册表单 -->
       <form
-        class="space-y-4 mt-4"
+        class="space-y-4"
+        autocomplete="off"
+        data-form-type="other"
         @submit.prevent="handleSubmit"
       >
         <!-- Email -->
         <div class="space-y-2">
-          <Label for="register-email">邮箱</Label>
+          <Label for="reg-email">邮箱 <span class="text-muted-foreground">*</span></Label>
           <Input
-            id="register-email"
+            id="reg-email"
             v-model="formData.email"
             type="email"
-            placeholder="your@email.com"
+            placeholder="hello@example.com"
             required
+            disable-autofill
             :disabled="isLoading || emailVerified"
           />
         </div>
@@ -46,110 +45,127 @@
         <!-- Verification Code Section -->
         <div
           v-if="requireEmailVerification"
-          class="space-y-2"
+          class="space-y-3"
         >
           <div class="flex items-center justify-between">
-            <Label for="verification-code">验证码</Label>
+            <Label>验证码 <span class="text-muted-foreground">*</span></Label>
             <Button
               type="button"
               variant="link"
               size="sm"
               class="h-auto p-0 text-xs"
-              :disabled="isLoading || !canSendCode || emailVerified"
+              :disabled="isSendingCode || !canSendCode || emailVerified"
               @click="handleSendCode"
             >
               {{ sendCodeButtonText }}
             </Button>
           </div>
-          <VerificationCodeInput
-            ref="codeInputRef"
-            v-model="formData.verificationCode"
-            :has-error="verificationError"
-            :length="6"
-            @complete="handleCodeComplete"
-          />
-          <p
-            v-if="verificationError"
-            class="text-xs text-destructive"
-          >
-            验证码错误，请重新输入
-          </p>
-          <p
-            v-if="emailVerified"
-            class="text-xs text-green-600"
-          >
-            ✓ 邮箱验证成功
-          </p>
+          <div class="flex justify-center gap-2">
+            <!-- 发送中显示 loading -->
+            <div
+              v-if="isSendingCode"
+              class="flex items-center justify-center gap-2 h-14 text-muted-foreground"
+            >
+              <svg
+                class="animate-spin h-5 w-5"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                />
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+              <span class="text-sm">正在发送验证码...</span>
+            </div>
+            <!-- 验证码输入框 -->
+            <template v-else>
+              <input
+                v-for="(_, index) in 6"
+                :key="index"
+                :ref="(el) => setCodeInputRef(index, el as HTMLInputElement)"
+                v-model="codeDigits[index]"
+                type="text"
+                inputmode="numeric"
+                maxlength="1"
+                autocomplete="off"
+                data-form-type="other"
+                class="w-12 h-14 text-center text-xl font-semibold border-2 rounded-lg bg-background transition-all focus:outline-none focus:ring-2 focus:ring-primary/20"
+                :class="verificationError ? 'border-destructive' : 'border-border focus:border-primary'"
+                :disabled="emailVerified"
+                @input="handleCodeInput(index, $event)"
+                @keydown="handleCodeKeyDown(index, $event)"
+                @paste="handleCodePaste"
+              >
+            </template>
+          </div>
         </div>
 
         <!-- Username -->
         <div class="space-y-2">
-          <Label for="register-username">用户名</Label>
+          <Label for="reg-uname">用户名 <span class="text-muted-foreground">*</span></Label>
           <Input
-            id="register-username"
+            id="reg-uname"
             v-model="formData.username"
             type="text"
             placeholder="请输入用户名"
             required
+            disable-autofill
             :disabled="isLoading"
           />
         </div>
 
         <!-- Password -->
         <div class="space-y-2">
-          <Label for="register-password">密码</Label>
+          <Label :for="`pwd-${formNonce}`">密码 <span class="text-muted-foreground">*</span></Label>
           <Input
-            id="register-password"
+            :id="`pwd-${formNonce}`"
             v-model="formData.password"
-            type="password"
-            placeholder="至少 8 位字符"
+            type="text"
+            autocomplete="one-time-code"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            :name="`pwd-${formNonce}`"
+            placeholder="至少 6 个字符"
             required
+            class="-webkit-text-security-disc"
             :disabled="isLoading"
           />
-          <p class="text-xs text-muted-foreground">
-            密码长度至少 8 位
-          </p>
         </div>
 
         <!-- Confirm Password -->
         <div class="space-y-2">
-          <Label for="register-confirm-password">确认密码</Label>
+          <Label :for="`pwd-confirm-${formNonce}`">确认密码 <span class="text-muted-foreground">*</span></Label>
           <Input
-            id="register-confirm-password"
+            :id="`pwd-confirm-${formNonce}`"
             v-model="formData.confirmPassword"
-            type="password"
+            type="text"
+            autocomplete="one-time-code"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            :name="`pwd-confirm-${formNonce}`"
             placeholder="再次输入密码"
             required
+            class="-webkit-text-security-disc"
             :disabled="isLoading"
           />
         </div>
-
-        <DialogFooter class="gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            :disabled="isLoading"
-            @click="handleCancel"
-          >
-            取消
-          </Button>
-          <Button
-            type="submit"
-            :disabled="isLoading || !canSubmit"
-          >
-            <span
-              v-if="isLoading"
-              class="flex items-center gap-2"
-            >
-              <span class="animate-spin">⏳</span>
-              {{ loadingText }}
-            </span>
-            <span v-else>注册</span>
-          </Button>
-        </DialogFooter>
       </form>
 
-      <div class="mt-4 text-center text-sm">
+      <!-- 登录链接 -->
+      <div class="text-center text-sm">
         已有账户？
         <Button
           variant="link"
@@ -159,26 +175,37 @@
           立即登录
         </Button>
       </div>
-    </DialogContent>
+    </div>
+
+    <template #footer>
+      <Button
+        type="button"
+        variant="outline"
+        class="w-full sm:w-auto border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-primary hover:border-primary/50 hover:bg-primary/5 dark:hover:text-primary dark:hover:border-primary/50 dark:hover:bg-primary/10"
+        :disabled="isLoading"
+        @click="handleCancel"
+      >
+        取消
+      </Button>
+      <Button
+        class="w-full sm:w-auto bg-primary hover:bg-primary/90 text-white border-0"
+        :disabled="isLoading || !canSubmit"
+        @click="handleSubmit"
+      >
+        {{ isLoading ? loadingText : '注册' }}
+      </Button>
+    </template>
   </Dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { authApi } from '@/api/auth'
 import { useToast } from '@/composables/useToast'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Button,
-  Input,
-  Label
-} from '@/components/ui'
-import VerificationCodeInput from '@/components/VerificationCodeInput.vue'
+import { Dialog } from '@/components/ui'
+import Button from '@/components/ui/button.vue'
+import Input from '@/components/ui/input.vue'
+import Label from '@/components/ui/label.vue'
 
 interface Props {
   open?: boolean
@@ -197,9 +224,95 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<Emits>()
-const { showToast, success, error: showError } = useToast()
+const { success, error: showError } = useToast()
 
-const codeInputRef = ref<InstanceType<typeof VerificationCodeInput> | null>(null)
+// Form nonce for password fields (prevent autofill)
+const formNonce = ref(createFormNonce())
+
+function createFormNonce(): string {
+  return Math.random().toString(36).slice(2, 10)
+}
+
+// Verification code inputs
+const codeInputRefs = ref<(HTMLInputElement | null)[]>([])
+const codeDigits = ref<string[]>(['', '', '', '', '', ''])
+
+const setCodeInputRef = (index: number, el: HTMLInputElement | null) => {
+  codeInputRefs.value[index] = el
+}
+
+// Handle verification code input
+const handleCodeInput = (index: number, event: Event) => {
+  const input = event.target as HTMLInputElement
+  const value = input.value
+
+  // Only allow digits
+  if (!/^\d*$/.test(value)) {
+    input.value = codeDigits.value[index]
+    return
+  }
+
+  codeDigits.value[index] = value
+
+  // Auto-focus next input
+  if (value && index < 5) {
+    codeInputRefs.value[index + 1]?.focus()
+  }
+
+  // Check if all digits are filled
+  const fullCode = codeDigits.value.join('')
+  if (fullCode.length === 6 && /^\d+$/.test(fullCode)) {
+    handleCodeComplete(fullCode)
+  }
+}
+
+const handleCodeKeyDown = (index: number, event: KeyboardEvent) => {
+  // Handle backspace
+  if (event.key === 'Backspace') {
+    if (!codeDigits.value[index] && index > 0) {
+      // If current input is empty, move to previous and clear it
+      codeInputRefs.value[index - 1]?.focus()
+      codeDigits.value[index - 1] = ''
+    } else {
+      // Clear current input
+      codeDigits.value[index] = ''
+    }
+  }
+  // Handle arrow keys
+  else if (event.key === 'ArrowLeft' && index > 0) {
+    codeInputRefs.value[index - 1]?.focus()
+  } else if (event.key === 'ArrowRight' && index < 5) {
+    codeInputRefs.value[index + 1]?.focus()
+  }
+}
+
+const handleCodePaste = (event: ClipboardEvent) => {
+  event.preventDefault()
+  const pastedData = event.clipboardData?.getData('text') || ''
+  const cleanedData = pastedData.replace(/\D/g, '').slice(0, 6)
+
+  if (cleanedData) {
+    // Fill digits
+    for (let i = 0; i < 6; i++) {
+      codeDigits.value[i] = cleanedData[i] || ''
+    }
+
+    // Focus the next empty input or the last input
+    const nextEmptyIndex = codeDigits.value.findIndex((d) => !d)
+    const focusIndex = nextEmptyIndex >= 0 ? nextEmptyIndex : 5
+    codeInputRefs.value[focusIndex]?.focus()
+
+    // Check if all digits are filled
+    if (cleanedData.length === 6) {
+      handleCodeComplete(cleanedData)
+    }
+  }
+}
+
+const clearCodeInputs = () => {
+  codeDigits.value = ['', '', '', '', '', '']
+  codeInputRefs.value[0]?.focus()
+}
 
 const isOpen = computed({
   get: () => props.open,
@@ -216,11 +329,12 @@ const formData = ref({
 
 const isLoading = ref(false)
 const loadingText = ref('注册中...')
+const isSendingCode = ref(false)
 const emailVerified = ref(false)
 const verificationError = ref(false)
 const codeSentAt = ref<number | null>(null)
 const cooldownSeconds = ref(0)
-const expireMinutes = ref(30)
+const expireMinutes = ref(5)
 const cooldownTimer = ref<number | null>(null)
 
 // Send code cooldown timer
@@ -231,7 +345,8 @@ const canSendCode = computed(() => {
 })
 
 const sendCodeButtonText = computed(() => {
-  if (emailVerified.value) return '已验证'
+  if (isSendingCode.value) return '发送中...'
+  if (emailVerified.value) return '验证成功'
   if (cooldownSeconds.value > 0) return `${cooldownSeconds.value}秒后重试`
   if (codeSentAt.value) return '重新发送验证码'
   return '发送验证码'
@@ -257,12 +372,72 @@ const canSubmit = computed(() => {
   }
 
   // Check password length
-  if (formData.value.password.length < 8) {
+  if (formData.value.password.length < 6) {
     return false
   }
 
   return true
 })
+
+// 查询并恢复验证状态
+const checkAndRestoreVerificationStatus = async (email: string) => {
+  if (!email || !props.requireEmailVerification) return
+
+  try {
+    const status = await authApi.getVerificationStatus(email)
+
+    // 注意：不恢复 is_verified 状态
+    // 刷新页面后需要重新发送验证码并验证，防止验证码被他人使用
+    // 只恢复"有待验证验证码"的状态（冷却时间）
+    if (status.has_pending_code) {
+      codeSentAt.value = Date.now()
+      verificationError.value = false
+
+      // 恢复冷却时间
+      if (status.cooldown_remaining && status.cooldown_remaining > 0) {
+        startCooldown(status.cooldown_remaining)
+      }
+    }
+  } catch {
+    // 查询失败时静默处理，不影响用户体验
+  }
+}
+
+// 邮箱查询防抖定时器
+let emailCheckTimer: number | null = null
+
+// 监听邮箱变化，查询验证状态
+watch(
+  () => formData.value.email,
+  (newEmail, oldEmail) => {
+    // 邮箱变化时重置验证状态
+    if (newEmail !== oldEmail) {
+      emailVerified.value = false
+      verificationError.value = false
+      codeSentAt.value = null
+      cooldownSeconds.value = 0
+      if (cooldownTimer.value !== null) {
+        clearInterval(cooldownTimer.value)
+        cooldownTimer.value = null
+      }
+      codeDigits.value = ['', '', '', '', '', '']
+    }
+
+    // 清除之前的定时器
+    if (emailCheckTimer !== null) {
+      clearTimeout(emailCheckTimer)
+    }
+
+    // 验证邮箱格式
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(newEmail)) return
+
+    // 防抖：500ms 后查询验证状态
+    emailCheckTimer = window.setTimeout(() => {
+      checkAndRestoreVerificationStatus(newEmail)
+    }, 500)
+  }
+)
 
 // Reset form when dialog opens
 watch(isOpen, (newValue) => {
@@ -295,6 +470,9 @@ onUnmounted(() => {
   if (cooldownTimer.value !== null) {
     clearInterval(cooldownTimer.value)
   }
+  if (emailCheckTimer !== null) {
+    clearTimeout(emailCheckTimer)
+  }
 })
 
 const resetForm = () => {
@@ -307,8 +485,12 @@ const resetForm = () => {
   }
   emailVerified.value = false
   verificationError.value = false
+  isSendingCode.value = false
   codeSentAt.value = null
   cooldownSeconds.value = 0
+
+  // Reset password field nonce
+  formNonce.value = createFormNonce()
 
   // Clear timer
   if (cooldownTimer.value !== null) {
@@ -316,7 +498,8 @@ const resetForm = () => {
     cooldownTimer.value = null
   }
 
-  codeInputRef.value?.clear()
+  // Clear verification code inputs
+  codeDigits.value = ['', '', '', '', '', '']
 }
 
 const handleSendCode = async () => {
@@ -332,8 +515,7 @@ const handleSendCode = async () => {
     return
   }
 
-  isLoading.value = true
-  loadingText.value = '发送中...'
+  isSendingCode.value = true
 
   try {
     const response = await authApi.sendVerificationCode(formData.value.email)
@@ -349,22 +531,29 @@ const handleSendCode = async () => {
       // Start 60 second cooldown
       startCooldown(60)
 
-      // Focus the verification code input
-      setTimeout(() => {
-        codeInputRef.value?.focus()
-      }, 100)
+      // Focus the first verification code input
+      nextTick(() => {
+        codeInputRefs.value[0]?.focus()
+      })
     } else {
       showError(response.message || '请稍后重试', '发送失败')
     }
   } catch (error: any) {
-    showError(error.response?.data?.detail || error.message || '网络错误，请重试', '发送失败')
+    const errorMsg = error.response?.data?.detail
+      || error.response?.data?.error?.message
+      || error.message
+      || '网络错误，请重试'
+    showError(errorMsg, '发送失败')
   } finally {
-    isLoading.value = false
+    isSendingCode.value = false
   }
 }
 
 const handleCodeComplete = async (code: string) => {
   if (!formData.value.email || code.length !== 6) return
+
+  // 如果已经验证成功，不再重复验证
+  if (emailVerified.value) return
 
   isLoading.value = true
   loadingText.value = '验证中...'
@@ -380,13 +569,17 @@ const handleCodeComplete = async (code: string) => {
       verificationError.value = true
       showError(response.message || '验证码错误', '验证失败')
       // Clear the code input
-      codeInputRef.value?.clear()
+      clearCodeInputs()
     }
   } catch (error: any) {
     verificationError.value = true
-    showError(error.response?.data?.detail || error.message || '验证码错误，请重试', '验证失败')
+    const errorMsg = error.response?.data?.detail
+      || error.response?.data?.error?.message
+      || error.message
+      || '验证码错误，请重试'
+    showError(errorMsg, '验证失败')
     // Clear the code input
-    codeInputRef.value?.clear()
+    clearCodeInputs()
   } finally {
     isLoading.value = false
   }
@@ -400,8 +593,8 @@ const handleSubmit = async () => {
   }
 
   // Validate password length
-  if (formData.value.password.length < 8) {
-    showError('密码长度至少 8 位', '密码过短')
+  if (formData.value.password.length < 6) {
+    showError('密码长度至少 6 位', '密码过短')
     return
   }
 
@@ -426,7 +619,11 @@ const handleSubmit = async () => {
     emit('success')
     isOpen.value = false
   } catch (error: any) {
-    showError(error.response?.data?.detail || error.message || '注册失败，请重试', '注册失败')
+    const errorMsg = error.response?.data?.detail
+      || error.response?.data?.error?.message
+      || error.message
+      || '注册失败，请重试'
+    showError(errorMsg, '注册失败')
   } finally {
     isLoading.value = false
   }

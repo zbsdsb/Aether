@@ -51,6 +51,18 @@ export interface VerifyEmailResponse {
   success: boolean
 }
 
+export interface VerificationStatusRequest {
+  email: string
+}
+
+export interface VerificationStatusResponse {
+  email: string
+  has_pending_code: boolean
+  is_verified: boolean
+  cooldown_remaining: number | null
+  code_expires_in: number | null
+}
+
 export interface RegisterRequest {
   email: string
   username: string
@@ -67,7 +79,6 @@ export interface RegisterResponse {
 export interface RegistrationSettingsResponse {
   enable_registration: boolean
   require_email_verification: boolean
-  verification_code_expire_minutes?: number
 }
 
 export interface User {
@@ -152,6 +163,14 @@ export const authApi = {
   async getRegistrationSettings(): Promise<RegistrationSettingsResponse> {
     const response = await apiClient.get<RegistrationSettingsResponse>(
       '/api/auth/registration-settings'
+    )
+    return response.data
+  },
+
+  async getVerificationStatus(email: string): Promise<VerificationStatusResponse> {
+    const response = await apiClient.post<VerificationStatusResponse>(
+      '/api/auth/verification-status',
+      { email }
     )
     return response.data
   }

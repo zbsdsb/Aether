@@ -320,6 +320,7 @@ import {
   Megaphone,
   Menu,
   X,
+  Mail,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -421,6 +422,7 @@ const navigation = computed(() => {
         { name: '缓存监控', href: '/admin/cache-monitoring', icon: Gauge },
         { name: 'IP 安全', href: '/admin/ip-security', icon: Shield },
         { name: '审计日志', href: '/admin/audit-logs', icon: AlertTriangle },
+        { name: '邮件配置', href: '/admin/email', icon: Mail },
         { name: '系统设置', href: '/admin/system', icon: Cog },
       ]
     }

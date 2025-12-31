@@ -173,6 +173,16 @@ class Config:
             "GEMINI_CLI_USER_AGENT", "gemini-cli/0.1.0"
         )
 
+        # 邮箱验证配置
+        # VERIFICATION_CODE_EXPIRE_MINUTES: 验证码有效期（分钟）
+        # VERIFICATION_SEND_COOLDOWN: 发送冷却时间（秒）
+        self.verification_code_expire_minutes = int(
+            os.getenv("VERIFICATION_CODE_EXPIRE_MINUTES", "5")
+        )
+        self.verification_send_cooldown = int(
+            os.getenv("VERIFICATION_SEND_COOLDOWN", "60")
+        )
+
         # 验证连接池配置
         self._validate_pool_config()
 

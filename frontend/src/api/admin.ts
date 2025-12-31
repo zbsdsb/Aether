@@ -124,6 +124,37 @@ export interface ModelExport {
   config?: any
 }
 
+// 邮件模板接口
+export interface EmailTemplateInfo {
+  type: string
+  name: string
+  variables: string[]
+  subject: string
+  html: string
+  is_custom: boolean
+  default_subject?: string
+  default_html?: string
+}
+
+export interface EmailTemplatesResponse {
+  templates: EmailTemplateInfo[]
+}
+
+export interface EmailTemplatePreviewResponse {
+  html: string
+  variables: Record<string, string>
+}
+
+export interface EmailTemplateResetResponse {
+  message: string
+  template: {
+    type: string
+    name: string
+    subject: string
+    html: string
+  }
+}
+
 // Provider 模型查询响应
 export interface ProviderModelsQueryResponse {
   success: boolean
@@ -393,6 +424,53 @@ export const adminApi = {
     const response = await apiClient.post<{ success: boolean; message: string }>(
       '/api/admin/system/smtp/test',
       config
+    )
+    return response.data
+  },
+
+  // 邮件模板相关
+  // 获取所有邮件模板
+  async getEmailTemplates(): Promise<EmailTemplatesResponse> {
+    const response = await apiClient.get<EmailTemplatesResponse>('/api/admin/system/email/templates')
+    return response.data
+  },
+
+  // 获取指定类型的邮件模板
+  async getEmailTemplate(templateType: string): Promise<EmailTemplateInfo> {
+    const response = await apiClient.get<EmailTemplateInfo>(
+      `/api/admin/system/email/templates/${templateType}`
+    )
+    return response.data
+  },
+
+  // 更新邮件模板
+  async updateEmailTemplate(
+    templateType: string,
+    data: { subject?: string; html?: string }
+  ): Promise<{ message: string }> {
+    const response = await apiClient.put<{ message: string }>(
+      `/api/admin/system/email/templates/${templateType}`,
+      data
+    )
+    return response.data
+  },
+
+  // 预览邮件模板
+  async previewEmailTemplate(
+    templateType: string,
+    data?: { html?: string } & Record<string, string>
+  ): Promise<EmailTemplatePreviewResponse> {
+    const response = await apiClient.post<EmailTemplatePreviewResponse>(
+      `/api/admin/system/email/templates/${templateType}/preview`,
+      data || {}
+    )
+    return response.data
+  },
+
+  // 重置邮件模板为默认值
+  async resetEmailTemplate(templateType: string): Promise<EmailTemplateResetResponse> {
+    const response = await apiClient.post<EmailTemplateResetResponse>(
+      `/api/admin/system/email/templates/${templateType}/reset`
     )
     return response.data
   }

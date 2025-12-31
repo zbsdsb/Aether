@@ -9,7 +9,11 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from src.clients.redis_client import get_redis_client
+from src.config.settings import Config
 from src.core.logger import logger
+
+# 从环境变量加载配置
+_config = Config()
 
 
 class EmailVerificationService:
@@ -17,14 +21,11 @@ class EmailVerificationService:
 
     # Redis key 前缀
     VERIFICATION_PREFIX = "email:verification:"
-    SEND_LIMIT_PREFIX = "email:send_limit:"
     VERIFIED_PREFIX = "email:verified:"
 
-    # 默认配置
-    DEFAULT_CODE_EXPIRE_MINUTES = 30
-    DEFAULT_MAX_ATTEMPTS = 5
-    SEND_COOLDOWN_SECONDS = 60
-    SEND_LIMIT_PER_HOUR = 5
+    # 从环境变量读取配置
+    DEFAULT_CODE_EXPIRE_MINUTES = _config.verification_code_expire_minutes
+    SEND_COOLDOWN_SECONDS = _config.verification_send_cooldown
 
     @staticmethod
     def _generate_code() -> str:
@@ -40,7 +41,8 @@ class EmailVerificationService:
 
     @staticmethod
     async def send_verification_code(
-        email: str, expire_minutes: Optional[int] = None
+        email: str,
+        expire_minutes: Optional[int] = None,
     ) -> Tuple[bool, str, Optional[str]]:
         """
         发送验证码（生成并存储到 Redis）
@@ -59,16 +61,6 @@ class EmailVerificationService:
             return False, "系统错误", "Redis 服务不可用"
 
         try:
-            # 检查发送频率限制
-            send_limit_key = f"{EmailVerificationService.SEND_LIMIT_PREFIX}{email}"
-            send_count = await redis_client.get(send_limit_key)
-
-            if send_count:
-                send_count = int(send_count)
-                if send_count >= EmailVerificationService.SEND_LIMIT_PER_HOUR:
-                    logger.warning(f"邮箱 {email} 发送验证码次数超限: {send_count}")
-                    return False, "发送次数过多", "每小时最多发送 5 次验证码"
-
             # 检查冷却时间
             verification_key = f"{EmailVerificationService.VERIFICATION_PREFIX}{email}"
             existing_data = await redis_client.get(verification_key)
@@ -90,7 +82,6 @@ class EmailVerificationService:
             # 存储验证码数据
             verification_data = {
                 "code": code,
-                "attempts": 0,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
 
@@ -98,12 +89,6 @@ class EmailVerificationService:
             await redis_client.setex(
                 verification_key, expire_time * 60, json.dumps(verification_data)
             )
-
-            # 更新发送计数器（1 小时过期）- 使用原子操作
-            current_count = await redis_client.incr(send_limit_key)
-            # 如果是第一次设置，需要设置过期时间
-            if current_count == 1:
-                await redis_client.expire(send_limit_key, 3600)
 
             logger.info(f"验证码已生成并存储: {email}, 有效期: {expire_time} 分钟")
             return True, code, None
@@ -140,25 +125,10 @@ class EmailVerificationService:
 
             data = json.loads(data_str)
 
-            # 检查尝试次数
-            if data["attempts"] >= EmailVerificationService.DEFAULT_MAX_ATTEMPTS:
-                logger.warning(f"验证码尝试次数过多: {email}")
-                await redis_client.delete(verification_key)
-                return False, "验证码尝试次数过多，请重新发送"
-
-            # 增加尝试次数
-            data["attempts"] += 1
-
             # 验证码比对 - 使用常量时间比较防止时序攻击
             if not secrets.compare_digest(code, data["code"]):
-                # 更新尝试次数
-                ttl = await redis_client.ttl(verification_key)
-                if ttl > 0:
-                    await redis_client.setex(verification_key, ttl, json.dumps(data))
-
-                remaining_attempts = EmailVerificationService.DEFAULT_MAX_ATTEMPTS - data["attempts"]
-                logger.warning(f"验证码错误: {email}, 剩余尝试次数: {remaining_attempts}")
-                return False, f"验证码错误，剩余尝试次数: {remaining_attempts}"
+                logger.warning(f"验证码错误: {email}")
+                return False, "验证码错误"
 
             # 验证成功：删除验证码，标记邮箱已验证
             await redis_client.delete(verification_key)
@@ -251,12 +221,10 @@ class EmailVerificationService:
         try:
             verification_key = f"{EmailVerificationService.VERIFICATION_PREFIX}{email}"
             verified_key = f"{EmailVerificationService.VERIFIED_PREFIX}{email}"
-            send_limit_key = f"{EmailVerificationService.SEND_LIMIT_PREFIX}{email}"
 
             # 获取各个状态
             verification_data = await redis_client.get(verification_key)
             is_verified = await redis_client.exists(verified_key)
-            send_count = await redis_client.get(send_limit_key)
             verification_ttl = await redis_client.ttl(verification_key)
             verified_ttl = await redis_client.ttl(verified_key)
 
@@ -264,14 +232,12 @@ class EmailVerificationService:
                 "email": email,
                 "has_pending_code": bool(verification_data),
                 "is_verified": bool(is_verified),
-                "send_count_this_hour": int(send_count) if send_count else 0,
                 "code_expires_in": verification_ttl if verification_ttl > 0 else None,
                 "verified_expires_in": verified_ttl if verified_ttl > 0 else None,
             }
 
             if verification_data:
                 data = json.loads(verification_data)
-                status["attempts"] = data.get("attempts", 0)
                 status["created_at"] = data.get("created_at")
 
             return status

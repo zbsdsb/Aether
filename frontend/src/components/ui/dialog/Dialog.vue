@@ -71,8 +71,8 @@
               </div>
             </slot>
 
-            <!-- 内容区域：统一添加 padding -->
-            <div class="px-6 py-3">
+            <!-- 内容区域：可选添加 padding -->
+            <div :class="noPadding ? '' : 'px-6 py-3'">
               <slot />
             </div>
 
@@ -105,6 +105,7 @@ const props = defineProps<{
   icon?: Component // Lucide icon component
   iconClass?: string // Custom icon color class
   zIndex?: number // Custom z-index for nested dialogs (default: 60)
+  noPadding?: boolean // Disable default content padding
 }>()
 
 // Emits 定义

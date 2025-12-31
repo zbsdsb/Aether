@@ -477,8 +477,8 @@ async function changePassword() {
     return
   }
 
-  if (passwordForm.value.new_password.length < 8) {
-    showError('密码长度至少8位')
+  if (passwordForm.value.new_password.length < 6) {
+    showError('密码长度至少6位')
     return
   }
 

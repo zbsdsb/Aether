@@ -1191,4 +1191,11 @@ body[theme-mode='dark'] .literary-annotation {
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background-color: hsl(var(--muted-foreground) / 0.5);
   }
+
+  /* Password masking without type="password" to prevent browser autofill */
+  .-webkit-text-security-disc {
+    -webkit-text-security: disc;
+    -moz-text-security: disc;
+    text-security: disc;
+  }
 }
