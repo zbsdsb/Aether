@@ -459,33 +459,34 @@ class StreamUsageTracker:
         logger.debug(f"ID:{self.request_id} | 开始跟踪流式响应 | 估算输入tokens:{self.input_tokens}")
 
         chunk_count = 0
-        first_chunk_received = False
+        first_byte_time_ms = None  # 预先记录 TTFB，避免 yield 后计算不准确
         try:
             async for chunk in stream:
                 chunk_count += 1
                 # 保存原始字节流（用于错误诊断）
                 self.raw_chunks.append(chunk)
 
-                # 第一个 chunk 收到时，更新状态为 streaming 并记录 TTFB
-                if not first_chunk_received:
-                    first_chunk_received = True
-                    if self.request_id:
-                        try:
-                            # 计算 TTFB（使用请求原始开始时间或 track_stream 开始时间）
-                            base_time = self.request_start_time or self.start_time
-                            first_byte_time_ms = int((time.time() - base_time) * 1000) if base_time else None
-                            UsageService.update_usage_status(
-                                db=self.db,
-                                request_id=self.request_id,
-                                status="streaming",
-                                provider=self.provider,
-                                first_byte_time_ms=first_byte_time_ms,
-                            )
-                        except Exception as e:
-                            logger.warning(f"更新使用记录状态为 streaming 失败: {e}")
+                # 第一个 chunk 收到时，记录 TTFB 时间点（但先不更新数据库，避免阻塞）
+                if chunk_count == 1:
+                    # 计算 TTFB（使用请求原始开始时间或 track_stream 开始时间）
+                    base_time = self.request_start_time or self.start_time
+                    first_byte_time_ms = int((time.time() - base_time) * 1000) if base_time else None
 
-                # 返回原始块给客户端
+                # 先返回原始块给客户端，确保 TTFB 不受数据库操作影响
                 yield chunk
+
+                # yield 后再更新数据库状态（仅第一个 chunk 时执行）
+                if chunk_count == 1 and self.request_id:
+                    try:
+                        UsageService.update_usage_status(
+                            db=self.db,
+                            request_id=self.request_id,
+                            status="streaming",
+                            provider=self.provider,
+                            first_byte_time_ms=first_byte_time_ms,
+                        )
+                    except Exception as e:
+                        logger.warning(f"更新使用记录状态为 streaming 失败: {e}")
 
                 # 解析块以提取内容和使用信息（chunk是原始字节）
                 content, usage = self.parse_stream_chunk(chunk)
@@ -916,14 +917,34 @@ class EnhancedStreamUsageTracker(StreamUsageTracker):
         logger.debug(f"ID:{self.request_id} | 开始跟踪流式响应(Enhanced) | 估算输入tokens:{self.input_tokens}")
 
         chunk_count = 0
+        first_byte_time_ms = None  # 预先记录 TTFB，避免 yield 后计算不准确
         try:
             async for chunk in stream:
                 chunk_count += 1
                 # 保存原始字节流（用于错误诊断）
                 self.raw_chunks.append(chunk)
 
-                # 返回原始块给客户端
+                # 第一个 chunk 收到时，记录 TTFB 时间点（但先不更新数据库，避免阻塞）
+                if chunk_count == 1:
+                    # 计算 TTFB（使用请求原始开始时间或 track_stream 开始时间）
+                    base_time = self.request_start_time or self.start_time
+                    first_byte_time_ms = int((time.time() - base_time) * 1000) if base_time else None
+
+                # 先返回原始块给客户端，确保 TTFB 不受数据库操作影响
                 yield chunk
+
+                # yield 后再更新数据库状态（仅第一个 chunk 时执行）
+                if chunk_count == 1 and self.request_id:
+                    try:
+                        UsageService.update_usage_status(
+                            db=self.db,
+                            request_id=self.request_id,
+                            status="streaming",
+                            provider=self.provider,
+                            first_byte_time_ms=first_byte_time_ms,
+                        )
+                    except Exception as e:
+                        logger.warning(f"更新使用记录状态为 streaming 失败: {e}")
 
                 # 解析块以提取内容和使用信息（chunk是原始字节）
                 content, usage = self.parse_stream_chunk(chunk)
