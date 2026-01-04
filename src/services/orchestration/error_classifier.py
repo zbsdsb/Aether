@@ -237,7 +237,7 @@ class ErrorClassifier:
                 result["reason"] = str(data.get("reason", data.get("code", "")))
 
         except (json.JSONDecodeError, TypeError, KeyError):
-            result["message"] = error_text[:500] if len(error_text) > 500 else error_text
+            result["message"] = error_text
 
         return result
 
@@ -323,8 +323,8 @@ class ErrorClassifier:
         if parts:
             return ": ".join(parts) if len(parts) > 1 else parts[0]
 
-        # 无法解析，返回原始文本（截断）
-        return parsed["raw"][:500] if len(parsed["raw"]) > 500 else parsed["raw"]
+        # 无法解析，返回原始文本
+        return parsed["raw"]
 
     def classify(
         self,
@@ -484,11 +484,15 @@ class ErrorClassifier:
             return ProviderNotAvailableException(
                 message=detailed_message,
                 provider_name=provider_name,
+                upstream_status=status,
+                upstream_response=error_response_text,
             )
 
         return ProviderNotAvailableException(
             message=detailed_message,
             provider_name=provider_name,
+            upstream_status=status,
+            upstream_response=error_response_text,
         )
 
     async def handle_http_error(
@@ -532,12 +536,14 @@ class ErrorClassifier:
         provider_name = str(provider.name)
 
         # 尝试读取错误响应内容
-        error_response_text = None
-        try:
-            if http_error.response and hasattr(http_error.response, "text"):
-                error_response_text = http_error.response.text[:1000]  # 限制长度
-        except Exception:
-            pass
+        # 优先使用 handler 附加的 upstream_response 属性（流式请求中 response.text 可能为空）
+        error_response_text = getattr(http_error, "upstream_response", None)
+        if not error_response_text:
+            try:
+                if http_error.response and hasattr(http_error.response, "text"):
+                    error_response_text = http_error.response.text
+            except Exception:
+                pass
 
         logger.warning(f"  [{request_id}] HTTP错误 (attempt={attempt}/{max_attempts}): "
             f"{http_error.response.status_code if http_error.response else 'unknown'}")

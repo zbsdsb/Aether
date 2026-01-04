@@ -30,6 +30,7 @@ from redis import Redis
 from sqlalchemy.orm import Session
 
 from src.core.enums import APIFormat
+from src.core.error_utils import extract_error_message
 from src.core.exceptions import (
     ConcurrencyLimitError,
     ProviderNotAvailableException,
@@ -401,7 +402,7 @@ class FallbackOrchestrator:
                 db=self.db,
                 candidate_id=candidate_record_id,
                 error_type="HTTPStatusError",
-                error_message=f"HTTP {status_code}: {str(cause)}",
+                error_message=extract_error_message(cause, status_code),
                 status_code=status_code,
                 latency_ms=elapsed_ms,
                 concurrent_requests=captured_key_concurrent,
@@ -425,31 +426,22 @@ class FallbackOrchestrator:
                 attempt=attempt,
                 max_attempts=max_attempts,
             )
-            # str(cause) 可能为空（如 httpx 超时异常），使用 repr() 作为备用
-            error_msg = str(cause) or repr(cause)
-            # 如果是 ProviderNotAvailableException，附加上游响应
-            if hasattr(cause, "upstream_response") and cause.upstream_response:
-                error_msg = f"{error_msg} | 上游响应: {cause.upstream_response[:500]}"
             RequestCandidateService.mark_candidate_failed(
                 db=self.db,
                 candidate_id=candidate_record_id,
                 error_type=type(cause).__name__,
-                error_message=error_msg,
+                error_message=extract_error_message(cause),
                 latency_ms=elapsed_ms,
                 concurrent_requests=captured_key_concurrent,
             )
             return "continue" if has_retry_left else "break"
 
         # 未知错误：记录失败并抛出
-        error_msg = str(cause) or repr(cause)
-        # 如果是 ProviderNotAvailableException，附加上游响应
-        if hasattr(cause, "upstream_response") and cause.upstream_response:
-            error_msg = f"{error_msg} | 上游响应: {cause.upstream_response[:500]}"
         RequestCandidateService.mark_candidate_failed(
             db=self.db,
             candidate_id=candidate_record_id,
             error_type=type(cause).__name__,
-            error_message=error_msg,
+            error_message=extract_error_message(cause),
             latency_ms=elapsed_ms,
             concurrent_requests=captured_key_concurrent,
         )
@@ -706,15 +698,25 @@ class FallbackOrchestrator:
             # 从 httpx.HTTPStatusError 提取
             if isinstance(last_error, httpx.HTTPStatusError):
                 upstream_status = last_error.response.status_code
-                try:
-                    upstream_response = last_error.response.text
-                except Exception:
-                    pass
-            # 从异常属性提取
-            elif hasattr(last_error, "upstream_status"):
-                upstream_status = getattr(last_error, "upstream_status", None)
-            if hasattr(last_error, "upstream_response"):
+                # 优先使用我们附加的 upstream_response 属性（流已读取时 response.text 可能为空）
                 upstream_response = getattr(last_error, "upstream_response", None)
+                if not upstream_response:
+                    try:
+                        upstream_response = last_error.response.text
+                    except Exception:
+                        pass
+            # 从其他异常属性提取（如 ProviderNotAvailableException）
+            else:
+                upstream_status = getattr(last_error, "upstream_status", None)
+                upstream_response = getattr(last_error, "upstream_response", None)
+
+            # 如果响应为空或无效，使用异常的字符串表示
+            if (
+                not upstream_response
+                or not upstream_response.strip()
+                or upstream_response.startswith("Unable to read")
+            ):
+                upstream_response = str(last_error)
 
         raise ProviderNotAvailableException(
             f"所有Provider均不可用，已尝试{max_attempts}个组合",

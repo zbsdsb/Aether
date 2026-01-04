@@ -289,11 +289,11 @@ class RequestResult:
             status_code = 500
             error_type = "internal_error"
 
-        # 构建错误消息，包含上游响应信息
-        error_message = str(exception)
-        if isinstance(exception, ProviderNotAvailableException):
-            if exception.upstream_response:
-                error_message = f"{error_message} | 上游响应: {exception.upstream_response[:500]}"
+        # 构建错误消息：优先使用上游响应作为主要错误信息
+        if isinstance(exception, ProviderNotAvailableException) and exception.upstream_response:
+            error_message = exception.upstream_response
+        else:
+            error_message = str(exception)
 
         return cls(
             status=RequestStatus.FAILED,

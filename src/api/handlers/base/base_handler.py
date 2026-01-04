@@ -47,7 +47,6 @@ if TYPE_CHECKING:
     from src.api.handlers.base.stream_context import StreamContext
 
 
-
 class MessageTelemetry:
     """
     负责记录 Usage/Audit，避免处理器里重复代码。

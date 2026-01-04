@@ -36,6 +36,7 @@ from src.api.handlers.base.stream_processor import StreamProcessor
 from src.api.handlers.base.stream_telemetry import StreamTelemetryRecorder
 from src.api.handlers.base.utils import build_sse_headers
 from src.config.settings import config
+from src.core.error_utils import extract_error_message
 from src.core.exceptions import (
     EmbeddedErrorException,
     ProviderAuthException,
@@ -500,6 +501,8 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             error_text = await self._extract_error_text(e)
             logger.error(f"Provider 返回错误: {e.response.status_code}\n  Response: {error_text}")
             await http_client.aclose()
+            # 将上游错误信息附加到异常，以便故障转移时能够返回给客户端
+            e.upstream_response = error_text  # type: ignore[attr-defined]
             raise
 
         except EmbeddedErrorException:
@@ -549,7 +552,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             model=ctx.model,
             response_time_ms=response_time_ms,
             status_code=status_code,
-            error_message=str(error),
+            error_message=extract_error_message(error),
             request_headers=original_headers,
             request_body=actual_request_body,
             is_stream=True,
@@ -785,7 +788,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 model=model,
                 response_time_ms=response_time_ms,
                 status_code=status_code,
-                error_message=str(e),
+                error_message=extract_error_message(e),
                 request_headers=original_headers,
                 request_body=actual_request_body,
                 is_stream=False,
@@ -802,10 +805,10 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         try:
             if hasattr(e.response, "is_stream_consumed") and not e.response.is_stream_consumed:
                 error_bytes = await e.response.aread()
-                return error_bytes.decode("utf-8", errors="replace")[:500]
+                return error_bytes.decode("utf-8", errors="replace")
             else:
                 return (
-                    e.response.text[:500] if hasattr(e.response, "_content") else "Unable to read"
+                    e.response.text if hasattr(e.response, "_content") else "Unable to read"
                 )
         except Exception as decode_error:
             return f"Unable to read error: {decode_error}"
