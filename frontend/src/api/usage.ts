@@ -164,9 +164,9 @@ export const usageApi = {
   async getAllUsageRecords(params?: {
     start_date?: string
     end_date?: string
+    search?: string  // 通用搜索：用户名、密钥名、模型名、提供商名
     user_id?: string // UUID
     username?: string
-    user_api_key_name?: string
     model?: string
     provider?: string
     status?: string // 'stream' | 'standard' | 'error'

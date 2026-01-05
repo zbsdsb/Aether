@@ -104,11 +104,14 @@ async def get_my_usage(
     request: Request,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
+    search: Optional[str] = None,  # 通用搜索：密钥名、模型名
     limit: int = Query(100, ge=1, le=200, description="每页记录数，默认100，最大200"),
     offset: int = Query(0, ge=0, le=2000, description="偏移量，用于分页，最大2000"),
     db: Session = Depends(get_db),
 ):
-    adapter = GetUsageAdapter(start_date=start_date, end_date=end_date, limit=limit, offset=offset)
+    adapter = GetUsageAdapter(
+        start_date=start_date, end_date=end_date, search=search, limit=limit, offset=offset
+    )
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -487,10 +490,15 @@ class ToggleMyApiKeyAdapter(AuthenticatedApiAdapter):
 class GetUsageAdapter(AuthenticatedApiAdapter):
     start_date: Optional[datetime]
     end_date: Optional[datetime]
+    search: Optional[str] = None
     limit: int = 100
     offset: int = 0
 
     async def handle(self, context):  # type: ignore[override]
+        from sqlalchemy import or_
+
+        from src.utils.database_helpers import escape_like_pattern, safe_truncate_escaped
+
         db = context.db
         user = context.user
         summary_list = UsageService.get_usage_summary(
@@ -595,11 +603,29 @@ class GetUsageAdapter(AuthenticatedApiAdapter):
             })
         summary_by_provider = sorted(summary_by_provider, key=lambda x: x["requests"], reverse=True)
 
-        query = db.query(Usage).filter(Usage.user_id == user.id)
+        query = (
+            db.query(Usage, ApiKey)
+            .outerjoin(ApiKey, Usage.api_key_id == ApiKey.id)
+            .filter(Usage.user_id == user.id)
+        )
         if self.start_date:
             query = query.filter(Usage.created_at >= self.start_date)
         if self.end_date:
             query = query.filter(Usage.created_at <= self.end_date)
+
+        # 通用搜索：密钥名、模型名
+        # 支持空格分隔的组合搜索，多个关键词之间是 AND 关系
+        if self.search and self.search.strip():
+            keywords = [kw for kw in self.search.strip().split() if kw][:10]
+            for keyword in keywords:
+                escaped = safe_truncate_escaped(escape_like_pattern(keyword), 100)
+                search_pattern = f"%{escaped}%"
+                query = query.filter(
+                    or_(
+                        ApiKey.name.ilike(search_pattern, escape="\\"),
+                        Usage.model.ilike(search_pattern, escape="\\"),
+                    )
+                )
 
         # 计算总数用于分页
         total_records = query.count()
@@ -659,8 +685,17 @@ class GetUsageAdapter(AuthenticatedApiAdapter):
                     "output_price_per_1m": r.output_price_per_1m,
                     "cache_creation_price_per_1m": r.cache_creation_price_per_1m,
                     "cache_read_price_per_1m": r.cache_read_price_per_1m,
+                    "api_key": (
+                        {
+                            "id": str(api_key.id),
+                            "name": api_key.name,
+                            "display": api_key.get_display_key(),
+                        }
+                        if api_key
+                        else None
+                    ),
                 }
-                for r in usage_records
+                for r, api_key in usage_records
             ],
         }
 
@@ -668,7 +703,7 @@ class GetUsageAdapter(AuthenticatedApiAdapter):
         if user.role == "admin":
             response_data["total_actual_cost"] = total_actual_cost
             # 为每条记录添加真实成本和倍率信息
-            for i, r in enumerate(usage_records):
+            for i, (r, _) in enumerate(usage_records):
                 # 确保字段有值，避免前端显示 -
                 actual_cost = (
                     r.actual_total_cost_usd if r.actual_total_cost_usd is not None else 0.0

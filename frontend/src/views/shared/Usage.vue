@@ -56,8 +56,8 @@
       :show-actual-cost="authStore.isAdmin"
       :loading="isLoadingRecords"
       :selected-period="selectedPeriod"
+      :filter-search="filterSearch"
       :filter-user="filterUser"
-      :filter-key-name="filterKeyName"
       :filter-model="filterModel"
       :filter-provider="filterProvider"
       :filter-status="filterStatus"
@@ -70,8 +70,8 @@
       :page-size-options="pageSizeOptions"
       :auto-refresh="globalAutoRefresh"
       @update:selected-period="handlePeriodChange"
+      @update:filter-search="handleFilterSearchChange"
       @update:filter-user="handleFilterUserChange"
-      @update:filter-key-name="handleFilterKeyNameChange"
       @update:filter-model="handleFilterModelChange"
       @update:filter-provider="handleFilterProviderChange"
       @update:filter-status="handleFilterStatusChange"
@@ -135,8 +135,8 @@ const pageSize = ref(20)
 const pageSizeOptions = [10, 20, 50, 100]
 
 // 筛选状态
+const filterSearch = ref('')
 const filterUser = ref('__all__')
-const filterKeyName = ref('')
 const filterModel = ref('__all__')
 const filterProvider = ref('__all__')
 const filterStatus = ref<FilterStatusValue>('__all__')
@@ -395,14 +395,17 @@ onMounted(async () => {
     // 热力图加载失败不提示，因为 UI 已显示占位符
   }
 
-  // 管理员页面加载用户列表和第一页记录
+  // 加载记录和用户列表
   if (isAdminPage.value) {
-    // 并行加载用户列表和记录
+    // 管理员页面：并行加载用户列表和记录
     const [users] = await Promise.all([
       usersApi.getAllUsers(),
       loadRecords({ page: currentPage.value, pageSize: pageSize.value }, getCurrentFilters())
     ])
     availableUsers.value = users.map(u => ({ id: u.id, username: u.username, email: u.email }))
+  } else {
+    // 用户页面：加载记录
+    await loadRecords({ page: currentPage.value, pageSize: pageSize.value }, getCurrentFilters())
   }
 })
 
@@ -413,36 +416,27 @@ async function handlePeriodChange(value: string) {
 
   const dateRange = getDateRangeFromPeriod(selectedPeriod.value)
   await loadStats(dateRange)
-
-  if (isAdminPage.value) {
-    await loadRecords({ page: 1, pageSize: pageSize.value }, getCurrentFilters())
-  }
+  await loadRecords({ page: 1, pageSize: pageSize.value }, getCurrentFilters())
 }
 
 // 处理分页变化
 async function handlePageChange(page: number) {
   currentPage.value = page
-
-  if (isAdminPage.value) {
-    await loadRecords({ page, pageSize: pageSize.value }, getCurrentFilters())
-  }
+  await loadRecords({ page, pageSize: pageSize.value }, getCurrentFilters())
 }
 
 // 处理每页大小变化
 async function handlePageSizeChange(size: number) {
   pageSize.value = size
   currentPage.value = 1  // 重置到第一页
-
-  if (isAdminPage.value) {
-    await loadRecords({ page: 1, pageSize: size }, getCurrentFilters())
-  }
+  await loadRecords({ page: 1, pageSize: size }, getCurrentFilters())
 }
 
 // 获取当前筛选参数
 function getCurrentFilters() {
   return {
+    search: filterSearch.value.trim() || undefined,
     user_id: filterUser.value !== '__all__' ? filterUser.value : undefined,
-    user_api_key_name: filterKeyName.value.trim() ? filterKeyName.value.trim() : undefined,
     model: filterModel.value !== '__all__' ? filterModel.value : undefined,
     provider: filterProvider.value !== '__all__' ? filterProvider.value : undefined,
     status: filterStatus.value !== '__all__' ? filterStatus.value : undefined
@@ -450,18 +444,16 @@ function getCurrentFilters() {
 }
 
 // 处理筛选变化
+async function handleFilterSearchChange(value: string) {
+  filterSearch.value = value
+  currentPage.value = 1
+
+  await loadRecords({ page: 1, pageSize: pageSize.value }, getCurrentFilters())
+}
+
 async function handleFilterUserChange(value: string) {
   filterUser.value = value
   currentPage.value = 1  // 重置到第一页
-
-  if (isAdminPage.value) {
-    await loadRecords({ page: 1, pageSize: pageSize.value }, getCurrentFilters())
-  }
-}
-
-async function handleFilterKeyNameChange(value: string) {
-  filterKeyName.value = value
-  currentPage.value = 1
 
   if (isAdminPage.value) {
     await loadRecords({ page: 1, pageSize: pageSize.value }, getCurrentFilters())
@@ -499,10 +491,7 @@ async function handleFilterStatusChange(value: string) {
 async function refreshData() {
   const dateRange = getDateRangeFromPeriod(selectedPeriod.value)
   await loadStats(dateRange)
-
-  if (isAdminPage.value) {
-    await loadRecords({ page: currentPage.value, pageSize: pageSize.value }, getCurrentFilters())
-  }
+  await loadRecords({ page: currentPage.value, pageSize: pageSize.value }, getCurrentFilters())
 }
 
 // 显示请求详情

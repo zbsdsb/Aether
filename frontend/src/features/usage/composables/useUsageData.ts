@@ -23,8 +23,8 @@ export interface PaginationParams {
 }
 
 export interface FilterParams {
+  search?: string
   user_id?: string
-  user_api_key_name?: string
   model?: string
   provider?: string
   status?: string
@@ -235,11 +235,6 @@ export function useUsageData(options: UseUsageDataOptions) {
     pagination: PaginationParams,
     filters?: FilterParams
   ): Promise<void> {
-    if (!isAdminPage.value) {
-      // 用户页面不需要分页加载，记录已在 loadStats 中获取
-      return
-    }
-
     isLoadingRecords.value = true
 
     try {
@@ -253,27 +248,34 @@ export function useUsageData(options: UseUsageDataOptions) {
       }
 
       // 添加筛选条件
-      if (filters?.user_id) {
-        params.user_id = filters.user_id
-      }
-      if (filters?.user_api_key_name) {
-        params.user_api_key_name = filters.user_api_key_name
-      }
-      if (filters?.model) {
-        params.model = filters.model
-      }
-      if (filters?.provider) {
-        params.provider = filters.provider
-      }
-      if (filters?.status) {
-        params.status = filters.status
+      if (filters?.search?.trim()) {
+        params.search = filters.search.trim()
       }
 
-      const response = await usageApi.getAllUsageRecords(params)
+      if (isAdminPage.value) {
+        // 管理员页面：使用管理员 API
+        if (filters?.user_id) {
+          params.user_id = filters.user_id
+        }
+        if (filters?.model) {
+          params.model = filters.model
+        }
+        if (filters?.provider) {
+          params.provider = filters.provider
+        }
+        if (filters?.status) {
+          params.status = filters.status
+        }
 
-      currentRecords.value = (response.records || []) as UsageRecord[]
-      totalRecords.value = response.total || 0
-
+        const response = await usageApi.getAllUsageRecords(params)
+        currentRecords.value = (response.records || []) as UsageRecord[]
+        totalRecords.value = response.total || 0
+      } else {
+        // 用户页面：使用用户 API
+        const userData = await meApi.getUsage(params)
+        currentRecords.value = (userData.records || []) as UsageRecord[]
+        totalRecords.value = userData.pagination?.total || currentRecords.value.length
+      }
     } catch (error) {
       log.error('加载记录失败:', error)
       currentRecords.value = []

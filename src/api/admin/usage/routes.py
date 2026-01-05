@@ -92,9 +92,9 @@ async def get_usage_records(
     request: Request,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
+    search: Optional[str] = None,  # 通用搜索：用户名、密钥名、模型名、提供商名
     user_id: Optional[str] = None,
     username: Optional[str] = None,
-    user_api_key_name: Optional[str] = None,
     model: Optional[str] = None,
     provider: Optional[str] = None,
     status: Optional[str] = None,  # stream, standard, error
@@ -105,9 +105,9 @@ async def get_usage_records(
     adapter = AdminUsageRecordsAdapter(
         start_date=start_date,
         end_date=end_date,
+        search=search,
         user_id=user_id,
         username=username,
-        user_api_key_name=user_api_key_name,
         model=model,
         provider=provider,
         status=status,
@@ -502,9 +502,9 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
         self,
         start_date: Optional[datetime],
         end_date: Optional[datetime],
+        search: Optional[str],
         user_id: Optional[str],
         username: Optional[str],
-        user_api_key_name: Optional[str],
         model: Optional[str],
         provider: Optional[str],
         status: Optional[str],
@@ -513,9 +513,9 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
     ):
         self.start_date = start_date
         self.end_date = end_date
+        self.search = search
         self.user_id = user_id
         self.username = username
-        self.user_api_key_name = user_api_key_name
         self.model = model
         self.provider = provider
         self.status = status
@@ -523,6 +523,10 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
         self.offset = offset
 
     async def handle(self, context):  # type: ignore[override]
+        from sqlalchemy import or_
+
+        from src.utils.database_helpers import escape_like_pattern, safe_truncate_escaped
+
         db = context.db
         query = (
             db.query(Usage, User, ProviderEndpoint, ProviderAPIKey, ApiKey)
@@ -531,21 +535,42 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
             .outerjoin(ProviderAPIKey, Usage.provider_api_key_id == ProviderAPIKey.id)
             .outerjoin(ApiKey, Usage.api_key_id == ApiKey.id)
         )
+
+        # 如果需要按 Provider 名称搜索/筛选，统一在这里 JOIN
+        if self.search or self.provider:
+            query = query.join(Provider, Usage.provider_id == Provider.id, isouter=True)
+
+        # 通用搜索：用户名、密钥名、模型名、提供商名
+        # 支持空格分隔的组合搜索，多个关键词之间是 AND 关系
+        # 限制：最多 10 个关键词，转义后每个关键词最长 100 字符
+        if self.search:
+            keywords = [kw for kw in self.search.strip().split() if kw][:10]
+            for keyword in keywords:
+                escaped = safe_truncate_escaped(escape_like_pattern(keyword), 100)
+                search_pattern = f"%{escaped}%"
+                query = query.filter(
+                    or_(
+                        User.username.ilike(search_pattern, escape="\\"),
+                        ApiKey.name.ilike(search_pattern, escape="\\"),
+                        Usage.model.ilike(search_pattern, escape="\\"),
+                        Provider.name.ilike(search_pattern, escape="\\"),
+                    )
+                )
+
         if self.user_id:
             query = query.filter(Usage.user_id == self.user_id)
         if self.username:
             # 支持用户名模糊搜索
-            query = query.filter(User.username.ilike(f"%{self.username}%"))
-        if self.user_api_key_name:
-            # 支持用户 API Key 名称模糊搜索（注意：不是 Provider Key）
-            query = query.filter(ApiKey.name.ilike(f"%{self.user_api_key_name}%"))
+            escaped = escape_like_pattern(self.username)
+            query = query.filter(User.username.ilike(f"%{escaped}%", escape="\\"))
         if self.model:
             # 支持模型名模糊搜索
-            query = query.filter(Usage.model.ilike(f"%{self.model}%"))
+            escaped = escape_like_pattern(self.model)
+            query = query.filter(Usage.model.ilike(f"%{escaped}%", escape="\\"))
         if self.provider:
-            # 支持提供商名称搜索（通过 Provider 表）
-            query = query.join(Provider, Usage.provider_id == Provider.id, isouter=True)
-            query = query.filter(Provider.name.ilike(f"%{self.provider}%"))
+            # 支持提供商名称搜索
+            escaped = escape_like_pattern(self.provider)
+            query = query.filter(Provider.name.ilike(f"%{escaped}%", escape="\\"))
         if self.status:
             # 状态筛选
             # 旧的筛选值（基于 is_stream 和 status_code）：stream, standard, error
@@ -603,9 +628,9 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
             action="usage_records",
             start_date=self.start_date.isoformat() if self.start_date else None,
             end_date=self.end_date.isoformat() if self.end_date else None,
+            search=self.search,
             user_id=self.user_id,
             username=self.username,
-            user_api_key_name=self.user_api_key_name,
             model=self.model,
             provider=self.provider,
             status=self.status,

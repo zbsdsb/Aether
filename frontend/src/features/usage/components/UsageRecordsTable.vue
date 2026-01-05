@@ -32,6 +32,17 @@
       <!-- 分隔线 -->
       <div class="hidden sm:block h-4 w-px bg-border" />
 
+      <!-- 通用搜索 -->
+      <div class="relative">
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground z-10 pointer-events-none" />
+        <Input
+          id="usage-records-search"
+          v-model="localSearch"
+          :placeholder="isAdmin ? '搜索用户/密钥/模型/提供商' : '搜索密钥/模型'"
+          class="w-32 sm:w-48 h-8 text-xs border-border/60 pl-8"
+        />
+      </div>
+
       <!-- 用户筛选（仅管理员可见） -->
       <Select
         v-if="isAdmin && availableUsers.length > 0"
@@ -55,20 +66,6 @@
           </SelectItem>
         </SelectContent>
       </Select>
-
-      <!-- Key 名称筛选（请求使用的用户 Key，仅管理员可见） -->
-      <div
-        v-if="isAdmin"
-        class="relative"
-      >
-        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground z-10 pointer-events-none" />
-        <Input
-          id="usage-records-key-name"
-          v-model="localKeyName"
-          placeholder="搜索密钥名称"
-          class="w-24 sm:w-40 h-8 text-xs border-border/60 pl-8"
-        />
-      </div>
 
       <!-- 模型筛选 -->
       <Select
@@ -178,6 +175,12 @@
           >
             用户
           </TableHead>
+          <TableHead
+            v-if="!isAdmin"
+            class="h-12 font-semibold w-[100px]"
+          >
+            密钥
+          </TableHead>
           <TableHead class="h-12 font-semibold w-[140px]">
             模型
           </TableHead>
@@ -210,7 +213,7 @@
       <TableBody>
         <TableRow v-if="records.length === 0">
           <TableCell
-            :colspan="isAdmin ? 9 : 7"
+            :colspan="isAdmin ? 9 : 8"
             class="text-center py-12 text-muted-foreground"
           >
             暂无请求记录
@@ -242,6 +245,22 @@
                 :title="record.api_key.name"
               >
                 {{ record.api_key.name }}
+              </span>
+            </div>
+          </TableCell>
+          <!-- 用户页面的密钥列 -->
+          <TableCell
+            v-if="!isAdmin"
+            class="py-4 w-[100px]"
+            :title="record.api_key?.name || '-'"
+          >
+            <div class="flex flex-col text-xs gap-0.5">
+              <span class="truncate">{{ record.api_key?.name || '-' }}</span>
+              <span
+                v-if="record.api_key?.display"
+                class="text-muted-foreground truncate"
+              >
+                {{ record.api_key.display }}
               </span>
             </div>
           </TableCell>
@@ -497,8 +516,8 @@ const props = defineProps<{
   // 时间段
   selectedPeriod: string
   // 筛选
+  filterSearch: string
   filterUser: string
-  filterKeyName: string
   filterModel: string
   filterProvider: string
   filterStatus: string
@@ -516,8 +535,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:selectedPeriod': [value: string]
+  'update:filterSearch': [value: string]
   'update:filterUser': [value: string]
-  'update:filterKeyName': [value: string]
   'update:filterModel': [value: string]
   'update:filterProvider': [value: string]
   'update:filterStatus': [value: string]
@@ -535,20 +554,20 @@ const filterModelSelectOpen = ref(false)
 const filterProviderSelectOpen = ref(false)
 const filterStatusSelectOpen = ref(false)
 
-// Key 名称筛选（输入防抖）
-const localKeyName = ref(props.filterKeyName)
-let keyNameDebounceTimer: ReturnType<typeof setTimeout> | null = null
+// 通用搜索（输入防抖）
+const localSearch = ref(props.filterSearch)
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
-watch(() => props.filterKeyName, (value) => {
-  if (value !== localKeyName.value) {
-    localKeyName.value = value
+watch(() => props.filterSearch, (value) => {
+  if (value !== localSearch.value) {
+    localSearch.value = value
   }
 })
 
-watch(localKeyName, (value) => {
-  if (keyNameDebounceTimer) clearTimeout(keyNameDebounceTimer)
-  keyNameDebounceTimer = setTimeout(() => {
-    emit('update:filterKeyName', value)
+watch(localSearch, (value) => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    emit('update:filterSearch', value)
   }, 300)
 })
 
@@ -619,9 +638,9 @@ function handleRowClick(event: MouseEvent, id: string) {
 // 组件卸载时清理
 onUnmounted(() => {
   stopTimer()
-  if (keyNameDebounceTimer) {
-    clearTimeout(keyNameDebounceTimer)
-    keyNameDebounceTimer = null
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
   }
 })
 

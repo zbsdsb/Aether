@@ -62,6 +62,11 @@ export interface UsageRecordDetail {
   cache_creation_price_per_1m?: number
   cache_read_price_per_1m?: number
   price_per_request?: number  // 按次计费价格
+  api_key?: {
+    id: string
+    name: string
+    display: string
+  }
 }
 
 // 模型统计接口
@@ -192,6 +197,7 @@ export const meApi = {
   async getUsage(params?: {
     start_date?: string
     end_date?: string
+    search?: string  // 通用搜索：密钥名、模型名
     limit?: number
     offset?: number
   }): Promise<UsageResponse> {

@@ -845,10 +845,19 @@ const mockHandlers: Record<string, (config: AxiosRequestConfig) => Promise<Axios
     const limit = parseInt(params.limit) || 20
     const offset = parseInt(params.offset) || 0
 
-    // 用户 API Key 名称筛选（注意：不是 Provider Key）
-    if (typeof params.user_api_key_name === 'string' && params.user_api_key_name.trim()) {
-      const keyword = params.user_api_key_name.trim().toLowerCase()
-      records = records.filter(r => (r.api_key?.name || '').toLowerCase().includes(keyword))
+    // 通用搜索：用户名、密钥名、模型名、提供商名
+    // 支持空格分隔的组合搜索，多个关键词之间是 AND 关系
+    if (typeof params.search === 'string' && params.search.trim()) {
+      const keywords = params.search.trim().toLowerCase().split(/\s+/)
+      records = records.filter(r => {
+        // 每个关键词都要匹配至少一个字段
+        return keywords.every((keyword: string) =>
+          (r.username || '').toLowerCase().includes(keyword) ||
+          (r.api_key?.name || '').toLowerCase().includes(keyword) ||
+          (r.model || '').toLowerCase().includes(keyword) ||
+          (r.provider || '').toLowerCase().includes(keyword)
+        )
+      })
     }
 
     return createMockResponse({
