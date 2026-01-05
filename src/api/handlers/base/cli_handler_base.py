@@ -329,9 +329,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 stream_generator,
                 provider_name,
                 attempt_id,
-                _provider_id,
-                _endpoint_id,
-                _key_id,
+                provider_id,
+                endpoint_id,
+                key_id,
             ) = await self.orchestrator.execute_with_fallback(
                 api_format=ctx.api_format,
                 model_name=ctx.model,
@@ -341,7 +341,17 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 is_stream=True,
                 capability_requirements=capability_requirements or None,
             )
+
+            # 更新上下文（确保 provider 信息已设置，用于 streaming 状态更新）
             ctx.attempt_id = attempt_id
+            if not ctx.provider_name:
+                ctx.provider_name = provider_name
+            if not ctx.provider_id:
+                ctx.provider_id = provider_id
+            if not ctx.endpoint_id:
+                ctx.endpoint_id = endpoint_id
+            if not ctx.key_id:
+                ctx.key_id = key_id
 
             # 创建后台任务记录统计
             background_tasks = BackgroundTasks()
