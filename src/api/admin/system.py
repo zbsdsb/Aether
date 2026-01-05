@@ -1,5 +1,7 @@
 """系统设置API端点。"""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -17,6 +19,46 @@ from src.services.email.email_template import EmailTemplate
 from src.services.system.config import SystemConfigService
 
 router = APIRouter(prefix="/api/admin/system", tags=["Admin - System"])
+
+
+def _get_version_from_git() -> str | None:
+    """从 git describe 获取版本号"""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--always"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            version = result.stdout.strip()
+            if version.startswith("v"):
+                version = version[1:]
+            return version
+    except Exception:
+        pass
+    return None
+
+
+@router.get("/version")
+async def get_system_version():
+    """获取系统版本信息"""
+    # 优先从 git 获取
+    version = _get_version_from_git()
+    if version:
+        return {"version": version}
+
+    # 回退到静态版本文件
+    try:
+        from src._version import __version__
+
+        return {"version": __version__}
+    except ImportError:
+        return {"version": "unknown"}
+
+
 pipeline = ApiRequestPipeline()
 
 
@@ -950,6 +992,31 @@ class AdminExportUsersAdapter(AdminApiAdapter):
 
         db = context.db
 
+        def _serialize_api_key(key: ApiKey, include_is_standalone: bool = False) -> dict:
+            """序列化 API Key 为导出格式"""
+            data = {
+                "key_hash": key.key_hash,
+                "key_encrypted": key.key_encrypted,
+                "name": key.name,
+                "balance_used_usd": key.balance_used_usd,
+                "current_balance_usd": key.current_balance_usd,
+                "allowed_providers": key.allowed_providers,
+                "allowed_endpoints": key.allowed_endpoints,
+                "allowed_api_formats": key.allowed_api_formats,
+                "allowed_models": key.allowed_models,
+                "rate_limit": key.rate_limit,
+                "concurrent_limit": key.concurrent_limit,
+                "force_capabilities": key.force_capabilities,
+                "is_active": key.is_active,
+                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+                "auto_delete_on_expiry": key.auto_delete_on_expiry,
+                "total_requests": key.total_requests,
+                "total_cost_usd": key.total_cost_usd,
+            }
+            if include_is_standalone:
+                data["is_standalone"] = key.is_standalone
+            return data
+
         # 导出 Users（排除管理员）
         users = db.query(User).filter(
             User.is_deleted.is_(False),
@@ -957,31 +1024,12 @@ class AdminExportUsersAdapter(AdminApiAdapter):
         ).all()
         users_data = []
         for user in users:
-            # 导出用户的 API Keys（保留加密数据）
-            api_keys = db.query(ApiKey).filter(ApiKey.user_id == user.id).all()
-            api_keys_data = []
-            for key in api_keys:
-                api_keys_data.append(
-                    {
-                        "key_hash": key.key_hash,
-                        "key_encrypted": key.key_encrypted,
-                        "name": key.name,
-                        "is_standalone": key.is_standalone,
-                        "balance_used_usd": key.balance_used_usd,
-                        "current_balance_usd": key.current_balance_usd,
-                        "allowed_providers": key.allowed_providers,
-                        "allowed_endpoints": key.allowed_endpoints,
-                        "allowed_api_formats": key.allowed_api_formats,
-                        "allowed_models": key.allowed_models,
-                        "rate_limit": key.rate_limit,
-                        "concurrent_limit": key.concurrent_limit,
-                        "force_capabilities": key.force_capabilities,
-                        "is_active": key.is_active,
-                        "auto_delete_on_expiry": key.auto_delete_on_expiry,
-                        "total_requests": key.total_requests,
-                        "total_cost_usd": key.total_cost_usd,
-                    }
-                )
+            # 导出用户的 API Keys（排除独立余额Key，独立Key单独导出）
+            api_keys = db.query(ApiKey).filter(
+                ApiKey.user_id == user.id,
+                ApiKey.is_standalone.is_(False)
+            ).all()
+            api_keys_data = [_serialize_api_key(key, include_is_standalone=True) for key in api_keys]
 
             users_data.append(
                 {
@@ -1001,10 +1049,15 @@ class AdminExportUsersAdapter(AdminApiAdapter):
                 }
             )
 
+        # 导出独立余额 Keys（管理员创建的，不属于普通用户）
+        standalone_keys = db.query(ApiKey).filter(ApiKey.is_standalone.is_(True)).all()
+        standalone_keys_data = [_serialize_api_key(key) for key in standalone_keys]
+
         return {
-            "version": "1.0",
+            "version": "1.1",
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "users": users_data,
+            "standalone_keys": standalone_keys_data,
         }
 
 
@@ -1024,20 +1077,71 @@ class AdminImportUsersAdapter(AdminApiAdapter):
         db = context.db
         payload = context.ensure_json_body()
 
-        # 验证配置版本
-        version = payload.get("version")
-        if version != "1.0":
-            raise InvalidRequestException(f"不支持的配置版本: {version}")
-
         # 获取导入选项
         merge_mode = payload.get("merge_mode", "skip")  # skip, overwrite, error
         users_data = payload.get("users", [])
+        standalone_keys_data = payload.get("standalone_keys", [])
 
         stats = {
             "users": {"created": 0, "updated": 0, "skipped": 0},
             "api_keys": {"created": 0, "skipped": 0},
+            "standalone_keys": {"created": 0, "skipped": 0},
             "errors": [],
         }
+
+        def _create_api_key_from_data(
+            key_data: dict,
+            owner_id: str,
+            is_standalone: bool = False,
+        ) -> tuple[ApiKey | None, str]:
+            """从导入数据创建 ApiKey 对象
+
+            Returns:
+                (ApiKey, "created"): 成功创建
+                (None, "skipped"): key 已存在，跳过
+                (None, "invalid"): 数据无效，跳过
+            """
+            key_hash = key_data.get("key_hash", "").strip()
+            if not key_hash:
+                return None, "invalid"
+
+            # 检查是否已存在
+            existing = db.query(ApiKey).filter(ApiKey.key_hash == key_hash).first()
+            if existing:
+                return None, "skipped"
+
+            # 解析 expires_at
+            expires_at = None
+            if key_data.get("expires_at"):
+                try:
+                    expires_at = datetime.fromisoformat(key_data["expires_at"])
+                except ValueError:
+                    stats["errors"].append(
+                        f"API Key '{key_data.get('name', key_hash[:8])}' 的 expires_at 格式无效"
+                    )
+
+            return ApiKey(
+                id=str(uuid.uuid4()),
+                user_id=owner_id,
+                key_hash=key_hash,
+                key_encrypted=key_data.get("key_encrypted"),
+                name=key_data.get("name"),
+                is_standalone=is_standalone or key_data.get("is_standalone", False),
+                balance_used_usd=key_data.get("balance_used_usd", 0.0),
+                current_balance_usd=key_data.get("current_balance_usd"),
+                allowed_providers=key_data.get("allowed_providers"),
+                allowed_endpoints=key_data.get("allowed_endpoints"),
+                allowed_api_formats=key_data.get("allowed_api_formats"),
+                allowed_models=key_data.get("allowed_models"),
+                rate_limit=key_data.get("rate_limit"),
+                concurrent_limit=key_data.get("concurrent_limit", 5),
+                force_capabilities=key_data.get("force_capabilities"),
+                is_active=key_data.get("is_active", True),
+                expires_at=expires_at,
+                auto_delete_on_expiry=key_data.get("auto_delete_on_expiry", False),
+                total_requests=key_data.get("total_requests", 0),
+                total_cost_usd=key_data.get("total_cost_usd", 0.0),
+            ), "created"
 
         try:
             for user_data in users_data:
@@ -1109,40 +1213,31 @@ class AdminImportUsersAdapter(AdminApiAdapter):
 
                 # 导入 API Keys
                 for key_data in user_data.get("api_keys", []):
-                    # 检查是否已存在相同的 key_hash
-                    if key_data.get("key_hash"):
-                        existing_key = (
-                            db.query(ApiKey)
-                            .filter(ApiKey.key_hash == key_data["key_hash"])
-                            .first()
-                        )
-                        if existing_key:
-                            stats["api_keys"]["skipped"] += 1
-                            continue
+                    new_key, status = _create_api_key_from_data(key_data, user_id)
+                    if new_key:
+                        db.add(new_key)
+                        stats["api_keys"]["created"] += 1
+                    elif status == "skipped":
+                        stats["api_keys"]["skipped"] += 1
+                    # invalid 数据不计入统计
 
-                    new_key = ApiKey(
-                        id=str(uuid.uuid4()),
-                        user_id=user_id,
-                        key_hash=key_data.get("key_hash", ""),
-                        key_encrypted=key_data.get("key_encrypted"),
-                        name=key_data.get("name"),
-                        is_standalone=key_data.get("is_standalone", False),
-                        balance_used_usd=key_data.get("balance_used_usd", 0.0),
-                        current_balance_usd=key_data.get("current_balance_usd"),
-                        allowed_providers=key_data.get("allowed_providers"),
-                        allowed_endpoints=key_data.get("allowed_endpoints"),
-                        allowed_api_formats=key_data.get("allowed_api_formats"),
-                        allowed_models=key_data.get("allowed_models"),
-                        rate_limit=key_data.get("rate_limit"),  # None = 无限制
-                        concurrent_limit=key_data.get("concurrent_limit", 5),
-                        force_capabilities=key_data.get("force_capabilities"),
-                        is_active=key_data.get("is_active", True),
-                        auto_delete_on_expiry=key_data.get("auto_delete_on_expiry", False),
-                        total_requests=key_data.get("total_requests", 0),
-                        total_cost_usd=key_data.get("total_cost_usd", 0.0),
-                    )
-                    db.add(new_key)
-                    stats["api_keys"]["created"] += 1
+            # 导入独立余额 Keys（需要找一个管理员用户作为 owner）
+            if standalone_keys_data:
+                # 查找一个管理员用户作为独立Key的owner
+                admin_user = db.query(User).filter(User.role == UserRole.ADMIN).first()
+                if not admin_user:
+                    stats["errors"].append("无法导入独立余额Key: 系统中没有管理员用户")
+                else:
+                    for key_data in standalone_keys_data:
+                        new_key, status = _create_api_key_from_data(
+                            key_data, admin_user.id, is_standalone=True
+                        )
+                        if new_key:
+                            db.add(new_key)
+                            stats["standalone_keys"]["created"] += 1
+                        elif status == "skipped":
+                            stats["standalone_keys"]["skipped"] += 1
+                        # invalid 数据不计入统计
 
             db.commit()
 

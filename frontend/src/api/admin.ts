@@ -13,6 +13,7 @@ export interface UsersExportData {
   version: string
   exported_at: string
   users: UserExport[]
+  standalone_keys?: StandaloneKeyExport[]
 }
 
 export interface UserExport {
@@ -46,10 +47,14 @@ export interface UserApiKeyExport {
   concurrent_limit?: number | null
   force_capabilities?: any
   is_active: boolean
+  expires_at?: string | null
   auto_delete_on_expiry?: boolean
   total_requests?: number
   total_cost_usd?: number
 }
+
+// 独立余额 Key 导出结构（与 UserApiKeyExport 相同，但不包含 is_standalone）
+export type StandaloneKeyExport = Omit<UserApiKeyExport, 'is_standalone'>
 
 export interface GlobalModelExport {
   name: string
@@ -189,6 +194,7 @@ export interface UsersImportResponse {
   stats: {
     users: { created: number; updated: number; skipped: number }
     api_keys: { created: number; skipped: number }
+    standalone_keys?: { created: number; skipped: number }
     errors: string[]
   }
 }
@@ -471,6 +477,14 @@ export const adminApi = {
   async resetEmailTemplate(templateType: string): Promise<EmailTemplateResetResponse> {
     const response = await apiClient.post<EmailTemplateResetResponse>(
       `/api/admin/system/email/templates/${templateType}/reset`
+    )
+    return response.data
+  },
+
+  // 获取系统版本信息
+  async getSystemVersion(): Promise<{ version: string }> {
+    const response = await apiClient.get<{ version: string }>(
+      '/api/admin/system/version'
     )
     return response.data
   }

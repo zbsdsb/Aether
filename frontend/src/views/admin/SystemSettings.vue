@@ -464,6 +464,30 @@
           </div>
         </div>
       </CardSection>
+
+      <!-- 系统版本信息 -->
+      <CardSection
+        title="系统信息"
+        description="当前系统版本和构建信息"
+      >
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2">
+            <Label class="text-sm font-medium text-muted-foreground">版本:</Label>
+            <span
+              v-if="systemVersion"
+              class="text-sm font-mono"
+            >
+              {{ systemVersion }}
+            </span>
+            <span
+              v-else
+              class="text-sm text-muted-foreground"
+            >
+              加载中...
+            </span>
+          </div>
+        </div>
+      </CardSection>
     </div>
 
     <!-- 导入配置对话框 -->
@@ -475,7 +499,7 @@
       <div class="space-y-4">
         <div
           v-if="importPreview"
-          class="p-3 bg-muted rounded-lg text-sm"
+          class="text-sm"
         >
           <p class="font-medium mb-2">
             配置预览
@@ -557,7 +581,7 @@
         class="space-y-4"
       >
         <div class="grid grid-cols-2 gap-4 text-sm">
-          <div class="p-3 bg-muted rounded-lg">
+          <div>
             <p class="font-medium">
               全局模型
             </p>
@@ -567,7 +591,7 @@
               跳过: {{ importResult.stats.global_models.skipped }}
             </p>
           </div>
-          <div class="p-3 bg-muted rounded-lg">
+          <div>
             <p class="font-medium">
               提供商
             </p>
@@ -577,7 +601,7 @@
               跳过: {{ importResult.stats.providers.skipped }}
             </p>
           </div>
-          <div class="p-3 bg-muted rounded-lg">
+          <div>
             <p class="font-medium">
               端点
             </p>
@@ -587,7 +611,7 @@
               跳过: {{ importResult.stats.endpoints.skipped }}
             </p>
           </div>
-          <div class="p-3 bg-muted rounded-lg">
+          <div>
             <p class="font-medium">
               API Keys
             </p>
@@ -596,7 +620,7 @@
               跳过: {{ importResult.stats.keys.skipped }}
             </p>
           </div>
-          <div class="p-3 bg-muted rounded-lg col-span-2">
+          <div class="col-span-2">
             <p class="font-medium">
               模型配置
             </p>
@@ -642,7 +666,7 @@
       <div class="space-y-4">
         <div
           v-if="importUsersPreview"
-          class="p-3 bg-muted rounded-lg text-sm"
+          class="text-sm"
         >
           <p class="font-medium mb-2">
             数据预览
@@ -651,6 +675,9 @@
             <li>用户: {{ importUsersPreview.users?.length || 0 }} 个</li>
             <li>
               API Keys: {{ importUsersPreview.users?.reduce((sum: number, u: any) => sum + (u.api_keys?.length || 0), 0) }} 个
+            </li>
+            <li v-if="importUsersPreview.standalone_keys?.length">
+              独立余额 Keys: {{ importUsersPreview.standalone_keys.length }} 个
             </li>
           </ul>
         </div>
@@ -720,7 +747,7 @@
         class="space-y-4"
       >
         <div class="grid grid-cols-2 gap-4 text-sm">
-          <div class="p-3 bg-muted rounded-lg">
+          <div>
             <p class="font-medium">
               用户
             </p>
@@ -730,13 +757,25 @@
               跳过: {{ importUsersResult.stats.users.skipped }}
             </p>
           </div>
-          <div class="p-3 bg-muted rounded-lg">
+          <div>
             <p class="font-medium">
               API Keys
             </p>
             <p class="text-muted-foreground">
               创建: {{ importUsersResult.stats.api_keys.created }},
               跳过: {{ importUsersResult.stats.api_keys.skipped }}
+            </p>
+          </div>
+          <div
+            v-if="importUsersResult.stats.standalone_keys"
+            class="col-span-2"
+          >
+            <p class="font-medium">
+              独立余额 Keys
+            </p>
+            <p class="text-muted-foreground">
+              创建: {{ importUsersResult.stats.standalone_keys.created }},
+              跳过: {{ importUsersResult.stats.standalone_keys.skipped }}
             </p>
           </div>
         </div>
@@ -839,6 +878,9 @@ const importUsersResult = ref<UsersImportResponse | null>(null)
 const usersMergeMode = ref<'skip' | 'overwrite' | 'error'>('skip')
 const usersMergeModeSelectOpen = ref(false)
 
+// 系统版本信息
+const systemVersion = ref<string>('')
+
 const systemConfig = ref<SystemConfig>({
   // 基础配置
   default_user_quota_usd: 10.0,
@@ -890,8 +932,20 @@ const sensitiveHeadersStr = computed({
 })
 
 onMounted(async () => {
-  await loadSystemConfig()
+  await Promise.all([
+    loadSystemConfig(),
+    loadSystemVersion()
+  ])
 })
+
+async function loadSystemVersion() {
+  try {
+    const data = await adminApi.getSystemVersion()
+    systemVersion.value = data.version
+  } catch (err) {
+    log.error('加载系统版本失败:', err)
+  }
+}
 
 async function loadSystemConfig() {
   try {
@@ -1177,12 +1231,6 @@ function handleUsersFileSelect(event: Event) {
     try {
       const content = e.target?.result as string
       const data = JSON.parse(content) as UsersExportData
-
-      // 验证版本
-      if (data.version !== '1.0') {
-        error(`不支持的配置版本: ${data.version}`)
-        return
-      }
 
       importUsersPreview.value = data
       usersMergeMode.value = 'skip'
