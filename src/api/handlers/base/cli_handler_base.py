@@ -536,8 +536,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
         try:
             sse_parser = SSEEventParser()
             last_data_time = time.time()
-            streaming_status_updated = False
             buffer = b""
+            output_state = {"first_yield": True, "streaming_updated": False}
             # 使用增量解码器处理跨 chunk 的 UTF-8 字符
             decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
@@ -545,11 +545,6 @@ class CliMessageHandlerBase(BaseMessageHandler):
             needs_conversion = self._needs_format_conversion(ctx)
 
             async for chunk in stream_response.aiter_bytes():
-                # 在第一次输出数据前更新状态为 streaming
-                if not streaming_status_updated:
-                    self._update_usage_to_streaming_with_ctx(ctx)
-                    streaming_status_updated = True
-
                 buffer += chunk
                 # 处理缓冲区中的完整行
                 while b"\n" in buffer:
@@ -574,6 +569,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                                 event.get("event"),
                                 event.get("data") or "",
                             )
+                        self._mark_first_output(ctx, output_state)
                         yield b"\n"
                         continue
 
@@ -591,6 +587,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                                     "message": f"提供商 '{ctx.provider_name}' 流超时且未返回有效数据",
                                 },
                             }
+                            self._mark_first_output(ctx, output_state)
                             yield f"event: error\ndata: {json.dumps(error_event)}\n\n".encode("utf-8")
                             return  # 结束生成器
 
@@ -598,8 +595,10 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     if needs_conversion:
                         converted_line = self._convert_sse_line(ctx, line, events)
                         if converted_line:
+                            self._mark_first_output(ctx, output_state)
                             yield (converted_line + "\n").encode("utf-8")
                     else:
+                        self._mark_first_output(ctx, output_state)
                         yield (line + "\n").encode("utf-8")
 
                 for event in events:
@@ -650,7 +649,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     },
                 }
                 yield f"event: error\ndata: {json.dumps(error_event)}\n\n".encode("utf-8")
-        except httpx.RemoteProtocolError as e:
+        except httpx.RemoteProtocolError:
             if ctx.data_count > 0:
                 error_event = {
                     "type": "error",
@@ -846,18 +845,12 @@ class CliMessageHandlerBase(BaseMessageHandler):
             sse_parser = SSEEventParser()
             last_data_time = time.time()
             buffer = b""
-            first_yield = True  # 标记是否是第一次 yield
-            streaming_status_updated = False  # 标记状态是否已更新
+            output_state = {"first_yield": True, "streaming_updated": False}
             # 使用增量解码器处理跨 chunk 的 UTF-8 字符
             decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
             # 检查是否需要格式转换
             needs_conversion = self._needs_format_conversion(ctx)
-
-            # 在第一次输出数据前更新状态为 streaming
-            if prefetched_chunks:
-                self._update_usage_to_streaming_with_ctx(ctx)
-                streaming_status_updated = True
 
             # 先处理预读的字节块
             for chunk in prefetched_chunks:
@@ -885,10 +878,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                                 event.get("event"),
                                 event.get("data") or "",
                             )
-                        # 记录首字时间 (第一次 yield)
-                        if first_yield:
-                            ctx.record_first_byte_time(self.start_time)
-                            first_yield = False
+                        self._mark_first_output(ctx, output_state)
                         yield b"\n"
                         continue
 
@@ -898,16 +888,10 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     if needs_conversion:
                         converted_line = self._convert_sse_line(ctx, line, events)
                         if converted_line:
-                            # 记录首字时间 (第一次 yield)
-                            if first_yield:
-                                ctx.record_first_byte_time(self.start_time)
-                                first_yield = False
+                            self._mark_first_output(ctx, output_state)
                             yield (converted_line + "\n").encode("utf-8")
                     else:
-                        # 记录首字时间 (第一次 yield)
-                        if first_yield:
-                            ctx.record_first_byte_time(self.start_time)
-                            first_yield = False
+                        self._mark_first_output(ctx, output_state)
                         yield (line + "\n").encode("utf-8")
 
                     for event in events:
@@ -922,11 +906,6 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
             # 继续处理剩余的流数据（使用同一个迭代器）
             async for chunk in byte_iterator:
-                # 如果预读数据为空，在收到第一个 chunk 时更新状态
-                if not streaming_status_updated:
-                    self._update_usage_to_streaming_with_ctx(ctx)
-                    streaming_status_updated = True
-
                 buffer += chunk
                 # 处理缓冲区中的完整行
                 while b"\n" in buffer:
@@ -951,10 +930,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                                 event.get("event"),
                                 event.get("data") or "",
                             )
-                        # 记录首字时间 (第一次 yield) - 如果预读数据为空
-                        if first_yield:
-                            ctx.record_first_byte_time(self.start_time)
-                            first_yield = False
+                        self._mark_first_output(ctx, output_state)
                         yield b"\n"
                         continue
 
@@ -972,6 +948,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                                     "message": f"提供商 '{ctx.provider_name}' 流超时且未返回有效数据",
                                 },
                             }
+                            self._mark_first_output(ctx, output_state)
                             yield f"event: error\ndata: {json.dumps(error_event)}\n\n".encode("utf-8")
                             return
 
@@ -979,16 +956,10 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     if needs_conversion:
                         converted_line = self._convert_sse_line(ctx, line, events)
                         if converted_line:
-                            # 记录首字时间 (第一次 yield) - 如果预读数据为空
-                            if first_yield:
-                                ctx.record_first_byte_time(self.start_time)
-                                first_yield = False
+                            self._mark_first_output(ctx, output_state)
                             yield (converted_line + "\n").encode("utf-8")
                     else:
-                        # 记录首字时间 (第一次 yield) - 如果预读数据为空
-                        if first_yield:
-                            ctx.record_first_byte_time(self.start_time)
-                            first_yield = False
+                        self._mark_first_output(ctx, output_state)
                         yield (line + "\n").encode("utf-8")
 
                     for event in events:
@@ -1684,6 +1655,25 @@ class CliMessageHandlerBase(BaseMessageHandler):
         if not ctx.provider_api_format or not ctx.client_api_format:
             return False
         return ctx.provider_api_format.upper() != ctx.client_api_format.upper()
+
+    def _mark_first_output(self, ctx: StreamContext, state: Dict[str, bool]) -> None:
+        """
+        标记首次输出：记录 TTFB 并更新 streaming 状态
+
+        在第一次 yield 数据前调用，确保：
+        1. 首字时间 (TTFB) 已记录到 ctx
+        2. Usage 状态已更新为 streaming（包含 provider/key/TTFB 信息）
+
+        Args:
+            ctx: 流上下文
+            state: 包含 first_yield 和 streaming_updated 的状态字典
+        """
+        if state["first_yield"]:
+            ctx.record_first_byte_time(self.start_time)
+            state["first_yield"] = False
+            if not state["streaming_updated"]:
+                self._update_usage_to_streaming_with_ctx(ctx)
+                state["streaming_updated"] = True
 
     def _convert_sse_line(
         self,

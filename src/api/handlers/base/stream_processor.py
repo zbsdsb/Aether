@@ -332,15 +332,15 @@ class StreamProcessor:
 
             # 处理预读数据
             if prefetched_chunks:
-                if not streaming_started and self.on_streaming_start:
-                    self.on_streaming_start()
-                    streaming_started = True
-
                 for chunk in prefetched_chunks:
                     # 记录首字时间 (TTFB) - 在 yield 之前记录
                     if start_time is not None:
                         ctx.record_first_byte_time(start_time)
                         start_time = None  # 只记录一次
+                    # 首次输出前触发 streaming 回调（确保 TTFB 已写入 ctx）
+                    if not streaming_started and self.on_streaming_start:
+                        self.on_streaming_start()
+                        streaming_started = True
 
                     # 把原始数据转发给客户端
                     yield chunk
@@ -363,14 +363,14 @@ class StreamProcessor:
 
             # 处理剩余的流数据
             async for chunk in byte_iterator:
-                if not streaming_started and self.on_streaming_start:
-                    self.on_streaming_start()
-                    streaming_started = True
-
                 # 记录首字时间 (TTFB) - 在 yield 之前记录（如果预读数据为空）
                 if start_time is not None:
                     ctx.record_first_byte_time(start_time)
                     start_time = None  # 只记录一次
+                # 首次输出前触发 streaming 回调（确保 TTFB 已写入 ctx）
+                if not streaming_started and self.on_streaming_start:
+                    self.on_streaming_start()
+                    streaming_started = True
 
                 # 原始数据透传
                 yield chunk

@@ -1636,6 +1636,8 @@ class UsageService:
         ids: Optional[List[str]] = None,
         user_id: Optional[str] = None,
         default_timeout_seconds: int = 300,
+        *,
+        include_admin_fields: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         获取活跃请求状态（用于前端轮询），并自动清理超时的 pending/streaming 请求
@@ -1671,6 +1673,15 @@ class UsageService:
             Usage.provider_endpoint_id,
             ProviderEndpoint.timeout.label("endpoint_timeout"),
         ).outerjoin(ProviderEndpoint, Usage.provider_endpoint_id == ProviderEndpoint.id)
+
+        # 管理员轮询：可附带 provider 与上游 key 名称（注意：不要在普通用户接口暴露上游 key 信息）
+        if include_admin_fields:
+            from src.models.database import ProviderAPIKey
+
+            query = query.add_columns(
+                Usage.provider,
+                ProviderAPIKey.name.label("api_key_name"),
+            ).outerjoin(ProviderAPIKey, Usage.provider_api_key_id == ProviderAPIKey.id)
 
         if ids:
             query = query.filter(Usage.id.in_(ids))
@@ -1708,8 +1719,9 @@ class UsageService:
             )
             db.commit()
 
-        return [
-            {
+        result: List[Dict[str, Any]] = []
+        for r in records:
+            item: Dict[str, Any] = {
                 "id": r.id,
                 "status": "failed" if r.id in timeout_ids else r.status,
                 "input_tokens": r.input_tokens,
@@ -1718,8 +1730,12 @@ class UsageService:
                 "response_time_ms": r.response_time_ms,
                 "first_byte_time_ms": r.first_byte_time_ms,  # 首字时间 (TTFB)
             }
-            for r in records
-        ]
+            if include_admin_fields:
+                item["provider"] = r.provider
+                item["api_key_name"] = r.api_key_name
+            result.append(item)
+
+        return result
 
     # ========== 缓存亲和性分析方法 ==========
 

@@ -690,7 +690,9 @@ class AdminActiveRequestsAdapter(AdminApiAdapter):
             if not id_list:
                 return {"requests": []}
 
-        requests = UsageService.get_active_requests_status(db=db, ids=id_list)
+        requests = UsageService.get_active_requests_status(
+            db=db, ids=id_list, include_admin_fields=True
+        )
         return {"requests": requests}
 
 

@@ -193,6 +193,9 @@ export const usageApi = {
       output_tokens: number
       cost: number
       response_time_ms: number | null
+      first_byte_time_ms: number | null
+      provider?: string | null
+      api_key_name?: string | null
     }>
   }> {
     const params = ids?.length ? { ids: ids.join(',') } : {}

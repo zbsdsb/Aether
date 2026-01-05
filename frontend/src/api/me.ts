@@ -203,11 +203,12 @@ export const meApi = {
   async getActiveRequests(ids?: string): Promise<{
     requests: Array<{
       id: string
-      status: string
+      status: 'pending' | 'streaming' | 'completed' | 'failed'
       input_tokens: number
       output_tokens: number
       cost: number
       response_time_ms: number | null
+      first_byte_time_ms: number | null
     }>
   }> {
     const params = ids ? { ids } : {}

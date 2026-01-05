@@ -259,27 +259,40 @@ async function pollActiveRequests() {
       ? await usageApi.getActiveRequests(activeRequestIds.value)
       : await meApi.getActiveRequests(idsParam)
 
-    // 检查是否有状态变化
-    let hasChanges = false
+    let shouldRefresh = false
+
     for (const update of requests) {
       const record = currentRecords.value.find(r => r.id === update.id)
-      if (record && record.status !== update.status) {
-        hasChanges = true
-        // 如果状态变为 completed 或 failed，需要刷新获取完整数据
-        if (update.status === 'completed' || update.status === 'failed') {
-          break
-        }
-        // 否则只更新状态和 token 信息
+      if (!record) {
+        // 后端返回了未知的活跃请求，触发刷新以获取完整数据
+        shouldRefresh = true
+        continue
+      }
+
+      // 状态变化：completed/failed 需要刷新获取完整数据
+      if (record.status !== update.status) {
         record.status = update.status
-        record.input_tokens = update.input_tokens
-        record.output_tokens = update.output_tokens
-        record.cost = update.cost
-        record.response_time_ms = update.response_time_ms ?? undefined
+      }
+      if (update.status === 'completed' || update.status === 'failed') {
+        shouldRefresh = true
+      }
+
+      // 进行中状态也需要持续更新（provider/key/TTFB 可能在 streaming 后才落库）
+      record.input_tokens = update.input_tokens
+      record.output_tokens = update.output_tokens
+      record.cost = update.cost
+      record.response_time_ms = update.response_time_ms ?? undefined
+      record.first_byte_time_ms = update.first_byte_time_ms ?? undefined
+      // 管理员接口返回额外字段
+      if ('provider' in update && typeof update.provider === 'string') {
+        record.provider = update.provider
+      }
+      if ('api_key_name' in update) {
+        record.api_key_name = typeof update.api_key_name === 'string' ? update.api_key_name : undefined
       }
     }
 
-    // 如果有请求完成或失败，刷新整个列表获取完整数据
-    if (hasChanges && requests.some(r => r.status === 'completed' || r.status === 'failed')) {
+    if (shouldRefresh) {
       await refreshData()
     }
   } catch (error) {
