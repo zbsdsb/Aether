@@ -51,21 +51,21 @@ RUN printf '%s\n' \
 '    ""      $remote_addr;' \
 '}' \
 '' \
-'# gzip 压缩配置（对 base64 图片等非流式响应有效）' \
-'gzip on;' \
-'gzip_min_length 256;' \
-'gzip_comp_level 5;' \
-'gzip_vary on;' \
-'gzip_proxied any;' \
-'gzip_types application/json text/plain text/css text/javascript application/javascript application/octet-stream;' \
-'gzip_disable "msie6";' \
-'' \
 'server {' \
 '    listen 80;' \
 '    server_name _;' \
 '    root /usr/share/nginx/html;' \
 '    index index.html;' \
 '    client_max_body_size 100M;' \
+'' \
+'    # gzip 压缩配置（对 base64 图片等非流式响应有效）' \
+'    gzip on;' \
+'    gzip_min_length 256;' \
+'    gzip_comp_level 5;' \
+'    gzip_vary on;' \
+'    gzip_proxied any;' \
+'    gzip_types application/json text/plain text/css text/javascript application/javascript application/octet-stream;' \
+'    gzip_disable "msie6";' \
 '' \
 '    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {' \
 '        expires 1y;' \
