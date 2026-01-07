@@ -44,7 +44,14 @@ def _get_version_from_git() -> str | None:
 
 @router.get("/version")
 async def get_system_version():
-    """获取系统版本信息"""
+    """
+    获取系统版本信息
+
+    获取当前系统的版本号。优先从 git describe 获取，回退到静态版本文件。
+
+    **返回字段**:
+    - `version`: 版本号字符串
+    """
     # 优先从 git 获取
     version = _get_version_from_git()
     if version:
@@ -64,7 +71,16 @@ pipeline = ApiRequestPipeline()
 
 @router.get("/settings")
 async def get_system_settings(request: Request, db: Session = Depends(get_db)):
-    """获取系统设置（管理员）"""
+    """
+    获取系统设置
+
+    获取系统的全局设置信息。需要管理员权限。
+
+    **返回字段**:
+    - `default_provider`: 默认提供商名称
+    - `default_model`: 默认模型名称
+    - `enable_usage_tracking`: 是否启用使用情况追踪
+    """
 
     adapter = AdminGetSystemSettingsAdapter()
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
@@ -72,7 +88,19 @@ async def get_system_settings(request: Request, db: Session = Depends(get_db)):
 
 @router.put("/settings")
 async def update_system_settings(http_request: Request, db: Session = Depends(get_db)):
-    """更新系统设置（管理员）"""
+    """
+    更新系统设置
+
+    更新系统的全局设置。需要管理员权限。
+
+    **请求体字段**:
+    - `default_provider`: 可选，默认提供商名称（空字符串表示清除设置）
+    - `default_model`: 可选，默认模型名称（空字符串表示清除设置）
+    - `enable_usage_tracking`: 可选，是否启用使用情况追踪
+
+    **返回字段**:
+    - `message`: 操作结果信息
+    """
 
     adapter = AdminUpdateSystemSettingsAdapter()
     return await pipeline.run(adapter=adapter, http_request=http_request, db=db, mode=adapter.mode)
@@ -80,7 +108,14 @@ async def update_system_settings(http_request: Request, db: Session = Depends(ge
 
 @router.get("/configs")
 async def get_all_system_configs(request: Request, db: Session = Depends(get_db)):
-    """获取所有系统配置（管理员）"""
+    """
+    获取所有系统配置
+
+    获取系统中所有的配置项。需要管理员权限。
+
+    **返回字段**:
+    - 配置项的键值对字典
+    """
 
     adapter = AdminGetAllConfigsAdapter()
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
@@ -88,7 +123,19 @@ async def get_all_system_configs(request: Request, db: Session = Depends(get_db)
 
 @router.get("/configs/{key}")
 async def get_system_config(key: str, request: Request, db: Session = Depends(get_db)):
-    """获取特定系统配置（管理员）"""
+    """
+    获取特定系统配置
+
+    获取指定配置项的值。需要管理员权限。
+
+    **路径参数**:
+    - `key`: 配置项键名
+
+    **返回字段**:
+    - `key`: 配置项键名
+    - `value`: 配置项的值（敏感配置项不返回实际值）
+    - `is_set`: 可选，对于敏感配置项，指示是否已设置
+    """
 
     adapter = AdminGetSystemConfigAdapter(key=key)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
@@ -100,7 +147,24 @@ async def set_system_config(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """设置系统配置（管理员）"""
+    """
+    设置系统配置
+
+    设置或更新指定配置项的值。需要管理员权限。
+
+    **路径参数**:
+    - `key`: 配置项键名
+
+    **请求体字段**:
+    - `value`: 配置项的值
+    - `description`: 可选，配置项描述
+
+    **返回字段**:
+    - `key`: 配置项键名
+    - `value`: 配置项的值（敏感配置项显示为 ********）
+    - `description`: 配置项描述
+    - `updated_at`: 更新时间
+    """
 
     adapter = AdminSetSystemConfigAdapter(key=key)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
@@ -108,7 +172,17 @@ async def set_system_config(
 
 @router.delete("/configs/{key}")
 async def delete_system_config(key: str, request: Request, db: Session = Depends(get_db)):
-    """删除系统配置（管理员）"""
+    """
+    删除系统配置
+
+    删除指定的配置项。需要管理员权限。
+
+    **路径参数**:
+    - `key`: 配置项键名
+
+    **返回字段**:
+    - `message`: 操作结果信息
+    """
 
     adapter = AdminDeleteSystemConfigAdapter(key=key)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
@@ -116,20 +190,54 @@ async def delete_system_config(key: str, request: Request, db: Session = Depends
 
 @router.get("/stats")
 async def get_system_stats(request: Request, db: Session = Depends(get_db)):
+    """
+    获取系统统计信息
+
+    获取系统的整体统计数据。需要管理员权限。
+
+    **返回字段**:
+    - `users`: 用户统计（total: 总用户数, active: 活跃用户数）
+    - `providers`: 提供商统计（total: 总提供商数, active: 活跃提供商数）
+    - `api_keys`: API Key 总数
+    - `requests`: 请求总数
+    """
     adapter = AdminSystemStatsAdapter()
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
 @router.post("/cleanup")
 async def trigger_cleanup(request: Request, db: Session = Depends(get_db)):
-    """Manually trigger usage record cleanup task"""
+    """
+    手动触发清理任务
+
+    手动触发使用记录清理任务，清理过期的请求/响应数据。需要管理员权限。
+
+    **返回字段**:
+    - `message`: 操作结果信息
+    - `stats`: 清理统计信息
+      - `total_records`: 总记录数统计（before, after, deleted）
+      - `body_fields`: 请求/响应体字段清理统计（before, after, cleaned）
+      - `header_fields`: 请求/响应头字段清理统计（before, after, cleaned）
+    - `timestamp`: 清理完成时间
+    """
     adapter = AdminTriggerCleanupAdapter()
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
 @router.get("/api-formats")
 async def get_api_formats(request: Request, db: Session = Depends(get_db)):
-    """获取所有可用的API格式列表"""
+    """
+    获取所有可用的 API 格式列表
+
+    获取系统支持的所有 API 格式及其元数据。需要管理员权限。
+
+    **返回字段**:
+    - `formats`: API 格式列表，每个格式包含：
+      - `value`: 格式值
+      - `label`: 显示名称
+      - `default_path`: 默认路径
+      - `aliases`: 别名列表
+    """
     adapter = AdminGetApiFormatsAdapter()
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 

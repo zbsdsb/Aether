@@ -181,6 +181,28 @@ class Config:
             os.getenv("VERIFICATION_SEND_COOLDOWN", "60")
         )
 
+        # Management Token 速率限制（每分钟每 IP）
+        self.management_token_rate_limit = int(
+            os.getenv("MANAGEMENT_TOKEN_RATE_LIMIT", "30")
+        )
+
+        # 每个用户最多可创建的 Management Token 数量
+        self.management_token_max_per_user = int(
+            os.getenv("MANAGEMENT_TOKEN_MAX_PER_USER", "20")
+        )
+
+        # API 文档配置
+        # DOCS_ENABLED: 是否启用 API 文档（/docs, /redoc, /openapi.json）
+        #   - 未设置: 开发环境启用，生产环境禁用
+        #   - true: 强制启用
+        #   - false: 强制禁用
+        docs_enabled_env = os.getenv("DOCS_ENABLED")
+        if docs_enabled_env is not None:
+            self.docs_enabled = docs_enabled_env.lower() == "true"
+        else:
+            # 默认：开发环境启用，生产环境禁用
+            self.docs_enabled = self.environment == "development"
+
         # 验证连接池配置
         self._validate_pool_config()
 
