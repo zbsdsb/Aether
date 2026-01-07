@@ -127,14 +127,14 @@ RUN printf '%s\n' \
 'pidfile=/var/run/supervisord.pid' \
 '' \
 '[program:nginx]' \
-'command=/bin/bash -c "sed \"s/PORT_PLACEHOLDER/${PORT:-8084}/g\" /etc/nginx/sites-available/default.template > /etc/nginx/sites-available/default && /usr/sbin/nginx -g \"daemon off;\""' \
+'command=/bin/bash -c "sed \"s/PORT_PLACEHOLDER/8084/g\" /etc/nginx/sites-available/default.template > /etc/nginx/sites-available/default && /usr/sbin/nginx -g \"daemon off;\""' \
 'autostart=true' \
 'autorestart=true' \
 'stdout_logfile=/var/log/nginx/access.log' \
 'stderr_logfile=/var/log/nginx/error.log' \
 '' \
 '[program:app]' \
-'command=gunicorn src.main:app --preload -w %(ENV_GUNICORN_WORKERS)s -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:%(ENV_PORT)s --timeout 120 --access-logfile - --error-logfile - --log-level info' \
+'command=gunicorn src.main:app --preload -w %(ENV_GUNICORN_WORKERS)s -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8084 --timeout 120 --access-logfile - --error-logfile - --log-level info' \
 'directory=/app' \
 'autostart=true' \
 'autorestart=true' \
