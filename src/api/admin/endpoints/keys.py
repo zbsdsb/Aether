@@ -18,6 +18,7 @@ from src.core.key_capabilities import get_capability
 from src.core.logger import logger
 from src.database import get_db
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
+from src.services.cache.provider_cache import ProviderCacheService
 from src.models.endpoint_models import (
     BatchUpdateKeyPriorityRequest,
     EndpointAPIKeyCreate,
@@ -411,6 +412,10 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
         db.commit()
         db.refresh(key)
 
+        # 如果更新了 rate_multiplier，清除缓存
+        if "rate_multiplier" in update_data:
+            await ProviderCacheService.invalidate_provider_api_key_cache(self.key_id)
+
         logger.info("[OK] 更新 Key: ID=%s, Updates=%s", self.key_id, list(update_data.keys()))
 
         try:
@@ -550,6 +555,7 @@ class AdminGetKeysGroupedByFormatAdapter(AdminApiAdapter):
                     "endpoint_base_url": endpoint.base_url,
                     "api_format": api_format,
                     "capabilities": caps_list,
+                    "health_score": key.health_score,
                     "success_rate": success_rate,
                     "avg_response_time_ms": avg_response_time_ms,
                     "request_count": key.request_count,

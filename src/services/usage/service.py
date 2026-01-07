@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from src.core.enums import ProviderBillingType
 from src.core.logger import logger
 from src.models.database import ApiKey, Provider, ProviderAPIKey, Usage, User, UserRole
 from src.services.model.cost import ModelCostService
@@ -362,22 +361,12 @@ class UsageService:
         provider_api_key_id: Optional[str],
         provider_id: Optional[str],
     ) -> Tuple[float, bool]:
-        """获取费率倍数和是否免费套餐"""
-        actual_rate_multiplier = 1.0
-        if provider_api_key_id:
-            provider_key = (
-                db.query(ProviderAPIKey).filter(ProviderAPIKey.id == provider_api_key_id).first()
-            )
-            if provider_key and provider_key.rate_multiplier:
-                actual_rate_multiplier = provider_key.rate_multiplier
+        """获取费率倍数和是否免费套餐（使用缓存）"""
+        from src.services.cache.provider_cache import ProviderCacheService
 
-        is_free_tier = False
-        if provider_id:
-            provider_obj = db.query(Provider).filter(Provider.id == provider_id).first()
-            if provider_obj and provider_obj.billing_type == ProviderBillingType.FREE_TIER:
-                is_free_tier = True
-
-        return actual_rate_multiplier, is_free_tier
+        return await ProviderCacheService.get_rate_multiplier_and_free_tier(
+            db, provider_api_key_id, provider_id
+        )
 
     @classmethod
     async def _calculate_costs(

@@ -11,9 +11,11 @@ from src.api.base.admin_adapter import AdminApiAdapter
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.enums import ProviderBillingType
 from src.core.exceptions import InvalidRequestException, NotFoundException
+from src.core.logger import logger
 from src.database import get_db
 from src.models.admin_requests import CreateProviderRequest, UpdateProviderRequest
 from src.models.database import Provider
+from src.services.cache.provider_cache import ProviderCacheService
 
 router = APIRouter(tags=["Provider CRUD"])
 pipeline = ApiRequestPipeline()
@@ -295,6 +297,11 @@ class AdminUpdateProviderAdapter(AdminApiAdapter):
             provider.updated_at = datetime.now(timezone.utc)
             db.commit()
             db.refresh(provider)
+
+            # 如果更新了 billing_type，清除缓存
+            if "billing_type" in update_data:
+                await ProviderCacheService.invalidate_provider_cache(provider.id)
+                logger.debug(f"已清除 Provider 缓存: {provider.id}")
 
             context.add_audit_metadata(
                 action="update_provider",

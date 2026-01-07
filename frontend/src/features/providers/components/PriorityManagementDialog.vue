@@ -262,17 +262,17 @@
                       <div class="shrink-0 flex items-center gap-3">
                         <!-- 健康度 -->
                         <div
-                          v-if="key.success_rate !== null"
+                          v-if="key.health_score != null"
                           class="text-xs text-right"
                         >
                           <div
                             class="font-medium tabular-nums"
                             :class="[
-                              key.success_rate >= 0.95 ? 'text-green-600' :
-                              key.success_rate >= 0.8 ? 'text-yellow-600' : 'text-red-500'
+                              key.health_score >= 0.95 ? 'text-green-600' :
+                              key.health_score >= 0.5 ? 'text-yellow-600' : 'text-red-500'
                             ]"
                           >
-                            {{ (key.success_rate * 100).toFixed(0) }}%
+                            {{ ((key.health_score || 0) * 100).toFixed(0) }}%
                           </div>
                           <div class="text-[10px] text-muted-foreground opacity-70">
                             {{ key.request_count }} reqs
@@ -400,6 +400,7 @@ interface KeyWithMeta {
   endpoint_base_url: string
   api_format: string
   capabilities: string[]
+  health_score: number | null
   success_rate: number | null
   avg_response_time_ms: number | null
   request_count: number

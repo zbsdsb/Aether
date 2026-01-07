@@ -8,7 +8,9 @@ import hashlib
 import secrets
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import jwt
@@ -28,6 +30,44 @@ from src.services.auth.jwt_blacklist import JWTBlacklistService
 from src.services.auth.ldap import LDAPService
 from src.services.cache.user_cache import UserCacheService
 from src.services.user.apikey import ApiKeyService
+
+
+# API Key last_used_at 更新节流配置
+# 同一个 API Key 在此时间间隔内只会更新一次 last_used_at
+_LAST_USED_UPDATE_INTERVAL = 60  # 秒
+_LAST_USED_CACHE_MAX_SIZE = 10000  # LRU 缓存最大条目数
+
+# 进程内缓存：记录每个 API Key 最后一次更新 last_used_at 的时间
+# 使用 OrderedDict 实现 LRU，避免内存无限增长
+_api_key_last_update_times: OrderedDict[str, float] = OrderedDict()
+_last_update_lock = Lock()
+
+
+def _should_update_last_used(api_key_id: str) -> bool:
+    """判断是否应该更新 API Key 的 last_used_at
+
+    使用节流策略，同一个 Key 在指定间隔内只更新一次。
+    线程安全，使用 LRU 策略限制缓存大小。
+
+    Returns:
+        True 表示应该更新，False 表示跳过
+    """
+    now = time.time()
+
+    with _last_update_lock:
+        last_update = _api_key_last_update_times.get(api_key_id, 0)
+
+        if now - last_update >= _LAST_USED_UPDATE_INTERVAL:
+            _api_key_last_update_times[api_key_id] = now
+            # LRU: 移到末尾（最近使用）
+            _api_key_last_update_times.move_to_end(api_key_id)
+
+            # 超过最大容量时，移除最旧的条目
+            while len(_api_key_last_update_times) > _LAST_USED_CACHE_MAX_SIZE:
+                _api_key_last_update_times.popitem(last=False)
+
+            return True
+        return False
 
 
 # JWT配置从config读取
@@ -367,9 +407,10 @@ class AuthService:
             logger.warning(f"API认证失败 - 用户已禁用: {user.email}")
             return None
 
-        # 更新最后使用时间
-        key_record.last_used_at = datetime.now(timezone.utc)
-        db.commit()  # 立即提交事务,释放数据库锁,避免阻塞后续请求
+        # 更新最后使用时间（使用节流策略，减少数据库写入）
+        if _should_update_last_used(key_record.id):
+            key_record.last_used_at = datetime.now(timezone.utc)
+            db.commit()  # 立即提交事务,释放数据库锁,避免阻塞后续请求
 
         api_key_fp = hashlib.sha256(api_key.encode()).hexdigest()[:12]
         logger.debug("API认证成功: 用户 {} (api_key_fp={})", user.email, api_key_fp)

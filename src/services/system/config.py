@@ -3,8 +3,9 @@
 """
 
 import json
+import time
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,49 @@ class LogLevel(str, Enum):
     BASIC = "basic"  # 仅记录基本信息（tokens、成本等）
     HEADERS = "headers"  # 记录基本信息+请求/响应头（敏感信息会脱敏）
     FULL = "full"  # 记录完整请求和响应（包含body，敏感信息会脱敏）
+
+
+# 进程内缓存 TTL（秒）- 系统配置变化不频繁，使用较长的 TTL
+_CONFIG_CACHE_TTL = 60  # 1 分钟
+
+# 进程内缓存存储: {key: (value, expire_time)}
+_config_cache: Dict[str, Tuple[Any, float]] = {}
+
+
+def _get_cached_config(key: str) -> Tuple[bool, Any]:
+    """从进程内缓存获取配置值
+
+    Returns:
+        (hit, value): hit=True 表示缓存命中，value 为缓存的值
+    """
+    if key in _config_cache:
+        value, expire_time = _config_cache[key]
+        if time.time() < expire_time:
+            return True, value
+        # 缓存过期，安全删除（避免并发时 KeyError）
+        _config_cache.pop(key, None)
+    return False, None
+
+
+def _set_cached_config(key: str, value: Any) -> None:
+    """设置进程内缓存"""
+    _config_cache[key] = (value, time.time() + _CONFIG_CACHE_TTL)
+
+
+def invalidate_config_cache(key: Optional[str] = None) -> None:
+    """清除配置缓存
+
+    Args:
+        key: 配置键，如果为 None 则清除所有缓存
+    """
+    global _config_cache
+    if key is None:
+        _config_cache = {}
+        logger.debug("已清除所有系统配置缓存")
+    else:
+        # 使用 pop 安全删除，避免并发时 KeyError
+        if _config_cache.pop(key, None) is not None:
+            logger.debug(f"已清除系统配置缓存: {key}")
 
 
 class SystemConfigService:
@@ -127,14 +171,23 @@ class SystemConfigService:
 
     @classmethod
     def get_config(cls, db: Session, key: str, default: Any = None) -> Optional[Any]:
-        """获取系统配置值"""
+        """获取系统配置值（带进程内缓存）"""
+        # 1. 检查进程内缓存
+        hit, cached_value = _get_cached_config(key)
+        if hit:
+            return cached_value
+
+        # 2. 查询数据库
         config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
         if config:
+            _set_cached_config(key, config.value)
             return config.value
 
-        # 如果配置不存在，检查默认值
+        # 3. 如果配置不存在，使用默认值
         if key in cls.DEFAULT_CONFIGS:
-            return cls.DEFAULT_CONFIGS[key]["value"]
+            value = cls.DEFAULT_CONFIGS[key]["value"]
+            _set_cached_config(key, value)
+            return value
 
         return default
 
@@ -184,6 +237,9 @@ class SystemConfigService:
 
         db.commit()
         db.refresh(config)
+
+        # 清除缓存
+        invalidate_config_cache(key)
 
         return config
 
@@ -243,6 +299,8 @@ class SystemConfigService:
         if config:
             db.delete(config)
             db.commit()
+            # 清除缓存
+            invalidate_config_cache(key)
             return True
         return False
 

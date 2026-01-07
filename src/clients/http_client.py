@@ -90,13 +90,18 @@ class HTTPClientPool:
                     pool=config.http_pool_timeout,
                 ),
                 limits=httpx.Limits(
-                    max_connections=100,  # 最大连接数
-                    max_keepalive_connections=20,  # 最大保活连接数
-                    keepalive_expiry=30.0,  # 保活过期时间(秒)
+                    max_connections=config.http_max_connections,
+                    max_keepalive_connections=config.http_keepalive_connections,
+                    keepalive_expiry=config.http_keepalive_expiry,
                 ),
                 follow_redirects=True,  # 跟随重定向
             )
-            logger.info("全局HTTP客户端池已初始化")
+            logger.info(
+                f"全局HTTP客户端池已初始化: "
+                f"max_connections={config.http_max_connections}, "
+                f"keepalive={config.http_keepalive_connections}, "
+                f"keepalive_expiry={config.http_keepalive_expiry}s"
+            )
         return cls._default_client
 
     @classmethod
