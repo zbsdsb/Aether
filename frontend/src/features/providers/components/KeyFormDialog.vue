@@ -232,7 +232,7 @@
         :disabled="saving"
         @click="handleSave"
       >
-        {{ saving ? '保存中...' : '保存' }}
+        {{ saving ? (isEditMode ? '保存中...' : '添加中...') : (isEditMode ? '保存' : '添加') }}
       </Button>
     </template>
   </Dialog>
@@ -408,6 +408,14 @@ function resetForm() {
   }
 }
 
+// 添加成功后清除部分字段以便继续添加
+function clearForNextAdd() {
+  formNonce.value = createFieldNonce()
+  apiKeyFocused.value = false
+  form.value.name = ''
+  form.value.api_key = ''
+}
+
 // 加载密钥数据（编辑模式）
 function loadKeyData() {
   if (!props.editingKey) return
@@ -530,6 +538,10 @@ async function handleSave() {
         capabilities: capabilitiesData || undefined
       })
       success('密钥已添加', '成功')
+      // 添加模式：不关闭对话框，只清除名称和密钥以便继续添加
+      emit('saved')
+      clearForNextAdd()
+      return
     }
 
     emit('saved')
