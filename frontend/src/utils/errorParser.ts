@@ -20,7 +20,7 @@ interface ValidationError {
 const fieldNameMap: Record<string, string> = {
   'api_key': 'API 密钥',
   'priority': '优先级',
-  'max_concurrent': '最大并发',
+  'rpm_limit': 'RPM 限制',
   'rate_limit': '速率限制',
   'daily_limit': '每日限制',
   'monthly_limit': '每月限制',
@@ -44,7 +44,6 @@ const fieldNameMap: Record<string, string> = {
   'monthly_quota_usd': '月度配额',
   'quota_reset_day': '配额重置日',
   'quota_expires_at': '配额过期时间',
-  'rpm_limit': 'RPM 限制',
   'cache_ttl_minutes': '缓存 TTL',
   'max_probe_interval_minutes': '最大探测间隔',
 }
@@ -151,11 +150,18 @@ export function parseApiError(err: unknown, defaultMessage: string = '操作失�
     return '无法连接到服务器，请检查网络连接'
   }
 
-  const detail = err.response?.data?.detail
+  const data = err.response?.data
+
+  // 1. 处理 {error: {type, message}} 格式（ProxyException 返回格式）
+  if (data?.error?.message) {
+    return data.error.message
+  }
+
+  const detail = data?.detail
 
   // 如果没有 detail 字段
   if (!detail) {
-    return err.response?.data?.message || err.message || defaultMessage
+    return data?.message || err.message || defaultMessage
   }
 
   // 1. 处理 Pydantic 验证错误（数组格式）
