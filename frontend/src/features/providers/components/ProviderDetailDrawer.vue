@@ -357,6 +357,7 @@
                 @edit-model="handleEditModel"
                 @delete-model="handleDeleteModel"
                 @batch-assign="handleBatchAssign"
+                @add-mapping="handleAddMapping"
               />
 
               <!-- 模型名称映射 -->
@@ -949,6 +950,11 @@ function handleEditModel(model: Model) {
 // 处理打开批量关联对话框
 function handleBatchAssign() {
   batchAssignDialogOpen.value = true
+}
+
+// 处理添加映射（从 ModelsTab 触发）
+function handleAddMapping(model: Model) {
+  modelAliasesTabRef.value?.openAddDialogForModel(model.id)
 }
 
 // 处理批量关联完成
