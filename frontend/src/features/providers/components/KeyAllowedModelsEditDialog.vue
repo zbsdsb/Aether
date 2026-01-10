@@ -334,7 +334,7 @@ import {
 } from 'lucide-vue-next'
 import { Dialog, Button, Input, Checkbox, Badge } from '@/components/ui'
 import { useToast } from '@/composables/useToast'
-import { parseApiError } from '@/utils/errorParser'
+import { parseApiError, parseUpstreamModelError } from '@/utils/errorParser'
 import {
   updateProviderKey,
   API_FORMAT_LABELS,
@@ -522,11 +522,17 @@ async function fetchUpstreamModels() {
       }
       collapsedGroups.value = allGroups
     } else {
-      showError(response.data?.error || '获取上游模型失败', '错误')
+      // 使用友好的错误解析
+      const errorMsg = response.data?.error
+        ? parseUpstreamModelError(response.data.error)
+        : '获取上游模型失败'
+      showError(errorMsg, '获取上游模型失败')
     }
   } catch (err: any) {
     if (loadingCancelled) return
-    showError(err.response?.data?.detail || '获取上游模型失败', '错误')
+    // 使用友好的错误解析
+    const rawError = err.response?.data?.detail || err.message || '获取上游模型失败'
+    showError(parseUpstreamModelError(rawError), '获取上游模型失败')
   } finally {
     fetchingUpstreamModels.value = false
   }

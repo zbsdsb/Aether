@@ -187,6 +187,7 @@ import Button from '@/components/ui/button.vue'
 import Badge from '@/components/ui/badge.vue'
 import Checkbox from '@/components/ui/checkbox.vue'
 import { useToast } from '@/composables/useToast'
+import { parseUpstreamModelError } from '@/utils/errorParser'
 import { adminApi } from '@/api/admin'
 import {
   importModelsFromUpstream,
@@ -289,13 +290,18 @@ async function fetchUpstreamModels() {
       hasQueried.value = true
       // 如果有部分失败，显示警告提示
       if (response.data.error) {
-        showError(`部分格式获取失败: ${response.data.error}`, '警告')
+        // 使用友好的错误解析
+        showError(`部分格式获取失败: ${parseUpstreamModelError(response.data.error)}`, '警告')
       }
     } else {
-      errorMessage.value = response.data?.error || '获取上游模型失败'
+      // 使用友好的错误解析
+      const rawError = response.data?.error || '获取上游模型失败'
+      errorMessage.value = parseUpstreamModelError(rawError)
     }
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.detail || '获取上游模型失败'
+    // 使用友好的错误解析
+    const rawError = err.response?.data?.detail || err.message || '获取上游模型失败'
+    errorMessage.value = parseUpstreamModelError(rawError)
   } finally {
     loading.value = false
   }
