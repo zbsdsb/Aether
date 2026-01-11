@@ -1,10 +1,10 @@
 <template>
   <Dialog
     :model-value="isOpen"
-    title="模型权限"
-    :description="`管理密钥 ${props.apiKey?.name || ''} 可访问的模型`"
+    :title="props.apiKey?.name ? `模型权限 - ${props.apiKey.name}` : '模型权限'"
+    description="选中的模型将被允许访问，不选择则允许全部"
     :icon="Shield"
-    size="lg"
+    size="2xl"
     @update:model-value="handleDialogUpdate"
   >
     <template #default>
@@ -20,12 +20,6 @@
           </p>
         </div>
 
-        <!-- 已选数量提示 -->
-        <div class="text-sm text-muted-foreground">
-          <span v-if="selectedModels.length === 0">允许访问全部模型</span>
-          <span v-else>已选择 {{ selectedModels.length }} 个模型</span>
-        </div>
-
         <!-- 常驻选择面板 -->
         <div class="border rounded-lg overflow-hidden">
           <!-- 搜索 + 操作栏 -->
@@ -38,6 +32,19 @@
                 class="pl-8 h-8 text-sm"
               />
             </div>
+            <!-- 已选数量徽章 -->
+            <span
+              v-if="selectedModels.length === 0"
+              class="h-6 px-2 text-xs rounded flex items-center bg-muted text-muted-foreground shrink-0"
+            >
+              全部模型
+            </span>
+            <span
+              v-else
+              class="h-6 px-2 text-xs rounded flex items-center bg-primary/10 text-primary shrink-0"
+            >
+              已选 {{ selectedModels.length }} 个
+            </span>
             <button
               v-if="upstreamModelsLoaded"
               type="button"
@@ -56,7 +63,7 @@
               variant="outline"
               size="sm"
               class="h-8"
-              title="从提供商获取模型"
+              title="从提供���获取模型"
               @click="fetchUpstreamModels()"
             >
               <Zap class="w-4 h-4" />
@@ -97,10 +104,23 @@
 
               <!-- 自定义模型（手动添加的，始终显示全部，搜索命中的排前面） -->
               <div v-if="customModels.length > 0">
-                <div class="flex items-center justify-between px-3 py-1.5 bg-muted/50">
-                  <span class="text-xs font-medium text-muted-foreground">自定义模型</span>
+                <div
+                  class="flex items-center justify-between px-3 py-2 bg-muted sticky top-0 z-10 cursor-pointer hover:bg-muted/80 transition-colors"
+                  @click="toggleGroupCollapse('custom')"
+                >
+                  <div class="flex items-center gap-2">
+                    <ChevronDown
+                      class="w-4 h-4 transition-transform shrink-0"
+                      :class="collapsedGroups.has('custom') ? '-rotate-90' : ''"
+                    />
+                    <span class="text-xs font-medium">自定义模型</span>
+                    <span class="text-xs text-muted-foreground">({{ customModels.length }})</span>
+                  </div>
                 </div>
-                <div class="space-y-1 p-2">
+                <div
+                  v-show="!collapsedGroups.has('custom')"
+                  class="space-y-1 p-2"
+                >
                   <div
                     v-for="model in sortedCustomModels"
                     :key="model"
@@ -113,24 +133,37 @@
                     >
                       <Check v-if="selectedModels.includes(model)" class="w-3 h-3 text-primary-foreground" />
                     </div>
-                    <span class="text-xs font-mono truncate">{{ model }}</span>
+                    <span class="text-sm font-mono truncate">{{ model }}</span>
                   </div>
                 </div>
               </div>
 
               <!-- 全局模型 -->
               <div v-if="filteredGlobalModels.length > 0">
-                <div class="flex items-center justify-between px-3 py-1.5 bg-muted/50">
-                  <span class="text-xs font-medium text-muted-foreground">全局模型</span>
+                <div
+                  class="flex items-center justify-between px-3 py-2 bg-muted sticky top-0 z-10 cursor-pointer hover:bg-muted/80 transition-colors"
+                  @click="toggleGroupCollapse('global')"
+                >
+                  <div class="flex items-center gap-2">
+                    <ChevronDown
+                      class="w-4 h-4 transition-transform shrink-0"
+                      :class="collapsedGroups.has('global') ? '-rotate-90' : ''"
+                    />
+                    <span class="text-xs font-medium">全局模型</span>
+                    <span class="text-xs text-muted-foreground">({{ filteredGlobalModels.length }})</span>
+                  </div>
                   <button
                     type="button"
                     class="text-xs text-primary hover:underline"
-                    @click="toggleAllGlobalModels"
+                    @click.stop="toggleAllGlobalModels"
                   >
                     {{ isAllGlobalModelsSelected ? '取消全选' : '全选' }}
                   </button>
                 </div>
-                <div class="space-y-1 p-2">
+                <div
+                  v-show="!collapsedGroups.has('global')"
+                  class="space-y-1 p-2"
+                >
                   <div
                     v-for="model in filteredGlobalModels"
                     :key="model.name"
@@ -143,26 +176,42 @@
                     >
                       <Check v-if="selectedModels.includes(model.name)" class="w-3 h-3 text-primary-foreground" />
                     </div>
-                    <span class="text-xs font-mono truncate">{{ model.name }}</span>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium truncate">{{ model.display_name }}</p>
+                      <p class="text-xs text-muted-foreground truncate font-mono">{{ model.name }}</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <!-- 上游模型组 -->
               <div v-for="group in filteredUpstreamGroups" :key="group.api_format">
-                <div class="flex items-center justify-between px-3 py-1.5 bg-muted/50">
-                  <span class="text-xs font-medium text-muted-foreground">
-                    {{ API_FORMAT_LABELS[group.api_format] || group.api_format }}
-                  </span>
+                <div
+                  class="flex items-center justify-between px-3 py-2 bg-muted sticky top-0 z-10 cursor-pointer hover:bg-muted/80 transition-colors"
+                  @click="toggleGroupCollapse(group.api_format)"
+                >
+                  <div class="flex items-center gap-2">
+                    <ChevronDown
+                      class="w-4 h-4 transition-transform shrink-0"
+                      :class="collapsedGroups.has(group.api_format) ? '-rotate-90' : ''"
+                    />
+                    <span class="text-xs font-medium">
+                      {{ API_FORMAT_LABELS[group.api_format] || group.api_format }}
+                    </span>
+                    <span class="text-xs text-muted-foreground">({{ group.models.length }})</span>
+                  </div>
                   <button
                     type="button"
                     class="text-xs text-primary hover:underline"
-                    @click="toggleAllUpstreamGroup(group.api_format)"
+                    @click.stop="toggleAllUpstreamGroup(group.api_format)"
                   >
                     {{ isUpstreamGroupAllSelected(group.api_format) ? '取消全选' : '全选' }}
                   </button>
                 </div>
-                <div class="space-y-1 p-2">
+                <div
+                  v-show="!collapsedGroups.has(group.api_format)"
+                  class="space-y-1 p-2"
+                >
                   <div
                     v-for="model in group.models"
                     :key="model.id"
@@ -175,7 +224,7 @@
                     >
                       <Check v-if="selectedModels.includes(model.id)" class="w-3 h-3 text-primary-foreground" />
                     </div>
-                    <span class="text-xs font-mono truncate">{{ model.id }}</span>
+                    <span class="text-sm font-mono truncate">{{ model.id }}</span>
                   </div>
                 </div>
               </div>
@@ -201,10 +250,10 @@
           {{ hasChanges ? '有未保存的更改' : '' }}
         </p>
         <div class="flex items-center gap-2">
-          <Button variant="outline" @click="handleCancel">取消</Button>
           <Button :disabled="saving || !hasChanges" @click="handleSave">
             {{ saving ? '保存中...' : '保存' }}
           </Button>
+          <Button variant="outline" @click="handleCancel">取消</Button>
         </div>
       </div>
     </template>
@@ -220,10 +269,12 @@ import {
   Loader2,
   Zap,
   Plus,
-  Check
+  Check,
+  ChevronDown
 } from 'lucide-vue-next'
 import { Dialog, Button, Input } from '@/components/ui'
 import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
 import { parseApiError, parseUpstreamModelError } from '@/utils/errorParser'
 import {
   updateProviderKey,
@@ -252,6 +303,7 @@ const emit = defineEmits<{
 }>()
 
 const { success, error: showError } = useToast()
+const { confirmWarning } = useConfirm()
 
 const isOpen = computed(() => props.open)
 const saving = ref(false)
@@ -279,6 +331,9 @@ const allCustomModels = ref<string[]>([])
 
 // 是否为字典模式（按 API 格式区分）
 const isDictMode = ref(false)
+
+// 折叠状态
+const collapsedGroups = ref<Set<string>>(new Set())
 
 // 是否有更改
 const hasChanges = computed(() => {
@@ -444,6 +499,16 @@ function toggleAllUpstreamGroup(apiFormat: string) {
   }
 }
 
+// 切换折叠状态
+function toggleGroupCollapse(group: string) {
+  if (collapsedGroups.value.has(group)) {
+    collapsedGroups.value.delete(group)
+  } else {
+    collapsedGroups.value.add(group)
+  }
+  collapsedGroups.value = new Set(collapsedGroups.value)
+}
+
 // 加载全局模型
 async function loadGlobalModels() {
   loadingGlobalModels.value = true
@@ -537,11 +602,19 @@ onUnmounted(() => {
   loadingCancelled = true
 })
 
-function handleDialogUpdate(value: boolean) {
+async function handleDialogUpdate(value: boolean) {
+  if (!value && hasChanges.value) {
+    const confirmed = await confirmWarning('有未保存的更改，确定要关闭吗？', '放弃更改')
+    if (!confirmed) return
+  }
   if (!value) emit('close')
 }
 
-function handleCancel() {
+async function handleCancel() {
+  if (hasChanges.value) {
+    const confirmed = await confirmWarning('有未保存的更改，确定要关闭吗？', '放弃更改')
+    if (!confirmed) return
+  }
   emit('close')
 }
 

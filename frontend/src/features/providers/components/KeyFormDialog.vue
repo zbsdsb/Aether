@@ -4,7 +4,7 @@
     :title="isEditMode ? '编辑密钥' : '添加密钥'"
     :description="isEditMode ? '修改 API 密钥配置' : '为提供商添加新的 API 密钥'"
     :icon="isEditMode ? SquarePen : Key"
-    size="2xl"
+    size="xl"
     @update:model-value="handleDialogUpdate"
   >
     <form
@@ -80,7 +80,7 @@
       <!-- API 格式选择 -->
       <div v-if="sortedApiFormats.length > 0">
         <Label class="mb-1.5 block">支持的 API 格式 *</Label>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div class="grid grid-cols-2 gap-2">
           <div
             v-for="format in sortedApiFormats"
             :key="format"

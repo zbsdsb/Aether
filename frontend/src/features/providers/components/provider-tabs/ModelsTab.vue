@@ -34,13 +34,13 @@
       <table class="w-full text-sm table-fixed">
         <thead class="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
-            <th class="text-left px-4 py-3 font-semibold w-[50%]">
+            <th class="text-left px-4 py-3 font-semibold w-[45%]">
               模型
             </th>
             <th class="text-left px-4 py-3 font-semibold w-[30%]">
               价格 ($/M)
             </th>
-            <th class="text-center px-4 py-3 font-semibold w-[20%]">
+            <th class="text-center px-4 py-3 font-semibold w-[25%]">
               操作
             </th>
           </tr>
@@ -109,7 +109,7 @@
                     ${{ formatPrice(model.effective_price_per_request ?? model.price_per_request) }}/次
                   </span>
                 </template>
-                <!-- 无计费配置 -->
+                <!-- 无计��配置 -->
                 <template v-if="!hasTokenPricing(model) && !hasRequestPricing(model)">
                   <span class="text-muted-foreground">—</span>
                 </template>
@@ -305,7 +305,7 @@ function getStatusTitle(model: Model): string {
   return '活跃但不可用'
 }
 
-// 编辑模型
+// ��辑模型
 function editModel(model: Model) {
   emit('editModel', model)
 }

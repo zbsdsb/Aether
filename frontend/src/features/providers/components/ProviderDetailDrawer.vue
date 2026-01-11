@@ -189,19 +189,23 @@
                         <div class="cursor-grab active:cursor-grabbing text-muted-foreground/30 group-hover/item:text-muted-foreground transition-colors shrink-0">
                           <GripVertical class="w-4 h-4" />
                         </div>
-                        <span class="text-sm font-medium truncate">{{ key.name || '未命名密钥' }}</span>
-                        <span class="text-xs font-mono text-muted-foreground">
-                          {{ key.api_key_masked }}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          class="h-5 w-5 shrink-0"
-                          title="复制密钥"
-                          @click.stop="copyFullKey(key)"
-                        >
-                          <Copy class="w-3 h-3" />
-                        </Button>
+                        <div class="flex flex-col min-w-0">
+                          <span class="text-sm font-medium truncate">{{ key.name || '未命名密钥' }}</span>
+                          <div class="flex items-center gap-1">
+                            <span class="text-[11px] font-mono text-muted-foreground">
+                              {{ key.api_key_masked }}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              class="h-4 w-4 shrink-0"
+                              title="复制密钥"
+                              @click.stop="copyFullKey(key)"
+                            >
+                              <Copy class="w-2.5 h-2.5" />
+                            </Button>
+                          </div>
+                        </div>
                         <Badge
                           v-if="!key.is_active"
                           variant="secondary"
