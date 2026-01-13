@@ -576,7 +576,6 @@
     :open="batchAssignDialogOpen"
     :provider-id="provider.id"
     :provider-name="provider.name"
-    :provider-identifier="provider.name"
     @update:open="batchAssignDialogOpen = $event"
     @changed="handleBatchAssignChanged"
   />
