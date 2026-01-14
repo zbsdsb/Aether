@@ -132,6 +132,10 @@ class ModelRoutingPreviewResponse(BaseModel):
     global_model_name: str
     display_name: str
     is_active: bool
+    # GlobalModel 的模型映射（用于前端匹配 Key 白名单）
+    global_model_mappings: List[str] = Field(
+        default_factory=list, description="GlobalModel 的模型映射规则（正则模式）"
+    )
     # 链路信息
     providers: List[RoutingProviderInfo] = Field(
         default_factory=list, description="按优先级排序的提供商列表"
@@ -465,11 +469,19 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
                 )
             )
 
+        # 从 GlobalModel.config 中提取 model_mappings
+        global_model_mappings: List[str] = []
+        if global_model.config and isinstance(global_model.config, dict):
+            mappings = global_model.config.get("model_mappings")
+            if isinstance(mappings, list):
+                global_model_mappings = [m for m in mappings if isinstance(m, str)]
+
         return ModelRoutingPreviewResponse(
             global_model_id=global_model.id,
             global_model_name=global_model.name,
             display_name=global_model.display_name,
             is_active=bool(global_model.is_active),
+            global_model_mappings=global_model_mappings,
             providers=provider_infos,
             total_providers=len(provider_infos),
             active_providers=active_providers,
