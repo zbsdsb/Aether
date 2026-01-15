@@ -98,6 +98,11 @@ export const usersApi = {
     await apiClient.patch(`/api/admin/users/${userId}/quota`)
   },
 
+  async getDefaultQuota(): Promise<{ default_quota_usd: number }> {
+    const response = await apiClient.get<{ default_quota_usd: number }>('/api/admin/users/defaults/quota')
+    return response.data
+  },
+
   // 管理员统计
   async getUsageStats(): Promise<any> {
     const response = await apiClient.get('/api/admin/usage/stats')

@@ -363,6 +363,7 @@ import { ModelMultiSelect } from '@/components/common'
 import { getProvidersSummary } from '@/api/endpoints/providers'
 import { getGlobalModels } from '@/api/global-models'
 import { adminApi } from '@/api/admin'
+import { usersApi } from '@/api/users'
 import { log } from '@/utils/logger'
 import type { ProviderWithEndpointsSummary, GlobalModelResponse } from '@/api/endpoints/types'
 
@@ -402,6 +403,7 @@ const endpointDropdownOpen = ref(false)
 const providers = ref<ProviderWithEndpointsSummary[]>([])
 const globalModels = ref<GlobalModelResponse[]>([])
 const apiFormats = ref<Array<{ value: string; label: string }>>([])
+const defaultQuota = ref<number>(10)
 
 // 表单数据
 const form = ref({
@@ -430,7 +432,7 @@ function resetForm() {
     password: '',
     confirmPassword: '',
     email: '',
-    quota: 10,
+    quota: defaultQuota.value,
     role: 'user',
     unlimited: false,
     is_active: true,
@@ -479,18 +481,22 @@ const isFormValid = computed(() => {
 })
 
 // 加载访问控制选项
-async function loadAccessControlOptions() {
+async function loadAccessControlOptions(): Promise<boolean> {
   try {
-    const [providersData, modelsData, formatsData] = await Promise.all([
+    const [providersData, modelsData, formatsData, quotaData] = await Promise.all([
       getProvidersSummary(),
       getGlobalModels({ limit: 1000, is_active: true }),
-      adminApi.getApiFormats()
+      adminApi.getApiFormats(),
+      usersApi.getDefaultQuota()
     ])
     providers.value = providersData
     globalModels.value = modelsData.models || []
     apiFormats.value = formatsData.formats || []
+    defaultQuota.value = quotaData.default_quota_usd
+    return true
   } catch (err) {
     log.error('加载访问限制选项失败:', err)
+    return false
   }
 }
 
@@ -551,9 +557,13 @@ function setSaving(value: boolean) {
 }
 
 // 监听打开状态，加载选项数据
-watch(isOpen, (val) => {
+watch(isOpen, async (val) => {
   if (val) {
-    loadAccessControlOptions()
+    const success = await loadAccessControlOptions()
+    // 创建模式下，仅在加载成功时更新表单配额
+    if (!isEditMode.value && success) {
+      form.value.quota = defaultQuota.value
+    }
   }
 })
 

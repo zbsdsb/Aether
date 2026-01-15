@@ -15,6 +15,7 @@ from src.database import get_db
 from src.models.admin_requests import UpdateUserRequest
 from src.models.api import CreateApiKeyRequest, CreateUserRequest
 from src.models.database import ApiKey, User, UserRole
+from src.services.system.config import SystemConfigService
 from src.services.user.apikey import ApiKeyService
 from src.services.user.service import UserService
 
@@ -194,6 +195,20 @@ async def delete_user_api_key(
     - `key_id`: 密钥 ID
     """
     adapter = AdminDeleteUserKeyAdapter(user_id=user_id, key_id=key_id)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.get("/defaults/quota")
+async def get_default_quota(request: Request, db: Session = Depends(get_db)):
+    """
+    获取默认用户配额
+
+    获取系统配置的默认用户配额值，用于创建用户时的默认值。
+
+    **返回字段**:
+    - `default_quota_usd`: 默认配额（USD）
+    """
+    adapter = AdminGetDefaultQuotaAdapter()
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -586,3 +601,15 @@ class AdminDeleteUserKeyAdapter(AdminApiAdapter):
         )
 
         return {"message": "API Key已删除"}
+
+
+class AdminGetDefaultQuotaAdapter(AdminApiAdapter):
+    """获取系统默认用户配额"""
+
+    async def handle(self, context):  # type: ignore[override]
+        db = context.db
+        default_quota = SystemConfigService.get_config(db, "default_user_quota_usd", default=10.0)
+
+        return {
+            "default_quota_usd": float(default_quota),
+        }

@@ -470,12 +470,16 @@ class AuthRegisterAdapter(AuthPublicAdapter):
                 )
 
         try:
+            # 读取系统配置的默认配额
+            default_quota = SystemConfigService.get_config(db, "default_user_quota_usd", default=10.0)
+
             user = UserService.create_user(
                 db=db,
                 email=register_request.email,
                 username=register_request.username,
                 password=register_request.password,
                 role=UserRole.USER,
+                quota_usd=default_quota,
             )
             AuditService.log_event(
                 db=db,
