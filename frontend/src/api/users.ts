@@ -22,6 +22,7 @@ export interface CreateUserRequest {
   email: string
   role?: 'admin' | 'user'
   quota_usd?: number | null
+  unlimited?: boolean
   allowed_providers?: string[] | null
   allowed_api_formats?: string[] | null
   allowed_models?: string[] | null
@@ -96,11 +97,6 @@ export const usersApi = {
 
   async resetUserQuota(userId: string): Promise<void> {
     await apiClient.patch(`/api/admin/users/${userId}/quota`)
-  },
-
-  async getDefaultQuota(): Promise<{ default_quota_usd: number }> {
-    const response = await apiClient.get<{ default_quota_usd: number }>('/api/admin/users/defaults/quota')
-    return response.data
   },
 
   // 管理员统计

@@ -1095,27 +1095,14 @@ async function handleKeyDrop(event: DragEvent, targetIndex: number) {
     return
   }
 
-  // 检查目标 key 是否属于一个"组"（除了被拖拽的 key，还有其他 key 与目标同优先级）
-  // 组的定义：2 个及以上同优先级的 key
-  const keysAtTargetPriority = keys.filter(k =>
-    k.id !== draggedKey.id && (k.internal_priority ?? 0) === targetPriority
-  )
-  // 如果有 2 个及以上 key 在目标优先级（不含被拖拽的），说明目标在组内
-  const targetIsInGroup = keysAtTargetPriority.length >= 2
-
   handleKeyDragEnd()
 
   try {
-    if (targetIsInGroup) {
-      // 目标在组内，被拖拽的 key 加入该组
-      await updateProviderKey(draggedKey.id, { internal_priority: targetPriority })
-    } else {
-      // 目标是单独的（或只有目标自己），交换优先级
-      await Promise.all([
-        updateProviderKey(draggedKey.id, { internal_priority: targetPriority }),
-        updateProviderKey(targetKey.id, { internal_priority: draggedPriority })
-      ])
-    }
+    // 直接交换优先级
+    await Promise.all([
+      updateProviderKey(draggedKey.id, { internal_priority: targetPriority }),
+      updateProviderKey(targetKey.id, { internal_priority: draggedPriority })
+    ])
     showSuccess('优先级已更新')
     await loadEndpoints()
     emit('refresh')

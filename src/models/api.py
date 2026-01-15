@@ -233,12 +233,13 @@ class CreateUserRequest(BaseModel):
     password: str = Field(..., min_length=6, max_length=128, description="密码")
     email: str = Field(..., min_length=3, max_length=255, description="邮箱地址")
     role: Optional[UserRole] = Field(UserRole.USER, description="用户角色")
-    quota_usd: Optional[float] = Field(default=10.0, description="USD配额，null表示无限制")
+    quota_usd: Optional[float] = Field(default=None, description="USD配额，null表示使用系统默认配额")
+    unlimited: bool = Field(default=False, description="是否无限配额")
 
     @field_validator("quota_usd", mode="before")
     @classmethod
     def validate_quota_usd(cls, v):
-        """验证配额值，允许null表示无限制"""
+        """验证配额值，null表示使用系统默认配额"""
         if v is None:
             return None
         if isinstance(v, (int, float)) and v >= 0 and v <= 10000:

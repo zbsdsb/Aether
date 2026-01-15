@@ -143,7 +143,8 @@
                 step="0.01"
                 min="0"
                 max="10000"
-                placeholder="10"
+                :placeholder="isEditMode ? '10' : '使用系统默认'"
+                :disabled="form.unlimited"
                 :class="form.unlimited ? 'flex-1 h-10 opacity-50' : 'flex-1 h-10'"
               />
               <div class="flex items-center justify-center gap-2 border rounded-lg px-3 py-2 bg-muted/50 w-24">
@@ -363,7 +364,6 @@ import { ModelMultiSelect } from '@/components/common'
 import { getProvidersSummary } from '@/api/endpoints/providers'
 import { getGlobalModels } from '@/api/global-models'
 import { adminApi } from '@/api/admin'
-import { usersApi } from '@/api/users'
 import { log } from '@/utils/logger'
 import type { ProviderWithEndpointsSummary, GlobalModelResponse } from '@/api/endpoints/types'
 
@@ -403,7 +403,6 @@ const endpointDropdownOpen = ref(false)
 const providers = ref<ProviderWithEndpointsSummary[]>([])
 const globalModels = ref<GlobalModelResponse[]>([])
 const apiFormats = ref<Array<{ value: string; label: string }>>([])
-const defaultQuota = ref<number>(10)
 
 // 表单数据
 const form = ref({
@@ -411,7 +410,7 @@ const form = ref({
   password: '',
   confirmPassword: '',
   email: '',
-  quota: 10,
+  quota: null as number | null,
   role: 'user' as 'admin' | 'user',
   unlimited: false,
   is_active: true,
@@ -432,7 +431,7 @@ function resetForm() {
     password: '',
     confirmPassword: '',
     email: '',
-    quota: defaultQuota.value,
+    quota: null,
     role: 'user',
     unlimited: false,
     is_active: true,
@@ -481,22 +480,18 @@ const isFormValid = computed(() => {
 })
 
 // 加载访问控制选项
-async function loadAccessControlOptions(): Promise<boolean> {
+async function loadAccessControlOptions(): Promise<void> {
   try {
-    const [providersData, modelsData, formatsData, quotaData] = await Promise.all([
+    const [providersData, modelsData, formatsData] = await Promise.all([
       getProvidersSummary(),
       getGlobalModels({ limit: 1000, is_active: true }),
-      adminApi.getApiFormats(),
-      usersApi.getDefaultQuota()
+      adminApi.getApiFormats()
     ])
     providers.value = providersData
     globalModels.value = modelsData.models || []
     apiFormats.value = formatsData.formats || []
-    defaultQuota.value = quotaData.default_quota_usd
-    return true
   } catch (err) {
     log.error('加载访问限制选项失败:', err)
-    return false
   }
 }
 
@@ -520,7 +515,7 @@ async function handleSubmit() {
 
   saving.value = true
   try {
-    const data: UserFormData & { password?: string } = {
+    const data: UserFormData & { password?: string; unlimited?: boolean } = {
       username: form.value.username,
       email: form.value.email.trim(),
       quota_usd: form.value.unlimited ? null : form.value.quota,
@@ -528,6 +523,11 @@ async function handleSubmit() {
       allowed_providers: form.value.allowed_providers.length > 0 ? form.value.allowed_providers : null,
       allowed_api_formats: form.value.allowed_api_formats.length > 0 ? form.value.allowed_api_formats : null,
       allowed_models: form.value.allowed_models.length > 0 ? form.value.allowed_models : null
+    }
+
+    // 创建模式下传递 unlimited 字段
+    if (!isEditMode.value) {
+      data.unlimited = form.value.unlimited
     }
 
     if (isEditMode.value && props.user?.id) {
@@ -557,13 +557,9 @@ function setSaving(value: boolean) {
 }
 
 // 监听打开状态，加载选项数据
-watch(isOpen, async (val) => {
+watch(isOpen, (val) => {
   if (val) {
-    const success = await loadAccessControlOptions()
-    // 创建模式下，仅在加载成功时更新表单配额
-    if (!isEditMode.value && success) {
-      form.value.quota = defaultQuota.value
-    }
+    loadAccessControlOptions()
   }
 })
 

@@ -198,20 +198,6 @@ async def delete_user_api_key(
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
-@router.get("/defaults/quota")
-async def get_default_quota(request: Request, db: Session = Depends(get_db)):
-    """
-    获取默认用户配额
-
-    获取系统配置的默认用户配额值，用于创建用户时的默认值。
-
-    **返回字段**:
-    - `default_quota_usd`: 默认配额（USD）
-    """
-    adapter = AdminGetDefaultQuotaAdapter()
-    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
-
-
 # ============== 管理员适配器实现 ==============
 
 
@@ -233,6 +219,14 @@ class AdminCreateUserAdapter(AdminApiAdapter):
         except (KeyError, AttributeError):
             raise InvalidRequestException("角色参数不合法")
 
+        # 确定配额：unlimited 优先，其次是指定值，最后是系统默认
+        if request.unlimited:
+            quota_usd = None  # None 表示无限制
+        elif request.quota_usd is not None:
+            quota_usd = request.quota_usd
+        else:
+            quota_usd = SystemConfigService.get_config(db, "default_user_quota_usd", default=10.0)
+
         try:
             user = UserService.create_user(
                 db=db,
@@ -240,7 +234,7 @@ class AdminCreateUserAdapter(AdminApiAdapter):
                 username=request.username,
                 password=request.password,
                 role=role,
-                quota_usd=request.quota_usd,
+                quota_usd=quota_usd,
             )
         except ValueError as exc:
             raise InvalidRequestException(str(exc))
@@ -601,15 +595,3 @@ class AdminDeleteUserKeyAdapter(AdminApiAdapter):
         )
 
         return {"message": "API Key已删除"}
-
-
-class AdminGetDefaultQuotaAdapter(AdminApiAdapter):
-    """获取系统默认用户配额"""
-
-    async def handle(self, context):  # type: ignore[override]
-        db = context.db
-        default_quota = SystemConfigService.get_config(db, "default_user_quota_usd", default=10.0)
-
-        return {
-            "default_quota_usd": float(default_quota),
-        }

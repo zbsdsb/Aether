@@ -939,6 +939,7 @@ async function handleUserFormSubmit(data: UserFormData & { password?: string }) 
         password: data.password!,
         email: data.email || undefined,
         quota_usd: data.quota_usd,
+        unlimited: (data as any).unlimited,
         role: data.role,
         allowed_providers: data.allowed_providers,
         allowed_api_formats: data.allowed_api_formats,
