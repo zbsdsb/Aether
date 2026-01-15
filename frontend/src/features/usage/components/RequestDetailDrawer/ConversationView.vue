@@ -38,7 +38,7 @@
 <script setup lang="ts">
 import { AlertCircle, Zap } from 'lucide-vue-next'
 import BlockRenderer from './BlockRenderer.vue'
-import type { RenderResult } from '../../lib/conversationParser'
+import type { RenderResult } from '../../conversation'
 
 defineProps<{
   renderResult: RenderResult

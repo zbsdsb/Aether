@@ -539,7 +539,7 @@ import {
   renderResponse,
   type RenderResult,
   type RenderBlock,
-} from '../lib/conversationParser'
+} from '../conversation'
 
 const props = defineProps<{
   isOpen: boolean
