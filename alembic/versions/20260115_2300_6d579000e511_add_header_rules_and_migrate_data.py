@@ -54,6 +54,7 @@ def upgrade() -> None:
                 )
                 WHERE headers IS NOT NULL
                   AND headers::text != '{}'
+                  AND jsonb_typeof(headers::jsonb) = 'object'
                   AND header_rules IS NULL
             """)
         )
@@ -94,6 +95,7 @@ def downgrade() -> None:
                       AND rule->>'key' IS NOT NULL
                 )
                 WHERE header_rules IS NOT NULL
+                  AND jsonb_typeof(header_rules::jsonb) = 'array'
                   AND jsonb_array_length(header_rules::jsonb) > 0
             """)
         )
