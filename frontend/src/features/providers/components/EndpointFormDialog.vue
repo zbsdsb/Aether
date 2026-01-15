@@ -69,7 +69,10 @@
                   </div>
                 </div>
                 <!-- 请求头规则配置 -->
-                <Collapsible v-model:open="rulesExpanded" class="mt-2">
+                <Collapsible
+                  v-model:open="rulesExpanded"
+                  class="mt-2"
+                >
                   <CollapsibleTrigger as-child>
                     <button
                       type="button"
@@ -80,7 +83,10 @@
                         :class="{ 'rotate-90': rulesExpanded }"
                       />
                       <span>请求头规则</span>
-                      <span v-if="editingRules.length > 0" class="text-primary">
+                      <span
+                        v-if="editingRules.length > 0"
+                        class="text-primary"
+                      >
                         ({{ editingRules.length }})
                       </span>
                     </button>
@@ -94,17 +100,23 @@
                       >
                         <!-- 操作类型选择 -->
                         <Select
-                          :model-value="rule.action"
                           v-model:open="ruleSelectOpen[index]"
+                          :model-value="rule.action"
                           @update:model-value="(v) => updateRuleAction(index, v as 'set' | 'drop' | 'rename')"
                         >
                           <SelectTrigger class="w-24 h-7 text-xs">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent :side-offset="4">
-                            <SelectItem value="set">设置</SelectItem>
-                            <SelectItem value="drop">删除</SelectItem>
-                            <SelectItem value="rename">重命名</SelectItem>
+                            <SelectItem value="set">
+                              设置
+                            </SelectItem>
+                            <SelectItem value="drop">
+                              删除
+                            </SelectItem>
+                            <SelectItem value="rename">
+                              重命名
+                            </SelectItem>
                           </SelectContent>
                         </Select>
 

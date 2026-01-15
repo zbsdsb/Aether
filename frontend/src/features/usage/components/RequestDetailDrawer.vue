@@ -450,7 +450,7 @@
                       <!-- 对话视图 -->
                       <ConversationView
                         v-if="contentViewMode === 'conversation'"
-                        :conversation="requestConversation"
+                        :render-result="requestRenderResult"
                         empty-message="无请求体信息"
                       />
                       <!-- JSON 视图 -->
@@ -478,7 +478,7 @@
                       <!-- 对话视图 -->
                       <ConversationView
                         v-if="contentViewMode === 'conversation'"
-                        :conversation="responseConversation"
+                        :render-result="responseRenderResult"
                         empty-message="无响应体信息"
                       />
                       <!-- JSON 视图 -->
@@ -533,15 +533,13 @@ import JsonContent from './RequestDetailDrawer/JsonContent.vue'
 import ConversationView from './RequestDetailDrawer/ConversationView.vue'
 import HorizontalRequestTimeline from './HorizontalRequestTimeline.vue'
 
-// 消息提取工具
+// 对话解析器
 import {
-  detectApiFormat,
-  extractRequestMessages,
-  extractResponseMessages,
-  formatConversationAsText,
-  type ExtractedConversation,
-  type ApiFormat,
-} from '../utils/messageExtractor'
+  renderRequest,
+  renderResponse,
+  type RenderResult,
+  type RenderBlock,
+} from '../lib/conversationParser'
 
 const props = defineProps<{
   isOpen: boolean
@@ -600,30 +598,20 @@ const currentHeaderData = computed(() => {
     : detail.value.provider_request_headers
 })
 
-// 检测到的 API 格式
-const detectedApiFormat = computed<ApiFormat>(() => {
-  if (!detail.value) return 'unknown'
-  return detectApiFormat(
-    detail.value.request_body,
-    detail.value.response_body,
-    detail.value.api_format
-  )
-})
-
-// 请求体对话提取结果
-const requestConversation = computed<ExtractedConversation>(() => {
+// 请求体渲染结果
+const requestRenderResult = computed<RenderResult>(() => {
   if (!detail.value?.request_body) {
-    return { messages: [], isStream: false }
+    return { blocks: [], isStream: false }
   }
-  return extractRequestMessages(detail.value.request_body, detectedApiFormat.value)
+  return renderRequest(detail.value.request_body, detail.value.response_body, detail.value.api_format)
 })
 
-// 响应体对话提取结果
-const responseConversation = computed<ExtractedConversation>(() => {
+// 响应体渲染结果
+const responseRenderResult = computed<RenderResult>(() => {
   if (!detail.value?.response_body) {
-    return { messages: [], isStream: false }
+    return { blocks: [], isStream: false }
   }
-  return extractResponseMessages(detail.value.response_body, detectedApiFormat.value)
+  return renderResponse(detail.value.response_body, detail.value.request_body, detail.value.api_format)
 })
 
 // 当前 Tab 是否支持对话视图
@@ -634,12 +622,12 @@ const supportsConversationView = computed(() => {
 // 当前对话数据是否有效（用于禁用按钮）
 const hasValidConversation = computed(() => {
   if (activeTab.value === 'request-body') {
-    return !requestConversation.value.parseError &&
-      (requestConversation.value.system || requestConversation.value.messages.length > 0)
+    return !requestRenderResult.value.error &&
+      requestRenderResult.value.blocks.length > 0
   }
   if (activeTab.value === 'response-body') {
-    return !responseConversation.value.parseError &&
-      responseConversation.value.messages.length > 0
+    return !responseRenderResult.value.error &&
+      responseRenderResult.value.blocks.length > 0
   }
   return false
 })
@@ -880,6 +868,61 @@ function getTierRangeText(tier: { up_to?: number | null }, index: number, tiers:
   return `> ${formatNumber(start)} tokens`
 }
 
+/** 将 RenderResult 格式化为可复制的文本 */
+function formatRenderResultAsText(result: RenderResult): string {
+  if (result.error) {
+    return `[Error] ${result.error}`
+  }
+
+  const parts: string[] = []
+
+  for (const block of result.blocks) {
+    const text = formatBlockAsText(block)
+    if (text) {
+      parts.push(text)
+    }
+  }
+
+  return parts.join('\n\n---\n\n')
+}
+
+/** 将单个 RenderBlock 格式化为文本 */
+function formatBlockAsText(block: RenderBlock): string {
+  switch (block.type) {
+    case 'text':
+      return block.content
+    case 'code':
+      return block.language
+        ? `\`\`\`${block.language}\n${block.code}\n\`\`\``
+        : `\`\`\`\n${block.code}\n\`\`\``
+    case 'collapsible':
+      return `[${block.title}]\n${block.content.map(formatBlockAsText).filter(Boolean).join('\n')}`
+    case 'error':
+      return `[Error${block.code ? `: ${block.code}` : ''}] ${block.message}`
+    case 'image':
+      return `[Image: ${block.mimeType || block.alt || 'unknown'}]`
+    case 'tool_use':
+      return `[Tool: ${block.toolName}]\n${block.input}`
+    case 'tool_result':
+      return `[Tool Result${block.isError ? ' (Error)' : ''}]\n${block.content}`
+    case 'message': {
+      const roleLabel = block.roleLabel || block.role
+      const contentText = block.content.map(formatBlockAsText).filter(Boolean).join('\n\n')
+      return `[${roleLabel}]\n${contentText}`
+    }
+    case 'container':
+      return block.children.map(formatBlockAsText).filter(Boolean).join('\n')
+    case 'label':
+      return `${block.label}: ${block.value}`
+    case 'divider':
+      return '---'
+    case 'badge':
+      return ''
+    default:
+      return ''
+  }
+}
+
 // 复制内容（支持 JSON 和对话两种模式）
 function copyContent(tabName: string) {
   if (!detail.value) return
@@ -890,9 +933,9 @@ function copyContent(tabName: string) {
   // 对话视图模式：复制格式化的对话文本
   if (contentViewMode.value === 'conversation') {
     if (tabName === 'request-body') {
-      textToCopy = formatConversationAsText(requestConversation.value)
+      textToCopy = formatRenderResultAsText(requestRenderResult.value)
     } else if (tabName === 'response-body') {
-      textToCopy = formatConversationAsText(responseConversation.value)
+      textToCopy = formatRenderResultAsText(responseRenderResult.value)
     }
   } else {
     // JSON 视图模式：复制原始 JSON
