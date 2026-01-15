@@ -283,7 +283,11 @@ async function pollActiveRequests() {
       // 进行中状态也需要持续更新（provider/key/TTFB 可能在 streaming 后才落库）
       record.input_tokens = update.input_tokens
       record.output_tokens = update.output_tokens
+      record.cache_creation_input_tokens = update.cache_creation_input_tokens ?? undefined
+      record.cache_read_input_tokens = update.cache_read_input_tokens ?? undefined
       record.cost = update.cost
+      record.actual_cost = update.actual_cost ?? undefined
+      record.rate_multiplier = update.rate_multiplier ?? undefined
       record.response_time_ms = update.response_time_ms ?? undefined
       record.first_byte_time_ms = update.first_byte_time_ms ?? undefined
       // 管理员接口返回额外字段
@@ -318,8 +322,9 @@ function stopAutoRefresh() {
 }
 
 // 监听活跃请求状态，自动启动/停止刷新
+// 注意：全局刷新开启时不需要1秒轮询（全局刷新已经包含完整数据刷新）
 watch(hasActiveRequests, (hasActive) => {
-  if (hasActive) {
+  if (hasActive && !globalAutoRefresh.value) {
     startAutoRefresh()
   } else {
     stopAutoRefresh()
@@ -344,10 +349,16 @@ function stopGlobalAutoRefresh() {
 function handleAutoRefreshChange(value: boolean) {
   globalAutoRefresh.value = value
   if (value) {
+    // 开启全局刷新时，停止1秒轮询（避免重复请求）
+    stopAutoRefresh()
     refreshData() // 立即刷新一次
     startGlobalAutoRefresh()
   } else {
     stopGlobalAutoRefresh()
+    // 关闭全局刷新后，如果有活跃请求，恢复1秒轮询
+    if (hasActiveRequests.value) {
+      startAutoRefresh()
+    }
   }
 }
 

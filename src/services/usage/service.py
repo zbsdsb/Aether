@@ -1713,7 +1713,11 @@ class UsageService:
             Usage.status,
             Usage.input_tokens,
             Usage.output_tokens,
+            Usage.cache_creation_input_tokens,
+            Usage.cache_read_input_tokens,
             Usage.total_cost_usd,
+            Usage.actual_total_cost_usd,
+            Usage.rate_multiplier,
             Usage.response_time_ms,
             Usage.first_byte_time_ms,  # 首字时间 (TTFB)
             Usage.created_at,
@@ -1773,7 +1777,11 @@ class UsageService:
                 "status": "failed" if r.id in timeout_ids else r.status,
                 "input_tokens": r.input_tokens,
                 "output_tokens": r.output_tokens,
+                "cache_creation_input_tokens": r.cache_creation_input_tokens,
+                "cache_read_input_tokens": r.cache_read_input_tokens,
                 "cost": float(r.total_cost_usd) if r.total_cost_usd else 0,
+                "actual_cost": float(r.actual_total_cost_usd) if r.actual_total_cost_usd else None,
+                "rate_multiplier": float(r.rate_multiplier) if r.rate_multiplier else None,
                 "response_time_ms": r.response_time_ms,
                 "first_byte_time_ms": r.first_byte_time_ms,  # 首字时间 (TTFB)
             }
