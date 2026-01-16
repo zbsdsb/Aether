@@ -69,15 +69,12 @@ async def invalidate_models_list_cache() -> None:
 
     在模型创建、更新、删除时调用，确保模型列表实时更新
     """
-    # 清除所有格式的缓存
-    all_formats = ["CLAUDE", "OPENAI", "GEMINI"]
-    for fmt in all_formats:
-        cache_key = f"{_CACHE_KEY_PREFIX}:{fmt}"
-        try:
-            await CacheService.delete(cache_key)
-            logger.debug(f"[ModelsService] 已清除缓存: {cache_key}")
-        except Exception as e:
-            logger.warning(f"[ModelsService] 清除缓存失败 {cache_key}: {e}")
+    try:
+        # 使用通配符删除所有 models:list:* 缓存（包括多格式组合的 key）
+        deleted = await CacheService.delete_pattern(f"{_CACHE_KEY_PREFIX}:*")
+        logger.debug(f"[ModelsService] 已清除 {deleted} 个 {_CACHE_KEY_PREFIX} 缓存")
+    except Exception as e:
+        logger.warning(f"[ModelsService] 清除缓存失败: {e}")
 
 
 @dataclass

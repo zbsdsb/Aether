@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.models_service import invalidate_models_list_cache
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.logger import logger
@@ -315,6 +316,9 @@ class AdminCreateProviderEndpointAdapter(AdminApiAdapter):
         db.commit()
         db.refresh(new_endpoint)
 
+        # 清除 /v1/models 列表缓存
+        await invalidate_models_list_cache()
+
         logger.info(f"[OK] 创建 Endpoint: Provider={provider.name}, Format={self.endpoint_data.api_format}, ID={new_endpoint.id}")
 
         endpoint_dict = {
@@ -414,6 +418,9 @@ class AdminUpdateProviderEndpointAdapter(AdminApiAdapter):
         db.commit()
         db.refresh(endpoint)
 
+        # 清除 /v1/models 列表缓存（is_active 变更会影响模型可用性）
+        await invalidate_models_list_cache()
+
         provider = db.query(Provider).filter(Provider.id == endpoint.provider_id).first()
         logger.info(f"[OK] 更新 Endpoint: ID={self.endpoint_id}, Updates={list(update_data.keys())}")
 
@@ -481,6 +488,9 @@ class AdminDeleteProviderEndpointAdapter(AdminApiAdapter):
 
         db.delete(endpoint)
         db.commit()
+
+        # 清除 /v1/models 列表缓存
+        await invalidate_models_list_cache()
 
         logger.warning(
             f"[DELETE] 删除 Endpoint: ID={self.endpoint_id}, Format={endpoint_format}, "

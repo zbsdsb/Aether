@@ -15,7 +15,7 @@ from src.models.database import GlobalModel, Model
 from src.models.pydantic_models import GlobalModelUpdate
 
 
-def on_key_allowed_models_changed(
+async def on_key_allowed_models_changed(
     db: Session,
     provider_id: str,
     allowed_models: List[str],
@@ -24,7 +24,7 @@ def on_key_allowed_models_changed(
     Key 的 allowed_models 变更后的统一处理
 
     包括：
-    1. 触发缓存失效
+    1. 触发缓存失效（包括 /v1/models 列表缓存）
     2. 检查并自动关联匹配的 GlobalModel
 
     Args:
@@ -36,7 +36,7 @@ def on_key_allowed_models_changed(
 
     # 1. 触发缓存失效
     cache_service = get_cache_invalidation_service()
-    cache_service.on_key_allowed_models_changed(provider_id)
+    await cache_service.on_key_allowed_models_changed(provider_id)
 
     # 2. 检查并自动关联 GlobalModel
     if allowed_models:

@@ -360,7 +360,7 @@ class ModelFetchScheduler:
         if has_changed and provider_id:
             from src.services.model.global_model import on_key_allowed_models_changed
 
-            on_key_allowed_models_changed(
+            await on_key_allowed_models_changed(
                 db=db,
                 provider_id=provider_id,
                 allowed_models=list(key.allowed_models or []),

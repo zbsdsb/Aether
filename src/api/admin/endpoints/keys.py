@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.models_service import invalidate_models_list_cache
 from src.api.base.pipeline import ApiRequestPipeline
 from src.config.constants import RPMDefaults
 from src.core.crypto import crypto_service
@@ -295,11 +296,14 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
         if allowed_models_before != allowed_models_after and key.provider_id:
             from src.services.model.global_model import on_key_allowed_models_changed
 
-            on_key_allowed_models_changed(
+            await on_key_allowed_models_changed(
                 db=db,
                 provider_id=key.provider_id,
                 allowed_models=list(key.allowed_models or []),
             )
+        else:
+            # allowed_models 未变化时，仍需清除 /v1/models 缓存（is_active、api_formats 变更会影响模型可用性）
+            await invalidate_models_list_cache()
 
         logger.info("[OK] 更新 Key: ID=%s, Updates=%s", self.key_id, list(update_data.keys()))
 
@@ -348,6 +352,9 @@ class AdminDeleteEndpointKeyAdapter(AdminApiAdapter):
             db.rollback()
             logger.error(f"删除 Key 失败: ID={self.key_id}, Error={exc}")
             raise
+
+        # 清除 /v1/models 列表缓存
+        await invalidate_models_list_cache()
 
         logger.warning(f"[DELETE] 删除 Key: ID={self.key_id}, Provider={provider_id}")
         return {"message": f"Key {self.key_id} 已删除"}
@@ -641,14 +648,17 @@ class AdminCreateProviderKeyAdapter(AdminApiAdapter):
                 logger.error(f"触发模型获取失败: {e}")
                 # 不抛出异常，避免影响 Key 创建操作
 
-        # 如果创建时指定了 allowed_models，触发自动关联检查
+        # 如果创建时指定了 allowed_models，触发自动关联检查（内部会清除 /v1/models 缓存）
         if new_key.allowed_models:
             from src.services.model.global_model import on_key_allowed_models_changed
 
-            on_key_allowed_models_changed(
+            await on_key_allowed_models_changed(
                 db=db,
                 provider_id=self.provider_id,
                 allowed_models=list(new_key.allowed_models),
             )
+        else:
+            # 没有 allowed_models 时，仍需清除 /v1/models 缓存
+            await invalidate_models_list_cache()
 
         return _build_key_response(new_key, api_key_plain=self.key_data.api_key)

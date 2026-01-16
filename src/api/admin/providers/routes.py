@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.models_service import invalidate_models_list_cache
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.enums import ProviderBillingType
 from src.core.exceptions import InvalidRequestException, NotFoundException
@@ -300,6 +301,9 @@ class AdminCreateProviderAdapter(AdminApiAdapter):
             db.commit()
             db.refresh(provider)
 
+            # 清除 /v1/models 列表缓存
+            await invalidate_models_list_cache()
+
             context.add_audit_metadata(
                 action="create_provider",
                 provider_id=provider.id,
@@ -366,6 +370,9 @@ class AdminUpdateProviderAdapter(AdminApiAdapter):
             db.commit()
             db.refresh(provider)
 
+            # 清除 /v1/models 列表缓存（is_active 变更会影响模型可用性）
+            await invalidate_models_list_cache()
+
             # 如果更新了 billing_type，清除缓存
             if "billing_type" in update_data:
                 await ProviderCacheService.invalidate_provider_cache(provider.id)
@@ -410,6 +417,10 @@ class AdminDeleteProviderAdapter(AdminApiAdapter):
         )
         db.delete(provider)
         db.commit()
+
+        # 清除 /v1/models 列表缓存
+        await invalidate_models_list_cache()
+
         return {"message": "提供商已删除"}
 
 
