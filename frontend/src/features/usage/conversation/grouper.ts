@@ -11,7 +11,20 @@ import type {
   GroupedConversation,
   TurnStats,
   TurnSummary,
+  TextContentBlock,
 } from './types'
+
+import type {
+  RenderBlock,
+  MessageRenderBlock,
+  TextRenderBlock,
+  CollapsibleRenderBlock,
+  CodeRenderBlock,
+  ToolUseRenderBlock,
+  ToolResultRenderBlock,
+  ImageRenderBlock,
+  ErrorRenderBlock,
+} from './render'
 
 // ============================================================
 // 常量配置
@@ -32,8 +45,8 @@ const SUMMARY_MIN_RATIO = 0.6
  */
 function extractTextFromBlocks(blocks: ContentBlock[]): string {
   return blocks
-    .filter((b): b is ContentBlock & { type: 'text' } => b.type === 'text')
-    .map(b => (b as any).text || '')
+    .filter((b): b is TextContentBlock => b.type === 'text')
+    .map(b => b.text || '')
     .join(' ')
     .trim()
 }
@@ -277,7 +290,7 @@ export function groupConversation(conversation: ParsedConversation): GroupedConv
  * 用于已渲染的结果进行轮次分组
  */
 export function groupRenderBlocksIntoTurns(
-  blocks: import('./render').RenderBlock[],
+  blocks: RenderBlock[],
   isStream: boolean = false
 ): GroupedConversation {
   const turns: ConversationTurn[] = []
@@ -288,7 +301,7 @@ export function groupRenderBlocksIntoTurns(
   for (const block of blocks) {
     if (block.type !== 'message') continue
 
-    const messageBlock = block as import('./render').MessageRenderBlock
+    const messageBlock = block as MessageRenderBlock
 
     if (messageBlock.role === 'system') {
       // 提取 system prompt
@@ -345,10 +358,10 @@ export function groupRenderBlocksIntoTurns(
 /**
  * 从渲染块中提取文本
  */
-function extractTextFromRenderBlocks(blocks: import('./render').RenderBlock[]): string {
+function extractTextFromRenderBlocks(blocks: RenderBlock[]): string {
   return blocks
-    .filter(b => b.type === 'text')
-    .map(b => (b as any).content || '')
+    .filter((b): b is TextRenderBlock => b.type === 'text')
+    .map(b => b.content || '')
     .join(' ')
     .trim()
 }
@@ -356,60 +369,71 @@ function extractTextFromRenderBlocks(blocks: import('./render').RenderBlock[]): 
 /**
  * 将 MessageRenderBlock 转换为 ParsedMessage
  */
-function renderBlockToMessage(block: import('./render').MessageRenderBlock): ParsedMessage {
+function renderBlockToMessage(block: MessageRenderBlock): ParsedMessage {
   const content: ContentBlock[] = []
 
   for (const child of block.content) {
     switch (child.type) {
-      case 'text':
-        content.push({ type: 'text', text: (child as any).content || '' })
+      case 'text': {
+        const textBlock = child as TextRenderBlock
+        content.push({ type: 'text', text: textBlock.content || '' })
         break
-      case 'collapsible':
-        // 可能是 thinking，从 code 块中提取内容
-        if ((child as any).title?.includes('思考')) {
-          const innerBlocks = (child as any).content || []
-          const codeBlock = innerBlocks.find((b: any) => b.type === 'code')
-          const thinkingText = codeBlock?.code || ''
-          content.push({ type: 'thinking', thinking: thinkingText })
+      }
+      case 'collapsible': {
+        const collapsibleBlock = child as CollapsibleRenderBlock
+        if (collapsibleBlock.title?.includes('思考')) {
+          const codeBlock = collapsibleBlock.content.find(
+            (b): b is CodeRenderBlock => b.type === 'code'
+          )
+          content.push({ type: 'thinking', thinking: codeBlock?.code || '' })
         }
         break
-      case 'tool_use':
+      }
+      case 'tool_use': {
+        const toolUseBlock = child as ToolUseRenderBlock
         content.push({
           type: 'tool_use',
-          toolId: (child as any).toolId || '',
-          toolName: (child as any).toolName || '',
-          input: (child as any).input || '',
+          toolId: toolUseBlock.toolId || '',
+          toolName: toolUseBlock.toolName || '',
+          input: toolUseBlock.input || '',
         })
         break
-      case 'tool_result':
+      }
+      case 'tool_result': {
+        const toolResultBlock = child as ToolResultRenderBlock
         content.push({
           type: 'tool_result',
           toolUseId: '',
-          content: (child as any).content || '',
-          isError: (child as any).isError,
+          content: toolResultBlock.content || '',
+          isError: toolResultBlock.isError,
         })
         break
-      case 'image':
+      }
+      case 'image': {
+        const imageBlock = child as ImageRenderBlock
         content.push({
           type: 'image',
           sourceType: 'url',
-          url: (child as any).src,
-          mimeType: (child as any).mimeType,
-          alt: (child as any).alt,
+          url: imageBlock.src,
+          mimeType: imageBlock.mimeType,
+          alt: imageBlock.alt,
         })
         break
-      case 'error':
+      }
+      case 'error': {
+        const errorBlock = child as ErrorRenderBlock
         content.push({
           type: 'error',
-          message: (child as any).message || '',
-          code: (child as any).code,
+          message: errorBlock.message || '',
+          code: errorBlock.code,
         })
         break
+      }
     }
   }
 
   return {
-    role: block.role as any,
+    role: block.role,
     content,
   }
 }

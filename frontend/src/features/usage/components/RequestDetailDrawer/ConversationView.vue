@@ -122,11 +122,17 @@ const props = defineProps<{
 const systemExpanded = ref(false)
 const historyExpanded = ref(false)
 const expandedTurns = ref<Set<number>>(new Set())
+const lastRenderResultId = ref<string>('')
 
 // 将渲染结果转换为分组对话
 const groupedConversation = computed(() => {
   return groupRenderBlocksIntoTurns(props.renderResult.blocks, props.renderResult.isStream)
 })
+
+// 生成 renderResult 的唯一标识
+function getRenderResultId(): string {
+  return `${props.renderResult.blocks.length}-${props.renderResult.isStream}`
+}
 
 // 历史轮次（除最后 1-2 轮外的所有轮次）
 const historyTurns = computed(() => {
@@ -163,18 +169,16 @@ function initExpandedTurns() {
   }
 }
 
-// 当 renderResult 变化时重置状态
+// 监听 renderResult 变化，重置状态并初始化展开轮次
 watch(() => props.renderResult, () => {
-  systemExpanded.value = false
-  nextTick(() => {
-    initExpandedTurns()
-  })
-}, { deep: true })
-
-// 初始加载时也要初始化
-watch(groupedConversation, () => {
-  if (expandedTurns.value.size === 0 && groupedConversation.value.turns.length > 0) {
-    initExpandedTurns()
+  const currentId = getRenderResultId()
+  if (currentId !== lastRenderResultId.value) {
+    lastRenderResultId.value = currentId
+    systemExpanded.value = false
+    historyExpanded.value = false
+    nextTick(() => {
+      initExpandedTurns()
+    })
   }
-}, { immediate: true })
+}, { deep: true, immediate: true })
 </script>
