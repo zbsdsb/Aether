@@ -109,7 +109,7 @@
                           </SelectTrigger>
                           <SelectContent :side-offset="4">
                             <SelectItem value="set">
-                              设置
+                              覆写
                             </SelectItem>
                             <SelectItem value="drop">
                               删除
@@ -492,7 +492,8 @@ function loadRulesFromEndpoint(endpoint: ProviderEndpoint): EditableRule[] {
 }
 
 // 将可编辑规则数组转换为 API 需要的 HeaderRule[]
-function rulesToHeaderRules(rules: EditableRule[]): HeaderRule[] | undefined {
+// 返回 null 表示显式清除所有规则，返回数组表示设置规则
+function rulesToHeaderRules(rules: EditableRule[]): HeaderRule[] | null {
   const result: HeaderRule[] = []
 
   for (const rule of rules) {
@@ -505,7 +506,8 @@ function rulesToHeaderRules(rules: EditableRule[]): HeaderRule[] | undefined {
     }
   }
 
-  return result.length > 0 ? result : undefined
+  // 返回 null 而不是 undefined，确保后端能正确清除规则
+  return result.length > 0 ? result : null
 }
 
 // 添加新规则

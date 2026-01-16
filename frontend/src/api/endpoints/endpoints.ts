@@ -46,7 +46,7 @@ export async function updateEndpoint(
   data: Partial<{
     base_url: string
     custom_path: string | null
-    header_rules: HeaderRule[]
+    header_rules: HeaderRule[] | null
     max_retries: number
     is_active: boolean
     config: Record<string, any>
