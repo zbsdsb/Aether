@@ -20,6 +20,7 @@ Chat Handler Base - Chat API 格式的通用基类
 """
 
 import asyncio
+import json
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Callable, Dict, Optional
 
@@ -803,6 +804,26 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                     upstream_status=resp.status_code,
                     upstream_response=raw_content,
                 )
+
+            # 检查响应体中的嵌套错误（HTTP 200 但响应体包含错误）
+            if isinstance(response_json, dict):
+                parser = get_parser_for_format(api_format)
+                if parser.is_error_response(response_json):
+                    parsed = parser.parse_response(response_json, 200)
+                    logger.warning(
+                        f"  [{self.request_id}] 非流式检测到嵌套错误: "
+                        f"Provider={provider.name}, "
+                        f"error_type={parsed.error_type}, "
+                        f"embedded_status={parsed.embedded_status_code}, "
+                        f"message={parsed.error_message}"
+                    )
+                    raise EmbeddedErrorException(
+                        provider_name=str(provider.name),
+                        error_code=parsed.embedded_status_code,
+                        error_message=parsed.error_message,
+                        error_status=parsed.error_type,
+                    )
+
             return response_json if isinstance(response_json, dict) else {}
 
         try:
