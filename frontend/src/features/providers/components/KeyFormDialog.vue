@@ -246,7 +246,7 @@
         取消
       </Button>
       <Button
-        :disabled="saving"
+        :disabled="saving || !canSave"
         @click="handleSave"
       >
         {{ saving ? (isEditMode ? '保存中...' : '添加中...') : (isEditMode ? '保存' : '添加') }}
@@ -309,6 +309,19 @@ const showAutoFetchWarning = computed(() => {
   return true
 })
 
+// 表单是否可以保存
+const canSave = computed(() => {
+  // 必须填写密钥名称
+  if (!form.value.name.trim()) return false
+  // 新增模式下必须填写 API 密钥
+  if (!props.editingKey && !form.value.api_key.trim()) return false
+  // 必须至少选择一个 API 格式
+  if (form.value.api_formats.length === 0) return false
+  // API 密钥格式验证（如果有输入）
+  if (form.value.api_key.trim() && form.value.api_key.trim().length < 3) return false
+  return true
+})
+
 const isOpen = computed(() => props.open)
 const saving = ref(false)
 const formNonce = ref(createFieldNonce())
@@ -359,11 +372,6 @@ function toggleApiFormat(format: string) {
     // 添加格式
     form.value.api_formats.push(format)
   } else {
-    // 移除格式前检查：至少保留一个格式
-    if (form.value.api_formats.length <= 1) {
-      showError('至少需要选择一个 API 格式', '验证失败')
-      return
-    }
     // 移除格式，但保留倍率配置（用户可能只是临时取消）
     form.value.api_formats.splice(index, 1)
   }

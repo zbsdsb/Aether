@@ -10,6 +10,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from src.api.base.admin_adapter import AdminApiAdapter
 from src.api.base.pipeline import ApiRequestPipeline
@@ -462,14 +463,22 @@ class AdminDeleteProviderEndpointAdapter(AdminApiAdapter):
         endpoint_format = (
             endpoint.api_format if isinstance(endpoint.api_format, str) else endpoint.api_format.value
         )
+
+        # 查询包含该格式的所有 Key，并从 api_formats 中移除该格式
         keys = (
-            db.query(ProviderAPIKey.api_formats)
+            db.query(ProviderAPIKey)
             .filter(ProviderAPIKey.provider_id == endpoint.provider_id)
             .all()
         )
-        affected_keys_count = sum(
-            1 for (api_formats,) in keys if endpoint_format in (api_formats or [])
-        )
+        affected_keys_count = 0
+        for key in keys:
+            if key.api_formats and endpoint_format in key.api_formats:
+                affected_keys_count += 1
+                # 移除该格式
+                new_formats = [f for f in key.api_formats if f != endpoint_format]
+                key.api_formats = new_formats if new_formats else []
+                flag_modified(key, 'api_formats')
+
         db.delete(endpoint)
         db.commit()
 

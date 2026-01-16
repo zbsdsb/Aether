@@ -339,6 +339,19 @@
       </Button>
     </template>
   </Dialog>
+
+  <!-- 删除端点确认弹窗 -->
+  <AlertDialog
+    :model-value="deleteConfirmOpen"
+    title="删除端点"
+    :description="deleteConfirmDescription"
+    confirm-text="删除"
+    cancel-text="取消"
+    type="danger"
+    @update:model-value="deleteConfirmOpen = $event"
+    @confirm="confirmDeleteEndpoint"
+    @cancel="deleteConfirmOpen = false"
+  />
 </template>
 
 <script setup lang="ts">
@@ -360,6 +373,7 @@ import {
 import { Settings, Edit, Trash2, Check, X, Power, ChevronRight, Plus, ArrowRight } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { log } from '@/utils/logger'
+import AlertDialog from '@/components/common/AlertDialog.vue'
 import {
   createEndpoint,
   updateEndpoint,
@@ -404,6 +418,10 @@ const deletingEndpointId = ref<string | null>(null)
 const togglingEndpointId = ref<string | null>(null)
 const formatSelectOpen = ref(false)
 
+// 删除确认弹窗状态
+const deleteConfirmOpen = ref(false)
+const endpointToDelete = ref<ProviderEndpoint | null>(null)
+
 // 请求头规则编辑状态
 const editingRules = ref<EditableRule[]>([])
 const rulesExpanded = ref(false)
@@ -439,6 +457,13 @@ const localEndpoints = ref<ProviderEndpoint[]>([])
 const availableFormats = computed(() => {
   const existingFormats = localEndpoints.value.map(e => e.api_format)
   return apiFormats.value.filter(f => !existingFormats.includes(f.value))
+})
+
+// 删除确认弹窗描述
+const deleteConfirmDescription = computed(() => {
+  if (!endpointToDelete.value) return ''
+  const formatLabel = API_FORMAT_LABELS[endpointToDelete.value.api_format] || endpointToDelete.value.api_format
+  return `确定要删除 ${formatLabel} 端点吗？关联密钥将移除对该 API 格式的支持。`
 })
 
 // 获取指定 API 格式的默认路径
@@ -721,9 +746,20 @@ async function handleToggleEndpoint(endpoint: ProviderEndpoint) {
   }
 }
 
-// 删除端点
-async function handleDeleteEndpoint(endpoint: ProviderEndpoint) {
+// 删除端点 - 打开确认弹窗
+function handleDeleteEndpoint(endpoint: ProviderEndpoint) {
+  endpointToDelete.value = endpoint
+  deleteConfirmOpen.value = true
+}
+
+// 确认删除端点
+async function confirmDeleteEndpoint() {
+  if (!endpointToDelete.value) return
+
+  const endpoint = endpointToDelete.value
+  deleteConfirmOpen.value = false
   deletingEndpointId.value = endpoint.id
+
   try {
     await deleteEndpoint(endpoint.id)
     success(`已删除 ${API_FORMAT_LABELS[endpoint.api_format] || endpoint.api_format} 端点`)
@@ -732,6 +768,7 @@ async function handleDeleteEndpoint(endpoint: ProviderEndpoint) {
     showError(error.response?.data?.detail || '删除失败', '错误')
   } finally {
     deletingEndpointId.value = null
+    endpointToDelete.value = null
   }
 }
 
