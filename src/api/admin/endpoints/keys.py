@@ -345,6 +345,7 @@ class AdminDeleteEndpointKeyAdapter(AdminApiAdapter):
             raise NotFoundException(f"Key {self.key_id} 不存在")
 
         provider_id = key.provider_id
+        deleted_key_allowed_models = key.allowed_models  # 保存被删除 Key 的 allowed_models
         try:
             db.delete(key)
             db.commit()
@@ -353,8 +354,20 @@ class AdminDeleteEndpointKeyAdapter(AdminApiAdapter):
             logger.error(f"删除 Key 失败: ID={self.key_id}, Error={exc}")
             raise
 
-        # 清除 /v1/models 列表缓存
-        await invalidate_models_list_cache()
+        # 触发缓存失效和自动解除关联检查
+        # 注意：只有当被删除的 Key 有具体的 allowed_models 时才触发 disassociate
+        # 如果 allowed_models 为 null（允许所有模型），则不需要检查解除关联
+        if provider_id:
+            from src.services.model.global_model import on_key_allowed_models_changed
+
+            await on_key_allowed_models_changed(
+                db=db,
+                provider_id=provider_id,
+                skip_disassociate=deleted_key_allowed_models is None,
+            )
+        else:
+            # 无 provider_id 时仅清除缓存
+            await invalidate_models_list_cache()
 
         logger.warning(f"[DELETE] 删除 Key: ID={self.key_id}, Provider={provider_id}")
         return {"message": f"Key {self.key_id} 已删除"}

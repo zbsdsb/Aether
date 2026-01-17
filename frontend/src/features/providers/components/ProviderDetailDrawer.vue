@@ -779,7 +779,12 @@ async function confirmDeleteKey() {
   try {
     await deleteEndpointKey(keyId)
     showSuccess('密钥已删除')
-    await loadEndpoints()
+    // 并行刷新：端点列表、模型列表、模型映射（删除 Key 触发自动解除模型关联）
+    await Promise.all([
+      loadEndpoints(),
+      modelsTabRef.value?.reload(),
+      modelMappingTabRef.value?.reload()
+    ])
     emit('refresh')
   } catch (err: any) {
     showError(err.response?.data?.detail || '删除密钥失败', '错误')
