@@ -156,8 +156,8 @@ export interface EndpointAPIKey {
   updated_at: string
   // 自适应 RPM 字段
   is_adaptive?: boolean  // 是否为自适应模式（rpm_limit=NULL）
-  effective_limit?: number  // 当前有效 RPM 限制（自适应使用学习值，固定使用配置值）
-  learned_rpm_limit?: number  // 学习到的 RPM 限制
+  effective_limit?: number | null  // 当前有效 RPM 限制（自适应使用学习值，固定使用配置值，未学习时为 null）
+  learned_rpm_limit?: number | null  // 学习到的 RPM 限制
   // 滑动窗口利用率采样
   utilization_samples?: Array<{ ts: number; util: number }>  // 利用率采样窗口
   last_probe_increase_at?: string  // 上次探测性扩容时间

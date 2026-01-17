@@ -315,7 +315,7 @@ class CacheAwareScheduler:
         获取有效的 RPM 限制
 
         新逻辑：
-        - rpm_limit=NULL: 启用自适应，使用 learned_rpm_limit（如无学习记录则使用默认初始值）
+        - rpm_limit=NULL: 启用自适应，使用 learned_rpm_limit（如无学习记录则不限制，等待碰壁学习）
         - rpm_limit=数字: 固定限制，直接使用该值
 
         Args:
@@ -330,10 +330,8 @@ class CacheAwareScheduler:
             if learned is not None:
                 return int(learned)
 
-            # 未学习到值时，使用默认初始限制，避免无限制打爆上游
-            from src.config.constants import RPMDefaults
-
-            return int(RPMDefaults.INITIAL_LIMIT)
+            # 未学习到值时，不限制，让其碰壁后再学习真实边界
+            return None
         else:
             # 固定限制模式
             return int(key.rpm_limit)

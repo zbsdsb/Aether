@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from src.api.base.admin_adapter import AdminApiAdapter
 from src.api.base.models_service import invalidate_models_list_cache
 from src.api.base.pipeline import ApiRequestPipeline
-from src.config.constants import RPMDefaults
 from src.core.crypto import crypto_service
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.key_capabilities import get_capability
@@ -539,11 +538,7 @@ def _build_key_response(
             "avg_response_time_ms": round(avg_response_time_ms, 2),
             "is_adaptive": is_adaptive,
             "effective_limit": (
-                (
-                    key.learned_rpm_limit
-                    if key.learned_rpm_limit is not None
-                    else RPMDefaults.INITIAL_LIMIT
-                )
+                key.learned_rpm_limit  # 自适应模式：使用学习值，未学习时为 None（不限制）
                 if is_adaptive
                 else key.rpm_limit
             ),

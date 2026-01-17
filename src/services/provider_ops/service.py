@@ -599,7 +599,7 @@ class ProviderOpsService:
         self, provider_ids: Optional[List[str]] = None
     ) -> Dict[str, ActionResult]:
         """
-        批量查询余额
+        批量查询余额（优先返回缓存，后台异步刷新）
 
         Args:
             provider_ids: Provider ID 列表，None 表示查询所有已配置的
@@ -616,9 +616,24 @@ class ProviderOpsService:
                 if p.config and p.config.get("provider_ops")
             ]
 
+        # 并行查询，使用缓存优先策略
+        tasks = [
+            self.query_balance_with_cache(provider_id, trigger_refresh=True)
+            for provider_id in provider_ids
+        ]
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
         results = {}
-        for provider_id in provider_ids:
-            results[provider_id] = await self.query_balance(provider_id)
+        for provider_id, result in zip(provider_ids, results_list):
+            if isinstance(result, Exception):
+                logger.warning(f"查询余额失败: provider_id={provider_id}, error={result}")
+                results[provider_id] = ActionResult(
+                    status=ActionStatus.UNKNOWN_ERROR,
+                    action_type=ProviderActionType.QUERY_BALANCE,
+                    message=str(result),
+                )
+            else:
+                results[provider_id] = result
 
         return results
 

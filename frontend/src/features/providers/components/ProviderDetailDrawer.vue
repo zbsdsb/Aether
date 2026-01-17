@@ -323,7 +323,11 @@
                       <!-- RPM 限制信息（第二位） -->
                       <template v-if="key.rpm_limit || key.is_adaptive">
                         <span class="text-muted-foreground/40">|</span>
-                        <span>{{ key.is_adaptive ? '自适应' : key.rpm_limit }} RPM</span>
+                        <span v-if="key.is_adaptive">
+                          {{ key.learned_rpm_limit != null ? `${key.learned_rpm_limit}` : '探测中' }} RPM
+                          <span class="text-muted-foreground/60">(自适应)</span>
+                        </span>
+                        <span v-else>{{ key.rpm_limit }} RPM</span>
                       </template>
                       <span class="text-muted-foreground/40">|</span>
                       <!-- API 格式：展开显示每个格式、倍率、熔断状态 -->

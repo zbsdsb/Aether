@@ -102,10 +102,8 @@ class RequestExecutor:
 
             # 获取有效的 RPM 限制（自适应或固定）
             if key.rpm_limit is None:
-                # 自适应模式：优先使用学习值，否则使用默认初始限制，避免无限制打爆上游
-                from src.config.constants import RPMDefaults
-
-                effective_key_limit = int(key.learned_rpm_limit or RPMDefaults.INITIAL_LIMIT)
+                # 自适应模式：使用学习值，未学习时为 None（不限制，等待碰壁学习）
+                effective_key_limit = int(key.learned_rpm_limit) if key.learned_rpm_limit is not None else None
             else:
                 effective_key_limit = int(key.rpm_limit)
 
