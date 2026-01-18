@@ -21,11 +21,12 @@ export const newApiTemplate: AuthTemplate = {
         fields: [
           {
             key: 'base_url',
-            label: 'API 地址',
+            label: '站点地址',
             type: 'text',
-            placeholder: providerWebsite || 'https://api.example.com',
-            helpText: '提供商的 API 基础地址，留空则使用提供商官网',
-            required: false,
+            placeholder: providerWebsite
+              ? `${providerWebsite}`
+              : '请填写站点地址',
+            required: !providerWebsite,
           },
           {
             key: 'api_key',

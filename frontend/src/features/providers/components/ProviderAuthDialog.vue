@@ -346,12 +346,24 @@ async function handleVerify() {
     const result = await verifyProviderAuth(props.providerId, verifyRequest)
 
     if (result.success) {
-      verifyStatus.value = 'success'
-      formChanged.value = false  // 验证成功后重置表单变动标记
-      // Toast 提示
-      const displayName = result.data?.display_name || result.data?.username || '未知'
-      const quotaStr = result.data?.quota !== undefined ? ` | 余额: ${formatQuota(result.data.quota)}` : ''
-      showSuccess(`用户: ${displayName}${quotaStr}`, '验证成功')
+      // 检查是否获取到有效的用户信息和余额
+      const username = result.data?.username?.trim() || result.data?.display_name?.trim()
+      const quota = result.data?.quota
+
+      if (!username || quota === undefined || quota === null) {
+        // 没有获取到必要信息，视为验证失败
+        verifyStatus.value = 'error'
+        const missing: string[] = []
+        if (!username) missing.push('用户信息')
+        if (quota === undefined || quota === null) missing.push('余额')
+        showError(`验证响应缺少: ${missing.join('、')}`)
+      } else {
+        verifyStatus.value = 'success'
+        formChanged.value = false  // 验证成功后重置表单变动标记
+        // Toast 提示
+        const displayName = result.data?.display_name || result.data?.username
+        showSuccess(`用户: ${displayName} | 余额: ${formatQuota(quota)}`, '验证成功')
+      }
     } else {
       verifyStatus.value = 'error'
       showError(result.message || '验证失败')
