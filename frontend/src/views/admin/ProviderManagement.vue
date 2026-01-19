@@ -98,22 +98,22 @@
         <Table>
           <TableHeader>
             <TableRow class="border-b border-border/40 hover:bg-transparent">
-              <TableHead class="w-[180px] h-11 font-medium text-foreground/80">
+              <TableHead class="w-[18%] min-w-[140px] h-11 font-medium text-foreground/80">
                 提供商信息
               </TableHead>
-              <TableHead class="w-[100px] h-11 font-medium text-foreground/80">
+              <TableHead class="w-[16%] min-w-[180px] h-11 font-medium text-foreground/80">
                 余额监控
               </TableHead>
-              <TableHead class="w-[120px] h-11 font-medium text-foreground/80 text-center">
+              <TableHead class="w-[12%] min-w-[100px] h-11 font-medium text-foreground/80 text-center">
                 资源统计
               </TableHead>
-              <TableHead class="w-[280px] h-11 font-medium text-foreground/80">
+              <TableHead class="w-[30%] min-w-[200px] h-11 font-medium text-foreground/80">
                 端点健康
               </TableHead>
-              <TableHead class="w-[80px] h-11 font-medium text-foreground/80 text-center">
+              <TableHead class="w-[8%] min-w-[60px] h-11 font-medium text-foreground/80 text-center">
                 状态
               </TableHead>
-              <TableHead class="w-[120px] h-11 font-medium text-foreground/80 text-center">
+              <TableHead class="w-[16%] min-w-[120px] h-11 font-medium text-foreground/80 text-center">
                 操作
               </TableHead>
             </TableRow>
