@@ -101,7 +101,7 @@
               <TableHead class="w-[180px] h-11 font-medium text-foreground/80">
                 提供商信息
               </TableHead>
-              <TableHead class="w-[140px] h-11 font-medium text-foreground/80 text-center">
+              <TableHead class="w-[100px] h-11 font-medium text-foreground/80">
                 余额监控
               </TableHead>
               <TableHead class="w-[120px] h-11 font-medium text-foreground/80 text-center">
@@ -142,15 +142,73 @@
                   </a>
                 </div>
               </TableCell>
-              <TableCell class="py-3.5 text-center">
+              <TableCell class="py-3.5">
                 <!-- 显示从上游 API 查询的余额 -->
                 <div
                   v-if="provider.ops_configured && getProviderBalance(provider.id)"
-                  class="text-xs"
+                  class="flex items-center gap-2 text-xs"
                 >
-                  <span class="font-semibold text-foreground/90">
+                  <!-- 余额文字 -->
+                  <span class="font-semibold text-foreground/90 min-w-[4.5rem] tabular-nums">
                     {{ formatBalanceDisplay(getProviderBalance(provider.id)) }}
                   </span>
+                  <!-- 窗口限额 + 签到状态 -->
+                  <div
+                    v-if="getProviderBalanceExtra(provider.id, provider.ops_architecture_id).length > 0 || getProviderCheckin(provider.id)"
+                    class="text-muted-foreground/70 space-y-0.5"
+                  >
+                    <!-- 限额（进度条 + 倒计时，每行一个） -->
+                    <template
+                      v-for="item in getProviderBalanceExtra(provider.id, provider.ops_architecture_id)"
+                      :key="item.label"
+                    >
+                      <div
+                        :title="item.tooltip"
+                        :class="['flex items-center gap-1', item.tooltip ? 'cursor-help' : '']"
+                      >
+                        <span class="text-[10px] text-muted-foreground/60 w-4">{{ item.label }}</span>
+                        <div class="w-12 h-1.5 bg-border rounded-full overflow-hidden">
+                          <div
+                            class="h-full rounded-full"
+                            :class="[
+                              item.percent !== undefined && item.percent >= 50 ? 'bg-green-500' :
+                              item.percent !== undefined && item.percent >= 20 ? 'bg-amber-500' : 'bg-red-500'
+                            ]"
+                            :style="{ width: `${item.percent ?? 0}%` }"
+                          />
+                        </div>
+                        <span class="text-[10px] text-muted-foreground/50 w-7 text-right tabular-nums">{{ item.value }}</span>
+                        <span
+                          v-if="item.resetsAt"
+                          class="text-[10px] text-muted-foreground/40 w-14 text-right tabular-nums"
+                        >{{ formatResetCountdown(item.resetsAt) }}</span>
+                      </div>
+                    </template>
+                    <!-- 签到状态 -->
+                    <div
+                      v-if="getProviderCheckin(provider.id)"
+                      class="flex items-center gap-1.5"
+                    >
+                      <span
+                        v-if="getProviderCheckin(provider.id)?.success === true"
+                        class="text-[10px] text-muted-foreground/60"
+                        :title="getProviderCheckin(provider.id)?.message"
+                      >已签到</span>
+                      <span
+                        v-else-if="getProviderCheckin(provider.id)?.success === false"
+                        class="text-[10px] text-destructive/70"
+                        :title="getProviderCheckin(provider.id)?.message"
+                      >签到失败</span>
+                    </div>
+                  </div>
+                </div>
+                <!-- 余额查询失败时显示错误 -->
+                <div
+                  v-else-if="provider.ops_configured && getProviderBalanceError(provider.id)"
+                  class="text-xs text-destructive/80"
+                  :title="getProviderBalanceError(provider.id)?.message"
+                >
+                  {{ getProviderBalanceError(provider.id)?.message }}
                 </div>
                 <!-- 显示本地配置的月度配额 -->
                 <div
@@ -371,6 +429,25 @@
               class="text-muted-foreground"
             >
               余额 <span class="font-semibold text-foreground/90">{{ formatBalanceDisplay(getProviderBalance(provider.id)) }}</span>
+              <!-- 签到状态显示 -->
+              <span
+                v-if="getProviderCheckin(provider.id)?.success === true"
+                class="ml-1 text-muted-foreground"
+                :title="getProviderCheckin(provider.id)?.message"
+              >已签到</span>
+              <span
+                v-else-if="getProviderCheckin(provider.id)?.success === false"
+                class="ml-1 text-destructive/70"
+                :title="getProviderCheckin(provider.id)?.message"
+              >签到失败</span>
+            </span>
+            <!-- 余额查询失败时显示错误 -->
+            <span
+              v-else-if="provider.ops_configured && getProviderBalanceError(provider.id)"
+              class="text-destructive/80"
+              :title="getProviderBalanceError(provider.id)?.message"
+            >
+              {{ getProviderBalanceError(provider.id)?.message }}
             </span>
             <!-- 本地配额 -->
             <span
@@ -459,7 +536,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import {
   Plus,
   Search,
@@ -496,6 +573,7 @@ import {
 import { adminApi } from '@/api/admin'
 import { batchQueryBalance, type ActionResultResponse } from '@/api/providerOps'
 import { formatBillingType } from '@/utils/format'
+import { authTemplateRegistry, type BalanceExtraItem } from '@/features/providers/auth-templates'
 
 const { error: showError, success: showSuccess } = useToast()
 const { confirmDanger } = useConfirm()
@@ -658,6 +736,46 @@ function getProviderBalance(providerId: string): { available: number | null; cur
   }
 }
 
+// 获取 provider 余额查询的错误状态
+function getProviderBalanceError(providerId: string): { status: string; message: string } | null {
+  const result = balanceCache.value[providerId]
+  if (!result) {
+    return null
+  }
+  // 认证失败或过期
+  if (result.status === 'auth_failed' || result.status === 'auth_expired') {
+    return {
+      status: result.status,
+      message: result.message || '认证失败'
+    }
+  }
+  // 其他错误
+  if (result.status !== 'success') {
+    return {
+      status: result.status,
+      message: result.message || '查询失败'
+    }
+  }
+  return null
+}
+
+// 获取 provider 的签到信息（从 extra 字段）
+function getProviderCheckin(providerId: string): { success: boolean | null; message: string } | null {
+  const result = balanceCache.value[providerId]
+  if (!result || result.status !== 'success' || !result.data) {
+    return null
+  }
+  const data = result.data as Record<string, any>
+  const extra = data.extra
+  if (!extra || extra.checkin_success === undefined) {
+    return null
+  }
+  return {
+    success: extra.checkin_success,
+    message: extra.checkin_message || ''
+  }
+}
+
 // 格式化余额显示
 function formatBalanceDisplay(balance: { available: number | null; currency: string } | null): string {
   if (!balance || balance.available == null) {
@@ -665,6 +783,48 @@ function formatBalanceDisplay(balance: { available: number | null; currency: str
   }
   const symbol = balance.currency === 'USD' ? '$' : balance.currency
   return `${symbol}${balance.available.toFixed(2)}`
+}
+
+// 格式化重置倒计时（从 Unix 时间戳）
+function formatResetCountdown(resetsAt: number): string {
+  // 依赖 tickCounter 触发响应式更新
+  void tickCounter.value
+
+  const now = Date.now() / 1000
+  const diff = resetsAt - now
+
+  if (diff <= 0) return '即将重置'
+
+  const totalHours = Math.floor(diff / 3600)
+  const minutes = Math.floor((diff % 3600) / 60)
+  const seconds = Math.floor(diff % 60)
+
+  const pad = (n: number) => n.toString().padStart(2, '0')
+
+  if (totalHours > 0) {
+    return `${totalHours}:${pad(minutes)}:${pad(seconds)}`
+  }
+  return `${minutes}:${pad(seconds)}`
+}
+
+// 获取 provider 余额的额外信息（如窗口限额）
+function getProviderBalanceExtra(providerId: string, architectureId?: string): BalanceExtraItem[] {
+  if (!architectureId) return []
+
+  const result = balanceCache.value[providerId]
+  if (!result || result.status !== 'success' || !result.data) {
+    return []
+  }
+
+  const data = result.data as Record<string, any>
+  const extra = data.extra
+  if (!extra) return []
+
+  // 获取对应的模板
+  const template = authTemplateRegistry.get(architectureId)
+  if (!template?.formatBalanceExtra) return []
+
+  return template.formatBalanceExtra(extra)
 }
 
 
@@ -844,8 +1004,22 @@ async function toggleProviderStatus(provider: ProviderWithEndpointsSummary) {
   }
 }
 
+// 用于触发倒计时更新的响应式计数器
+const tickCounter = ref(0)
+let tickInterval: ReturnType<typeof setInterval> | null = null
+
 onMounted(() => {
   loadProviders()
   loadPriorityMode()
+  // 每秒更新一次倒计时
+  tickInterval = setInterval(() => {
+    tickCounter.value++
+  }, 1000)
+})
+
+onUnmounted(() => {
+  if (tickInterval) {
+    clearInterval(tickInterval)
+  }
 })
 </script>

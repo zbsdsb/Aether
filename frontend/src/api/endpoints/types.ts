@@ -311,6 +311,7 @@ export interface ProviderWithEndpointsSummary {
   api_formats: string[]
   endpoint_health_details: EndpointHealthDetail[]
   ops_configured: boolean  // 是否配置了扩展操作（余额监控等）
+  ops_architecture_id?: string  // 扩展操作使用的架构 ID（如 cubence, anyrouter）
   created_at: string
   updated_at: string
 }

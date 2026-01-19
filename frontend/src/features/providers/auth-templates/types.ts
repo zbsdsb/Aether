@@ -103,6 +103,29 @@ export interface AuthTemplate {
    * @param quota quota 值
    */
   formatQuota?(quota: number): string
+
+  /**
+   * 格式化余额 extra 信息（如窗口限额等）
+   * 返回一个数组，每个元素包含 label 和 value
+   * @param extra 余额 extra 字段
+   */
+  formatBalanceExtra?(extra: Record<string, any>): BalanceExtraItem[]
+}
+
+/**
+ * 余额附加信息项
+ */
+export interface BalanceExtraItem {
+  /** 显示标签 */
+  label: string
+  /** 显示值 */
+  value: string
+  /** 百分比数值 (0-100)，用于进度条显示 */
+  percent?: number
+  /** 重置时间戳（Unix 秒），用于倒计时显示 */
+  resetsAt?: number
+  /** 可选的提示文本 */
+  tooltip?: string
 }
 
 /**

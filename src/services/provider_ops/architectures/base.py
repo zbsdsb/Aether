@@ -310,6 +310,28 @@ class ProviderArchitecture(ABC):
         """
         return "/api/user/self"
 
+    async def prepare_verify_config(
+        self,
+        base_url: str,
+        config: Dict[str, Any],
+        credentials: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        验证前的异步预处理
+
+        子类可重写以执行异步操作（如获取动态 Cookie）。
+        返回的配置会传递给 build_verify_headers。
+
+        Args:
+            base_url: API 基础地址
+            config: 连接器配置
+            credentials: 凭据信息
+
+        Returns:
+            处理后的配置（会与原 config 合并）
+        """
+        return {}
+
     def build_verify_headers(
         self,
         config: Dict[str, Any],

@@ -45,7 +45,7 @@ class ProviderOpsService:
     """
 
     # 凭据中需要加密的字段
-    SENSITIVE_FIELDS = {"api_key", "password", "session_token", "cookie_string", "cookies"}
+    SENSITIVE_FIELDS = {"api_key", "password", "session_token", "session_cookie", "token_cookie", "auth_cookie", "cookie_string", "cookies"}
 
     def __init__(self, db: Session):
         self.db = db
@@ -412,13 +412,19 @@ class ProviderOpsService:
 
         await CacheService.set(cache_key, cache_data, BALANCE_CACHE_TTL)
 
-    async def _cache_balance_from_verify(self, provider_id: str, quota_usd: float) -> None:
+    async def _cache_balance_from_verify(
+        self,
+        provider_id: str,
+        quota_usd: float,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """
         从验证结果缓存余额
 
         Args:
             provider_id: Provider ID
             quota_usd: 已转换为美元的余额值
+            extra: 额外信息（如窗口限额）
         """
         cache_key = f"provider_ops:balance:{provider_id}"
 
@@ -431,7 +437,7 @@ class ProviderOpsService:
                 "total_used": None,
                 "total_available": quota_usd,
                 "currency": "USD",
-                "extra": {},
+                "extra": extra or {},
             },
             "executed_at": datetime.now(timezone.utc).isoformat(),
             "response_time_ms": None,
@@ -609,7 +615,10 @@ class ProviderOpsService:
 
         if saved_config:
             saved_credentials = self._decrypt_credentials(saved_config.connector_credentials)
-            sensitive_fields = ["api_key", "password", "session_token", "cookie_string", "cookies"]
+            sensitive_fields = [
+                "api_key", "password", "session_token", "cookie_string", "cookies",
+                "token_cookie", "auth_cookie",  # Cookie 认证字段
+            ]
 
             for field in sensitive_fields:
                 # 如果请求中该字段为空或只包含星号（脱敏值），使用已保存的值
@@ -704,7 +713,12 @@ class ProviderOpsService:
 
         # 使用架构的方法构建请求
         verify_endpoint = f"{base_url}{architecture.get_verify_endpoint()}"
-        headers = architecture.build_verify_headers(config, credentials)
+
+        # 执行异步预处理（如获取动态 Cookie）
+        extra_config = await architecture.prepare_verify_config(base_url, config, credentials)
+        merged_config = {**config, **extra_config}
+
+        headers = architecture.build_verify_headers(merged_config, credentials)
 
         logger.debug(
             f"验证认证: architecture={architecture_id}, "
@@ -721,6 +735,12 @@ class ProviderOpsService:
                 except Exception:
                     data = {}
 
+                # 将预处理获取的额外数据合并到响应中
+                if "_combined_data" in merged_config:
+                    data["_combined_data"] = merged_config["_combined_data"]
+                elif "_balance_data" in merged_config:
+                    data["_balance_data"] = merged_config["_balance_data"]
+
                 # 使用架构的方法解析响应
                 result = architecture.parse_verify_response(response.status_code, data)
                 result_dict = result.to_dict()
@@ -734,7 +754,8 @@ class ProviderOpsService:
                     quota_divisor = balance_config.get("quota_divisor", 1)
                     # 转换为美元值后缓存
                     quota_usd = result.quota / quota_divisor
-                    await self._cache_balance_from_verify(provider_id, quota_usd)
+                    # 传入 extra 信息（如窗口限额）
+                    await self._cache_balance_from_verify(provider_id, quota_usd, result.extra)
 
                 return result_dict
 

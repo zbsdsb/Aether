@@ -175,7 +175,7 @@ import {
 } from '../auth-templates'
 
 // 敏感字段列表（用于验证和加载配置时的特殊处理）
-const SENSITIVE_FIELDS = ['api_key', 'password', 'session_token', 'cookie_string', 'cookies'] as const
+const SENSITIVE_FIELDS = ['api_key', 'password', 'session_token', 'session_cookie', 'token_cookie', 'auth_cookie', 'cookie_string', 'cookies'] as const
 
 const props = defineProps<{
   open: boolean
@@ -427,11 +427,11 @@ function loadFromConfig(config: any) {
 
   hasExistingConfig.value = true
 
-  // 目前只支持 new_api 模板
-  selectedTemplateId.value = 'new_api'
-
-  // 使用模板解析配置
+  // 根据已保存的 architecture_id 选择对应模板，不存在则回退到 new_api
+  const architectureId = config.architecture_id || 'new_api'
+  selectedTemplateId.value = authTemplateRegistry.get(architectureId) ? architectureId : 'new_api'
   const template = authTemplateRegistry.get(selectedTemplateId.value)
+
   if (template) {
     const parsedData = template.parseConfig(config)
 

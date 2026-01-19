@@ -78,7 +78,7 @@ RUN printf '%s\n' \
 '        return 404;' \
 '    }' \
 '' \
-'    location ~ ^/(dashboard|admin|login)(/|$) {' \
+'    location ~ ^/(dashboard|admin|login|auth)(/|$) {' \
 '        try_files $uri $uri/ /index.html;' \
 '    }' \
 '' \

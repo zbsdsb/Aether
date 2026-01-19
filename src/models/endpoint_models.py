@@ -641,6 +641,9 @@ class ProviderWithEndpointsSummary(BaseModel):
 
     # Provider Ops 配置状态
     ops_configured: bool = Field(default=False, description="是否配置了扩展操作（余额监控等）")
+    ops_architecture_id: Optional[str] = Field(
+        default=None, description="扩展操作使用的架构 ID（如 cubence, anyrouter）"
+    )
 
     # 时间戳
     created_at: datetime

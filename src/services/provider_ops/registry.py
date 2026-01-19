@@ -9,10 +9,13 @@ from typing import Dict, List, Optional, Type
 
 from src.core.logger import logger
 from src.services.provider_ops.architectures import (
+    AnyrouterArchitecture,
+    CubenceArchitecture,
     GenericApiArchitecture,
     NewApiArchitecture,
     OneApiArchitecture,
     ProviderArchitecture,
+    YesCodeArchitecture,
 )
 
 
@@ -47,9 +50,12 @@ class ArchitectureRegistry:
     def _register_builtin_architectures(self) -> None:
         """注册内置架构"""
         builtin = [
+            AnyrouterArchitecture,
+            CubenceArchitecture,
             GenericApiArchitecture,
             NewApiArchitecture,
             OneApiArchitecture,
+            YesCodeArchitecture,
         ]
 
         for arch_cls in builtin:

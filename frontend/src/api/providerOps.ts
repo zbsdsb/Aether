@@ -83,7 +83,11 @@ export interface BalanceInfo {
   total_available: number | null
   expires_at: string | null
   currency: string
-  extra: Record<string, any>
+  extra: Record<string, any> & {
+    // Anyrouter 签到信息
+    checkin_success?: boolean | null  // true=成功, false=失败, null=已签到/跳过
+    checkin_message?: string
+  }
 }
 
 /** 签到信息 */

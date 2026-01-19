@@ -22,12 +22,15 @@
  */
 
 import type { AuthTemplate, AuthTemplateRegistry } from './types'
+import { anyrouterTemplate } from './anyrouter'
+import { cubenceTemplate } from './cubence'
 import { newApiTemplate } from './new-api'
+import { yescodeTemplate } from './yescode'
 
 // ==================== 模板注册 ====================
 // 在这里添加新模板
 
-const templates: AuthTemplate[] = [newApiTemplate]
+const templates: AuthTemplate[] = [newApiTemplate, anyrouterTemplate, cubenceTemplate, yescodeTemplate]
 
 // ==================== 注册表实现 ====================
 
@@ -63,4 +66,7 @@ export const authTemplateRegistry: AuthTemplateRegistry = {
 // ==================== 导出 ====================
 
 export * from './types'
+export { anyrouterTemplate } from './anyrouter'
+export { cubenceTemplate } from './cubence'
 export { newApiTemplate } from './new-api'
+export { yescodeTemplate } from './yescode'

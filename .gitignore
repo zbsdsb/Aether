@@ -5,6 +5,7 @@
 .claude/
 .serena/
 .gemini*/
+.plans
 
 ### Python ###
 *.db

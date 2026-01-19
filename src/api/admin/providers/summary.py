@@ -290,7 +290,9 @@ def _build_provider_summary(db: Session, provider: Provider) -> ProviderWithEndp
     ]
 
     # 检查是否配置了 Provider Ops（余额监控等）
-    ops_configured = bool((provider.config or {}).get("provider_ops"))
+    provider_ops_config = (provider.config or {}).get("provider_ops")
+    ops_configured = bool(provider_ops_config)
+    ops_architecture_id = provider_ops_config.get("architecture_id") if provider_ops_config else None
 
     return ProviderWithEndpointsSummary(
         id=provider.id,
@@ -318,6 +320,7 @@ def _build_provider_summary(db: Session, provider: Provider) -> ProviderWithEndp
         api_formats=api_formats,
         endpoint_health_details=endpoint_health_details,
         ops_configured=ops_configured,
+        ops_architecture_id=ops_architecture_id,
         created_at=provider.created_at,
         updated_at=provider.updated_at,
     )
