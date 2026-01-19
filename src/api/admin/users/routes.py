@@ -227,6 +227,11 @@ class AdminCreateUserAdapter(AdminApiAdapter):
         else:
             quota_usd = SystemConfigService.get_config(db, "default_user_quota_usd", default=10.0)
 
+        # 处理访问权限字段：空数组转为 None（表示无限制）
+        allowed_providers = request.allowed_providers if request.allowed_providers else None
+        allowed_api_formats = request.allowed_api_formats if request.allowed_api_formats else None
+        allowed_models = request.allowed_models if request.allowed_models else None
+
         try:
             user = UserService.create_user(
                 db=db,
@@ -235,6 +240,9 @@ class AdminCreateUserAdapter(AdminApiAdapter):
                 password=request.password,
                 role=role,
                 quota_usd=quota_usd,
+                allowed_providers=allowed_providers,
+                allowed_api_formats=allowed_api_formats,
+                allowed_models=allowed_models,
             )
         except ValueError as exc:
             raise InvalidRequestException(str(exc))

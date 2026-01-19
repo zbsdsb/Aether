@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Type
 import httpx
 
 from src.services.provider_ops.actions.base import ProviderAction
+from src.utils.ssl_utils import get_ssl_context
 from src.services.provider_ops.types import (
     ConnectorAuthType,
     ConnectorState,
@@ -125,6 +126,7 @@ class ProviderConnector(ABC):
             timeout=self._timeout,
             transport=transport,
             event_hooks={"request": [self._auth_hook]},
+            verify=get_ssl_context(),
         ) as client:
             yield client
 

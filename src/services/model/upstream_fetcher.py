@@ -15,6 +15,7 @@ from src.core.enums import APIFormat
 from src.core.headers import get_extra_headers_from_endpoint
 from src.core.logger import logger
 from src.models.database import ProviderEndpoint
+from src.utils.ssl_utils import get_ssl_context
 
 # 并发请求限制
 MAX_CONCURRENT_REQUESTS = 5
@@ -148,7 +149,7 @@ async def fetch_models_from_endpoints(
             logger.exception(f"获取 {api_format} 模型出错")
             return [], f"{api_format}: error", False
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, verify=get_ssl_context()) as client:
         results = await asyncio.gather(*[fetch_one(client, c) for c in endpoint_configs])
         for models, error, success in results:
             all_models.extend(models)

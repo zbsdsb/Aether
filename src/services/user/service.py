@@ -31,6 +31,9 @@ class UserService:
         role: UserRole = UserRole.USER,
         quota_usd: Optional[float] = 10.0,
         email_verified: bool = False,
+        allowed_providers: Optional[List[str]] = None,
+        allowed_api_formats: Optional[List[str]] = None,
+        allowed_models: Optional[List[str]] = None,
     ) -> User:
         """创建新用户，quota_usd 为 None 表示无限制，email 为 None 表示无邮箱"""
 
@@ -64,6 +67,9 @@ class UserService:
             role=role,
             quota_usd=quota_usd,
             is_active=True,
+            allowed_providers=allowed_providers,
+            allowed_api_formats=allowed_api_formats,
+            allowed_models=allowed_models,
         )
         user.set_password(password)
 

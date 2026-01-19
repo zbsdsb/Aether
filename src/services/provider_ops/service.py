@@ -617,7 +617,7 @@ class ProviderOpsService:
             saved_credentials = self._decrypt_credentials(saved_config.connector_credentials)
             sensitive_fields = [
                 "api_key", "password", "session_token", "cookie_string", "cookies",
-                "token_cookie", "auth_cookie",  # Cookie 认证字段
+                "token_cookie", "auth_cookie", "session_cookie",  # Cookie 认证字段
             ]
 
             for field in sensitive_fields:
@@ -704,6 +704,8 @@ class ProviderOpsService:
         """
         import httpx
 
+        from src.utils.ssl_utils import get_ssl_context
+
         # 移除 base_url 末尾的斜杠
         base_url = base_url.rstrip("/")
 
@@ -726,8 +728,13 @@ class ProviderOpsService:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, verify=get_ssl_context()) as client:
                 response = await client.get(verify_endpoint, headers=headers)
+
+                logger.debug(
+                    f"验证响应: status={response.status_code}, "
+                    f"content_type={response.headers.get('content-type')}"
+                )
 
                 # 尝试解析 JSON
                 try:

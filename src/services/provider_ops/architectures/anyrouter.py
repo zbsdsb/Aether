@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 import httpx
 
 from src.core.logger import logger
+from src.utils.ssl_utils import get_ssl_context
 from src.services.provider_ops.actions import AnyrouterBalanceAction, ProviderAction
 from src.services.provider_ops.architectures.base import (
     ProviderArchitecture,
@@ -193,7 +194,7 @@ async def _get_acw_cookie(base_url: str, timeout: float = 10) -> Optional[str]:
         Cookie 字符串 (acw_sc__v2=xxx)，如果不需要或获取失败则返回 None
     """
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, verify=get_ssl_context()) as client:
             resp = await client.get(
                 base_url,
                 headers={

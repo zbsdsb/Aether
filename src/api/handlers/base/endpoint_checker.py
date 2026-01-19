@@ -28,6 +28,7 @@ import httpx
 
 from src.core.logger import logger
 from src.core.headers import CORE_REDACT_HEADERS, merge_headers_with_protection, redact_headers_for_log
+from src.utils.ssl_utils import get_ssl_context
 
 
 def _redact_headers(headers: Dict[str, str]) -> Dict[str, str]:
@@ -545,7 +546,7 @@ class HttpRequestExecutor:
 
         try:
             # 使用httpx进行异步请求
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, verify=get_ssl_context()) as client:
                 response = await client.post(
                     url=request.url,
                     json=request.json_body,

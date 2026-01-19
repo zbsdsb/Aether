@@ -4,7 +4,6 @@
 """
 
 import smtplib
-import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Optional, Tuple, Union
@@ -19,23 +18,13 @@ else:
     AIOSMTPLIB_AVAILABLE = True
     aiosmtplib = _aiosmtplib
 
-
-def _create_ssl_context() -> ssl.SSLContext:
-    """创建 SSL 上下文，使用 certifi 证书或系统默认证书"""
-    try:
-        import certifi
-
-        context = ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        context = ssl.create_default_context()
-    return context
-
 from sqlalchemy.orm import Session
 
 from src.core.crypto import crypto_service
 from src.core.logger import logger
 from src.services.system.config import SystemConfigService
 from src.utils.async_utils import run_in_executor
+from src.utils.ssl_utils import get_ssl_context
 
 from .email_template import EmailTemplate
 
@@ -224,7 +213,7 @@ class EmailSenderService:
                 message.attach(MIMEText(html_body, "html", "utf-8"))
 
             # 发送邮件
-            ssl_context = _create_ssl_context()
+            ssl_context = get_ssl_context()
             if config["smtp_use_ssl"]:
                 await aiosmtplib.send(
                     message,
@@ -324,7 +313,7 @@ class EmailSenderService:
 
             # 连接 SMTP 服务器
             server: Optional[smtplib.SMTP] = None
-            ssl_context = _create_ssl_context()
+            ssl_context = get_ssl_context()
             try:
                 if config["smtp_use_ssl"]:
                     server = smtplib.SMTP_SSL(
@@ -392,7 +381,7 @@ class EmailSenderService:
             return False, error
 
         try:
-            ssl_context = _create_ssl_context()
+            ssl_context = get_ssl_context()
             if AIOSMTPLIB_AVAILABLE:
                 # 使用异步方式测试
                 # 注意: use_tls=True 表示隐式 SSL (端口 465)

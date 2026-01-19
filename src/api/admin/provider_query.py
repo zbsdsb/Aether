@@ -22,6 +22,7 @@ from src.services.model.upstream_fetcher import (
     fetch_models_from_endpoints,
 )
 from src.utils.auth_utils import get_current_user
+from src.utils.ssl_utils import get_ssl_context
 
 
 router = APIRouter(prefix="/api/admin/provider-query", tags=["Provider Query"])
@@ -302,7 +303,7 @@ async def test_model(
         }
 
         # 发送测试请求
-        async with httpx.AsyncClient(timeout=endpoint_config["timeout"]) as client:
+        async with httpx.AsyncClient(timeout=endpoint_config["timeout"], verify=get_ssl_context()) as client:
             # 非流式测试
             logger.debug(f"[test-model] 开始非流式测试...")
 

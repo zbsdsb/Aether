@@ -241,6 +241,10 @@ class CreateUserRequest(BaseModel):
     role: Optional[UserRole] = Field(UserRole.USER, description="用户角色")
     quota_usd: Optional[float] = Field(default=None, description="USD配额，null表示使用系统默认配额")
     unlimited: bool = Field(default=False, description="是否无限配额")
+    # 访问限制字段
+    allowed_providers: Optional[List[str]] = Field(default=None, description="允许使用的提供商ID列表，null表示无限制")
+    allowed_api_formats: Optional[List[str]] = Field(default=None, description="允许使用的API格式列表，null表示无限制")
+    allowed_models: Optional[List[str]] = Field(default=None, description="允许使用的模型名称列表，null表示无限制")
 
     @field_validator("quota_usd", mode="before")
     @classmethod

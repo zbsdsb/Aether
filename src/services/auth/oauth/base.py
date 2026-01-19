@@ -7,6 +7,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import httpx
 
 from src.services.auth.oauth.models import OAuthToken, OAuthUserInfo
+from src.utils.ssl_utils import get_ssl_context
 
 if TYPE_CHECKING:
     from src.models.database import OAuthProvider
@@ -97,7 +98,7 @@ class OAuthProviderBase(ABC):
         timeout_seconds: float = 5.0,
         headers: Optional[dict[str, str]] = None,
     ) -> httpx.Response:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds), verify=get_ssl_context()) as client:
             return await client.post(url, data=data, headers=headers)
 
     async def _http_get(
@@ -107,5 +108,5 @@ class OAuthProviderBase(ABC):
         timeout_seconds: float = 5.0,
         headers: Optional[dict[str, str]] = None,
     ) -> httpx.Response:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds), verify=get_ssl_context()) as client:
             return await client.get(url, headers=headers)

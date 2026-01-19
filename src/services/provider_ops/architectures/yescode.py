@@ -20,6 +20,7 @@ from src.services.provider_ops.architectures.base import (
     VerifyResult,
 )
 from src.services.provider_ops.types import ConnectorAuthType, ProviderActionType
+from src.utils.ssl_utils import get_ssl_context
 
 
 def _extract_cookies(cookie_string: str) -> Dict[str, str]:
@@ -197,6 +198,7 @@ class YesCodeArchitecture(ProviderArchitecture):
             async with httpx.AsyncClient(
                 headers={"Cookie": cookie_header},
                 timeout=10.0,
+                verify=get_ssl_context(),
             ) as client:
                 combined_data = await fetch_yescode_combined_data(client, base_url)
                 extra_config["_combined_data"] = combined_data

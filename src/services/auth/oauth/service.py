@@ -26,6 +26,7 @@ from src.services.auth.service import AuthService
 from src.services.cache.user_cache import UserCacheService
 from src.services.system.config import SystemConfigService
 from src.services.auth.oauth.base import OAuthProviderBase
+from src.utils.ssl_utils import get_ssl_context
 
 
 class OAuthService:
@@ -785,7 +786,7 @@ class OAuthService:
 
         async def _reachable(url: str) -> bool:
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), follow_redirects=False) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), follow_redirects=False, verify=get_ssl_context()) as client:
                     await client.get(url)
                 return True
             except Exception:
@@ -800,7 +801,7 @@ class OAuthService:
         if cfg.client_secret_encrypted:
             # 使用无效 code 做一次 token 请求（仅做粗略判定）
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), verify=get_ssl_context()) as client:
                     resp = await client.post(
                         token_url,
                         data={
@@ -860,7 +861,7 @@ class OAuthService:
 
         async def _reachable(url: str) -> bool:
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), follow_redirects=False) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), follow_redirects=False, verify=get_ssl_context()) as client:
                     await client.get(url)
                 return True
             except Exception:
@@ -875,7 +876,7 @@ class OAuthService:
         if client_secret:
             # 使用无效 code 做一次 token 请求（仅做粗略判定）
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), verify=get_ssl_context()) as client:
                     resp = await client.post(
                         token_url,
                         data={
