@@ -1191,7 +1191,7 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                 provider_agg[provider]["tokens"] += int(stat.tokens or 0)
                 provider_agg[provider]["cost"] += float(stat.cost or 0)
 
-            # 构建 provider_summary
+            # 构建 provider_summary（排除 unknown）
             provider_summary = [
                 {
                     "provider": provider,
@@ -1200,6 +1200,7 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                     "cost": agg["cost"],
                 }
                 for provider, agg in provider_agg.items()
+                if provider.lower() != "unknown"
             ]
             provider_summary.sort(key=lambda x: x["cost"], reverse=True)
 
@@ -1226,12 +1227,13 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
 
             provider_summary = [
                 {
-                    "provider": stat.provider_name or "Unknown",
+                    "provider": stat.provider_name,
                     "requests": stat.requests or 0,
                     "tokens": int(stat.tokens or 0),
                     "cost": float(stat.cost or 0),
                 }
                 for stat in provider_stats
+                if stat.provider_name and stat.provider_name.lower() != "unknown"
             ]
 
         return {
