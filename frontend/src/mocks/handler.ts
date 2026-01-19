@@ -1955,7 +1955,7 @@ registerDynamicRoute('GET', '/api/admin/usage/:requestId', async (_config, param
     messages: [
       {
         role: 'user',
-        content: 'Hello! Can you help me understand how API gateways work?'
+        content: 'Hello! Can you help me understand how AI gateways work?'
       }
     ],
     stream: record.is_stream
@@ -1973,7 +1973,7 @@ registerDynamicRoute('GET', '/api/admin/usage/:requestId', async (_config, param
     content: [
       {
         type: 'text',
-        text: 'API gateways are middleware services that sit between clients and backend services. They handle routing, authentication, rate limiting, and more...'
+        text: 'AI gateways are middleware services that sit between clients and backend services. They handle routing, authentication, rate limiting, and more...'
       }
     ],
     model: record.model,

@@ -6,13 +6,13 @@
   >
     <div class="px-6 py-6 sm:px-8 sm:py-8">
       <!-- Logo 和标题 -->
-      <div class="flex flex-col items-center text-center mb-6">
+      <div class="flex flex-col items-center text-center mb-8">
         <img
           src="/aether_adaptive.svg"
           alt="Aether"
-          class="h-10 w-10 mb-3"
+          class="h-16 w-16 mb-4"
         >
-        <h2 class="text-xl font-semibold text-foreground">
+        <h2 class="text-2xl font-semibold text-foreground">
           登录到 Aether
         </h2>
       </div>
@@ -187,7 +187,7 @@
         <Button
           type="submit"
           :disabled="authStore.loading"
-          class="w-full h-10"
+          class="w-full h-12"
         >
           {{ authStore.loading ? '登录中...' : '登录' }}
         </Button>
@@ -417,9 +417,9 @@ onMounted(async () => {
   font-size: 0.875rem;
   font-weight: 500;
   color: hsl(var(--foreground));
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
-  border-radius: 0.5rem;
+  background: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border) / 0.6);
+  border-radius: 0.75rem;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -446,8 +446,8 @@ onMounted(async () => {
   justify-content: center;
   width: 3rem;
   height: 3rem;
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border) / 0.6);
   border-radius: 0.75rem;
   cursor: pointer;
   transition: all 0.15s ease;

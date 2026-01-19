@@ -152,7 +152,7 @@ const autocompleteAttr = computed(() => {
 
 const inputClass = computed(() =>
   cn(
-    'flex h-11 w-full rounded-2xl border border-border/60 bg-card/80 px-4 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:border-primary/60 text-foreground backdrop-blur transition-all',
+    'flex h-11 w-full rounded-xl border border-border/60 bg-muted/50 px-4 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:border-primary/60 text-foreground transition-all',
     props.masked && 'pr-10',
     props.class
   )

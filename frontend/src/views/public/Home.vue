@@ -37,7 +37,7 @@
               <h1 class="text-lg font-bold text-[#191919] dark:text-white leading-none">
                 Aether
               </h1>
-              <span class="text-[10px] text-[#91918d] dark:text-muted-foreground leading-none mt-1.5 font-medium tracking-wide">API Gateway</span>
+              <span class="text-[10px] text-[#91918d] dark:text-muted-foreground leading-none mt-1.5 font-medium tracking-wide">AI Gateway</span>
             </div>
           </div>
 

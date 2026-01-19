@@ -382,7 +382,7 @@ openapi_tags = [
 ]
 
 app = FastAPI(
-    title="Aether API Gateway",
+    title="Aether AI Gateway",
     version=app_version,
     lifespan=lifespan,
     docs_url="/docs" if config.docs_enabled else None,

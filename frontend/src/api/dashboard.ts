@@ -220,14 +220,14 @@ export interface DailyStat {
   cost: number
   avg_response_time: number // in seconds
   unique_models: number
-  unique_providers: number
+  unique_providers?: number // 仅管理员返回
   model_breakdown: ModelBreakdown[]
 }
 
 export interface DailyStatsResponse {
   daily_stats: DailyStat[]
   model_summary: ModelSummary[]
-  provider_summary: ProviderSummary[]
+  provider_summary?: ProviderSummary[] // 仅管理员返回
   period: {
     start_date: string
     end_date: string

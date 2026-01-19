@@ -957,27 +957,33 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
             date_str = current_date.isoformat()
             stat = stats_map.get(date_str)
             if stat:
-                formatted.append({
+                item = {
                     "date": date_str,
                     "requests": stat["requests"],
                     "tokens": stat["tokens"],
                     "cost": stat["cost"],
                     "avg_response_time": stat["avg_response_time"],
                     "unique_models": stat.get("unique_models", 0),
-                    "unique_providers": stat.get("unique_providers", 0),
                     "fallback_count": stat.get("fallback_count", 0),
-                })
+                }
+                # 仅管理员返回 unique_providers
+                if is_admin:
+                    item["unique_providers"] = stat.get("unique_providers", 0)
+                formatted.append(item)
             else:
-                formatted.append({
+                item = {
                     "date": date_str,
                     "requests": 0,
                     "tokens": 0,
                     "cost": 0.0,
                     "avg_response_time": 0.0,
                     "unique_models": 0,
-                    "unique_providers": 0,
                     "fallback_count": 0,
-                })
+                }
+                # 仅管理员返回 unique_providers
+                if is_admin:
+                    item["unique_providers"] = 0
+                formatted.append(item)
             current_date += timedelta(days=1)
 
         # ==================== 模型统计 ====================
@@ -1147,7 +1153,10 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
             for item in formatted:
                 item["model_breakdown"] = breakdown.get(item["date"], [])
 
-        # ==================== 供应商统计 ====================
+            # 普通用户不返回 provider_summary
+            provider_summary = None
+
+        # ==================== 供应商统计（仅管理员）====================
         if is_admin:
             # 管理员：使用预聚合数据 + 今日实时数据
 
@@ -1204,45 +1213,19 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
             ]
             provider_summary.sort(key=lambda x: x["cost"], reverse=True)
 
-        else:
-            # 普通用户：实时查询
-            provider_stats = (
-                db.query(
-                    Usage.provider_name,
-                    func.count(Usage.id).label("requests"),
-                    func.sum(Usage.total_tokens).label("tokens"),
-                    func.sum(Usage.total_cost_usd).label("cost"),
-                )
-                .filter(
-                    and_(
-                        Usage.user_id == user.id,
-                        Usage.created_at >= start_date,
-                        Usage.created_at <= end_date
-                    )
-                )
-                .group_by(Usage.provider_name)
-                .order_by(func.sum(Usage.total_cost_usd).desc())
-                .all()
-            )
-
-            provider_summary = [
-                {
-                    "provider": stat.provider_name,
-                    "requests": stat.requests or 0,
-                    "tokens": int(stat.tokens or 0),
-                    "cost": float(stat.cost or 0),
-                }
-                for stat in provider_stats
-                if stat.provider_name and stat.provider_name.lower() != "unknown"
-            ]
-
-        return {
+        # 构建返回结果
+        result = {
             "daily_stats": formatted,
             "model_summary": model_summary,
-            "provider_summary": provider_summary,
             "period": {
                 "start_date": start_date.date().isoformat(),
                 "end_date": end_date.date().isoformat(),
                 "days": self.days,
             },
         }
+
+        # 仅管理员返回 provider_summary
+        if is_admin and provider_summary:
+            result["provider_summary"] = provider_summary
+
+        return result
