@@ -26,7 +26,7 @@ from fastapi.responses import JSONResponse
 from src.api.base.adapter import ApiAdapter, ApiMode
 from src.api.base.context import ApiRequestContext
 from src.api.handlers.base.cli_handler_base import CliMessageHandlerBase
-from src.core.enums import APIFormat
+from src.core.api_format import APIFormat
 from src.core.exceptions import (
     InvalidRequestException,
     ModelNotSupportedException,
@@ -38,7 +38,7 @@ from src.core.exceptions import (
     QuotaExceededException,
     UpstreamClientException,
 )
-from src.core.headers import (
+from src.core.api_format import (
     build_adapter_base_headers,
     build_adapter_headers,
     extract_client_api_key,

@@ -19,6 +19,7 @@ from typing import (
     AsyncGenerator,
     Callable,
     Dict,
+    List,
     Optional,
 )
 
@@ -671,10 +672,11 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
                     # 格式转换或直接透传
                     if needs_conversion:
-                        converted_line = self._convert_sse_line(ctx, line, events)
-                        if converted_line:
-                            self._mark_first_output(ctx, output_state)
-                            yield (converted_line + "\n").encode("utf-8")
+                        converted_lines = self._convert_sse_line(ctx, line, events)
+                        for converted_line in converted_lines:
+                            if converted_line:
+                                self._mark_first_output(ctx, output_state)
+                                yield (converted_line + "\n").encode("utf-8")
                     else:
                         self._mark_first_output(ctx, output_state)
                         yield (line + "\n").encode("utf-8")
@@ -999,10 +1001,11 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
                     # 格式转换或直接透传
                     if needs_conversion:
-                        converted_line = self._convert_sse_line(ctx, line, events)
-                        if converted_line:
-                            self._mark_first_output(ctx, output_state)
-                            yield (converted_line + "\n").encode("utf-8")
+                        converted_lines = self._convert_sse_line(ctx, line, events)
+                        for converted_line in converted_lines:
+                            if converted_line:
+                                self._mark_first_output(ctx, output_state)
+                                yield (converted_line + "\n").encode("utf-8")
                     else:
                         self._mark_first_output(ctx, output_state)
                         yield (line + "\n").encode("utf-8")
@@ -1073,10 +1076,11 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
                     # 格式转换或直接透传
                     if needs_conversion:
-                        converted_line = self._convert_sse_line(ctx, line, events)
-                        if converted_line:
-                            self._mark_first_output(ctx, output_state)
-                            yield (converted_line + "\n").encode("utf-8")
+                        converted_lines = self._convert_sse_line(ctx, line, events)
+                        for converted_line in converted_lines:
+                            if converted_line:
+                                self._mark_first_output(ctx, output_state)
+                                yield (converted_line + "\n").encode("utf-8")
                     else:
                         self._mark_first_output(ctx, output_state)
                         yield (line + "\n").encode("utf-8")
@@ -1760,7 +1764,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 and api_format
                 and provider_api_format.upper() != api_format.upper()
             ):
-                from src.api.handlers.base.format_converter_registry import converter_registry
+                from src.core.api_format import converter_registry
 
                 try:
                     response_json = converter_registry.convert_response(
@@ -1923,28 +1927,32 @@ class CliMessageHandlerBase(BaseMessageHandler):
         self,
         ctx: StreamContext,
         line: str,
-        events: list,
-    ) -> Optional[str]:
+        events: list,  # noqa: ARG002 - 预留给上下文感知转换
+    ) -> List[str]:
         """
         将 SSE 行从 Provider 格式转换为客户端格式
 
         Args:
             ctx: 流上下文
             line: 原始 SSE 行
-            events: 解析后的事件列表
+            events: 当前累积的事件列表（预留参数，用于未来上下文感知转换如合并相邻事件）
 
         Returns:
-            转换后的 SSE 行，如果无法转换则返回 None
+            转换后的 SSE 行列表（一入多出），空列表表示跳过该行
         """
-        from src.api.handlers.base.format_converter_registry import converter_registry
+        from src.core.api_format import (
+            GeminiStreamConversionState,
+            StreamConversionState,
+            converter_registry,
+        )
 
         # 如果是空行或特殊控制行，直接返回
         if not line or line.strip() == "" or line == "data: [DONE]":
-            return line
+            return [line] if line else []
 
         # 如果不是 data 行，直接透传
         if not line.startswith("data:"):
-            return line
+            return [line]
 
         # 提取 data 内容
         data_content = line[5:].strip()  # 去掉 "data:" 前缀
@@ -1954,17 +1962,40 @@ class CliMessageHandlerBase(BaseMessageHandler):
             data_obj = json.loads(data_content)
         except json.JSONDecodeError:
             # 无法解析，直接透传
-            return line
+            return [line]
 
-        # 使用注册表进行格式转换
+        # 类型断言：当 needs_conversion=True 调用此方法时，格式字段必定有值
+        provider_format = ctx.provider_api_format or ""
+        client_format = ctx.client_api_format or ""
+
+        # 初始化流式转换状态（首次调用时，根据 Provider 格式选择状态类）
+        if ctx.stream_conversion_state is None:
+            if provider_format.upper() == "GEMINI":
+                ctx.stream_conversion_state = GeminiStreamConversionState(
+                    model=ctx.mapped_model or ctx.model or "",
+                    message_id=ctx.response_id or ctx.request_id or "",
+                )
+            else:
+                ctx.stream_conversion_state = StreamConversionState(
+                    model=ctx.mapped_model or ctx.model or "",
+                    message_id=ctx.response_id or ctx.request_id or "",
+                )
+
+        # 使用注册表进行格式转换（严格模式，返回 List[Dict]）
         try:
-            converted_obj = converter_registry.convert_stream_chunk(
+            converted_events = converter_registry.convert_stream_chunk_strict(
                 data_obj,
-                ctx.provider_api_format,
-                ctx.client_api_format,
+                provider_format,
+                client_format,
+                state=ctx.stream_conversion_state,
             )
-            # 重新构建 SSE 行
-            return f"data: {json.dumps(converted_obj, ensure_ascii=False)}"
+
+            # 转换为 SSE 行列表
+            result = []
+            for evt in converted_events:
+                result.append(f"data: {json.dumps(evt, ensure_ascii=False)}")
+            return result
+
         except Exception as e:
             logger.warning(f"格式转换失败，透传原始数据: {e}")
-            return line
+            return [line]

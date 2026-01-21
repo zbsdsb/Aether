@@ -73,7 +73,7 @@ class OpenAIChatHandler(ChatHandlerBase):
         Returns:
             OpenAIRequest 对象
         """
-        from src.api.handlers.openai.converter import ClaudeToOpenAIConverter
+        from src.core.api_format import ClaudeToOpenAIConverter
         from src.models.claude import ClaudeMessagesRequest
         from src.models.openai import OpenAIRequest
 

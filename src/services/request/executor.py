@@ -8,7 +8,7 @@ from typing import Any, Callable, Optional, Union
 
 from sqlalchemy.orm import Session
 
-from src.core.enums import APIFormat
+from src.core.api_format import APIFormat
 from src.core.exceptions import ConcurrencyLimitError
 from src.core.logger import logger
 from src.services.health.monitor import health_monitor

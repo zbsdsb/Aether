@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from sqlalchemy.orm import Session, selectinload
 
-from src.core.enums import APIFormat
+from src.core.api_format import APIFormat
 from src.core.exceptions import ModelNotSupportedException, ProviderNotAvailableException
 from src.core.logger import logger
 from src.models.database import (

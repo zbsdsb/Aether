@@ -16,6 +16,9 @@ from src.api.handlers.base.response_parser import (
 )
 from src.api.handlers.base.utils import extract_cache_creation_tokens
 
+# is_cli_format 权威定义在 core 层
+from src.core.api_format import is_cli_format
+
 
 def _check_nested_error(response: Dict[str, Any]) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
@@ -569,11 +572,6 @@ def get_parser_for_format(format_id: str) -> ResponseParser:
     if format_id not in _PARSERS:
         raise KeyError(f"Unknown format: {format_id}")
     return _PARSERS[format_id]()
-
-
-def is_cli_format(format_id: str) -> bool:
-    """判断是否为 CLI 格式"""
-    return format_id.upper().endswith("_CLI")
 
 
 __all__ = [

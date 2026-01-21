@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 from src.core.crypto import crypto_service
-from src.core.headers import HeaderBuilder, UPSTREAM_DROP_HEADERS
+from src.core.api_format import HeaderBuilder, UPSTREAM_DROP_HEADERS
 
 # ==============================================================================
 # 统一的头部配置常量
@@ -125,7 +125,7 @@ class PassthroughRequestBuilder(RequestBuilder):
         """
         透传请求头 - 清理敏感头部（黑名单），透传其他所有头部
         """
-        from src.core.api_format_metadata import get_auth_config, resolve_api_format
+        from src.core.api_format import get_auth_config, resolve_api_format
 
         # 1. 根据 API 格式自动设置认证头
         decrypted_key = crypto_service.decrypt(key.api_key)

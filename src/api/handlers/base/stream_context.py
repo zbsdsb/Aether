@@ -10,7 +10,10 @@
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    from src.core.api_format import GeminiStreamConversionState, StreamConversionState
 
 
 @dataclass
@@ -82,6 +85,11 @@ class StreamContext:
     chunk_count: int = 0
     parsed_chunks: List[Dict[str, Any]] = field(default_factory=list)
 
+    # 流式格式转换状态（跨 chunk 追踪）
+    stream_conversion_state: Optional[
+        Union["StreamConversionState", "GeminiStreamConversionState"]
+    ] = None
+
     def reset_for_retry(self) -> None:
         """
         重试时重置状态
@@ -109,6 +117,7 @@ class StreamContext:
         self.response_id = None
         self.final_usage = None
         self.final_response = None
+        self.stream_conversion_state = None
 
     @property
     def collected_text(self) -> str:

@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from typing import AbstractSet, Any, Dict, FrozenSet, Optional, Set
 
-from .api_format_metadata import get_auth_config, get_extra_headers, get_protected_keys
-from .enums import APIFormat
+from src.core.api_format.enums import APIFormat
+from src.core.api_format.metadata import get_auth_config, get_extra_headers, get_protected_keys
 
 
 # =============================================================================

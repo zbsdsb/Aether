@@ -6,7 +6,7 @@ import json
 from typing import Any, Dict, Optional
 
 from src.core.exceptions import EmbeddedErrorException, ProviderNotAvailableException
-from src.core.headers import filter_response_headers
+from src.core.api_format import filter_response_headers
 from src.core.logger import logger
 
 

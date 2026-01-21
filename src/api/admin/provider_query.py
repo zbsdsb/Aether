@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from src.config.constants import TimeoutDefaults
 from src.core.crypto import crypto_service
-from src.core.headers import get_extra_headers_from_endpoint
+from src.core.api_format import get_extra_headers_from_endpoint
 from src.core.logger import logger
 from src.database.database import get_db
 from src.models.database import Provider, ProviderEndpoint, User

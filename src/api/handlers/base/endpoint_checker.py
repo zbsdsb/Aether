@@ -27,7 +27,7 @@ from collections import defaultdict
 import httpx
 
 from src.core.logger import logger
-from src.core.headers import CORE_REDACT_HEADERS, merge_headers_with_protection, redact_headers_for_log
+from src.core.api_format import CORE_REDACT_HEADERS, merge_headers_with_protection, redact_headers_for_log
 from src.utils.ssl_utils import get_ssl_context
 
 

@@ -14,7 +14,7 @@ from src.api.base.adapter import ApiAdapter, ApiMode
 from src.api.base.context import ApiRequestContext
 from src.api.handlers.base.chat_adapter_base import ChatAdapterBase, register_adapter
 from src.api.handlers.base.chat_handler_base import ChatHandlerBase
-from src.core.headers import get_header_value
+from src.core.api_format import get_header_value
 from src.core.logger import logger
 from src.core.optimization_utils import TokenCounter
 from src.models.claude import ClaudeMessagesRequest, ClaudeTokenCountRequest

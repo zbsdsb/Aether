@@ -711,8 +711,7 @@ class AdminTriggerCleanupAdapter(AdminApiAdapter):
 class AdminGetApiFormatsAdapter(AdminApiAdapter):
     async def handle(self, context):  # type: ignore[override]
         """获取所有可用的API格式"""
-        from src.core.api_format_metadata import API_FORMAT_DEFINITIONS
-        from src.core.enums import APIFormat
+        from src.core.api_format import API_FORMAT_DEFINITIONS, APIFormat
 
         _ = context  # 参数保留以符合接口规范
 

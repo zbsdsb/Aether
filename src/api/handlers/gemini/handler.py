@@ -62,7 +62,7 @@ class GeminiChatHandler(ChatHandlerBase):
         Returns:
             GeminiRequest 对象
         """
-        from src.api.handlers.gemini.converter import (
+        from src.core.api_format import (
             ClaudeToGeminiConverter,
             OpenAIToGeminiConverter,
         )

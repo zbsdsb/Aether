@@ -9,9 +9,10 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel
+if TYPE_CHECKING:
+    from src.core.api_format.conversion.state import StreamConversionState
 
 
 class ClaudeToOpenAIConverter:
@@ -47,7 +48,7 @@ class ClaudeToOpenAIConverter:
 
     # ==================== 请求转换 ====================
 
-    def convert_request(self, request: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
+    def convert_request(self, request: Union[Dict[str, Any], Any]) -> Dict[str, Any]:
         """
         将 Claude 请求转换为 OpenAI 格式
 
@@ -269,7 +270,7 @@ class ClaudeToOpenAIConverter:
 
         # 转换停止原因
         stop_reason = response.get("stop_reason")
-        finish_reason = self.STOP_REASON_MAP.get(stop_reason, stop_reason)
+        finish_reason = self.STOP_REASON_MAP.get(stop_reason, stop_reason) if stop_reason else None
 
         # 转换 usage
         usage = response.get("usage", {})
@@ -296,14 +297,39 @@ class ClaudeToOpenAIConverter:
 
     # ==================== 流式转换 ====================
 
-    def convert_stream_event(
+    def convert_stream_chunk(
+        self,
+        chunk: Dict[str, Any],
+        state: Optional["StreamConversionState"] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        将 Claude SSE 事件转换为 OpenAI 格式
+
+        Args:
+            chunk: Claude SSE 事件
+            state: 流式转换状态
+
+        Returns:
+            OpenAI 格式的 SSE chunk 列表
+        """
+        from src.core.api_format.conversion.state import StreamConversionState
+
+        if state is None:
+            state = StreamConversionState()
+
+        result = self._convert_single_event(chunk, state.model, state.message_id)
+        if result is None:
+            return []
+        return [result]
+
+    def _convert_single_event(
         self,
         event: Dict[str, Any],
         model: str = "",
         message_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
-        将 Claude SSE 事件转换为 OpenAI 格式
+        转换单个 Claude SSE 事件为 OpenAI 格式
 
         Args:
             event: Claude SSE 事件

@@ -7,11 +7,11 @@ OpenAI -> Claude 格式转换器
 from __future__ import annotations
 
 import json
-import time
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel
+if TYPE_CHECKING:
+    from src.core.api_format.conversion.state import StreamConversionState
 
 
 class OpenAIToClaudeConverter:
@@ -48,7 +48,7 @@ class OpenAIToClaudeConverter:
 
     # ==================== 请求转换 ====================
 
-    def convert_request(self, request: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
+    def convert_request(self, request: Union[Dict[str, Any], Any]) -> Dict[str, Any]:
         """
         将 OpenAI 请求转换为 Claude 格式
 
@@ -370,22 +370,23 @@ class OpenAIToClaudeConverter:
     def convert_stream_chunk(
         self,
         chunk: Dict[str, Any],
-        model: str = "",
-        message_id: Optional[str] = None,
-        message_started: bool = False,
+        state: Optional["StreamConversionState"] = None,
     ) -> List[Dict[str, Any]]:
         """
         将 OpenAI SSE chunk 转换为 Claude SSE 事件
 
         Args:
             chunk: OpenAI SSE chunk
-            model: 模型名称
-            message_id: 消息 ID
-            message_started: 是否已发送 message_start
+            state: 流式转换状态
 
         Returns:
             Claude SSE 事件列表
         """
+        from src.core.api_format.conversion.state import StreamConversionState
+
+        if state is None:
+            state = StreamConversionState()
+
         events: List[Dict[str, Any]] = []
 
         choices = chunk.get("choices", [])
@@ -398,8 +399,8 @@ class OpenAIToClaudeConverter:
 
         # 处理角色（第一个 chunk）
         role = delta.get("role")
-        if role and not message_started:
-            msg_id = message_id or f"msg_{uuid.uuid4().hex[:8]}"
+        if role and not state.message_started:
+            msg_id = state.message_id or f"msg_{uuid.uuid4().hex[:8]}"
             events.append(
                 {
                     "type": "message_start",
@@ -407,13 +408,14 @@ class OpenAIToClaudeConverter:
                         "id": msg_id,
                         "type": "message",
                         "role": role,
-                        "model": model,
+                        "model": state.model,
                         "content": [],
                         "stop_reason": None,
                         "stop_sequence": None,
                     },
                 }
             )
+            state.message_started = True
 
         # 处理文本内容
         content_delta = delta.get("content")

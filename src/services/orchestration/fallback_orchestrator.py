@@ -29,7 +29,7 @@ import httpx
 from redis import Redis
 from sqlalchemy.orm import Session
 
-from src.core.enums import APIFormat
+from src.core.api_format import APIFormat
 from src.core.error_utils import extract_error_message
 from src.core.exceptions import (
     ConcurrencyLimitError,

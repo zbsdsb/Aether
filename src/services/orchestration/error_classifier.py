@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 import httpx
 from sqlalchemy.orm import Session
 
-from src.core.enums import APIFormat
+from src.core.api_format import APIFormat
 from src.core.exceptions import (
     ConcurrencyLimitError,
     ProviderAuthException,

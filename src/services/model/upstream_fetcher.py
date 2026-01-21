@@ -11,8 +11,7 @@ from typing import Dict, Optional
 
 import httpx
 
-from src.core.enums import APIFormat
-from src.core.headers import get_extra_headers_from_endpoint
+from src.core.api_format import APIFormat, get_extra_headers_from_endpoint
 from src.core.logger import logger
 from src.models.database import ProviderEndpoint
 from src.utils.ssl_utils import get_ssl_context

@@ -4,7 +4,14 @@ Gemini 格式转换器
 提供 Gemini 与其他 API 格式（Claude、OpenAI）之间的转换
 """
 
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
+
+import json
+import time
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from src.core.api_format.conversion.state import GeminiStreamConversionState
 
 
 class ClaudeToGeminiConverter:
@@ -269,6 +276,146 @@ class GeminiToClaudeConverter:
             },
         }
 
+    # ==================== 流式转换 ====================
+
+    def convert_stream_chunk(
+        self,
+        chunk: Dict[str, Any],
+        state: Optional["GeminiStreamConversionState"] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        将 Gemini 流式响应转换为 Claude SSE 事件
+
+        Gemini 流式格式与 Claude/OpenAI 不同：
+        - Gemini 返回完整累积文本，需要计算增量
+        - 需要生成 message_start/content_block_delta/message_delta 事件序列
+
+        Args:
+            chunk: Gemini 流式响应块
+            state: 流式转换状态（跨 chunk 追踪）
+
+        Returns:
+            Claude SSE 事件列表
+        """
+        from src.core.api_format.conversion.state import GeminiStreamConversionState
+
+        if state is None:
+            state = GeminiStreamConversionState()
+
+        events: List[Dict[str, Any]] = []
+        candidates = chunk.get("candidates", [])
+        if not candidates:
+            return events
+
+        candidate = candidates[0]
+        content = candidate.get("content", {})
+        parts = content.get("parts", [])
+
+        # 发送 message_start（首次）
+        if not state.message_started:
+            events.append(
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": state.message_id or "msg_gemini",
+                        "type": "message",
+                        "role": "assistant",
+                        "model": state.model,
+                        "content": [],
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                    },
+                }
+            )
+            state.message_started = True
+
+        # 处理文本增量
+        for part in parts:
+            if "text" in part:
+                full_text = part["text"]
+                # Gemini 返回累积文本，计算增量
+                delta_text = full_text[len(state.accumulated_text) :]
+                if delta_text:
+                    state.accumulated_text = full_text
+                    # 首次文本需要发送 content_block_start
+                    if not state.content_block_started:
+                        events.append(
+                            {
+                                "type": "content_block_start",
+                                "index": state.current_block_index,
+                                "content_block": {"type": "text", "text": ""},
+                            }
+                        )
+                        state.content_block_started = True
+                    events.append(
+                        {
+                            "type": "content_block_delta",
+                            "index": state.current_block_index,
+                            "delta": {"type": "text_delta", "text": delta_text},
+                        }
+                    )
+            elif "functionCall" in part:
+                # 工具调用
+                func_call = part["functionCall"]
+                tool_id = f"toolu_{func_call.get('name', '')}_{state.tool_call_index}"
+                state.tool_call_index += 1
+                state.current_block_index += 1
+
+                events.append(
+                    {
+                        "type": "content_block_start",
+                        "index": state.current_block_index,
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": tool_id,
+                            "name": func_call.get("name", ""),
+                            "input": {},
+                        },
+                    }
+                )
+                # 发送完整的 input 作为 JSON delta
+                args = func_call.get("args", {})
+                if args:
+                    events.append(
+                        {
+                            "type": "content_block_delta",
+                            "index": state.current_block_index,
+                            "delta": {
+                                "type": "input_json_delta",
+                                "partial_json": json.dumps(args, ensure_ascii=False),
+                            },
+                        }
+                    )
+                events.append(
+                    {
+                        "type": "content_block_stop",
+                        "index": state.current_block_index,
+                    }
+                )
+
+        # 处理结束
+        finish_reason = candidate.get("finishReason")
+        if finish_reason:
+            # 关闭当前内容块
+            if state.content_block_started:
+                events.append(
+                    {
+                        "type": "content_block_stop",
+                        "index": state.current_block_index,
+                    }
+                )
+
+            stop_reason = self._convert_finish_reason(finish_reason)
+            events.append(
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": stop_reason},
+                    "usage": {"output_tokens": 0},
+                }
+            )
+
+        return events
+
 
 class OpenAIToGeminiConverter:
     """
@@ -334,8 +481,6 @@ class OpenAIToGeminiConverter:
             for tc in tool_calls:
                 if tc.get("type") == "function":
                     func = tc.get("function", {})
-                    import json
-
                     try:
                         args = json.loads(func.get("arguments", "{}"))
                     except json.JSONDecodeError:
@@ -455,8 +600,6 @@ class GeminiToOpenAIConverter:
         Returns:
             OpenAI 格式的响应字典
         """
-        import time
-
         candidates = gemini_response.get("candidates", [])
         choices = []
 
@@ -473,8 +616,6 @@ class GeminiToOpenAIConverter:
                     text_parts.append(part["text"])
                 elif "functionCall" in part:
                     func_call = part["functionCall"]
-                    import json
-
                     tool_calls.append(
                         {
                             "id": f"call_{func_call.get('name', '')}_{i}",
@@ -538,6 +679,173 @@ class GeminiToOpenAIConverter:
         if finish_reason is None:
             return "stop"
         return mapping.get(finish_reason, "stop")
+
+    # ==================== 流式转换 ====================
+
+    def convert_stream_chunk(
+        self,
+        chunk: Dict[str, Any],
+        state: Optional["GeminiStreamConversionState"] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        将 Gemini 流式响应转换为 OpenAI SSE chunk
+
+        Gemini 流式格式与 OpenAI 不同：
+        - Gemini 返回完整累积文本，需要计算增量
+        - 需要生成 OpenAI chat.completion.chunk 格式
+
+        Args:
+            chunk: Gemini 流式响应块
+            state: 流式转换状态（跨 chunk 追踪）
+
+        Returns:
+            OpenAI SSE chunk 列表
+        """
+        from src.core.api_format.conversion.state import GeminiStreamConversionState
+
+        if state is None:
+            state = GeminiStreamConversionState()
+
+        events: List[Dict[str, Any]] = []
+        candidates = chunk.get("candidates", [])
+        if not candidates:
+            return events
+
+        candidate = candidates[0]
+        content = candidate.get("content", {})
+        parts = content.get("parts", [])
+        finish_reason = candidate.get("finishReason")
+
+        chunk_id = f"chatcmpl-{state.message_id or 'gemini'}"
+
+        # 发送首个 chunk（带 role）
+        if not state.message_started:
+            events.append(
+                {
+                    "id": chunk_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": state.model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": ""},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+            state.message_started = True
+
+        # 处理文本增量
+        for part in parts:
+            if "text" in part:
+                full_text = part["text"]
+                # Gemini 返回累积文本，计算增量
+                delta_text = full_text[len(state.accumulated_text) :]
+                if delta_text:
+                    state.accumulated_text = full_text
+                    events.append(
+                        {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": state.model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": delta_text},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                    )
+            elif "functionCall" in part:
+                # 工具调用
+                func_call = part["functionCall"]
+                tool_id = f"call_{func_call.get('name', '')}_{state.tool_call_index}"
+
+                # 工具调用开始
+                events.append(
+                    {
+                        "id": chunk_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": state.model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": state.tool_call_index,
+                                            "id": tool_id,
+                                            "type": "function",
+                                            "function": {
+                                                "name": func_call.get("name", ""),
+                                                "arguments": "",
+                                            },
+                                        }
+                                    ]
+                                },
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                )
+
+                # 工具调用参数
+                args = func_call.get("args", {})
+                if args:
+                    events.append(
+                        {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": state.model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "tool_calls": [
+                                            {
+                                                "index": state.tool_call_index,
+                                                "function": {
+                                                    "arguments": json.dumps(
+                                                        args, ensure_ascii=False
+                                                    )
+                                                },
+                                            }
+                                        ]
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                    )
+
+                state.tool_call_index += 1
+
+        # 处理结束
+        if finish_reason:
+            openai_finish_reason = self._convert_finish_reason(finish_reason)
+            events.append(
+                {
+                    "id": chunk_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": state.model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": openai_finish_reason,
+                        }
+                    ],
+                }
+            )
+
+        return events
 
 
 __all__ = [

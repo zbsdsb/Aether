@@ -16,7 +16,7 @@ from src.core.key_capabilities import (
     CapabilityConfigMode,
     get_user_configurable_capabilities,
 )
-from src.core.headers import get_header_value
+from src.core.api_format import get_header_value
 from src.core.logger import logger
 
 # Adapter 检测器类型：接受 headers 和可选的 request_body，返回能力需求字典

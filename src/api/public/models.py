@@ -20,8 +20,12 @@ from src.api.base.models_service import (
     get_available_provider_ids,
     list_available_models,
 )
-from src.core.api_format_metadata import API_FORMAT_DEFINITIONS, ApiFormatDefinition
-from src.core.enums import APIFormat
+from src.core.api_format import (
+    API_FORMAT_DEFINITIONS,
+    APIFormat,
+    ApiFormatDefinition,
+    detect_format_and_key_from_starlette,
+)
 from src.core.logger import logger
 from src.database import get_db
 from src.models.database import ApiKey, User
@@ -72,26 +76,7 @@ def _detect_api_format_and_key(request: Request) -> Tuple[str, Optional[str]]:
     Returns:
         (api_format, api_key) 元组
     """
-    # Claude: x-api-key + anthropic-version (必须同时存在)
-    claude_def = API_FORMAT_DEFINITIONS[APIFormat.CLAUDE]
-    claude_key = _extract_api_key_from_request(request, claude_def)
-    if claude_key and request.headers.get("anthropic-version"):
-        return "claude", claude_key
-
-    # Gemini: x-goog-api-key (header 类型) 或 ?key=
-    gemini_def = API_FORMAT_DEFINITIONS[APIFormat.GEMINI]
-    gemini_key = _extract_api_key_from_request(request, gemini_def)
-    if gemini_key:
-        return "gemini", gemini_key
-
-    # OpenAI: Authorization: Bearer (默认)
-    # 注意: 如果只有 x-api-key 但没有 anthropic-version，也走 OpenAI 格式
-    openai_def = API_FORMAT_DEFINITIONS[APIFormat.OPENAI]
-    openai_key = _extract_api_key_from_request(request, openai_def)
-    # 如果 OpenAI 格式没有 key，但有 x-api-key，也用它（兼容）
-    if not openai_key and claude_key:
-        openai_key = claude_key
-    return "openai", openai_key
+    return detect_format_and_key_from_starlette(request)
 
 
 def _get_formats_for_api(api_format: str) -> list[str]:

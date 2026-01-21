@@ -1,5 +1,5 @@
-from src.core.enums import APIFormat
-from src.core.headers import (
+from src.core.api_format import APIFormat
+from src.core.api_format import (
     CORE_REDACT_HEADERS,
     HeaderBuilder,
     build_upstream_headers,

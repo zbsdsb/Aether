@@ -49,7 +49,7 @@ class ProviderEndpointCreate(BaseModel):
     @classmethod
     def validate_api_format(cls, v: str) -> str:
         """验证 API 格式"""
-        from src.core.enums import APIFormat
+        from src.core.api_format import APIFormat
 
         allowed = [fmt.value for fmt in APIFormat]
         v_upper = v.upper()
@@ -200,7 +200,7 @@ class EndpointAPIKeyCreate(BaseModel):
         if v is None:
             return v
 
-        from src.core.enums import APIFormat
+        from src.core.api_format import APIFormat
 
         allowed = [fmt.value for fmt in APIFormat]
         validated = []
@@ -335,7 +335,7 @@ class EndpointAPIKeyUpdate(BaseModel):
         if v is None:
             return v
 
-        from src.core.enums import APIFormat
+        from src.core.api_format import APIFormat
 
         allowed = [fmt.value for fmt in APIFormat]
         validated = []

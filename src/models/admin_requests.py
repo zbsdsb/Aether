@@ -10,7 +10,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.core.enums import APIFormat, ProviderBillingType
+from src.core.api_format import APIFormat
+from src.core.enums import ProviderBillingType
 
 
 class ProxyConfig(BaseModel):

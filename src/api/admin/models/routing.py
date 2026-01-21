@@ -402,7 +402,7 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
                 )
 
             # 按 APIFormat 枚举定义的顺序排序 Endpoints
-            from src.core.enums import APIFormat
+            from src.core.api_format import APIFormat
 
             format_order = {fmt.value: i for i, fmt in enumerate(APIFormat)}
             endpoint_infos.sort(key=lambda e: format_order.get(e.api_format, 999))

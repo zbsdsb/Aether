@@ -156,7 +156,7 @@ async def lifespan(app: FastAPI):
 
     # 注册格式转换器
     logger.info("注册格式转换器...")
-    from src.api.handlers.base.format_converter_registry import register_all_converters
+    from src.core.api_format import register_all_converters
 
     register_all_converters()
 

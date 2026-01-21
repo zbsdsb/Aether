@@ -35,8 +35,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from src.clients.redis_client import get_redis_client_sync
-from src.core.api_format_metadata import resolve_api_format
-from src.core.enums import APIFormat
+from src.core.api_format import APIFormat, resolve_api_format
 from src.core.logger import logger
 from src.services.orchestration.fallback_orchestrator import FallbackOrchestrator
 from src.services.provider.format import normalize_api_format

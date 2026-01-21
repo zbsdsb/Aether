@@ -1,18 +1,16 @@
 """
-集中维护 API 格式的元数据，避免新增格式时到处修改常量。
+API 格式元数据定义
 
-此模块与 src/formats/ 的 FormatProtocol 系统配合使用：
-- api_format_metadata: 定义格式的元数据（别名、默认路径）
-- src/formats/: 定义格式的协议实现（解析、转换、验证）
+集中维护 API 格式的元数据，避免新增格式时到处修改常量。
 
 使用方式：
     # 解析格式别名
-    from src.core.api_format_metadata import resolve_api_format
+    from src.core.api_format import resolve_api_format
     api_format = resolve_api_format("claude")  # -> APIFormat.CLAUDE
 
-    # 获取格式协议
-    from src.core.api_format_metadata import get_format_protocol
-    protocol = get_format_protocol(APIFormat.CLAUDE)  # -> ClaudeProtocol
+    # 获取格式定义
+    from src.core.api_format import get_api_format_definition
+    definition = get_api_format_definition(APIFormat.CLAUDE)
 """
 
 from __future__ import annotations
@@ -263,7 +261,7 @@ def resolve_api_format(
     return default
 
 
-def register_api_format_definition(definition: ApiFormatDefinition, *, override: bool = False):
+def register_api_format_definition(definition: ApiFormatDefinition, *, override: bool = False) -> None:
     """
     注册或覆盖 API 格式定义，允许运行时扩展。
 
@@ -278,7 +276,7 @@ def register_api_format_definition(definition: ApiFormatDefinition, *, override:
     _refresh_metadata_cache()
 
 
-def _refresh_metadata_cache():
+def _refresh_metadata_cache() -> None:
     """更新别名缓存，供注册函数调用。"""
     _alias_lookup_cache.cache_clear()
 
@@ -293,21 +291,9 @@ def normalize_alias_value(value: str) -> str:
     return text.strip("_")
 
 
-# =============================================================================
-# 格式判断工具
-# =============================================================================
+# is_cli_format 和 is_cli_api_format 已移至 utils.py
+# 为保持兼容性，从 utils 重新导出
+from src.core.api_format.utils import is_cli_format  # noqa: E402
 
-
-def is_cli_api_format(api_format: APIFormat) -> bool:
-    """
-    判断是否为 CLI 透传格式。
-
-    Args:
-        api_format: APIFormat 枚举值
-
-    Returns:
-        True 如果是 CLI 格式
-    """
-    from src.api.handlers.base.parsers import is_cli_format
-
-    return is_cli_format(api_format.value)
+# is_cli_api_format 是 is_cli_format 的别名（接受 APIFormat 枚举）
+is_cli_api_format = is_cli_format

@@ -74,7 +74,7 @@ class ClaudeChatHandler(ChatHandlerBase):
         Returns:
             ClaudeMessagesRequest 对象
         """
-        from src.api.handlers.claude.converter import OpenAIToClaudeConverter
+        from src.core.api_format import OpenAIToClaudeConverter
         from src.models.claude import ClaudeMessagesRequest
         from src.models.openai import OpenAIRequest
 
