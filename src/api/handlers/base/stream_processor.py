@@ -328,14 +328,12 @@ class StreamProcessor:
             raise
         except (OSError, IOError) as e:
             # 网络 I/O 异常：记录警告，可能需要重试
-            logger.warning(
-                f"  [{self.request_id}] 预读流时发生网络异常: {type(e).__name__}: {e}"
-            )
+            logger.warning(f"  [{self.request_id}] 预读流时发生网络异常: {type(e).__name__}: {e}")
         except Exception as e:
             # 未预期的严重异常：记录错误并重新抛出，避免掩盖问题
             logger.error(
                 f"  [{self.request_id}] 预读流时发生严重异常: {type(e).__name__}: {e}",
-                exc_info=True
+                exc_info=True,
             )
             raise
 
@@ -374,19 +372,269 @@ class StreamProcessor:
             # 使用增量解码器处理跨 chunk 的 UTF-8 字符
             decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
-            # 处理预读数据
-            if prefetched_chunks:
-                for chunk in prefetched_chunks:
-                    # 记录首字时间 (TTFB) - 在 yield 之前记录
-                    if start_time is not None:
-                        ctx.record_first_byte_time(start_time)
-                        start_time = None  # 只记录一次
-                    # 首次输出前触发 streaming 回调（确保 TTFB 已写入 ctx）
-                    if not streaming_started and self.on_streaming_start:
-                        self.on_streaming_start()
-                        streaming_started = True
+            # ctx.api_format 可能是 APIFormat 枚举，需要取 value
+            _api_format_str = (
+                ctx.api_format.value
+                if hasattr(ctx.api_format, "value")
+                else str(ctx.api_format or "")
+            )
+            client_format = (ctx.client_api_format or _api_format_str).upper()
+            provider_format = (ctx.provider_api_format or _api_format_str).upper()
+            # 使用 handler 层预计算的 needs_conversion（由 candidate 决定）
+            needs_conversion = ctx.needs_conversion
 
-                    # 把原始数据转发给客户端
+            # 安全检查：needs_conversion 为 True 时，provider_format 必须有值
+            if needs_conversion and not provider_format:
+                logger.warning(
+                    f"[{self.request_id}] needs_conversion=True 但 provider_format 为空，回退到透传模式"
+                )
+                needs_conversion = False
+
+            def _mark_stream_started() -> None:
+                nonlocal start_time, streaming_started
+                # 记录首字时间 (TTFB) - 在 yield 之前记录
+                if start_time is not None:
+                    ctx.record_first_byte_time(start_time)
+                    start_time = None  # 只记录一次
+                # 首次输出前触发 streaming 回调（确保 TTFB 已写入 ctx）
+                if not streaming_started and self.on_streaming_start:
+                    self.on_streaming_start()
+                    streaming_started = True
+
+            def _build_stream_error_payload(message: str) -> dict:
+                if client_format.startswith("OPENAI"):
+                    return {
+                        "error": {
+                            "message": message,
+                            "type": "format_conversion_error",
+                        }
+                    }
+                # Claude 及其他格式使用统一的错误结构
+                return {
+                    "type": "error",
+                    "error": {
+                        "type": "format_conversion_error",
+                        "message": message,
+                    },
+                }
+
+            # 处理预读数据
+            if needs_conversion:
+                # 延迟导入：仅在需要转换时加载转换器模块
+                from src.core.api_format import (
+                    GeminiStreamConversionState,
+                    StreamConversionState,
+                    converter_registry,
+                )
+
+                # 初始化流式转换状态（首次使用时，根据 Provider 格式选择状态类）
+                if ctx.stream_conversion_state is None:
+                    if provider_format == "GEMINI":
+                        ctx.stream_conversion_state = GeminiStreamConversionState(
+                            model=ctx.mapped_model or ctx.model or "",
+                            message_id=ctx.response_id or ctx.request_id or "",
+                        )
+                    else:
+                        ctx.stream_conversion_state = StreamConversionState(
+                            model=ctx.mapped_model or ctx.model or "",
+                            message_id=ctx.response_id or ctx.request_id or "",
+                        )
+
+                skip_next_blank_line = False
+                empty_yield_count = 0  # 空转计数（防护异常情况）
+
+                def _emit_converted_line(normalized_line: str) -> list[bytes]:
+                    nonlocal skip_next_blank_line
+
+                    # 空行：事件分隔符（避免重复输出）
+                    if normalized_line == "":
+                        if skip_next_blank_line:
+                            skip_next_blank_line = False
+                            return []
+                        return [b"\n"]
+
+                    # 丢弃 Provider 的 event 行，避免泄漏/污染目标格式
+                    if normalized_line.startswith("event:"):
+                        return []
+
+                    # OpenAI done 信号
+                    if (
+                        normalized_line.startswith("data:")
+                        and normalized_line[5:].strip() == "[DONE]"
+                    ):
+                        skip_next_blank_line = True
+                        if client_format.startswith("OPENAI"):
+                            return [b"data: [DONE]\n\n"]
+                        return []
+
+                    # 非 data 行：在跨格式场景下统一丢弃（避免泄露 Provider 格式细节）
+                    if not normalized_line.startswith("data:"):
+                        return []
+
+                    data_content = normalized_line[5:].strip()
+                    # Gemini 可能包含 JSON 数组包装符，直接忽略
+                    if data_content in ("", "[", "]", ","):
+                        return []
+
+                    try:
+                        data_obj = json.loads(data_content)
+                    except json.JSONDecodeError:
+                        # 跨格式转换时，JSON 解析失败应跳过而不是透传（避免泄漏 Provider 格式）
+                        logger.warning(
+                            f"[{self.request_id}] JSON 解析失败，跳过该行: {data_content[:100]}"
+                        )
+                        return []
+
+                    if not isinstance(data_obj, dict):
+                        return []
+
+                    try:
+                        converted_events = converter_registry.convert_stream_chunk_strict(
+                            data_obj,
+                            provider_format,
+                            client_format,
+                            state=ctx.stream_conversion_state,
+                        )
+                    except Exception as conv_err:
+                        # 首字节后无法 failover：输出目标格式错误事件并终止流
+                        # 使用 502 表示上游返回了非预期格式（Bad Gateway）
+                        ctx.status_code = 502
+                        ctx.error_message = "format_conversion_failed"
+                        # 日志记录完整错误（内部排查），客户端只返回脱敏消息
+                        logger.warning(f"[{self.request_id}] 流式格式转换失败: {conv_err}")
+                        payload = _build_stream_error_payload("响应格式转换失败，请稍后重试")
+                        error_bytes = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode(
+                            "utf-8"
+                        )
+                        done_bytes = (
+                            b"data: [DONE]\n\n" if client_format.startswith("OPENAI") else b""
+                        )
+                        return [error_bytes, done_bytes]
+
+                    skip_next_blank_line = True
+                    out: list[bytes] = []
+                    for evt in converted_events:
+                        out.append(
+                            f"data: {json.dumps(evt, ensure_ascii=False)}\n\n".encode("utf-8")
+                        )
+                    return out
+
+                # 统一处理 prefetched + iterator
+                if prefetched_chunks:
+                    for chunk in prefetched_chunks:
+                        buffer += chunk
+                        while b"\n" in buffer:
+                            line_bytes, buffer = buffer.split(b"\n", 1)
+                            try:
+                                line = decoder.decode(line_bytes + b"\n", False)
+                            except Exception as e:
+                                logger.warning(
+                                    f"[{self.request_id}] UTF-8 解码失败: {e}, bytes={line_bytes[:50]!r}"
+                                )
+                                line = ""
+
+                            if line:
+                                self._process_line(ctx, sse_parser, line)
+                            normalized_line = line.rstrip("\r\n") if line else ""
+                            out_chunks = _emit_converted_line(normalized_line)
+                            if not out_chunks:
+                                empty_yield_count += 1
+                                if empty_yield_count == StreamDefaults.MAX_EMPTY_YIELDS_WARNING:
+                                    logger.warning(
+                                        f"[{self.request_id}] 流式转换连续 {empty_yield_count} 次空产出"
+                                    )
+                            else:
+                                empty_yield_count = 0
+                            for out in out_chunks:
+                                if not out:
+                                    continue
+                                _mark_stream_started()
+                                yield out
+                                # 转换失败：已输出 error（可能还包含 done），直接终止
+                                if ctx.error_message == "format_conversion_failed":
+                                    return
+
+                async for chunk in byte_iterator:
+                    buffer += chunk
+                    while b"\n" in buffer:
+                        line_bytes, buffer = buffer.split(b"\n", 1)
+                        try:
+                            line = decoder.decode(line_bytes + b"\n", False)
+                        except Exception as e:
+                            logger.warning(
+                                f"[{self.request_id}] UTF-8 解码失败: {e}, bytes={line_bytes[:50]!r}"
+                            )
+                            line = ""
+
+                        if line:
+                            self._process_line(ctx, sse_parser, line)
+                        normalized_line = line.rstrip("\r\n") if line else ""
+                        out_chunks = _emit_converted_line(normalized_line)
+                        if not out_chunks:
+                            empty_yield_count += 1
+                            if empty_yield_count == StreamDefaults.MAX_EMPTY_YIELDS_WARNING:
+                                logger.warning(
+                                    f"[{self.request_id}] 流式转换连续 {empty_yield_count} 次空产出"
+                                )
+                        else:
+                            empty_yield_count = 0
+                        for out in out_chunks:
+                            if not out:
+                                continue
+                            _mark_stream_started()
+                            yield out
+                            if ctx.error_message == "format_conversion_failed":
+                                return
+
+                # 处理剩余缓冲区（needs_conversion 分支内，可复用 _emit_converted_line）
+                if buffer:
+                    try:
+                        line = decoder.decode(buffer, True)
+                    except Exception as e:
+                        logger.warning(
+                            f"[{self.request_id}] 处理剩余缓冲区失败: {e}, bytes={buffer[:50]!r}"
+                        )
+                        line = ""
+                    if line:
+                        self._process_line(ctx, sse_parser, line)
+                        normalized_line = line.rstrip("\r\n")
+                        out_chunks = _emit_converted_line(normalized_line)
+                        for out in out_chunks:
+                            if out:
+                                _mark_stream_started()
+                                yield out
+                                # 转换失败：已输出 error，直接终止
+                                if ctx.error_message == "format_conversion_failed":
+                                    return
+
+            else:
+                if prefetched_chunks:
+                    for chunk in prefetched_chunks:
+                        _mark_stream_started()
+                        yield chunk
+
+                        buffer += chunk
+                        # 处理缓冲区中的完整行
+                        while b"\n" in buffer:
+                            line_bytes, buffer = buffer.split(b"\n", 1)
+                            try:
+                                # 使用增量解码器，可以正确处理跨 chunk 的多字节字符
+                                line = decoder.decode(line_bytes + b"\n", False)
+                                self._process_line(ctx, sse_parser, line)
+                            except Exception as e:
+                                # 解码失败，记录警告但继续处理
+                                logger.warning(
+                                    f"[{self.request_id}] UTF-8 解码失败: {e}, "
+                                    f"bytes={line_bytes[:50]!r}"
+                                )
+                                continue
+
+            # 处理剩余的流数据
+            if not needs_conversion:
+                async for chunk in byte_iterator:
+                    _mark_stream_started()
+
+                    # 原始数据透传
                     yield chunk
 
                     buffer += chunk
@@ -405,46 +653,15 @@ class StreamProcessor:
                             )
                             continue
 
-            # 处理剩余的流数据
-            async for chunk in byte_iterator:
-                # 记录首字时间 (TTFB) - 在 yield 之前记录（如果预读数据为空）
-                if start_time is not None:
-                    ctx.record_first_byte_time(start_time)
-                    start_time = None  # 只记录一次
-                # 首次输出前触发 streaming 回调（确保 TTFB 已写入 ctx）
-                if not streaming_started and self.on_streaming_start:
-                    self.on_streaming_start()
-                    streaming_started = True
-
-                # 原始数据透传
-                yield chunk
-
-                buffer += chunk
-                # 处理缓冲区中的完整行
-                while b"\n" in buffer:
-                    line_bytes, buffer = buffer.split(b"\n", 1)
-                    try:
-                        # 使用增量解码器，可以正确处理跨 chunk 的多字节字符
-                        line = decoder.decode(line_bytes + b"\n", False)
-                        self._process_line(ctx, sse_parser, line)
-                    except Exception as e:
-                        # 解码失败，记录警告但继续处理
-                        logger.warning(
-                            f"[{self.request_id}] UTF-8 解码失败: {e}, "
-                            f"bytes={line_bytes[:50]!r}"
-                        )
-                        continue
-
-            # 处理剩余的缓冲区数据（如果有未完成的行）
-            if buffer:
+            # 处理剩余的缓冲区数据（仅非转换分支，转换分支已在内部处理）
+            if not needs_conversion and buffer:
                 try:
                     # 使用 final=True 处理最后的不完整字符
                     line = decoder.decode(buffer, True)
                     self._process_line(ctx, sse_parser, line)
                 except Exception as e:
                     logger.warning(
-                        f"[{self.request_id}] 处理剩余缓冲区失败: {e}, "
-                        f"bytes={buffer[:50]!r}"
+                        f"[{self.request_id}] 处理剩余缓冲区失败: {e}, bytes={buffer[:50]!r}"
                     )
 
             # 处理剩余事件

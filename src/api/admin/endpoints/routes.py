@@ -308,6 +308,7 @@ class AdminCreateProviderEndpointAdapter(AdminApiAdapter):
             is_active=True,
             config=self.endpoint_data.config,
             proxy=self.endpoint_data.proxy.model_dump() if self.endpoint_data.proxy else None,
+            format_acceptance_config=self.endpoint_data.format_acceptance_config,
             created_at=now,
             updated_at=now,
         )

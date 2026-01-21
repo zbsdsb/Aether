@@ -30,7 +30,6 @@ from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
 from src.services.rate_limit.detector import RateLimitType, detect_rate_limit_type
 
 
-
 class ErrorAction(Enum):
     """错误处理动作"""
 
@@ -391,10 +390,12 @@ class ErrorClassifier:
                 current_usage=current_rpm,
             )
 
-            logger.info(f"  [{request_id}] 429错误分析: "
+            logger.info(
+                f"  [{request_id}] 429错误分析: "
                 f"类型={rate_limit_info.limit_type}, "
                 f"retry_after={rate_limit_info.retry_after}s, "
-                f"当前RPM={current_rpm}")
+                f"当前RPM={current_rpm}"
+            )
 
             # 调用自适应管理器处理
             new_limit = self.adaptive_manager.handle_429_error(
@@ -408,7 +409,9 @@ class ErrorClassifier:
                 logger.warning(f"  [{request_id}] 并发限制触发（不调整RPM）")
                 return "concurrent"
             elif rate_limit_info.limit_type == RateLimitType.RPM:
-                logger.warning(f"  [{request_id}] 自适应调整: Key {key.id[:8]}... RPM限制 -> {new_limit}")
+                logger.warning(
+                    f"  [{request_id}] 自适应调整: Key {key.id[:8]}... RPM限制 -> {new_limit}"
+                )
                 return "rpm"
             else:
                 return "unknown"
@@ -545,8 +548,10 @@ class ErrorClassifier:
             except Exception:
                 pass
 
-        logger.warning(f"  [{request_id}] HTTP错误 (attempt={attempt}/{max_attempts}): "
-            f"{http_error.response.status_code if http_error.response else 'unknown'}")
+        logger.warning(
+            f"  [{request_id}] HTTP错误 (attempt={attempt}/{max_attempts}): "
+            f"{http_error.response.status_code if http_error.response else 'unknown'}"
+        )
 
         converted_error = self.convert_http_error(http_error, provider_name, error_response_text)
 
@@ -557,16 +562,25 @@ class ErrorClassifier:
         if error_response_text:
             extra_data["error_response"] = error_response_text
 
-        # 转换 api_format 为字符串
-        api_format_str = (
+        # client_format：用于缓存亲和性/缓存失效（用户视角）
+        client_format_str = (
             normalize_api_format(api_format).value
             if isinstance(api_format, (str, APIFormat))
             else str(api_format)
         )
+        # provider_format：用于健康度/熔断 bucket（Provider 真实端点格式）
+        provider_api_format = getattr(endpoint, "api_format", None)
+        provider_format_str = (
+            provider_api_format.value
+            if isinstance(provider_api_format, APIFormat)
+            else str(provider_api_format or client_format_str)
+        ).upper()
 
         # 处理客户端请求错误（不应重试，不失效缓存，不记录健康失败）
         if isinstance(converted_error, UpstreamClientException):
-            logger.warning(f"  [{request_id}] 客户端请求错误，不进行重试: {converted_error.message}")
+            logger.warning(
+                f"  [{request_id}] 客户端请求错误，不进行重试: {converted_error.message}"
+            )
             return extra_data
 
         # 处理认证错误
@@ -574,7 +588,7 @@ class ErrorClassifier:
             if endpoint and key and self.cache_scheduler is not None:
                 await self.cache_scheduler.invalidate_cache(
                     affinity_key=affinity_key,
-                    api_format=api_format_str,
+                    api_format=client_format_str,
                     global_model_id=global_model_id,
                     endpoint_id=str(endpoint.id),
                     key_id=str(key.id),
@@ -583,7 +597,7 @@ class ErrorClassifier:
                 health_monitor.record_failure(
                     db=self.db,
                     key_id=str(key.id),
-                    api_format=api_format_str,
+                    api_format=provider_format_str,
                     error_type="ProviderAuthException",
                 )
             return extra_data
@@ -600,7 +614,7 @@ class ErrorClassifier:
             if endpoint and self.cache_scheduler is not None:
                 await self.cache_scheduler.invalidate_cache(
                     affinity_key=affinity_key,
-                    api_format=api_format_str,
+                    api_format=client_format_str,
                     global_model_id=global_model_id,
                     endpoint_id=str(endpoint.id),
                     key_id=str(key.id),
@@ -610,7 +624,7 @@ class ErrorClassifier:
             if endpoint and key and self.cache_scheduler is not None:
                 await self.cache_scheduler.invalidate_cache(
                     affinity_key=affinity_key,
-                    api_format=api_format_str,
+                    api_format=client_format_str,
                     global_model_id=global_model_id,
                     endpoint_id=str(endpoint.id),
                     key_id=str(key.id),
@@ -621,7 +635,7 @@ class ErrorClassifier:
             health_monitor.record_failure(
                 db=self.db,
                 key_id=str(key.id),
-                api_format=api_format_str,
+                api_format=provider_format_str,
                 error_type=type(converted_error).__name__,
             )
 
@@ -662,15 +676,24 @@ class ErrorClassifier:
         """
         provider_name = str(provider.name)
 
-        logger.warning(f"  [{request_id}] 请求失败 (attempt={attempt}/{max_attempts}): "
-            f"{type(error).__name__}: {str(error)}")
+        logger.warning(
+            f"  [{request_id}] 请求失败 (attempt={attempt}/{max_attempts}): "
+            f"{type(error).__name__}: {str(error)}"
+        )
 
-        # 转换 api_format 为字符串
-        api_format_str = (
+        # client_format：用于缓存亲和性/缓存失效（用户视角）
+        client_format_str = (
             normalize_api_format(api_format).value
             if isinstance(api_format, (str, APIFormat))
             else str(api_format)
         )
+        # provider_format：用于健康度/熔断 bucket（Provider 真实端点格式）
+        provider_api_format = getattr(endpoint, "api_format", None)
+        provider_format_str = (
+            provider_api_format.value
+            if isinstance(provider_api_format, APIFormat)
+            else str(provider_api_format or client_format_str)
+        ).upper()
 
         # 处理限流错误
         if isinstance(error, ProviderRateLimitException) and key:
@@ -684,7 +707,7 @@ class ErrorClassifier:
             if endpoint and self.cache_scheduler is not None:
                 await self.cache_scheduler.invalidate_cache(
                     affinity_key=affinity_key,
-                    api_format=api_format_str,
+                    api_format=client_format_str,
                     global_model_id=global_model_id,
                     endpoint_id=str(endpoint.id),
                     key_id=str(key.id),
@@ -693,7 +716,7 @@ class ErrorClassifier:
             # 其他错误也失效缓存
             await self.cache_scheduler.invalidate_cache(
                 affinity_key=affinity_key,
-                api_format=api_format_str,
+                api_format=client_format_str,
                 global_model_id=global_model_id,
                 endpoint_id=str(endpoint.id),
                 key_id=str(key.id),
@@ -704,6 +727,6 @@ class ErrorClassifier:
             health_monitor.record_failure(
                 db=self.db,
                 key_id=str(key.id),
-                api_format=api_format_str,
+                api_format=provider_format_str,
                 error_type=type(error).__name__,
             )

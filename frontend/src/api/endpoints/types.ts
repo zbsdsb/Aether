@@ -87,6 +87,16 @@ export interface HeaderRuleRename {
 
 export type HeaderRule = HeaderRuleSet | HeaderRuleDrop | HeaderRuleRename
 
+/**
+ * 格式接受策略配置
+ * 用于控制端点是否接受来自不同 API 格式的请求，并自动进行格式转换
+ */
+export interface FormatAcceptanceConfig {
+  enabled: boolean                // 是否启用格式转换
+  accept_formats?: string[]       // 白名单：接受哪些格式的请求
+  reject_formats?: string[]       // 黑名单：拒绝哪些格式（优先级高于白名单）
+}
+
 export interface ProviderEndpoint {
   id: string
   provider_id: string
@@ -100,6 +110,8 @@ export interface ProviderEndpoint {
   is_active: boolean
   config?: Record<string, any>
   proxy?: ProxyConfig | null
+  // 格式转换配置
+  format_acceptance_config?: FormatAcceptanceConfig | null
   total_keys: number
   active_keys: number
   created_at: string

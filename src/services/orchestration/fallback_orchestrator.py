@@ -29,7 +29,7 @@ import httpx
 from redis import Redis
 from sqlalchemy.orm import Session
 
-from src.core.api_format import APIFormat
+from src.core.api_format import APIFormat, FormatConversionError
 from src.core.error_utils import extract_error_message
 from src.core.exceptions import (
     ConcurrencyLimitError,
@@ -385,7 +385,9 @@ class FallbackOrchestrator:
                     "provider_id": str(provider.id),
                     "provider_endpoint_id": str(endpoint.id),
                     "provider_api_key_id": str(key.id),
-                    "api_format": api_format.value if hasattr(api_format, "value") else str(api_format),
+                    "api_format": (
+                        api_format.value if hasattr(api_format, "value") else str(api_format)
+                    ),
                 }
                 raise client_error
             else:
@@ -425,10 +427,14 @@ class FallbackOrchestrator:
             # 检查是否为客户端请求错误（不应重试）
             converted_error = extra_data.get("converted_error")
             # 从 extra_data 中移除 converted_error，避免序列化问题
-            serializable_extra_data = {k: v for k, v in extra_data.items() if k != "converted_error"}
+            serializable_extra_data = {
+                k: v for k, v in extra_data.items() if k != "converted_error"
+            }
 
             if isinstance(converted_error, UpstreamClientException):
-                logger.warning(f"  [{request_id}] 客户端请求错误，停止重试: {converted_error.message}")
+                logger.warning(
+                    f"  [{request_id}] 客户端请求错误，停止重试: {converted_error.message}"
+                )
                 RequestCandidateService.mark_candidate_failed(
                     db=self.db,
                     candidate_id=candidate_record_id,
@@ -445,7 +451,9 @@ class FallbackOrchestrator:
                     "provider_id": str(provider.id),
                     "provider_endpoint_id": str(endpoint.id),
                     "provider_api_key_id": str(key.id),
-                    "api_format": api_format.value if hasattr(api_format, "value") else str(api_format),
+                    "api_format": (
+                        api_format.value if hasattr(api_format, "value") else str(api_format)
+                    ),
                 }
                 raise converted_error
 
@@ -486,6 +494,19 @@ class FallbackOrchestrator:
                 concurrent_requests=captured_key_concurrent,
             )
             return "continue" if has_retry_left else "break"
+
+        # 格式转换错误：视为候选不可用，直接切换到下一个候选（不记录健康失败）
+        if isinstance(cause, FormatConversionError):
+            logger.warning(f"  [{request_id}] 格式转换失败，切换候选: {cause}")
+            RequestCandidateService.mark_candidate_failed(
+                db=self.db,
+                candidate_id=candidate_record_id,
+                error_type="FormatConversionError",
+                error_message=str(cause),
+                latency_ms=elapsed_ms,
+                concurrent_requests=captured_key_concurrent,
+            )
+            return "break"
 
         # 未知错误：记录失败并抛出
         RequestCandidateService.mark_candidate_failed(
@@ -552,8 +573,10 @@ class FallbackOrchestrator:
             last_candidate = candidate
 
             if candidate.is_skipped:
-                logger.debug(f"  [{request_id}] 跳过候选: Provider={candidate.provider.name}, "
-                    f"Reason={candidate.skip_reason}")
+                logger.debug(
+                    f"  [{request_id}] 跳过候选: Provider={candidate.provider.name}, "
+                    f"Reason={candidate.skip_reason}"
+                )
                 continue
 
             result = await self._try_candidate_with_retries(
@@ -573,7 +596,9 @@ class FallbackOrchestrator:
             )
 
             if result["success"]:
-                response: Tuple[Any, str, Optional[str], Optional[str], Optional[str], Optional[str]] = result["response"]
+                response: Tuple[
+                    Any, str, Optional[str], Optional[str], Optional[str], Optional[str]
+                ] = result["response"]
                 return response
 
             # 更新计数器和错误信息
@@ -582,7 +607,9 @@ class FallbackOrchestrator:
             if result.get("error"):
                 last_error = result["error"]
             if result.get("should_raise") and last_error is not None:
-                self._attach_metadata_to_error(last_error, last_candidate, model_name, api_format_enum)
+                self._attach_metadata_to_error(
+                    last_error, last_candidate, model_name, api_format_enum
+                )
                 raise last_error
 
         # 所有组合都已尝试完毕，全部失败
@@ -620,9 +647,13 @@ class FallbackOrchestrator:
             if retry_index == 0:
                 # 首次尝试该候选
                 cache_hint = " (cached)" if candidate.is_cached else ""
-                logger.info(f"  [{request_id[:8] if request_id else 'N/A'}] -> {provider.name}{cache_hint}")
+                logger.info(
+                    f"  [{request_id[:8] if request_id else 'N/A'}] -> {provider.name}{cache_hint}"
+                )
             else:
-                logger.info(f"  [{request_id[:8] if request_id else 'N/A'}] -> {provider.name} (retry {retry_index})")
+                logger.info(
+                    f"  [{request_id[:8] if request_id else 'N/A'}] -> {provider.name} (retry {retry_index})"
+                )
 
             candidate_record_id = candidate_record_map[(candidate_index, retry_index)]
 
@@ -706,14 +737,14 @@ class FallbackOrchestrator:
             ),
             provider=getattr(existing_metadata, "provider", None) or str(candidate.provider.name),
             model=getattr(existing_metadata, "model", None) or model_name,
-            provider_id=getattr(existing_metadata, "provider_id", None) or str(candidate.provider.id),
+            provider_id=getattr(existing_metadata, "provider_id", None)
+            or str(candidate.provider.id),
             provider_endpoint_id=(
                 getattr(existing_metadata, "provider_endpoint_id", None)
                 or str(candidate.endpoint.id)
             ),
             provider_api_key_id=(
-                getattr(existing_metadata, "provider_api_key_id", None)
-                or str(candidate.key.id)
+                getattr(existing_metadata, "provider_api_key_id", None) or str(candidate.key.id)
             ),
             api_format=api_format_enum.value,
         )
@@ -821,12 +852,16 @@ class FallbackOrchestrator:
         user_id = str(user_api_key.user_id)
         api_format_enum = normalize_api_format(api_format)
 
-        logger.debug(f"[FallbackOrchestrator] execute_with_fallback 被调用: "
+        logger.debug(
+            f"[FallbackOrchestrator] execute_with_fallback 被调用: "
             f"api_format={api_format_enum.value}, model_name={model_name}, "
-            f"request_id={request_id}, is_stream={is_stream}")
+            f"request_id={request_id}, is_stream={is_stream}"
+        )
 
         # 创建 pending 状态的使用记录
-        self._create_pending_usage_record(request_id, user_api_key, model_name, is_stream, api_format_enum)
+        self._create_pending_usage_record(
+            request_id, user_api_key, model_name, is_stream, api_format_enum
+        )
 
         # 1. 收集所有候选（同时获取规范化的 global_model_id 用于缓存亲和性）
         all_candidates, global_model_id = await self._fetch_all_candidates(

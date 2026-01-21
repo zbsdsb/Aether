@@ -403,4 +403,4 @@ class TestNonStrictConversion:
         original = {"chunk": "data"}
         result = registry.convert_stream_chunk(original, "A", "B")
 
-        assert result == original
+        assert result == [original]

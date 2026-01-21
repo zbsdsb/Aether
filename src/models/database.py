@@ -278,7 +278,9 @@ class Usage(Base):
     request_id = Column(String(100), unique=True, index=True, nullable=False)
     provider_name = Column(String(100), nullable=False)  # Provider 名称（非外键）
     model = Column(String(100), nullable=False)
-    target_model = Column(String(100), nullable=True, comment="映射后的目标模型名（若无映射则为空）")
+    target_model = Column(
+        String(100), nullable=True, comment="映射后的目标模型名（若无映射则为空）"
+    )
 
     # Provider 侧追踪信息（记录最终成功的 Provider/Endpoint/Key）
     provider_id = Column(String(36), ForeignKey("providers.id", ondelete="SET NULL"), nullable=True)
@@ -465,7 +467,9 @@ class LDAPConfig(Base):
     user_search_filter = Column(
         String(500), default="(uid={username})", nullable=False
     )  # 用户搜索过滤器
-    username_attr = Column(String(50), default="uid", nullable=False)  # 用户名属性 (uid/sAMAccountName)
+    username_attr = Column(
+        String(50), default="uid", nullable=False
+    )  # 用户名属性 (uid/sAMAccountName)
     email_attr = Column(String(50), default="mail", nullable=False)  # 邮箱属性
     display_name_attr = Column(String(50), default="cn", nullable=False)  # 显示名称属性
     is_enabled = Column(Boolean, default=False, nullable=False)  # 是否启用 LDAP 认证
@@ -705,6 +709,14 @@ class ProviderEndpoint(Base):
 
     # 额外配置
     config = Column(JSON, nullable=True)  # 端点特定配置（不推荐使用，优先使用专用字段）
+
+    # 格式转换配置
+    format_acceptance_config = Column(
+        JSON,
+        nullable=True,
+        default=None,
+        comment="格式接受策略配置（跨格式转换开关/白黑名单等）",
+    )
 
     # 代理配置
     proxy = Column(JSONB, nullable=True)  # 代理配置: {url, username, password}
@@ -1041,8 +1053,7 @@ class Model(Base):
 
         # 获取所有最高优先级的映射
         top_priority_mappings = [
-            mapping for mapping in sorted_mappings
-            if mapping["priority"] == highest_priority
+            mapping for mapping in sorted_mappings if mapping["priority"] == highest_priority
         ]
 
         # 如果有多个相同优先级的映射，通过哈希分散选择
@@ -1119,9 +1130,7 @@ class ProviderAPIKey(Base):
     # 示例: {"cache_1h": true, "context_1m": true}
 
     # 自适应 RPM 调整（仅当 rpm_limit = NULL 时生效）
-    learned_rpm_limit = Column(
-        Integer, nullable=True
-    )  # 学习到的 RPM 限制（自适应模式下的有效值）
+    learned_rpm_limit = Column(Integer, nullable=True)  # 学习到的 RPM 限制（自适应模式下的有效值）
     concurrent_429_count = Column(Integer, default=0, nullable=False)  # 因并发导致的429次数
     rpm_429_count = Column(Integer, default=0, nullable=False)  # 因RPM导致的429次数
     last_429_at = Column(DateTime(timezone=True), nullable=True)  # 最后429时间
@@ -1132,9 +1141,7 @@ class ProviderAPIKey(Base):
     utilization_samples = Column(
         JSON, nullable=True
     )  # 利用率采样窗口 [{"ts": timestamp, "util": 0.8}, ...]
-    last_probe_increase_at = Column(
-        DateTime(timezone=True), nullable=True
-    )  # 上次探测性扩容时间
+    last_probe_increase_at = Column(DateTime(timezone=True), nullable=True)  # 上次探测性扩容时间
 
     # 健康度追踪（按 API 格式存储）
     # 结构: {"CLAUDE": {"health_score": 1.0, "consecutive_failures": 0, "last_failure_at": null, "request_results_window": []}, ...}
@@ -1568,7 +1575,9 @@ class RequestCandidate(Base):
     )
 
     # 状态信息
-    status = Column(String(20), nullable=False)  # 'pending', 'streaming', 'success', 'failed', 'cancelled', 'skipped'
+    status = Column(
+        String(20), nullable=False
+    )  # 'pending', 'streaming', 'success', 'failed', 'cancelled', 'skipped'
     skip_reason = Column(Text, nullable=True)  # 跳过/失败原因
     is_cached = Column(Boolean, default=False)  # 是否为缓存亲和性候选
 

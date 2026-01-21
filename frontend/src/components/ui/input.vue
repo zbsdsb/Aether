@@ -76,6 +76,12 @@ interface Props {
   class?: string
   autocomplete?: string
   /**
+   * 输入框尺寸
+   * - 'default': 默认尺寸 (h-11, py-2)
+   * - 'sm': 小尺寸 (h-8, py-1)
+   */
+  size?: 'default' | 'sm'
+  /**
    * 遮蔽显示内容（用于 API Key 等敏感信息）
    * 使用 CSS -webkit-text-security 实现，不会触发浏览器密码管理器
    * 同时会显示一个小眼睛按钮用于切换显示/隐藏
@@ -150,9 +156,16 @@ const autocompleteAttr = computed(() => {
   return props.autocomplete ?? 'off'
 })
 
+// 尺寸相关的样式
+const sizeClasses = {
+  default: 'h-11 py-2 px-4',
+  sm: 'h-8 py-1 px-3'
+}
+
 const inputClass = computed(() =>
   cn(
-    'flex h-11 w-full rounded-xl border border-border/60 bg-muted/50 px-4 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:border-primary/60 text-foreground transition-all',
+    'flex w-full rounded-xl border border-border/60 bg-muted/50 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:border-primary/60 text-foreground transition-all',
+    sizeClasses[props.size || 'default'],
     props.masked && 'pr-10',
     props.class
   )

@@ -35,7 +35,7 @@ import random
 import re
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 from sqlalchemy.orm import Session, selectinload
 
@@ -65,6 +65,7 @@ from src.services.rate_limit.adaptive_reservation import (
     get_adaptive_reservation_manager,
 )
 from src.services.rate_limit.concurrency_manager import get_concurrency_manager
+from src.services.system.config import SystemConfigService
 
 
 @dataclass
@@ -78,6 +79,8 @@ class ProviderCandidate:
     is_skipped: bool = False  # 是否被跳过
     skip_reason: Optional[str] = None  # 跳过原因
     mapping_matched_model: Optional[str] = None  # 通过映射匹配到的模型名（用于实际请求）
+    needs_conversion: bool = False  # 是否需要格式转换
+    provider_api_format: str = ""  # Provider 端点实际格式（用于健康度/熔断 bucket）
 
 
 @dataclass
@@ -129,7 +132,10 @@ class CacheAwareScheduler:
     }
 
     def __init__(
-        self, redis_client=None, priority_mode: Optional[str] = None, scheduling_mode: Optional[str] = None
+        self,
+        redis_client=None,
+        priority_mode: Optional[str] = None,
+        scheduling_mode: Optional[str] = None,
     ):
         """
         初始化调度器
@@ -149,7 +155,9 @@ class CacheAwareScheduler:
         self.scheduling_mode = self._normalize_scheduling_mode(
             scheduling_mode or self.SCHEDULING_MODE_CACHE_AFFINITY
         )
-        logger.debug(f"[CacheAwareScheduler] 初始化优先级模式: {self.priority_mode}, 调度模式: {self.scheduling_mode}")
+        logger.debug(
+            f"[CacheAwareScheduler] 初始化优先级模式: {self.priority_mode}, 调度模式: {self.scheduling_mode}"
+        )
 
         # 初始化子组件（将在第一次使用时异步初始化）
         self._affinity_manager: Optional[CacheAffinityManager] = None
@@ -429,7 +437,9 @@ class CacheAwareScheduler:
                 import math
 
                 # 与 ConcurrencyManager 的 Lua 脚本保持一致：使用 floor 计算新用户可用槽位
-                available_for_new = max(1, math.floor(effective_key_limit * (1 - reservation_ratio)))
+                available_for_new = max(
+                    1, math.floor(effective_key_limit * (1 - reservation_ratio))
+                )
                 if key_count >= available_for_new:
                     logger.debug(
                         f"Key {key.id[:8]}... 新用户配额已满 "
@@ -531,8 +541,7 @@ class CacheAwareScheduler:
 
         # 合并 allowed_api_formats
         result["allowed_api_formats"] = merge_restrictions(
-            user_api_key.allowed_api_formats,
-            user.allowed_api_formats if user else None
+            user_api_key.allowed_api_formats, user.allowed_api_formats if user else None
         )
 
         return result
@@ -578,7 +587,9 @@ class CacheAwareScheduler:
         target_format = normalize_api_format(api_format)
 
         # 0. 解析 model_name 到 GlobalModel（支持直接匹配和映射名匹配，使用 ModelCacheService）
-        global_model = await ModelCacheService.resolve_global_model_by_name_or_mapping(db, model_name)
+        global_model = await ModelCacheService.resolve_global_model_by_name_or_mapping(
+            db, model_name
+        )
 
         if not global_model:
             logger.warning(f"GlobalModel not found: {model_name}")
@@ -592,7 +603,9 @@ class CacheAwareScheduler:
         # 提取模型映射（用于 Provider Key 的 allowed_models 匹配）
         model_mappings: List[str] = (global_model.config or {}).get("model_mappings", [])
         if model_mappings:
-            logger.debug(f"[Scheduler] GlobalModel={global_model.name} 配置了映射规则: {model_mappings}")
+            logger.debug(
+                f"[Scheduler] GlobalModel={global_model.name} 配置了映射规则: {model_mappings}"
+            )
 
         # 获取合并后的访问限制（ApiKey + User）
         restrictions = self._get_effective_restrictions(user_api_key)
@@ -654,10 +667,13 @@ class CacheAwareScheduler:
             return [], global_model_id
 
         # 2. 构建候选列表（传入 is_stream 和 capability_requirements 用于过滤）
+        global_conversion_enabled = bool(
+            SystemConfigService.get_config(db, "format_conversion_enabled", False)
+        )
         candidates = await self._build_candidates(
             db=db,
             providers=providers,
-            target_format=target_format,
+            client_format=target_format,
             model_name=requested_model_name,
             resolved_model_name=resolved_model_name,
             model_mappings=model_mappings,
@@ -665,6 +681,7 @@ class CacheAwareScheduler:
             max_candidates=max_candidates,
             is_stream=is_stream,
             capability_requirements=capability_requirements,
+            global_conversion_enabled=global_conversion_enabled,
         )
 
         # 3. 应用优先级模式排序
@@ -774,15 +791,25 @@ class CacheAwareScheduler:
             - provider_model_names: Provider 侧可用的模型名称集合（主名称 + 映射名称，按 api_format 过滤）
         """
         # 使用 ModelCacheService 解析模型名称（支持映射名）
-        global_model = await ModelCacheService.resolve_global_model_by_name_or_mapping(db, model_name)
+        global_model = await ModelCacheService.resolve_global_model_by_name_or_mapping(
+            db, model_name
+        )
 
         if not global_model:
             # 完全未找到匹配
             return False, "模型不存在或 Provider 未配置此模型", None, None
 
         # 找到 GlobalModel 后，检查当前 Provider 是否支持
-        is_supported, skip_reason, caps, provider_model_names = await self._check_model_support_for_global_model(
-            db, provider, global_model, model_name, api_format, is_stream, capability_requirements
+        is_supported, skip_reason, caps, provider_model_names = (
+            await self._check_model_support_for_global_model(
+                db,
+                provider,
+                global_model,
+                model_name,
+                api_format,
+                is_stream,
+                capability_requirements,
+            )
         )
         return is_supported, skip_reason, caps, provider_model_names
 
@@ -814,6 +841,7 @@ class CacheAwareScheduler:
         # 注意：从缓存重建的对象是 transient 状态，不能使用 load=False
         # 使用 load=True（默认）允许 SQLAlchemy 正确处理 transient 对象
         from sqlalchemy import inspect
+
         insp = inspect(global_model)
         if insp.transient or insp.detached:
             # transient/detached 对象：使用默认 merge（会查询 DB 检查是否存在）
@@ -940,12 +968,18 @@ class CacheAwareScheduler:
             return False, f"映射规则无效: {str(e)}", None
         except Exception as e:
             # 其他未知异常
-            logger.error(f"映射匹配异常: key_id={key.id}, model={model_name}, error={e}", exc_info=True)
+            logger.error(
+                f"映射匹配异常: key_id={key.id}, model={model_name}, error={e}", exc_info=True
+            )
             # 异常时保守处理：不允许使用该 Key
             return False, "映射匹配失败", None
 
         if not is_allowed:
-            return False, f"模型权限不匹配(允许: {get_allowed_models_preview(key.allowed_models)})", None
+            return (
+                False,
+                f"模型权限不匹配(允许: {get_allowed_models_preview(key.allowed_models)})",
+                None,
+            )
 
         # Key 级别的能力匹配检查
         # 注意：模型级别的能力检查已在 _check_model_support 中完成
@@ -964,7 +998,7 @@ class CacheAwareScheduler:
         self,
         db: Session,
         providers: List[Provider],
-        target_format: APIFormat,
+        client_format: APIFormat,
         model_name: str,
         affinity_key: Optional[str],
         resolved_model_name: Optional[str] = None,
@@ -972,16 +1006,17 @@ class CacheAwareScheduler:
         max_candidates: Optional[int] = None,
         is_stream: bool = False,
         capability_requirements: Optional[Dict[str, bool]] = None,
+        global_conversion_enabled: bool = False,
     ) -> List[ProviderCandidate]:
         """
         构建候选列表
 
-        Key 直属 Provider，通过 api_formats 筛选符合目标格式的 Key。
+        Key 直属 Provider，通过 api_formats 筛选符合端点格式的 Key。
 
         Args:
             db: 数据库会话
             providers: Provider 列表
-            target_format: 目标 API 格式
+            client_format: 客户端请求的 API 格式
             model_name: 模型名称（用户请求的名称，可能是映射名）
             affinity_key: 亲和性标识符（通常为API Key ID）
             resolved_model_name: 解析后的 GlobalModel.name（用于 Key.allowed_models 校验）
@@ -989,89 +1024,122 @@ class CacheAwareScheduler:
             max_candidates: 最大候选数
             is_stream: 是否是流式请求，如果为 True 则过滤不支持流式的 Provider
             capability_requirements: 能力需求（可选）
+            global_conversion_enabled: 全局格式转换开关
 
         Returns:
             候选列表
         """
+        from src.core.api_format.conversion.compatibility import is_format_compatible
+
         candidates: List[ProviderCandidate] = []
-        target_format_str = target_format.value
+        client_format_str = client_format.value
 
         for provider in providers:
-            # 检查模型支持（同时检查流式支持和模型能力需求）
-            supports_model, skip_reason, _model_caps, provider_model_names = await self._check_model_support(
-                db,
-                provider,
-                model_name,
-                api_format=target_format_str,
-                is_stream=is_stream,
-                capability_requirements=capability_requirements,
-            )
-            if not supports_model:
-                logger.debug(f"Provider {provider.name} 不支持模型 {model_name}: {skip_reason}")
-                continue
+            # 按端点格式分别判断兼容性与模型/Key 可用性：
+            # - 同格式端点优先（needs_conversion=False）
+            # - 跨格式端点次之（needs_conversion=True）
+            model_support_cache: Dict[
+                str, Tuple[bool, Optional[str], Optional[List[str]], Optional[Set[str]]]
+            ] = {}
+            exact_candidates: List[ProviderCandidate] = []
+            convertible_candidates: List[ProviderCandidate] = []
 
-            # 查找目标格式对应的 Endpoint（获取请求配置）
-            target_endpoint = None
             for endpoint in provider.endpoints:
+                if not endpoint.is_active:
+                    continue
+
                 endpoint_format_str = (
                     endpoint.api_format
                     if isinstance(endpoint.api_format, str)
                     else endpoint.api_format.value
                 )
-                if endpoint.is_active and endpoint_format_str == target_format_str:
-                    target_endpoint = endpoint
-                    break
 
-            if not target_endpoint:
-                logger.debug(f"Provider {provider.name} 没有活跃的 {target_format_str} 端点")
-                continue
-
-            # Key 直属 Provider，通过 api_formats 筛选
-            active_keys = [
-                key for key in provider.api_keys
-                if key.is_active and target_format_str in (key.api_formats or [])
-            ]
-
-            if not active_keys:
-                logger.debug(f"Provider {provider.name} 没有支持 {target_format_str} 的活跃 Key")
-                continue
-
-            # 检查是否所有 Key 都是 TTL=0（轮换模式）
-            use_random = all(
-                (key.cache_ttl_minutes or 0) == 0 for key in active_keys
-            ) if active_keys else False
-            if use_random and len(active_keys) > 1:
-                logger.debug(
-                    f"  Provider {provider.name} 启用 Key 轮换模式 (TTL=0, {len(active_keys)} keys)"
+                is_compatible, needs_conversion, _compat_reason = is_format_compatible(
+                    client_format_str,
+                    endpoint_format_str,
+                    getattr(endpoint, "format_acceptance_config", None),
+                    is_stream,
+                    global_conversion_enabled,
                 )
-            keys = self._shuffle_keys_by_internal_priority(active_keys, affinity_key, use_random)
+                if not is_compatible:
+                    continue
 
-            for key in keys:
-                # Key 级别的能力检查
-                # 注意：不传入 candidate_models 限制，允许映射匹配到 Key 的 allowed_models 中的任意模型名
-                # 这支持以下场景：Key 只允许使用 gpt-5.2，而 GlobalModel 配置了映射 gpt-5.*2
-                # 映射匹配后，实际请求会使用 gpt-5.2 作为模型名发送给 Provider
-                is_available, skip_reason, mapping_matched_model = self._check_key_availability(
-                    key,
-                    target_format_str,
-                    model_name,
-                    capability_requirements,
-                    resolved_model_name=resolved_model_name,
-                    model_mappings=model_mappings,
+                # 检查模型支持（按端点格式过滤 provider_model_mappings）
+                if endpoint_format_str not in model_support_cache:
+                    model_support_cache[endpoint_format_str] = await self._check_model_support(
+                        db,
+                        provider,
+                        model_name,
+                        api_format=endpoint_format_str,
+                        is_stream=is_stream,
+                        capability_requirements=capability_requirements,
+                    )
+                supports_model, skip_reason, _model_caps, provider_model_names = (
+                    model_support_cache[endpoint_format_str]
+                )
+                if not supports_model:
+                    logger.debug(
+                        f"Provider {provider.name} 端点 {endpoint_format_str} 不支持模型 {model_name}: {skip_reason}"
+                    )
+                    continue
+
+                # Key 直属 Provider，通过 api_formats 按端点格式筛选
+                active_keys = [
+                    key
+                    for key in provider.api_keys
+                    if key.is_active and endpoint_format_str in (key.api_formats or [])
+                ]
+                if not active_keys:
+                    continue
+
+                # 检查是否所有 Key 都是 TTL=0（轮换模式）
+                use_random = all((key.cache_ttl_minutes or 0) == 0 for key in active_keys)
+                if use_random and len(active_keys) > 1:
+                    logger.debug(
+                        f"  Provider {provider.name} 启用 Key 轮换模式 "
+                        f"(endpoint_format={endpoint_format_str}, {len(active_keys)} keys)"
+                    )
+
+                keys = self._shuffle_keys_by_internal_priority(
+                    active_keys, affinity_key, use_random
                 )
 
-                candidate = ProviderCandidate(
-                    provider=provider,
-                    endpoint=target_endpoint,
-                    key=key,
-                    is_skipped=not is_available,
-                    skip_reason=skip_reason,
-                    mapping_matched_model=mapping_matched_model,
-                )
-                candidates.append(candidate)
+                for key in keys:
+                    # Key 级别检查（健康度/熔断按 provider_format bucket）
+                    # 注意：不传入 candidate_models，保持原有映射匹配行为
+                    is_available, key_skip_reason, mapping_matched_model = (
+                        self._check_key_availability(
+                            key,
+                            endpoint_format_str,
+                            model_name,
+                            capability_requirements,
+                            resolved_model_name=resolved_model_name,
+                            model_mappings=model_mappings,
+                        )
+                    )
 
-                if max_candidates and len(candidates) >= max_candidates:
-                    return candidates
+                    candidate = ProviderCandidate(
+                        provider=provider,
+                        endpoint=endpoint,
+                        key=key,
+                        is_skipped=not is_available,
+                        skip_reason=key_skip_reason,
+                        mapping_matched_model=mapping_matched_model,
+                        needs_conversion=needs_conversion,
+                        provider_api_format=str(endpoint_format_str or "").upper(),
+                    )
+
+                    if needs_conversion:
+                        convertible_candidates.append(candidate)
+                    else:
+                        exact_candidates.append(candidate)
+
+            candidates.extend(exact_candidates)
+            candidates.extend(convertible_candidates)
+
+        # max_candidates 截断应在所有候选收集完成后统一处理，确保优先级排序正确
+        if max_candidates and len(candidates) > max_candidates:
+            candidates = candidates[:max_candidates]
 
         return candidates
 
@@ -1173,7 +1241,9 @@ class CacheAwareScheduler:
         normalized = (mode or "").strip().lower()
         if normalized not in self.ALLOWED_SCHEDULING_MODES:
             if normalized:
-                logger.warning(f"[CacheAwareScheduler] 无效的调度模式 '{mode}'，回退为 cache_affinity")
+                logger.warning(
+                    f"[CacheAwareScheduler] 无效的调度模式 '{mode}'，回退为 cache_affinity"
+                )
             return self.SCHEDULING_MODE_CACHE_AFFINITY
         return normalized
 
@@ -1186,8 +1256,10 @@ class CacheAwareScheduler:
         logger.debug(f"[CacheAwareScheduler] 切换调度模式为: {self.scheduling_mode}")
 
     def _apply_priority_mode_sort(
-        self, candidates: List[ProviderCandidate], affinity_key: Optional[str] = None,
-        api_format: Optional[str] = None
+        self,
+        candidates: List[ProviderCandidate],
+        affinity_key: Optional[str] = None,
+        api_format: Optional[str] = None,
     ) -> List[ProviderCandidate]:
         """
         根据优先级模式对候选列表排序（数字越小越优先）
@@ -1209,8 +1281,10 @@ class CacheAwareScheduler:
         return candidates
 
     def _sort_by_global_priority_with_hash(
-        self, candidates: List[ProviderCandidate], affinity_key: Optional[str] = None,
-        api_format: Optional[str] = None
+        self,
+        candidates: List[ProviderCandidate],
+        affinity_key: Optional[str] = None,
+        api_format: Optional[str] = None,
     ) -> List[ProviderCandidate]:
         """
         按 global_priority_by_format 分组排序，同优先级内通过哈希分散实现负载均衡

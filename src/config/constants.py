@@ -55,6 +55,11 @@ class StreamDefaults:
     # 3. 不会占用过多内存
     MAX_PREFETCH_BYTES = 64 * 1024  # 64KB
 
+    # 流式转换空产出告警阈值
+    # 连续这么多次空行/非 data 行后记录警告日志
+    # 50 次约等于 50 行非 data SSE 数据，足够覆盖正常事件头
+    MAX_EMPTY_YIELDS_WARNING = 50
+
 
 class RPMDefaults:
     """RPM（每分钟请求数）限制默认值

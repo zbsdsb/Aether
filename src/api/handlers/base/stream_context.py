@@ -76,6 +76,7 @@ class StreamContext:
 
     # 格式转换信息（CLI handler 需要）
     client_api_format: str = ""
+    needs_conversion: bool = False  # 是否需要跨格式转换（由 handler 层设置）
 
     # Provider 响应元数据（CLI handler 需要）
     response_metadata: Dict[str, Any] = field(default_factory=dict)
@@ -118,6 +119,7 @@ class StreamContext:
         self.final_usage = None
         self.final_response = None
         self.stream_conversion_state = None
+        self.needs_conversion = False
 
     @property
     def collected_text(self) -> str:

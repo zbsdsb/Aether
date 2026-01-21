@@ -248,6 +248,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         self,
         source_model: str,
         provider_id: str,
+        api_format: Optional[str] = None,
     ) -> Optional[str]:
         """
         获取模型映射后的实际模型名
@@ -255,6 +256,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         Args:
             source_model: 用户请求的模型名
             provider_id: Provider ID
+            api_format: Provider 侧 API 格式（用于过滤映射作用域，默认使用 handler FORMAT_ID）
 
         Returns:
             映射后的 provider_model_name，没有映射则返回 None
@@ -269,8 +271,9 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             # 传入 api_key.id 作为 affinity_key，实现相同用户稳定选择同一映射
             # 传入 api_format 用于过滤适用的映射作用域
             affinity_key = self.api_key.id if self.api_key else None
+            effective_format = api_format or self.FORMAT_ID
             mapped_name = mapping.model.select_provider_model_name(
-                affinity_key, api_format=self.FORMAT_ID
+                affinity_key, api_format=effective_format
             )
             logger.debug(f"[Chat] 模型映射: {source_model} -> {mapped_name}")
             return mapped_name
@@ -297,6 +300,8 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
 
         # 创建类型安全的流式上下文
         ctx = StreamContext(model=model, api_format=api_format)
+        ctx.request_id = self.request_id
+        ctx.client_api_format = api_format.value if hasattr(api_format, "value") else str(api_format)
 
         # 创建更新状态的回调闭包（可以访问 ctx）
         def update_streaming_status() -> None:
@@ -430,12 +435,24 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             provider_api_format=str(endpoint.api_format) if endpoint.api_format else None,
         )
 
+        # ctx.api_format 是枚举，需要取 value 作为字符串
+        _api_format_str = (
+            ctx.api_format.value if hasattr(ctx.api_format, "value") else str(ctx.api_format)
+        )
+        provider_api_format = ctx.provider_api_format or _api_format_str
+        client_api_format = ctx.client_api_format or _api_format_str
+        needs_conversion = (
+            bool(getattr(candidate, "needs_conversion", False)) if candidate else False
+        )
+        ctx.needs_conversion = needs_conversion
+
         # 获取模型映射（优先使用映射匹配到的模型，其次是 Provider 级别的映射）
         mapped_model = candidate.mapping_matched_model if candidate else None
         if not mapped_model:
             mapped_model = await self._get_mapped_model(
                 source_model=ctx.model,
                 provider_id=str(provider.id),
+                api_format=provider_api_format,
             )
 
         # 应用模型映射到请求体
@@ -445,8 +462,18 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         else:
             request_body = dict(original_request_body)
 
-        # 准备发送给 Provider 的请求体
-        request_body = self.prepare_provider_request_body(request_body)
+        # 跨格式：先做请求体转换（严格模式，失败触发 failover）
+        if needs_conversion:
+            from src.core.api_format import converter_registry
+
+            request_body = converter_registry.convert_request_strict(
+                request_body,
+                str(client_api_format),
+                str(provider_api_format),
+            )
+        else:
+            # 同格式：按原逻辑做轻量清理（子类可覆盖以移除不需要的字段）
+            request_body = self.prepare_provider_request_body(request_body)
 
         # 构建请求
         provider_payload, provider_headers = self._request_builder.build(
@@ -663,6 +690,12 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             nonlocal provider_request_headers, provider_request_body, mapped_model_result
 
             provider_name = str(provider.name)
+            provider_api_format = str(endpoint.api_format or api_format)
+            # 客户端格式（与流式处理保持一致的命名）
+            client_api_format = (
+                api_format.value if hasattr(api_format, "value") else str(api_format)
+            )
+            needs_conversion = bool(getattr(candidate, "needs_conversion", False))
 
             # 获取模型映射（优先使用映射匹配到的模型，其次是 Provider 级别的映射）
             mapped_model = candidate.mapping_matched_model if candidate else None
@@ -670,6 +703,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 mapped_model = await self._get_mapped_model(
                     source_model=model,
                     provider_id=str(provider.id),
+                    api_format=provider_api_format,
                 )
 
             # 应用模型映射
@@ -679,8 +713,18 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             else:
                 request_body = dict(original_request_body)
 
-            # 准备发送给 Provider 的请求体（子类可覆盖以移除不需要的字段）
-            request_body = self.prepare_provider_request_body(request_body)
+            # 跨格式：先做请求体转换（严格模式，失败触发 failover）
+            if needs_conversion:
+                from src.core.api_format import converter_registry
+
+                request_body = converter_registry.convert_request_strict(
+                    request_body,
+                    client_api_format,
+                    provider_api_format,
+                )
+            else:
+                # 同格式：按原逻辑做轻量清理（子类可覆盖以移除不需要的字段）
+                request_body = self.prepare_provider_request_body(request_body)
 
             # 构建请求
             provider_payload, provider_hdrs = self._request_builder.build(
@@ -789,9 +833,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                         raw_content = repr(resp.content[:500]) if resp.content else "(empty)"
                     except Exception:
                         raw_content = "(unable to read)"
-                logger.error(
-                    f"[{self.request_id}] 无法解析响应 JSON: {e}, 原始内容: {raw_content}"
-                )
+                logger.error(f"[{self.request_id}] 无法解析响应 JSON: {e}, 原始内容: {raw_content}")
                 # 判断错误类型，生成友好的客户端错误消息（不暴露提供商信息）
                 if raw_content == "(empty)" or not raw_content.strip():
                     client_message = "上游服务返回了空响应"
@@ -808,7 +850,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
 
             # 检查响应体中的嵌套错误（HTTP 200 但响应体包含错误）
             if isinstance(response_json, dict):
-                parser = get_parser_for_format(api_format)
+                parser = get_parser_for_format(provider_api_format)
                 if parser.is_error_response(response_json):
                     parsed = parser.parse_response(response_json, 200)
                     logger.warning(
@@ -824,6 +866,16 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                         error_message=parsed.error_message,
                         error_status=parsed.error_type,
                     )
+
+            # 跨格式：响应转换回 client_format（严格模式，失败触发 failover）
+            if needs_conversion and isinstance(response_json, dict):
+                from src.core.api_format import converter_registry
+
+                response_json = converter_registry.convert_response_strict(
+                    response_json,
+                    provider_api_format,
+                    str(api_format),
+                )
 
             return response_json if isinstance(response_json, dict) else {}
 

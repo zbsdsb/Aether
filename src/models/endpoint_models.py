@@ -45,6 +45,12 @@ class ProviderEndpointCreate(BaseModel):
     # 代理配置
     proxy: Optional[ProxyConfig] = Field(default=None, description="代理配置")
 
+    # 格式转换配置
+    format_acceptance_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="格式接受策略配置（跨格式转换开关/白黑名单等）",
+    )
+
     @field_validator("api_format")
     @classmethod
     def validate_api_format(cls, v: str) -> str:
@@ -84,6 +90,12 @@ class ProviderEndpointUpdate(BaseModel):
     is_active: Optional[bool] = Field(default=None, description="是否启用")
     config: Optional[Dict[str, Any]] = Field(default=None, description="额外配置")
     proxy: Optional[ProxyConfig] = Field(default=None, description="代理配置")
+
+    # 格式转换配置
+    format_acceptance_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="格式接受策略配置（跨格式转换开关/白黑名单等）",
+    )
 
     @field_validator("base_url")
     @classmethod
@@ -125,6 +137,12 @@ class ProviderEndpointResponse(BaseModel):
 
     # 代理配置（响应中密码已脱敏）
     proxy: Optional[Dict[str, Any]] = Field(default=None, description="代理配置（密码已脱敏）")
+
+    # 格式转换配置
+    format_acceptance_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="格式接受策略配置（跨格式转换开关/白黑名单等）",
+    )
 
     # 统计（从 Keys 聚合）
     total_keys: int = Field(default=0, description="总 Key 数量")

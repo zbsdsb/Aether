@@ -13,14 +13,46 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+import time
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Dict, Generator, Optional, Tuple, Union
 
 from src.core.logger import logger
+from src.core.metrics import format_conversion_duration_seconds, format_conversion_total
 
 from .exceptions import FormatConversionError
 
 if TYPE_CHECKING:
     from .state import GeminiStreamConversionState, StreamConversionState
+
+
+@contextmanager
+def _track_conversion_metrics(
+    direction: str, source: str, target: str
+) -> Generator[None, None, None]:
+    """
+    跟踪转换指标的上下文管理器
+
+    Args:
+        direction: 转换方向（request/response/stream）
+        source: 源格式（大写）
+        target: 目标格式（大写）
+
+    Yields:
+        None - 执行转换逻辑
+    """
+    start = time.perf_counter()
+    status = "success"
+    try:
+        yield
+    except Exception:
+        status = "error"
+        raise
+    finally:
+        format_conversion_total.labels(direction, source, target, status).inc()
+        format_conversion_duration_seconds.labels(direction, source, target).observe(
+            time.perf_counter() - start
+        )
 
 
 class FormatConverterRegistry:
@@ -118,7 +150,9 @@ class FormatConverterRegistry:
             logger.debug(f"[ConverterRegistry] 请求转换成功: {source_format} -> {target_format}")
             return converted
         except Exception as e:
-            logger.error(f"[ConverterRegistry] 请求转换失败: {source_format} -> {target_format}: {e}")
+            logger.error(
+                f"[ConverterRegistry] 请求转换失败: {source_format} -> {target_format}: {e}"
+            )
             return request
 
     def convert_response(
@@ -160,7 +194,9 @@ class FormatConverterRegistry:
             logger.debug(f"[ConverterRegistry] 响应转换成功: {source_format} -> {target_format}")
             return converted
         except Exception as e:
-            logger.error(f"[ConverterRegistry] 响应转换失败: {source_format} -> {target_format}: {e}")
+            logger.error(
+                f"[ConverterRegistry] 响应转换失败: {source_format} -> {target_format}: {e}"
+            )
             return response
 
     def convert_stream_chunk(
@@ -196,14 +232,16 @@ class FormatConverterRegistry:
                 result: list[Dict[str, Any]] = converter.convert_stream_chunk(chunk, state)
                 return result
             except Exception as e:
-                logger.error(f"[ConverterRegistry] 流式块转换失败: {source_format} -> {target_format}: {e}")
+                logger.error(
+                    f"[ConverterRegistry] 流式块转换失败: {source_format} -> {target_format}: {e}"
+                )
                 return [chunk]
 
         # 降级到普通响应转换（作为单个事件返回）
         if hasattr(converter, "convert_response"):
             try:
-                result = converter.convert_response(chunk)
-                return [result]
+                converted: Dict[str, Any] = converter.convert_response(chunk)
+                return [converted]
             except Exception:
                 return [chunk]
 
@@ -284,8 +322,11 @@ class FormatConverterRegistry:
         Raises:
             FormatConversionError: 转换失败时抛出
         """
+        source_upper = source_format.upper()
+        target_upper = target_format.upper()
+
         # 同格式无需转换
-        if source_format.upper() == target_format.upper():
+        if source_upper == target_upper:
             return request
 
         converter = self.get_converter(source_format, target_format)
@@ -293,16 +334,19 @@ class FormatConverterRegistry:
             raise FormatConversionError(source_format, target_format, "未找到转换器")
 
         if not hasattr(converter, "convert_request"):
-            raise FormatConversionError(source_format, target_format, "转换器缺少 convert_request 方法")
+            raise FormatConversionError(
+                source_format, target_format, "转换器缺少 convert_request 方法"
+            )
 
-        try:
-            converted: Dict[str, Any] = converter.convert_request(request)
-            logger.debug(f"[ConverterRegistry] 请求转换成功: {source_format} -> {target_format}")
-            return converted
-        except FormatConversionError:
-            raise
-        except Exception as e:
-            raise FormatConversionError(source_format, target_format, str(e)) from e
+        with _track_conversion_metrics("request", source_upper, target_upper):
+            try:
+                converted: Dict[str, Any] = converter.convert_request(request)
+                logger.debug(f"[ConverterRegistry] 请求转换成功: {source_format} -> {target_format}")
+                return converted
+            except FormatConversionError:
+                raise
+            except Exception as e:
+                raise FormatConversionError(source_format, target_format, str(e)) from e
 
     def convert_response_strict(
         self,
@@ -316,7 +360,10 @@ class FormatConverterRegistry:
         Raises:
             FormatConversionError: 转换失败时抛出
         """
-        if source_format.upper() == target_format.upper():
+        source_upper = source_format.upper()
+        target_upper = target_format.upper()
+
+        if source_upper == target_upper:
             return response
 
         converter = self.get_converter(source_format, target_format)
@@ -324,16 +371,19 @@ class FormatConverterRegistry:
             raise FormatConversionError(source_format, target_format, "未找到转换器")
 
         if not hasattr(converter, "convert_response"):
-            raise FormatConversionError(source_format, target_format, "转换器缺少 convert_response 方法")
+            raise FormatConversionError(
+                source_format, target_format, "转换器缺少 convert_response 方法"
+            )
 
-        try:
-            converted: Dict[str, Any] = converter.convert_response(response)
-            logger.debug(f"[ConverterRegistry] 响应转换成功: {source_format} -> {target_format}")
-            return converted
-        except FormatConversionError:
-            raise
-        except Exception as e:
-            raise FormatConversionError(source_format, target_format, str(e)) from e
+        with _track_conversion_metrics("response", source_upper, target_upper):
+            try:
+                converted: Dict[str, Any] = converter.convert_response(response)
+                logger.debug(f"[ConverterRegistry] 响应转换成功: {source_format} -> {target_format}")
+                return converted
+            except FormatConversionError:
+                raise
+            except Exception as e:
+                raise FormatConversionError(source_format, target_format, str(e)) from e
 
     def convert_stream_chunk_strict(
         self,
@@ -357,7 +407,10 @@ class FormatConverterRegistry:
         Raises:
             FormatConversionError: 转换失败时抛出
         """
-        if source_format.upper() == target_format.upper():
+        source_upper = source_format.upper()
+        target_upper = target_format.upper()
+
+        if source_upper == target_upper:
             return [chunk]
 
         converter = self.get_converter(source_format, target_format)
@@ -369,13 +422,16 @@ class FormatConverterRegistry:
                 source_format, target_format, "转换器缺少 convert_stream_chunk 方法"
             )
 
-        try:
-            result: list[Dict[str, Any]] = converter.convert_stream_chunk(chunk, state)
-            return result
-        except FormatConversionError:
-            raise
-        except Exception as e:
-            raise FormatConversionError(source_format, target_format, f"流式块转换失败: {e}") from e
+        with _track_conversion_metrics("stream", source_upper, target_upper):
+            try:
+                result: list[Dict[str, Any]] = converter.convert_stream_chunk(chunk, state)
+                return result
+            except FormatConversionError:
+                raise
+            except Exception as e:
+                raise FormatConversionError(
+                    source_format, target_format, f"流式块转换失败: {e}"
+                ) from e
 
 
 # 全局单例
@@ -387,4 +443,3 @@ __all__ = [
     "converter_registry",
     "FormatConversionError",
 ]
-
