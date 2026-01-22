@@ -382,8 +382,8 @@ class EndpointAPIKeyUpdate(BaseModel):
             return v
 
         v = v.strip()
-        if len(v) < 10:
-            raise ValueError("API Key 长度不能少于 10 个字符")
+        if len(v) < 3:
+            raise ValueError("API Key 长度不能少于 3 个字符")
 
         dangerous_chars = ["'", '"', ";", "--", "/*", "*/", "<", ">"]
         for char in dangerous_chars:

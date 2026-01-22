@@ -56,7 +56,7 @@ from src.models.database import (
     User,
 )
 from src.services.cache.aware_scheduler import ProviderCandidate
-from src.services.provider.transport import build_provider_url
+from src.services.provider.transport import build_provider_url, redact_url_for_log
 
 
 class ChatHandlerBase(BaseMessageHandler, ABC):
@@ -492,7 +492,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             # 同格式：按原逻辑做轻量清理（子类可覆盖以移除不需要的字段）
             request_body = self.prepare_provider_request_body(request_body)
 
-        # 构建请求
+        # 构建请求（上游始终使用 header 认证，不跟随客户端的 query 方式）
         provider_payload, provider_headers = self._request_builder.build(
             request_body,
             original_headers,
@@ -749,7 +749,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 # 同格式：按原逻辑做轻量清理（子类可覆盖以移除不需要的字段）
                 request_body = self.prepare_provider_request_body(request_body)
 
-            # 构建请求
+            # 构建请求（上游始终使用 header 认证，不跟随客户端的 query 方式）
             provider_payload, provider_hdrs = self._request_builder.build(
                 request_body,
                 original_headers,
@@ -775,7 +775,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 f"  [{self.request_id}] 发送非流式请求: Provider={provider.name}, "
                 f"模型={model} -> {mapped_model or '无映射'}"
             )
-            logger.debug(f"  [{self.request_id}] 请求URL: {url}")
+            logger.debug(f"  [{self.request_id}] 请求URL: {redact_url_for_log(url)}")
             logger.debug(
                 f"  [{self.request_id}] 请求体stream字段: {provider_payload.get('stream', 'N/A')}"
             )

@@ -19,7 +19,7 @@ def _extract_api_key_by_definition(
     headers: Dict[str, str],
     query_params: Optional[Dict[str, str]],
     definition: ApiFormatDefinition,
-) -> Optional[str]:
+) -> Tuple[Optional[str], str]:
     """
     根据格式定义从请求中提取 API Key
 
@@ -29,32 +29,44 @@ def _extract_api_key_by_definition(
         definition: API 格式定义
 
     Returns:
-        提取到的 API Key，或 None
+        (api_key, auth_method) 元组：
+        - api_key: 提取到的 API Key，或 None
+        - auth_method: 认证方式 ("header" 或 "query")
     """
     auth_header = definition.auth_header.lower()
     auth_type = definition.auth_type
 
+    # Gemini 格式：query 参数优先（与 Google SDK 行为一致）
+    if definition.api_format in (APIFormat.GEMINI, APIFormat.GEMINI_CLI):
+        # 1. 优先检查 ?key= 参数
+        query_key = query_params.get("key") if query_params else None
+        if query_key:
+            return query_key, "query"
+        # 2. 再检查 x-goog-api-key 请求头
+        header_value = headers.get(auth_header)
+        if header_value:
+            return header_value, "header"
+        return None, "header"
+
+    # 其他格式：从 header 提取
     header_value = headers.get(auth_header)
     if not header_value:
-        # Gemini 还支持 ?key= 参数
-        if definition.api_format in (APIFormat.GEMINI, APIFormat.GEMINI_CLI):
-            return query_params.get("key") if query_params else None
-        return None
+        return None, "header"
 
     if auth_type == "bearer":
         # Bearer token: "Bearer xxx"
         if header_value.lower().startswith("bearer "):
-            return header_value[7:].strip()
-        return None
+            return header_value[7:].strip(), "header"
+        return None, "header"
     else:
         # header 类型: 直接使用值
-        return header_value
+        return header_value, "header"
 
 
 def detect_format_from_request(
     headers: Dict[str, str],
     query_params: Optional[Dict[str, str]] = None,
-) -> Tuple[APIFormat, Optional[str]]:
+) -> Tuple[APIFormat, Optional[str], str]:
     """
     从请求头检测 API 格式和 API Key
 
@@ -68,33 +80,35 @@ def detect_format_from_request(
         query_params: 查询参数字典（可选）
 
     Returns:
-        (APIFormat, api_key) 元组
+        (APIFormat, api_key, auth_method) 元组
+        - auth_method: 认证方式 ("header" 或 "query")
     """
     # Claude: x-api-key + anthropic-version (必须同时存在)
     claude_def = API_FORMAT_DEFINITIONS[APIFormat.CLAUDE]
-    claude_key = _extract_api_key_by_definition(headers, query_params, claude_def)
+    claude_key, claude_auth_method = _extract_api_key_by_definition(headers, query_params, claude_def)
     if claude_key and headers.get("anthropic-version"):
-        return APIFormat.CLAUDE, claude_key
+        return APIFormat.CLAUDE, claude_key, claude_auth_method
 
     # Gemini: x-goog-api-key (header 类型) 或 ?key=
     gemini_def = API_FORMAT_DEFINITIONS[APIFormat.GEMINI]
-    gemini_key = _extract_api_key_by_definition(headers, query_params, gemini_def)
+    gemini_key, gemini_auth_method = _extract_api_key_by_definition(headers, query_params, gemini_def)
     if gemini_key:
-        return APIFormat.GEMINI, gemini_key
+        return APIFormat.GEMINI, gemini_key, gemini_auth_method
 
     # OpenAI: Authorization: Bearer (默认)
     # 注意: 如果只有 x-api-key 但没有 anthropic-version，也走 OpenAI 格式
     openai_def = API_FORMAT_DEFINITIONS[APIFormat.OPENAI]
-    openai_key = _extract_api_key_by_definition(headers, query_params, openai_def)
+    openai_key, openai_auth_method = _extract_api_key_by_definition(headers, query_params, openai_def)
     # 如果 OpenAI 格式没有 key，但有 x-api-key，也用它（兼容）
     if not openai_key and claude_key:
         openai_key = claude_key
-    return APIFormat.OPENAI, openai_key
+        openai_auth_method = claude_auth_method
+    return APIFormat.OPENAI, openai_key, openai_auth_method
 
 
 def detect_format_and_key_from_starlette(
     request: "Request",
-) -> Tuple[str, Optional[str]]:
+) -> Tuple[str, Optional[str], str]:
     """
     从 Starlette Request 对象检测 API 格式和 API Key
 
@@ -104,17 +118,19 @@ def detect_format_and_key_from_starlette(
         request: Starlette Request 对象
 
     Returns:
-        (format_name, api_key) 元组，format_name 为小写字符串
+        (format_name, api_key, auth_method) 元组
+        - format_name: 为小写字符串
+        - auth_method: 认证方式 ("header" 或 "query")
     """
     # 规范化 headers 为小写
     headers = {k.lower(): v for k, v in request.headers.items()}
     query_params = dict(request.query_params)
 
-    api_format, api_key = detect_format_from_request(headers, query_params)
+    api_format, api_key, auth_method = detect_format_from_request(headers, query_params)
 
     # 返回小写格式名
     format_name = api_format.value.lower()
-    return format_name, api_key
+    return format_name, api_key, auth_method
 
 
 def detect_format_from_response(

@@ -273,8 +273,8 @@ class CreateAPIKeyRequest(BaseModel):
         v = v.strip()
 
         # 检查最小长度
-        if len(v) < 10:
-            raise ValueError("API Key 长度不能少于 10 个字符")
+        if len(v) < 3:
+            raise ValueError("API Key 长度不能少于 3 个字符")
 
         # 检查危险字符（不应包含 SQL 注入字符）
         dangerous_chars = ["'", '"', ";", "--", "/*", "*/", "<", ">"]

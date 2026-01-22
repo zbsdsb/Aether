@@ -3,8 +3,10 @@
 
 负责:
 - 根据 API 格式或端点配置生成请求 URL
+- URL 脱敏（用于日志记录）
 """
 
+import re
 from typing import TYPE_CHECKING, Any, Dict, Optional
 from urllib.parse import urlencode
 
@@ -13,6 +15,29 @@ from src.core.logger import logger
 
 if TYPE_CHECKING:
     from src.models.database import ProviderEndpoint
+
+
+# URL 中需要脱敏的查询参数（正则模式）
+_SENSITIVE_QUERY_PARAMS_PATTERN = re.compile(
+    r"([?&])(key|api_key|apikey|token|secret|password|credential)=([^&]*)",
+    re.IGNORECASE,
+)
+
+
+def redact_url_for_log(url: str) -> str:
+    """
+    对 URL 中的敏感查询参数进行脱敏，用于日志记录
+
+    将 ?key=xxx 替换为 ?key=***
+
+    Args:
+        url: 原始 URL
+
+    Returns:
+        脱敏后的 URL
+    """
+    return _SENSITIVE_QUERY_PARAMS_PATTERN.sub(r"\1\2=***", url)
+
 
 def _normalize_base_url(base_url: str, path: str) -> str:
     """
@@ -96,9 +121,17 @@ def build_provider_url(
     base = _normalize_base_url(endpoint.base_url, path)  # type: ignore[arg-type]
     url = f"{base}{path}"
 
+    # 合并查询参数
+    effective_query_params = dict(query_params) if query_params else {}
+
+    # Gemini 格式下清除可能存在的 key 参数（避免客户端传入的认证信息泄露到上游）
+    # 上游认证始终使用 header 方式，不使用 URL 参数
+    if resolved_format in (APIFormat.GEMINI, APIFormat.GEMINI_CLI):
+        effective_query_params.pop("key", None)
+
     # 添加查询参数
-    if query_params:
-        query_string = urlencode(query_params, doseq=True)
+    if effective_query_params:
+        query_string = urlencode(effective_query_params, doseq=True)
         if query_string:
             url = f"{url}?{query_string}"
 

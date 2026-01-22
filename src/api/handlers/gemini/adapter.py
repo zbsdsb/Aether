@@ -7,13 +7,15 @@ Gemini Chat Adapter
 from typing import Any, Dict, Optional, Tuple, Type
 
 import httpx
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from src.api.handlers.base.chat_adapter_base import ChatAdapterBase, register_adapter
 from src.api.handlers.base.chat_handler_base import ChatHandlerBase
+from src.core.api_format import extract_client_api_key_with_query
 from src.core.logger import logger
 from src.models.gemini import GeminiRequest
+from src.services.provider.transport import redact_url_for_log
 
 
 @register_adapter
@@ -39,6 +41,20 @@ class GeminiChatAdapter(ChatAdapterBase):
     def __init__(self, allowed_api_formats: Optional[list[str]] = None):
         super().__init__(allowed_api_formats or ["GEMINI"])
         logger.info(f"[{self.name}] 初始化 Gemini Chat 适配器 | API格式: {self.allowed_api_formats}")
+
+    def extract_api_key(self, request: Request) -> Optional[str]:
+        """
+        从请求中提取 API 密钥 - Gemini 支持 header 和 query 两种方式
+
+        优先级（与 Google SDK 行为一致）：
+        1. URL 参数 ?key=
+        2. x-goog-api-key 请求头
+        """
+        return extract_client_api_key_with_query(
+            dict(request.headers),
+            dict(request.query_params),
+            self._get_api_format(),
+        )
 
     def _merge_path_params(
         self, original_request_body: Dict[str, Any], path_params: Dict[str, Any]  # noqa: ARG002
@@ -171,7 +187,7 @@ class GeminiChatAdapter(ChatAdapterBase):
 
         try:
             response = await client.get(models_url, headers=headers)
-            logger.debug(f"Gemini models request to {models_url}: status={response.status_code}")
+            logger.debug(f"Gemini models request to {redact_url_for_log(models_url)}: status={response.status_code}")
             if response.status_code == 200:
                 data = response.json()
                 if "models" in data:
@@ -189,11 +205,13 @@ class GeminiChatAdapter(ChatAdapterBase):
             else:
                 error_body = response.text[:500] if response.text else "(empty)"
                 error_msg = f"HTTP {response.status_code}: {error_body}"
-                logger.warning(f"Gemini models request to {models_url} failed: {error_msg}")
+                logger.warning(f"Gemini models request to {redact_url_for_log(models_url)} failed: {error_msg}")
                 return [], error_msg
         except Exception as e:
-            error_msg = f"Request error: {str(e)}"
-            logger.warning(f"Failed to fetch Gemini models from {models_url}: {e}")
+            # 异常信息可能包含带 key 参数的 URL，需要脱敏
+            sanitized_error = redact_url_for_log(str(e))
+            error_msg = f"Request error: {sanitized_error}"
+            logger.warning(f"Failed to fetch Gemini models from {redact_url_for_log(models_url)}: {sanitized_error}")
             return [], error_msg
 
     @classmethod

@@ -72,6 +72,15 @@ class RequestBuilder(ABC):
         """
         构建完整的请求（请求体 + 请求头）
 
+        Args:
+            original_body: 原始请求体
+            original_headers: 原始请求头
+            endpoint: 端点配置
+            key: Provider API Key
+            mapped_model: 映射后的模型名
+            is_stream: 是否为流式请求
+            extra_headers: 额外请求头
+
         Returns:
             Tuple[payload, headers]
         """
@@ -124,6 +133,12 @@ class PassthroughRequestBuilder(RequestBuilder):
     ) -> Dict[str, str]:
         """
         透传请求头 - 清理敏感头部（黑名单），透传其他所有头部
+
+        Args:
+            original_headers: 原始请求头
+            endpoint: 端点配置
+            key: Provider API Key
+            extra_headers: 额外请求头
         """
         from src.core.api_format import get_auth_config, resolve_api_format
 
@@ -136,6 +151,7 @@ class PassthroughRequestBuilder(RequestBuilder):
         )
 
         auth_value = f"Bearer {decrypted_key}" if auth_type == "bearer" else decrypted_key
+        # 认证头始终受保护，防止 header_rules 覆盖
         protected_keys = {auth_header.lower(), "content-type"}
 
         builder = HeaderBuilder()
@@ -147,7 +163,7 @@ class PassthroughRequestBuilder(RequestBuilder):
                     continue
                 builder.add(name, value)
 
-        # 3. 应用 endpoint 的请求头规则
+        # 3. 应用 endpoint 的请求头规则（认证头受保护，无法通过 rules 设置）
         header_rules = getattr(endpoint, "header_rules", None)
         if header_rules:
             builder.apply_rules(header_rules, protected_keys)
@@ -156,7 +172,7 @@ class PassthroughRequestBuilder(RequestBuilder):
         if extra_headers:
             builder.add_many(extra_headers)
 
-        # 5. 设置认证头（最高优先级）
+        # 5. 设置认证头（最高优先级，上游始终使用 header 认证）
         builder.add(auth_header, auth_value)
 
         # 6. 确保有 Content-Type

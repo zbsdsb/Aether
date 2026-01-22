@@ -7,11 +7,13 @@ Gemini CLI Adapter - 基于通用 CLI Adapter 基类的实现
 from typing import Any, Dict, Optional, Tuple, Type
 
 import httpx
+from fastapi import Request
 
 from src.api.handlers.base.cli_adapter_base import CliAdapterBase, register_cli_adapter
 from src.api.handlers.base.cli_handler_base import CliMessageHandlerBase
 from src.api.handlers.gemini.adapter import GeminiChatAdapter
 from src.config.settings import config
+from src.core.api_format import extract_client_api_key_with_query
 
 
 @register_cli_adapter
@@ -35,6 +37,20 @@ class GeminiCliAdapter(CliAdapterBase):
 
     def __init__(self, allowed_api_formats: Optional[list[str]] = None):
         super().__init__(allowed_api_formats or ["GEMINI_CLI"])
+
+    def extract_api_key(self, request: Request) -> Optional[str]:
+        """
+        从请求中提取 API 密钥 - Gemini CLI 支持 header 和 query 两种方式
+
+        优先级（与 Google SDK 行为一致）：
+        1. URL 参数 ?key=
+        2. x-goog-api-key 请求头
+        """
+        return extract_client_api_key_with_query(
+            dict(request.headers),
+            dict(request.query_params),
+            self._get_api_format(),
+        )
 
     def _merge_path_params(
         self, original_request_body: Dict[str, Any], path_params: Dict[str, Any]  # noqa: ARG002

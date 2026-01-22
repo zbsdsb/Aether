@@ -76,7 +76,8 @@ def _detect_api_format_and_key(request: Request) -> Tuple[str, Optional[str]]:
     Returns:
         (api_format, api_key) 元组
     """
-    return detect_format_and_key_from_starlette(request)
+    format_name, api_key, _auth_method = detect_format_and_key_from_starlette(request)
+    return format_name, api_key
 
 
 def _get_formats_for_api(api_format: str) -> list[str]:

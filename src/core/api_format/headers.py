@@ -146,6 +146,38 @@ def extract_client_api_key(headers: Dict[str, str], api_format: APIFormat) -> Op
     return value
 
 
+def extract_client_api_key_with_query(
+    headers: Dict[str, str],
+    query_params: Optional[Dict[str, str]],
+    api_format: APIFormat,
+) -> Optional[str]:
+    """
+    从客户端请求头或 URL 参数提取 API Key
+
+    Gemini 格式优先级（与 Google SDK 行为一致）：
+    1. URL 参数 ?key=
+    2. x-goog-api-key 请求头
+
+    其他格式仅从请求头提取。
+
+    Args:
+        headers: 原始请求头（自动处理大小写）
+        query_params: URL 查询参数
+        api_format: API 格式
+
+    Returns:
+        提取的 API Key，未找到返回 None
+    """
+    # Gemini 格式：query 参数优先
+    if api_format in (APIFormat.GEMINI, APIFormat.GEMINI_CLI):
+        query_key = query_params.get("key") if query_params else None
+        if query_key:
+            return query_key
+
+    # 其他格式或 Gemini header 方式：使用现有逻辑
+    return extract_client_api_key(headers, api_format)
+
+
 # =============================================================================
 # 能力需求检测
 # =============================================================================
@@ -342,7 +374,7 @@ def build_upstream_headers(
     if extra_headers:
         builder.add_many(extra_headers)
 
-    # 4. 设置认证头（最高优先级）
+    # 4. 设置认证头（最高优先级，上游始终使用 header 认证）
     builder.add(auth_header, auth_value)
 
     # 5. 确保 Content-Type

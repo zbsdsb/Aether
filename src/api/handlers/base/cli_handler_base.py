@@ -474,6 +474,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
         # 使用 RequestBuilder 构建请求体和请求头
         # 注意：mapped_model 已经应用到 request_body，这里不再传递
+        # 上游始终使用 header 认证，不跟随客户端的 query 方式
         provider_payload, provider_headers = self._request_builder.build(
             request_body,
             original_headers,
@@ -1638,6 +1639,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
             # 使用 RequestBuilder 构建请求体和请求头
             # 注意：mapped_model 已经应用到 request_body，这里不再传递
+            # 上游始终使用 header 认证，不跟随客户端的 query 方式
             provider_payload, provider_headers = self._request_builder.build(
                 request_body,
                 original_headers,
