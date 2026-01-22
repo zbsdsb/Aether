@@ -597,8 +597,6 @@ class CacheAwareScheduler:
 
         # 使用 GlobalModel.id 作为缓存亲和性的模型标识，确保映射名和规范名都能命中同一个缓存
         global_model_id: str = str(global_model.id)
-        requested_model_name = model_name
-        resolved_model_name = str(global_model.name)
 
         # 提取模型映射（用于 Provider Key 的 allowed_models 匹配）
         model_mappings: List[str] = (global_model.config or {}).get("model_mappings", [])
@@ -628,17 +626,11 @@ class CacheAwareScheduler:
         from src.core.model_permissions import check_model_allowed, get_allowed_models_preview
 
         if not check_model_allowed(
-            model_name=requested_model_name,
+            model_name=model_name,
             allowed_models=allowed_models,
-            resolved_model_name=resolved_model_name,
         ):
-            resolved_note = (
-                f" (解析为 {resolved_model_name})"
-                if resolved_model_name != requested_model_name
-                else ""
-            )
             logger.debug(
-                f"用户/API Key 不允许使用模型 {requested_model_name}{resolved_note}, "
+                f"用户/API Key 不允许使用模型 {model_name}, "
                 f"允许的模型: {get_allowed_models_preview(allowed_models)}"
             )
             return [], global_model_id
@@ -674,8 +666,7 @@ class CacheAwareScheduler:
             db=db,
             providers=providers,
             client_format=target_format,
-            model_name=requested_model_name,
-            resolved_model_name=resolved_model_name,
+            model_name=model_name,
             model_mappings=model_mappings,
             affinity_key=affinity_key,
             max_candidates=max_candidates,
@@ -905,7 +896,6 @@ class CacheAwareScheduler:
         api_format: Optional[str],
         model_name: str,
         capability_requirements: Optional[Dict[str, bool]] = None,
-        resolved_model_name: Optional[str] = None,
         model_mappings: Optional[List[str]] = None,
         candidate_models: Optional[set[str]] = None,
     ) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -917,9 +907,8 @@ class CacheAwareScheduler:
 
         Args:
             key: API Key 对象
-            model_name: 模型名称
+            model_name: 模型名称（GlobalModel.name）
             capability_requirements: 能力需求（可选）
-            resolved_model_name: 解析后的 GlobalModel.name（可选）
             model_mappings: GlobalModel 的映射列表（用于通配符匹配）
             candidate_models: Provider 侧可用的模型名称集合（用于限制映射匹配范围）
 
@@ -939,24 +928,20 @@ class CacheAwareScheduler:
         # 模型权限检查：使用 allowed_models 白名单
         # None = 允许所有模型，[] = 拒绝所有模型，["a","b"] = 只允许指定模型
         # 支持通配符映射匹配（通过 model_mappings）
-        from src.core.model_permissions import (
-            check_model_allowed_with_mappings,
-            get_allowed_models_preview,
-        )
+        from src.core.model_permissions import check_model_allowed_with_mappings
 
         try:
             is_allowed, mapping_matched_model = check_model_allowed_with_mappings(
                 model_name=model_name,
                 allowed_models=key.allowed_models,
-                resolved_model_name=resolved_model_name,
                 model_mappings=model_mappings,
                 candidate_models=candidate_models,
             )
             if mapping_matched_model:
                 logger.debug(
-                    f"[Scheduler] Key {key.id[:8]}... 映射匹配成功: "
+                    f"[Scheduler] Key {key.id[:8]}... 模型名匹配: "
                     f"model={model_name} -> {mapping_matched_model}, "
-                    f"allowed_models={key.allowed_models}, model_mappings={model_mappings}"
+                    f"allowed_models={key.allowed_models}"
                 )
         except TimeoutError:
             # 正则匹配超时（可能是 ReDoS 攻击或复杂模式）
@@ -977,7 +962,7 @@ class CacheAwareScheduler:
         if not is_allowed:
             return (
                 False,
-                f"模型权限不匹配(允许: {get_allowed_models_preview(key.allowed_models)})",
+                f"Key 不支持 {model_name}",
                 None,
             )
 
@@ -1001,7 +986,6 @@ class CacheAwareScheduler:
         client_format: APIFormat,
         model_name: str,
         affinity_key: Optional[str],
-        resolved_model_name: Optional[str] = None,
         model_mappings: Optional[List[str]] = None,
         max_candidates: Optional[int] = None,
         is_stream: bool = False,
@@ -1017,9 +1001,8 @@ class CacheAwareScheduler:
             db: 数据库会话
             providers: Provider 列表
             client_format: 客户端请求的 API 格式
-            model_name: 模型名称（用户请求的名称，可能是映射名）
+            model_name: 模型名称（GlobalModel.name）
             affinity_key: 亲和性标识符（通常为API Key ID）
-            resolved_model_name: 解析后的 GlobalModel.name（用于 Key.allowed_models 校验）
             model_mappings: GlobalModel 的映射列表（用于 Key.allowed_models 通配符匹配）
             max_candidates: 最大候选数
             is_stream: 是否是流式请求，如果为 True 则过滤不支持流式的 Provider
@@ -1108,15 +1091,16 @@ class CacheAwareScheduler:
 
                 for key in keys:
                     # Key 级别检查（健康度/熔断按 provider_format bucket）
-                    # 注意：不传入 candidate_models，保持原有映射匹配行为
+                    # 传入 provider_model_names 作为 candidate_models，
+                    # 用于检查 Key 的 allowed_models 是否支持 Provider 定义的模型名称
                     is_available, key_skip_reason, mapping_matched_model = (
                         self._check_key_availability(
                             key,
                             endpoint_format_str,
                             model_name,
                             capability_requirements,
-                            resolved_model_name=resolved_model_name,
                             model_mappings=model_mappings,
+                            candidate_models=provider_model_names,
                         )
                     )
 

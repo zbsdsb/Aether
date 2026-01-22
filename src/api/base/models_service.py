@@ -270,7 +270,6 @@ def _get_available_model_ids_for_format(db: Session, api_formats: list[str]) -> 
             is_allowed, _ = check_model_allowed_with_mappings(
                 model_name=model_id,
                 allowed_models=allowed_models,
-                resolved_model_name=model.provider_model_name,
                 model_mappings=model_mappings,
             )
             if is_allowed:

@@ -300,7 +300,6 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
                 is_allowed, _ = check_model_allowed_with_mappings(
                     model_name=global_model.name,
                     allowed_models=allowed_models_list,
-                    resolved_model_name=global_model.name,
                     model_mappings=global_model_mappings,
                 )
                 return is_allowed

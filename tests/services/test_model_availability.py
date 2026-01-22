@@ -447,7 +447,6 @@ class TestModelMappingsIntegration:
         is_allowed, matched = check_model_allowed_with_mappings(
             model_name="claude-haiku-4-5-20251001",  # GlobalModel.name
             allowed_models=["claude-3-5-haiku-20251001"],  # Key.allowed_models
-            resolved_model_name="claude-haiku-4-5-20251001",  # Model.provider_model_name
             model_mappings=["claude-3-5-haiku-.*"],  # GlobalModel.config.model_mappings
         )
 
@@ -461,7 +460,6 @@ class TestModelMappingsIntegration:
         is_allowed, matched = check_model_allowed_with_mappings(
             model_name="claude-haiku-4-5-20251001",
             allowed_models=["claude-haiku-4-5-20251001"],  # 精确匹配
-            resolved_model_name="claude-haiku-4-5-20251001",
             model_mappings=["claude-3-5-haiku-.*"],
         )
 
@@ -475,7 +473,6 @@ class TestModelMappingsIntegration:
         is_allowed, matched = check_model_allowed_with_mappings(
             model_name="claude-haiku-4-5-20251001",
             allowed_models=["gpt-4o"],  # 与映射模式不匹配
-            resolved_model_name="claude-haiku-4-5-20251001",
             model_mappings=["claude-3-5-haiku-.*"],
         )
 
@@ -489,7 +486,6 @@ class TestModelMappingsIntegration:
         is_allowed, matched = check_model_allowed_with_mappings(
             model_name="target-model",
             allowed_models=["b-model-1", "a-model-1"],
-            resolved_model_name="target-model",
             model_mappings=[".*-model-1"],  # 匹配两个
         )
 
