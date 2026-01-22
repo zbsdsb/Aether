@@ -29,12 +29,14 @@ import httpx
 from redis import Redis
 from sqlalchemy.orm import Session
 
+from src.config.settings import config
 from src.core.api_format import APIFormat, FormatConversionError
 from src.core.error_utils import extract_error_message
 from src.core.exceptions import (
     ConcurrencyLimitError,
     EmbeddedErrorException,
     ProviderNotAvailableException,
+    ThinkingSignatureException,
     UpstreamClientException,
 )
 from src.core.logger import logger
@@ -44,6 +46,7 @@ from src.services.cache.aware_scheduler import (
     ProviderCandidate,
     get_cache_aware_scheduler,
 )
+from src.services.message.thinking_rectifier import ThinkingRectifier
 from src.services.provider.format import normalize_api_format
 from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
 from src.services.rate_limit.concurrency_manager import get_concurrency_manager
@@ -298,6 +301,114 @@ class FallbackOrchestrator:
             is_stream=is_stream,
         )
 
+    def _handle_thinking_signature_error(
+        self,
+        converted_error: ThinkingSignatureException,
+        request_id: Optional[str],
+        candidate_record_id: str,
+        elapsed_ms: int,
+        captured_key_concurrent: Optional[int],
+        serializable_extra_data: Dict[str, Any],
+        request_body_ref: Optional[Dict[str, Any]],
+    ) -> str:
+        """
+        处理 ThinkingSignatureException 错误
+
+        尝试整流请求体后重试。如果无法整流或整流后仍失败，则抛出异常。
+
+        Args:
+            converted_error: Thinking 签名异常
+            request_id: 请求 ID
+            candidate_record_id: 候选记录 ID
+            elapsed_ms: 耗时（毫秒）
+            captured_key_concurrent: 捕获的并发数
+            serializable_extra_data: 可序列化的额外数据
+            request_body_ref: 请求体引用容器
+
+        Returns:
+            "continue" 表示整流成功应继续重试
+
+        Raises:
+            ThinkingSignatureException: 无法整流或整流后仍失败时
+        """
+        # 检查整流器是否启用
+        if not config.thinking_rectifier_enabled:
+            logger.info(f"  [{request_id}] Thinking 错误：整流器已禁用，终止重试")
+            self._mark_thinking_error_failed(
+                candidate_record_id, converted_error, elapsed_ms,
+                captured_key_concurrent, serializable_extra_data
+            )
+            raise converted_error
+
+        # 检查是否有请求体引用（由 Handler 层传入）
+        if request_body_ref is None:
+            logger.warning(f"  [{request_id}] Thinking 错误：无法获取请求体引用，终止重试")
+            self._mark_thinking_error_failed(
+                candidate_record_id, converted_error, elapsed_ms,
+                captured_key_concurrent, serializable_extra_data
+            )
+            raise converted_error
+
+        # 检查是否已整流过（避免无限循环，单次重试）
+        if request_body_ref.get("_rectified", False):
+            logger.warning(f"  [{request_id}] Thinking 错误：已整流仍失败，终止重试")
+            self._mark_thinking_error_failed(
+                candidate_record_id, converted_error, elapsed_ms,
+                captured_key_concurrent, {**serializable_extra_data, "rectified": True}
+            )
+            raise converted_error
+
+        # 使用整流器
+        request_body = request_body_ref.get("body", {})
+        rectified_body, modified = ThinkingRectifier.rectify(request_body)
+
+        if modified:
+            # 更新容器中的请求体
+            request_body_ref["body"] = rectified_body
+            # _rectified: 全局标记，防止重复整流（整流只执行一次）
+            request_body_ref["_rectified"] = True
+            # _rectified_this_turn: 单轮标记，用于在当前 candidate 扩展重试次数
+            request_body_ref["_rectified_this_turn"] = True
+
+            logger.info(f"  [{request_id}] 请求已整流，在当前候选上重试")
+
+            # 标记当前尝试为失败（整流前的状态）
+            # 注意：整流后重试会复用此记录 ID，成功时会覆盖为 success 状态
+            self._mark_thinking_error_failed(
+                candidate_record_id, converted_error, elapsed_ms,
+                captured_key_concurrent, {**serializable_extra_data, "rectified": True}
+            )
+
+            # 返回 continue：在当前候选的重试循环中继续，使用整流后的请求体重试
+            return "continue"
+        else:
+            logger.warning(f"  [{request_id}] Thinking 错误：无可整流内容")
+            self._mark_thinking_error_failed(
+                candidate_record_id, converted_error, elapsed_ms,
+                captured_key_concurrent, serializable_extra_data
+            )
+            raise converted_error
+
+    def _mark_thinking_error_failed(
+        self,
+        candidate_record_id: str,
+        error: ThinkingSignatureException,
+        elapsed_ms: int,
+        captured_key_concurrent: Optional[int],
+        extra_data: Dict[str, Any],
+    ) -> None:
+        """标记 Thinking 签名错误导致的候选失败"""
+        RequestCandidateService.mark_candidate_failed(
+            db=self.db,
+            candidate_id=candidate_record_id,
+            error_type="ThinkingSignatureException",
+            error_message=str(error),
+            status_code=400,
+            latency_ms=elapsed_ms,
+            concurrent_requests=captured_key_concurrent,
+            extra_data=extra_data,
+        )
+
     async def _handle_candidate_error(
         self,
         exec_err: ExecutionError,
@@ -311,6 +422,7 @@ class FallbackOrchestrator:
         request_id: Optional[str],
         attempt: int,
         max_attempts: int,
+        request_body_ref: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         处理候选执行错误
@@ -327,6 +439,7 @@ class FallbackOrchestrator:
             request_id: 请求 ID
             attempt: 当前尝试次数
             max_attempts: 最大尝试次数
+            request_body_ref: 请求体引用容器（用于 Thinking 签名错误重试）
 
         Returns:
             action: "continue" (继续重试), "break" (跳到下一个候选), "raise" (抛出异常)
@@ -430,6 +543,22 @@ class FallbackOrchestrator:
             serializable_extra_data = {
                 k: v for k, v in extra_data.items() if k != "converted_error"
             }
+
+            # 先检查 ThinkingSignatureException（它继承自 UpstreamClientException）
+            # 签名/结构错误需要特殊处理：整流请求体后重试一次
+            if isinstance(converted_error, ThinkingSignatureException):
+                action = self._handle_thinking_signature_error(
+                    converted_error=converted_error,
+                    request_id=request_id,
+                    candidate_record_id=candidate_record_id,
+                    elapsed_ms=elapsed_ms,
+                    captured_key_concurrent=captured_key_concurrent,
+                    serializable_extra_data=serializable_extra_data,
+                    request_body_ref=request_body_ref,
+                )
+                if action == "continue":
+                    return "continue"
+                # action == "raise" 时已在方法内部 raise
 
             if isinstance(converted_error, UpstreamClientException):
                 logger.warning(
@@ -562,6 +691,7 @@ class FallbackOrchestrator:
         affinity_key: str,
         global_model_id: str,
         is_stream: bool = False,
+        request_body_ref: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Any, str, Optional[str], Optional[str], Optional[str], Optional[str]]:
         """遍历所有候选执行请求，返回第一个成功的结果或抛出异常"""
         attempt_counter = 0
@@ -593,6 +723,7 @@ class FallbackOrchestrator:
                 attempt_counter=attempt_counter,
                 max_attempts=max_attempts,
                 is_stream=is_stream,
+                request_body_ref=request_body_ref,
             )
 
             if result["success"]:
@@ -632,6 +763,7 @@ class FallbackOrchestrator:
         attempt_counter: int,
         max_attempts: int,
         is_stream: bool = False,
+        request_body_ref: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """尝试单个候选（含重试逻辑），返回执行结果"""
         provider = candidate.provider
@@ -640,7 +772,8 @@ class FallbackOrchestrator:
         max_retries_for_candidate = int(provider.max_retries or 2) if candidate.is_cached else 1
         last_error: Optional[Exception] = None
 
-        for retry_index in range(max_retries_for_candidate):
+        retry_index = 0
+        while retry_index < max_retries_for_candidate:
             attempt_counter += 1
             max_attempts = max(max_attempts, attempt_counter)
 
@@ -655,7 +788,20 @@ class FallbackOrchestrator:
                     f"  [{request_id[:8] if request_id else 'N/A'}] -> {provider.name} (retry {retry_index})"
                 )
 
-            candidate_record_id = candidate_record_map[(candidate_index, retry_index)]
+            # 获取候选记录 ID
+            # 正常情况下 record_key = (candidate_index, retry_index)
+            # 整流重试时 retry_index 可能超出预创建范围，复用最后一个有效记录
+            record_key = (candidate_index, retry_index)
+            if record_key not in candidate_record_map:
+                # 整流重试：复用该候选的最后一个有效记录（通常是 retry_index=0）
+                # 这样整流后的成功/失败会覆盖之前的记录状态
+                fallback_key = (candidate_index, 0)
+                candidate_record_id = candidate_record_map.get(fallback_key, "")
+                logger.debug(
+                    f"  [{request_id}] 整流重试：复用记录 {fallback_key} -> {candidate_record_id[:8] if candidate_record_id else 'N/A'}"
+                )
+            else:
+                candidate_record_id = candidate_record_map[record_key]
 
             try:
                 response = await self._try_single_candidate(
@@ -690,9 +836,20 @@ class FallbackOrchestrator:
                     request_id=request_id,
                     attempt=attempt_counter,
                     max_attempts=max_attempts,
+                    request_body_ref=request_body_ref,
                 )
 
                 if action == "continue":
+                    # 检查是否刚完成整流，需要额外重试一次
+                    if request_body_ref and request_body_ref.get("_rectified_this_turn", False):
+                        # 清除标记，扩展重试上限以允许整流后的请求发出
+                        # 使用 max() 确保不会减少已有的重试次数
+                        request_body_ref["_rectified_this_turn"] = False
+                        max_retries_for_candidate = max(max_retries_for_candidate, retry_index + 2)
+                        logger.debug(
+                            f"  [{request_id}] 整流后扩展重试次数至 {max_retries_for_candidate}"
+                        )
+                    retry_index += 1
                     continue
                 elif action == "break":
                     break
@@ -704,6 +861,10 @@ class FallbackOrchestrator:
                         "attempt_counter": attempt_counter,
                         "max_attempts": max_attempts,
                     }
+                else:
+                    # 未知 action，安全起见跳出循环
+                    logger.warning(f"  [{request_id}] 未知 action: {action}，跳出重试")
+                    break
 
         return {
             "success": False,
@@ -826,6 +987,7 @@ class FallbackOrchestrator:
         request_id: Optional[str] = None,
         is_stream: bool = False,
         capability_requirements: Optional[Dict[str, bool]] = None,
+        request_body_ref: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Any, str, Optional[str], Optional[str], Optional[str], Optional[str]]:
         """
         执行请求，并在失败时自动故障转移（缓存感知）
@@ -838,6 +1000,7 @@ class FallbackOrchestrator:
             request_id: 请求 ID（用于日志）
             is_stream: 是否是流式请求，如果为 True 则过滤不支持流式的 Provider
             capability_requirements: 能力需求（用于过滤不满足能力要求的 Key）
+            request_body_ref: 请求体引用容器（用于 Thinking 签名错误重试）
 
         Returns:
             (请求响应, 实际Provider名称, RequestTraceAttempt ID, provider_id, endpoint_id, key_id)
@@ -895,4 +1058,5 @@ class FallbackOrchestrator:
             affinity_key=affinity_key,
             global_model_id=global_model_id,
             is_stream=is_stream,
+            request_body_ref=request_body_ref,
         )

@@ -165,6 +165,9 @@ class RequestCandidateService:
             candidate.latency_ms = latency_ms
             candidate.concurrent_requests = concurrent_requests
             candidate.finished_at = datetime.now(timezone.utc)
+            # 成功时清空错误字段（可能是整流重试后成功，之前记录过错误）
+            candidate.error_type = None
+            candidate.error_message = None
             if extra_data:
                 candidate.extra_data = {**(candidate.extra_data or {}), **extra_data}
             # 关键状态更新：立即提交，不使用批量提交

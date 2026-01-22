@@ -56,6 +56,7 @@ from src.core.exceptions import (
     ProviderNotAvailableException,
     ProviderRateLimitException,
     ProviderTimeoutException,
+    ThinkingSignatureException,
 )
 from src.core.logger import logger
 from src.database import get_db
@@ -303,7 +304,12 @@ class CliMessageHandlerBase(BaseMessageHandler):
         """
         logger.debug(f"开始流式响应处理 ({self.FORMAT_ID})")
 
+        # 可变请求体容器：允许 orchestrator 在遇到 Thinking 签名错误时整流请求体后重试
+        # 结构: {"body": 实际请求体, "_rectified": 是否已整流, "_rectified_this_turn": 本轮是否整流}
+        request_body_ref: Dict[str, Any] = {"body": original_request_body}
+
         # 使用子类实现的方法提取 model（不同 API 格式的 model 位置不同）
+        # 注意：使用 original_request_body，因为整流只修改 messages，不影响 model 字段
         model = self.extract_model_from_request(original_request_body, path_params)
 
         # 创建流上下文
@@ -327,7 +333,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 provider,
                 endpoint,
                 key,
-                original_request_body,
+                request_body_ref["body"],  # 使用容器中的请求体
                 original_headers,
                 query_params,
                 candidate,
@@ -356,6 +362,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 request_id=self.request_id,
                 is_stream=True,
                 capability_requirements=capability_requirements or None,
+                request_body_ref=request_body_ref,  # 传递容器引用
             )
 
             # 更新上下文（确保 provider 信息已设置，用于 streaming 状态更新）
@@ -368,6 +375,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 ctx.endpoint_id = endpoint_id
             if not ctx.key_id:
                 ctx.key_id = key_id
+            # 同步整流状态（如果请求体被整流过）
+            ctx.rectified = request_body_ref.get("_rectified", False)
 
             # 创建后台任务记录统计
             background_tasks = BackgroundTasks()
@@ -395,6 +404,13 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 headers=client_headers,
                 background=background_tasks,
             )
+
+        except ThinkingSignatureException as e:
+            # Thinking 签名错误：orchestrator 层已处理整流重试但仍失败
+            # 记录 original_request_body（客户端原始请求），便于排查问题根因
+            self._log_request_error("流式请求失败（签名错误）", e)
+            await self._record_stream_failure(ctx, e, original_headers, original_request_body)
+            raise
 
         except Exception as e:
             self._log_request_error("流式请求失败", e)
@@ -856,7 +872,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
                             "上游服务返回了非预期的响应格式",
                             provider_name=str(provider.name),
                             upstream_status=200,
-                            upstream_response=normalized_line[:500] if normalized_line else "(empty)",
+                            upstream_response=(
+                                normalized_line[:500] if normalized_line else "(empty)"
+                            ),
                         )
 
                     if not normalized_line or normalized_line.startswith(":"):
@@ -1350,7 +1368,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     # 记录失败的 Usage，但使用已收到的预估 token 信息（来自 message_start）
                     # 这样即使请求中断，也能记录预估成本
                     # 失败时返回给客户端的是 JSON 错误响应，如果没有设置则使用默认值
-                    client_response_headers = ctx.client_response_headers or {"content-type": "application/json"}
+                    client_response_headers = ctx.client_response_headers or {
+                        "content-type": "application/json"
+                    }
                     await bg_telemetry.record_failure(
                         provider=ctx.provider_name or "unknown",
                         model=ctx.model,
@@ -1385,11 +1405,13 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
                     # 流式成功时，返回给客户端的是提供商响应头 + SSE 必需头
                     client_response_headers = filter_proxy_response_headers(ctx.response_headers)
-                    client_response_headers.update({
-                        "Cache-Control": "no-cache, no-transform",
-                        "X-Accel-Buffering": "no",
-                        "content-type": "text/event-stream",
-                    })
+                    client_response_headers.update(
+                        {
+                            "Cache-Control": "no-cache, no-transform",
+                            "X-Accel-Buffering": "no",
+                            "content-type": "text/event-stream",
+                        }
+                    )
 
                     total_cost = await bg_telemetry.record_success(
                         provider=ctx.provider_name,
@@ -1439,11 +1461,13 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     # 计算候选自身的 TTFB
                     candidate_first_byte_time_ms: Optional[int] = None
                     if ctx.first_byte_time_ms is not None:
-                        candidate_first_byte_time_ms = RequestCandidateService.calculate_candidate_ttfb(
-                            db=bg_db,
-                            candidate_id=ctx.attempt_id,
-                            request_start_time=self.start_time,
-                            global_first_byte_time_ms=ctx.first_byte_time_ms,
+                        candidate_first_byte_time_ms = (
+                            RequestCandidateService.calculate_candidate_ttfb(
+                                db=bg_db,
+                                candidate_id=ctx.attempt_id,
+                                request_start_time=self.start_time,
+                                global_first_byte_time_ms=ctx.first_byte_time_ms,
+                            )
                         )
 
                     # 根据状态码决定是成功还是失败
@@ -1451,7 +1475,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     # 503 = 服务不可用（如流中断），应标记为失败
                     if ctx.status_code and ctx.status_code >= 400:
                         # 请求链路追踪使用 upstream_response（原始响应），回退到 error_message（友好消息）
-                        trace_error_message = ctx.upstream_response or ctx.error_message or f"HTTP {ctx.status_code}"
+                        trace_error_message = (
+                            ctx.upstream_response or ctx.error_message or f"HTTP {ctx.status_code}"
+                        )
                         extra_data = {
                             "stream_completed": False,
                             "chunk_count": ctx.chunk_count,
@@ -1476,6 +1502,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
                             "chunk_count": ctx.chunk_count,
                             "data_count": ctx.data_count,
                         }
+                        if ctx.rectified:
+                            extra_data["rectified"] = True
                         if candidate_first_byte_time_ms is not None:
                             extra_data["first_byte_time_ms"] = candidate_first_byte_time_ms
                         RequestCandidateService.mark_candidate_success(
@@ -1504,7 +1532,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
         response_time_ms = int((time.time() - self.start_time) * 1000)
 
         status_code = 503
-        if isinstance(error, ProviderAuthException):
+        if isinstance(error, ThinkingSignatureException):
+            status_code = 400
+        elif isinstance(error, ProviderAuthException):
             status_code = 503
         elif isinstance(error, ProviderRateLimitException):
             status_code = 429
@@ -1574,6 +1604,10 @@ class CliMessageHandlerBase(BaseMessageHandler):
         mapped_model_result = None  # 映射后的目标模型名（用于 Usage 记录）
         response_metadata_result: Dict[str, Any] = {}  # Provider 响应元数据
 
+        # 可变请求体容器：允许 orchestrator 在遇到 Thinking 签名错误时整流请求体后重试
+        # 结构: {"body": 实际请求体, "_rectified": 是否已整流, "_rectified_this_turn": 本轮是否整流}
+        request_body_ref: Dict[str, Any] = {"body": original_request_body}
+
         async def sync_request_func(
             provider: Provider,
             endpoint: ProviderEndpoint,
@@ -1595,9 +1629,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
             # 应用模型映射到请求体（子类可覆盖此方法处理不同格式）
             if mapped_model:
                 mapped_model_result = mapped_model  # 保存映射后的模型名，用于 Usage 记录
-                request_body = self.apply_mapped_model(original_request_body, mapped_model)
+                request_body = self.apply_mapped_model(request_body_ref["body"], mapped_model)
             else:
-                request_body = original_request_body
+                request_body = dict(request_body_ref["body"])
 
             # 准备发送给 Provider 的请求体（子类可覆盖以移除不需要的字段）
             request_body = self.prepare_provider_request_body(request_body)
@@ -1749,6 +1783,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 request_func=sync_request_func,
                 request_id=self.request_id,
                 capability_requirements=capability_requirements or None,
+                request_body_ref=request_body_ref,  # 传递容器引用
             )
 
             provider_name = actual_provider_name
@@ -1829,6 +1864,24 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 content=response_json,
                 headers=client_response_headers,
             )
+
+        except ThinkingSignatureException as e:
+            # Thinking 签名错误：orchestrator 层已处理整流重试但仍失败
+            # 记录实际发送给 Provider 的请求体，便于排查问题根因
+            response_time_ms = int((time.time() - sync_start_time) * 1000)
+            actual_request_body = provider_request_body or original_request_body
+            await self.telemetry.record_failure(
+                provider=provider_name or "unknown",
+                model=model,
+                response_time_ms=response_time_ms,
+                status_code=e.status_code or 400,
+                request_headers=original_headers,
+                request_body=actual_request_body,
+                error_message=str(e),
+                is_stream=False,
+                api_format=api_format,
+            )
+            raise
 
         except Exception as e:
             response_time_ms = int((time.time() - sync_start_time) * 1000)

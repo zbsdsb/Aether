@@ -156,7 +156,7 @@ async def get_usage_records(
       input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
       cost, actual_cost, rate_multiplier, response_time_ms, first_byte_time_ms, created_at, is_stream,
       input_price_per_1m, output_price_per_1m, cache_creation_price_per_1m, cache_read_price_per_1m,
-      status_code, error_message, status, has_fallback, api_format, api_key_name, request_metadata
+      status_code, error_message, status, has_fallback, has_retry, has_rectified, api_format, api_key_name, request_metadata
     - `total`: 符合条件的总记录数
     - `limit`: 当前分页限制
     - `offset`: 当前分页偏移量
@@ -719,6 +719,7 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
         request_ids = [usage.request_id for usage, _, _, _, _ in records if usage.request_id]
         fallback_map = {}
         retry_map = {}
+        rectified_map = {}
         if request_ids:
             # 查询每个请求的候选执行情况
             # 只统计实际执行的候选（success 或 failed），不包括 skipped/pending/available
@@ -727,6 +728,7 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
                     RequestCandidate.request_id,
                     RequestCandidate.candidate_index,
                     RequestCandidate.retry_index,
+                    RequestCandidate.extra_data,
                 )
                 .filter(
                     RequestCandidate.request_id.in_(request_ids),
@@ -736,9 +738,9 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
             )
 
             # 按 request_id 分组分析
-            request_candidates: dict[str, list[tuple[int, int]]] = defaultdict(list)
-            for req_id, candidate_idx, retry_idx in executed_candidates:
-                request_candidates[req_id].append((candidate_idx, retry_idx))
+            request_candidates: dict[str, list[tuple[int, int, dict]]] = defaultdict(list)
+            for req_id, candidate_idx, retry_idx, extra_data in executed_candidates:
+                request_candidates[req_id].append((candidate_idx, retry_idx, extra_data or {}))
 
             for req_id, candidates in request_candidates.items():
                 # 提取所有不同的 candidate_index
@@ -754,6 +756,11 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
                         has_retry = True
                         break
                 retry_map[req_id] = has_retry
+
+                # 检查是否有整流：任意候选的 extra_data 中有 rectified=True
+                rectified_map[req_id] = any(
+                    c[2].get("rectified", False) for c in candidates
+                )
 
         context.add_audit_metadata(
             action="usage_records",
@@ -834,6 +841,7 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
                     "status": usage.status,  # 请求状态: pending, streaming, completed, failed
                     "has_fallback": fallback_map.get(usage.request_id, False),
                     "has_retry": retry_map.get(usage.request_id, False),
+                    "has_rectified": rectified_map.get(usage.request_id, False),
                     "api_format": usage.api_format
                     or (endpoint.api_format if endpoint and endpoint.api_format else None),
                     "api_key_name": provider_api_key.name if provider_api_key else None,

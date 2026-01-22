@@ -31,6 +31,7 @@ from src.api.handlers.base.utils import (
 )
 from src.config.constants import StreamDefaults
 from src.config.settings import config
+from src.core.api_format import FormatConversionError, converter_registry
 from src.core.exceptions import (
     EmbeddedErrorException,
     ProviderNotAvailableException,
@@ -296,6 +297,31 @@ class StreamProcessor:
                             error_status=parsed.error_type,
                         )
 
+                    # 预读阶段格式转换试验：首字节前可 failover
+                    # 如果需要跨格式转换，对首个有效数据块做试转换
+                    if ctx.needs_conversion and isinstance(data, dict):
+                        client_format = (ctx.client_api_format or "").upper()
+                        provider_format = (ctx.provider_api_format or "").upper()
+                        if client_format and provider_format:
+                            try:
+                                # 试转换：传 state=None，不保留状态
+                                # 如果失败触发 failover，下一个候选会使用干净的 state
+                                converter_registry.convert_stream_chunk_strict(
+                                    data,
+                                    provider_format,
+                                    client_format,
+                                    state=None,
+                                )
+                            except FormatConversionError as conv_err:
+                                # 格式转换失败：抛出异常触发 failover
+                                logger.debug(
+                                    f"  [{self.request_id}] 预读阶段格式转换试验失败: "
+                                    f"Provider={provider.name}, "
+                                    f"{provider_format} -> {client_format}, "
+                                    f"error={conv_err}"
+                                )
+                                raise
+
                     # 预读到有效数据，没有错误，停止预读
                     should_stop = True
                     break
@@ -323,7 +349,12 @@ class StreamProcessor:
                     base_url=endpoint.base_url,
                 )
 
-        except (EmbeddedErrorException, ProviderNotAvailableException, ProviderTimeoutException):
+        except (
+            EmbeddedErrorException,
+            ProviderNotAvailableException,
+            ProviderTimeoutException,
+            FormatConversionError,
+        ):
             # 重新抛出可重试的 Provider 异常，触发故障转移
             raise
         except (OSError, IOError) as e:

@@ -297,6 +297,8 @@ class StreamTelemetryRecorder:
             "stream_completed": ctx.is_success(),
             "data_count": ctx.data_count,
         }
+        if ctx.rectified:
+            extra_data["rectified"] = True
         if ctx.first_byte_time_ms is not None:
             # 计算候选自身的 TTFB
             first_byte_time_ms = RequestCandidateService.calculate_candidate_ttfb(

@@ -1096,7 +1096,8 @@ class ProviderAPIKey(Base):
     )
 
     # API 格式支持列表（核心字段）
-    api_formats = Column(JSON, nullable=False, default=list)  # ["CLAUDE", "CLAUDE_CLI"]
+    # None 表示支持所有格式（兼容历史数据），空列表 [] 表示不支持任何格式
+    api_formats = Column(JSON, nullable=True, default=list)  # ["CLAUDE", "CLAUDE_CLI"]
 
     # API密钥信息
     api_key = Column(String(500), nullable=False)  # API密钥（加密存储）

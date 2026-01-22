@@ -19,6 +19,7 @@ from src.core.exceptions import (
     ProviderException,
     ProviderNotAvailableException,
     ProviderRateLimitException,
+    ThinkingSignatureException,
     UpstreamClientException,
 )
 from src.core.logger import logger
@@ -149,6 +150,30 @@ class ErrorClassifier:
         "parameter is not supported",  # 参数不支持
         "feature is not supported",  # 功能不支持
         "not available for this model",  # 此模型不可用
+    )
+
+    # Thinking 块相关错误模式 - 这类错误需要清洗 thinking 块或调整请求
+    # 场景：多供应商环境下，Provider A 生成的 thinking 块被发送到 Provider B 时签名验证失败
+    THINKING_ERROR_PATTERNS: Tuple[str, ...] = (
+        # 签名错误：跨 Provider 发送 thinking 块时，签名无法被目标 Provider 验证
+        # 例: "invalid `signature` in `thinking` block: signature is for a different request"
+        "invalid `signature` in `thinking` block",
+        "invalid signature in thinking block",
+        # 签名字段缺失或格式错误
+        # 例: "messages.0.content.0.thinking.signature: field required"
+        "thinking.signature: field required",
+        "thinking.signature:",  # 匹配路径模式 messages.X.content.X.thinking.signature: xxx
+        "signature verification failed",
+        # 结构错误：启用 thinking 时，有 tool_use 的 assistant 消息必须以 thinking 块开头
+        # 例: "when `thinking` is enabled, the first content block ... must start with a `thinking` block"
+        "must start with a thinking block",
+        # 例: "expected thinking or redacted_thinking, found tool_use"
+        "expected thinking or redacted_thinking",
+        "expected `thinking`",
+        "expected thinking, found",  # 统一匹配 "found tool_use/text" 等变体
+        "expected `thinking`, found",  # 带反引号变体
+        "expected redacted_thinking, found",
+        "expected `redacted_thinking`, found",
     )
 
     def _parse_error_response(self, error_text: Optional[str]) -> Dict[str, Any]:
@@ -294,6 +319,25 @@ class ErrorClassifier:
 
         search_text = error_text.lower()
         return any(pattern.lower() in search_text for pattern in self.COMPATIBILITY_ERROR_PATTERNS)
+
+    def _is_thinking_error(self, error_text: Optional[str]) -> bool:
+        """
+        检测错误响应是否为 Thinking 块相关错误（签名错误或结构错误）
+
+        这类错误通常发生在：
+        1. 多供应商场景下，当一个供应商生成的 thinking 块被发送到另一个供应商时，签名验证会失败
+        2. 请求体中有 tool_use 但没有以 thinking 块开头时，Claude 会报结构错误
+
+        Args:
+            error_text: 错误响应文本
+
+        Returns:
+            是否为 Thinking 相关错误
+        """
+        if not error_text:
+            return False
+        search_text = error_text.lower()
+        return any(p.lower() in search_text for p in self.THINKING_ERROR_PATTERNS)
 
     def _extract_error_message(self, error_text: Optional[str]) -> Optional[str]:
         """
@@ -461,6 +505,15 @@ class ErrorClassifier:
                     if error.response and error.response.headers.get("retry-after")
                     else None
                 ),
+            )
+
+        # 400 错误：检查是否为 Thinking 块签名错误
+        if status == 400 and self._is_thinking_error(error_response_text):
+            logger.info(f"检测到 Thinking 块错误: {extracted_message}")
+            return ThinkingSignatureException(
+                message=extracted_message or "Thinking block signature validation failed",
+                provider_name=provider_name,
+                upstream_error=error_response_text,
             )
 
         # 400 错误：先检查是否为 Provider 兼容性错误（应触发故障转移）

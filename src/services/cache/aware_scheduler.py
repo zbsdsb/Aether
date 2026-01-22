@@ -1084,10 +1084,12 @@ class CacheAwareScheduler:
                     continue
 
                 # Key 直属 Provider，通过 api_formats 按端点格式筛选
+                # api_formats=None 视为"全支持"（兼容历史数据）
                 active_keys = [
                     key
                     for key in provider.api_keys
-                    if key.is_active and endpoint_format_str in (key.api_formats or [])
+                    if key.is_active
+                    and (key.api_formats is None or endpoint_format_str in key.api_formats)
                 ]
                 if not active_keys:
                     continue
@@ -1264,21 +1266,31 @@ class CacheAwareScheduler:
         """
         根据优先级模式对候选列表排序（数字越小越优先）
 
-        - provider: 提供商优先模式，保持原有顺序（按 Provider.provider_priority -> Key.internal_priority 排序，已由查询保证）
-                   Key.internal_priority 表示 Endpoint 内部优先级，同优先级内通过哈希分散负载均衡
-        - global_key: 全局 Key 优先模式，按 Key.global_priority_by_format 升序排序（数字小的优先）
-                     有优先级的优先，NULL 的排后面
-                     同优先级内通过哈希分散实现负载均衡
+        排序规则：
+        1. exact 候选（needs_conversion=False）优先于 convertible 候选
+        2. 在同一类型内，按优先级模式排序：
+           - provider: 提供商优先模式，按 Provider.provider_priority -> Key.internal_priority 排序
+           - global_key: 全局 Key 优先模式，按 Key.global_priority_by_format 排序
         """
         if not candidates:
             return candidates
 
-        if self.priority_mode == self.PRIORITY_MODE_GLOBAL_KEY:
-            # 全局 Key 优先模式：按 global_priority 分组，同组内哈希分散负载均衡
-            return self._sort_by_global_priority_with_hash(candidates, affinity_key, api_format)
+        # 按 needs_conversion 分组：exact 优先
+        exact_candidates = [c for c in candidates if not c.needs_conversion]
+        convertible_candidates = [c for c in candidates if c.needs_conversion]
 
-        # 提供商优先模式：保持原有顺序（provider_priority 排序已经由查询保证）
-        return candidates
+        if self.priority_mode == self.PRIORITY_MODE_GLOBAL_KEY:
+            # 全局 Key 优先模式：分别对两组排序后合并
+            sorted_exact = self._sort_by_global_priority_with_hash(
+                exact_candidates, affinity_key, api_format
+            )
+            sorted_convertible = self._sort_by_global_priority_with_hash(
+                convertible_candidates, affinity_key, api_format
+            )
+            return sorted_exact + sorted_convertible
+
+        # 提供商优先模式：exact 在前，convertible 在后（各组内部顺序已由构建时保证）
+        return exact_candidates + convertible_candidates
 
     def _sort_by_global_priority_with_hash(
         self,

@@ -45,6 +45,7 @@ from src.core.exceptions import (
     ProviderNotAvailableException,
     ProviderRateLimitException,
     ProviderTimeoutException,
+    ThinkingSignatureException,
 )
 from src.core.logger import logger
 from src.models.database import (
@@ -298,10 +299,16 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         model = getattr(converted_request, "model", original_request_body.get("model", "unknown"))
         api_format = self.allowed_api_formats[0]
 
+        # 可变请求体容器：允许 orchestrator 在遇到 Thinking 签名错误时整流请求体后重试
+        # 结构: {"body": 实际请求体, "_rectified": 是否已整流, "_rectified_this_turn": 本轮是否整流}
+        request_body_ref: Dict[str, Any] = {"body": original_request_body}
+
         # 创建类型安全的流式上下文
         ctx = StreamContext(model=model, api_format=api_format)
         ctx.request_id = self.request_id
-        ctx.client_api_format = api_format.value if hasattr(api_format, "value") else str(api_format)
+        ctx.client_api_format = (
+            api_format.value if hasattr(api_format, "value") else str(api_format)
+        )
 
         # 创建更新状态的回调闭包（可以访问 ctx）
         def update_streaming_status() -> None:
@@ -327,7 +334,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 provider,
                 endpoint,
                 key,
-                original_request_body,
+                request_body_ref["body"],  # 使用容器中的请求体
                 original_headers,
                 query_params,
                 candidate,
@@ -356,6 +363,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 request_id=self.request_id,
                 is_stream=True,
                 capability_requirements=capability_requirements or None,
+                request_body_ref=request_body_ref,  # 传递容器引用
             )
 
             # 更新上下文
@@ -364,6 +372,8 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             ctx.provider_id = provider_id
             ctx.endpoint_id = endpoint_id
             ctx.key_id = key_id
+            # 同步整流状态（如果请求体被整流过）
+            ctx.rectified = request_body_ref.get("_rectified", False)
 
             # 创建遥测记录器
             telemetry_recorder = StreamTelemetryRecorder(
@@ -404,6 +414,13 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 headers=client_headers,
                 background=background_tasks,
             )
+
+        except ThinkingSignatureException as e:
+            # Thinking 签名错误：orchestrator 层已处理整流重试但仍失败
+            # 记录 original_request_body（客户端原始请求），便于排查问题根因
+            self._log_request_error("流式请求失败（签名错误）", e)
+            await self._record_stream_failure(ctx, e, original_headers, original_request_body)
+            raise
 
         except Exception as e:
             self._log_request_error("流式请求失败", e)
@@ -622,7 +639,9 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         response_time_ms = self.elapsed_ms()
 
         status_code = 503
-        if isinstance(error, ProviderAuthException):
+        if isinstance(error, ThinkingSignatureException):
+            status_code = 400
+        elif isinstance(error, ProviderAuthException):
             status_code = 503
         elif isinstance(error, ProviderRateLimitException):
             status_code = 429
@@ -668,6 +687,10 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         model = getattr(converted_request, "model", original_request_body.get("model", "unknown"))
         api_format = self.allowed_api_formats[0]
 
+        # 可变请求体容器：允许 orchestrator 在遇到 Thinking 签名错误时整流请求体后重试
+        # 结构: {"body": 实际请求体, "_rectified": 是否已整流, "_rectified_this_turn": 本轮是否整流}
+        request_body_ref: Dict[str, Any] = {"body": original_request_body}
+
         # 用于跟踪的变量
         provider_name: Optional[str] = None
         response_json: Optional[Dict[str, Any]] = None
@@ -709,9 +732,9 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             # 应用模型映射
             if mapped_model:
                 mapped_model_result = mapped_model  # 保存映射后的模型名，用于 Usage 记录
-                request_body = self.apply_mapped_model(original_request_body, mapped_model)
+                request_body = self.apply_mapped_model(request_body_ref["body"], mapped_model)
             else:
-                request_body = dict(original_request_body)
+                request_body = dict(request_body_ref["body"])
 
             # 跨格式：先做请求体转换（严格模式，失败触发 failover）
             if needs_conversion:
@@ -874,7 +897,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 response_json = converter_registry.convert_response_strict(
                     response_json,
                     provider_api_format,
-                    str(api_format),
+                    client_api_format,
                 )
 
             return response_json if isinstance(response_json, dict) else {}
@@ -900,6 +923,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 request_func=sync_request_func,
                 request_id=self.request_id,
                 capability_requirements=capability_requirements or None,
+                request_body_ref=request_body_ref,  # 传递容器引用
             )
 
             provider_name = actual_provider_name
@@ -964,6 +988,23 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 content=response_json,
                 headers=client_response_headers,
             )
+
+        except ThinkingSignatureException as e:
+            # Thinking 签名错误：orchestrator 层已处理整流重试但仍失败
+            # 记录实际发送给 Provider 的请求体，便于排查问题根因
+            response_time_ms = self.elapsed_ms()
+            actual_request_body = provider_request_body or original_request_body
+            await self.telemetry.record_failure(
+                provider=provider_name or "unknown",
+                model=model,
+                response_time_ms=response_time_ms,
+                status_code=e.status_code or 400,
+                request_headers=original_headers,
+                request_body=actual_request_body,
+                error_message=str(e),
+                is_stream=False,
+            )
+            raise
 
         except Exception as e:
             response_time_ms = self.elapsed_ms()

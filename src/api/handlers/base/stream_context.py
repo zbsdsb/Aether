@@ -81,6 +81,9 @@ class StreamContext:
     # Provider 响应元数据（CLI handler 需要）
     response_metadata: Dict[str, Any] = field(default_factory=dict)
 
+    # 整流标记（Thinking Rectifier）
+    rectified: bool = False  # 请求是否经过整流（移除 thinking 块后重试）
+
     # 流式处理统计
     data_count: int = 0
     chunk_count: int = 0

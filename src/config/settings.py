@@ -173,6 +173,14 @@ class Config:
         self.stream_stats_delay = float(os.getenv("STREAM_STATS_DELAY", "0.1"))
         self.stream_first_byte_timeout = float(os.getenv("STREAM_FIRST_BYTE_TIMEOUT", "30.0"))
 
+        # Thinking 整流器配置
+        # THINKING_RECTIFIER_ENABLED: 是否启用 Thinking 整流器
+        #   当遇到跨 Provider 的 thinking 签名错误时，自动整流请求体后重试
+        #   默认启用，设为 false 可禁用此功能
+        self.thinking_rectifier_enabled = (
+            os.getenv("THINKING_RECTIFIER_ENABLED", "true").lower() == "true"
+        )
+
         # 请求体读取超时（秒）
         # REQUEST_BODY_TIMEOUT: 等待客户端发送完整请求体的超时时间
         #   默认 60 秒，防止客户端发送不完整请求导致连接卡死
