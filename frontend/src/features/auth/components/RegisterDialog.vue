@@ -135,7 +135,14 @@
             required
             disable-autofill
             :disabled="isLoading"
+            :class="usernameError ? 'border-destructive' : ''"
           />
+          <p
+            v-if="usernameError"
+            class="text-xs text-destructive"
+          >
+            {{ usernameError }}
+          </p>
         </div>
 
         <!-- Password -->
@@ -367,6 +374,17 @@ const sendCodeButtonText = computed(() => {
   return '发送验证码'
 })
 
+// 用户名验证
+const usernameRegex = /^[a-zA-Z0-9_.\-]+$/
+const usernameError = computed(() => {
+  const username = formData.value.username.trim()
+  if (!username) return ''
+  if (username.length < 3) return '用户名长度至少为3个字符'
+  if (username.length > 30) return '用户名长度不能超过30个字符'
+  if (!usernameRegex.test(username)) return '用户名只能包含字母、数字、下划线、连字符和点号'
+  return ''
+})
+
 const canSubmit = computed(() => {
   // 基本信息：用户名和密码必填
   const hasBasicInfo =
@@ -375,6 +393,9 @@ const canSubmit = computed(() => {
     formData.value.confirmPassword
 
   if (!hasBasicInfo) return false
+
+  // 用户名格式验证
+  if (usernameError.value) return false
 
   // 如果需要邮箱验证，邮箱和验证都必须完成
   if (props.requireEmailVerification) {
