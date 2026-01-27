@@ -103,8 +103,8 @@ class RegisterRequest(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("用户名不能为空")
-        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
-            raise ValueError("用户名只能包含字母、数字、下划线和短横线")
+        if not re.match(r"^[a-zA-Z0-9_.\-]+$", v):
+            raise ValueError("用户名只能包含字母、数字、下划线、连字符和点号")
         return v
 
     @classmethod
@@ -279,8 +279,8 @@ class CreateUserRequest(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("用户名不能为空")
-        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
-            raise ValueError("用户名只能包含字母、数字、下划线和短横线")
+        if not re.match(r"^[a-zA-Z0-9_.\-]+$", v):
+            raise ValueError("用户名只能包含字母、数字、下划线、连字符和点号")
         return v
 
     @classmethod

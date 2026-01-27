@@ -53,7 +53,20 @@
               data-form-type="other"
               required
               class="h-10"
+              :class="usernameError ? 'border-destructive' : ''"
             />
+            <p
+              v-if="usernameError"
+              class="text-xs text-destructive"
+            >
+              {{ usernameError }}
+            </p>
+            <p
+              v-else
+              class="text-xs text-muted-foreground"
+            >
+              3-30个字符，允许字母、数字、下划线、连字符和点号
+            </p>
           </div>
 
           <div class="space-y-2">
@@ -468,13 +481,25 @@ const { isEditMode, handleDialogUpdate, handleCancel } = useFormDialog({
   resetForm,
 })
 
+// 用户名验证
+const usernameRegex = /^[a-zA-Z0-9_.\-]+$/
+const usernameError = computed(() => {
+  const username = form.value.username.trim()
+  if (!username) return ''
+  if (username.length < 3) return '用户名长度至少为3个字符'
+  if (username.length > 30) return '用户名长度不能超过30个字符'
+  if (!usernameRegex.test(username)) return '用户名只能包含字母、数字、下划线、连字符和点号'
+  return ''
+})
+
 // 表单验证
 const isFormValid = computed(() => {
   const hasUsername = form.value.username.trim().length > 0
+  const usernameValid = !usernameError.value
   const hasPassword = isEditMode.value || form.value.password.length >= 6
   // 编辑模式下如果填写了密码，必须确认密码一致
   const passwordConfirmed = !isEditMode.value || form.value.password.length === 0 || form.value.password === form.value.confirmPassword
-  return hasUsername && hasPassword && passwordConfirmed
+  return hasUsername && usernameValid && hasPassword && passwordConfirmed
 })
 
 // 加载访问控制选项

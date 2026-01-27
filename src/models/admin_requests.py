@@ -314,8 +314,8 @@ class UpdateUserRequest(BaseModel):
         if v is None:
             return v
 
-        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
-            raise ValueError("用户名只能包含字母、数字、下划线和连字符")
+        if not re.match(r"^[a-zA-Z0-9_.\-]+$", v):
+            raise ValueError("用户名只能包含字母、数字、下划线、连字符和点号")
 
         return v
 
