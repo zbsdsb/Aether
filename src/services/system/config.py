@@ -110,6 +110,10 @@ class SystemConfigService:
             "value": 1000,
             "description": "每批次清理的记录数，避免单次操作过大影响数据库性能",
         },
+        "enable_provider_checkin": {
+            "value": True,
+            "description": "是否启用 Provider 自动签到任务，每天凌晨 1:05 执行",
+        },
         "provider_priority_mode": {
             "value": "provider",
             "description": "优先级策略：provider(提供商优先模式) 或 global_key(全局Key优先模式)",

@@ -189,13 +189,13 @@ async def lifespan(app: FastAPI):
 
     # 启动月卡额度重置调度器（仅一个 worker 执行）
     logger.info("启动月卡额度重置调度器...")
-    from src.services.system.cleanup_scheduler import get_cleanup_scheduler
+    from src.services.system.maintenance_scheduler import get_maintenance_scheduler
     from src.services.usage.quota_scheduler import get_quota_scheduler
     from src.services.model.fetch_scheduler import get_model_fetch_scheduler
     from src.utils.task_coordinator import StartupTaskCoordinator
 
     quota_scheduler = get_quota_scheduler()
-    cleanup_scheduler = get_cleanup_scheduler()
+    maintenance_scheduler = get_maintenance_scheduler()
     model_fetch_scheduler = get_model_fetch_scheduler()
     task_coordinator = StartupTaskCoordinator(redis_client)
 
@@ -207,14 +207,14 @@ async def lifespan(app: FastAPI):
         logger.info("检测到其他 worker 已运行额度调度器，本实例跳过")
         quota_scheduler = None
 
-    # 启动清理调度器
-    cleanup_scheduler_active = await task_coordinator.acquire("cleanup_scheduler")
-    if cleanup_scheduler_active:
-        logger.info("启动使用记录清理调度器...")
-        await cleanup_scheduler.start()
+    # 启动维护调度器
+    maintenance_scheduler_active = await task_coordinator.acquire("maintenance_scheduler")
+    if maintenance_scheduler_active:
+        logger.info("启动系统维护调度器...")
+        await maintenance_scheduler.start()
     else:
-        logger.info("检测到其他 worker 已运行清理调度器，本实例跳过")
-        cleanup_scheduler = None
+        logger.info("检测到其他 worker 已运行维护调度器，本实例跳过")
+        maintenance_scheduler = None
 
     # 启动模型自动获取调度器
     model_fetch_scheduler_active = await task_coordinator.acquire("model_fetch_scheduler")
@@ -248,11 +248,11 @@ async def lifespan(app: FastAPI):
     await shutdown_batch_committer()
     logger.info("[OK] 批量提交器已停止，所有待提交数据已保存")
 
-    # 停止清理调度器
-    if cleanup_scheduler:
-        logger.info("停止使用记录清理调度器...")
-        await cleanup_scheduler.stop()
-        await task_coordinator.release("cleanup_scheduler")
+    # 停止维护调度器
+    if maintenance_scheduler:
+        logger.info("停止系统维护调度器...")
+        await maintenance_scheduler.stop()
+        await task_coordinator.release("maintenance_scheduler")
 
     # 停止月卡额度重置调度器，并释放分布式锁
     logger.info("停止月卡额度重置调度器...")

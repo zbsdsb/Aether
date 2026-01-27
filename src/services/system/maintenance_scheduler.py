@@ -1,14 +1,13 @@
 """
-使用记录清理定时任务
+系统维护定时任务调度器
 
-分级清理策略：
-- detail_log_retention_days: 压缩 request_body 和 response_body 到压缩字段
-- header_retention_days: 清空 request_headers 和 response_headers
-- log_retention_days: 删除整条记录
-
-统计聚合任务：
-- 每天凌晨聚合前一天的统计数据
-- 更新全局统计汇总
+包含以下任务：
+- 统计聚合：每天凌晨聚合前一天的统计数据
+- Provider 签到：每天凌晨执行所有已配置 Provider 的签到
+- 使用记录清理：分级清理策略（压缩、清空、删除）
+- 审计日志清理：定期清理过期的审计日志
+- 连接池监控：定期检查数据库连接池状态
+- Pending 状态清理：清理异常的 Pending 状态记录
 
 使用 APScheduler 进行任务调度，支持时区配置。
 """
@@ -21,7 +20,8 @@ from sqlalchemy.orm import Session
 
 from src.core.logger import logger
 from src.database import create_session
-from src.models.database import AuditLog, Usage
+from src.models.database import AuditLog, Provider, Usage
+from src.services.provider_ops.service import ProviderOpsService
 from src.services.system.config import SystemConfigService
 from src.services.system.scheduler import get_scheduler
 from src.services.system.stats_aggregator import StatsAggregatorService
@@ -29,8 +29,8 @@ from src.services.user.apikey import ApiKeyService
 from src.utils.compression import compress_json
 
 
-class CleanupScheduler:
-    """使用记录清理调度器"""
+class MaintenanceScheduler:
+    """系统维护任务调度器"""
 
     def __init__(self):
         self.running = False
@@ -40,11 +40,11 @@ class CleanupScheduler:
     async def start(self):
         """启动调度器"""
         if self.running:
-            logger.warning("Cleanup scheduler already running")
+            logger.warning("Maintenance scheduler already running")
             return
 
         self.running = True
-        logger.info("使用记录清理调度器已启动")
+        logger.info("系统维护调度器已启动")
 
         scheduler = get_scheduler()
 
@@ -100,6 +100,15 @@ class CleanupScheduler:
             name="审计日志清理",
         )
 
+        # Provider 签到任务 - 凌晨 1:05 执行
+        scheduler.add_cron_job(
+            self._scheduled_provider_checkin,
+            hour=1,
+            minute=5,  # 在统计聚合任务（1:00）之后执行
+            job_id="provider_checkin",
+            name="Provider签到",
+        )
+
         # 启动时执行一次初始化任务
         asyncio.create_task(self._run_startup_tasks())
 
@@ -129,7 +138,7 @@ class CleanupScheduler:
         scheduler = get_scheduler()
         scheduler.stop()
 
-        logger.info("使用记录清理调度器已停止")
+        logger.info("系统维护调度器已停止")
 
     # ========== 任务函数（APScheduler 直接调用异步函数） ==========
 
@@ -157,6 +166,10 @@ class CleanupScheduler:
     async def _scheduled_audit_cleanup(self):
         """审计日志清理任务（定时调用）"""
         await self._perform_audit_cleanup()
+
+    async def _scheduled_provider_checkin(self):
+        """Provider 签到任务（定时调用）"""
+        await self._perform_provider_checkin()
 
     # ========== 实际任务实现 ==========
 
@@ -462,6 +475,89 @@ class CleanupScheduler:
                 db.rollback()
             except Exception:
                 pass
+        finally:
+            db.close()
+
+    async def _perform_provider_checkin(self):
+        """执行 Provider 签到任务
+
+        遍历所有已配置 provider_ops 的 Provider，触发签到。
+        签到会在余额查询时一起执行（先签到再查询余额）。
+        """
+        db = create_session()
+        try:
+            # 检查是否启用签到任务
+            if not SystemConfigService.get_config(db, "enable_provider_checkin", True):
+                logger.info("Provider 签到已禁用，跳过签到任务")
+                return
+
+            # 获取所有已配置 provider_ops 的活跃 Provider（只查询需要的字段）
+            providers = (
+                db.query(Provider.id, Provider.config)
+                .filter(Provider.is_active.is_(True))
+                .all()
+            )
+            provider_ids = [
+                p.id
+                for p in providers
+                if p.config and p.config.get("provider_ops")
+            ]
+
+            if not provider_ids:
+                logger.info("无已配置的 Provider，跳过签到任务")
+                return
+
+            logger.info(f"开始执行 Provider 签到，共 {len(provider_ids)} 个...")
+
+            # 创建 ProviderOpsService 并执行批量余额查询（会触发签到）
+            service = ProviderOpsService(db)
+
+            # 使用信号量限制并发，避免同时发起过多请求
+            concurrency = 3  # 签到任务并发数
+            semaphore = asyncio.Semaphore(concurrency)
+
+            async def _checkin_provider(provider_id: str) -> tuple[str, bool, str]:
+                """执行单个 Provider 的签到"""
+                async with semaphore:
+                    try:
+                        # 触发余额查询（会先执行签到）
+                        result = await service.query_balance(provider_id)
+                        # 检查签到结果
+                        checkin_success = None
+                        checkin_message = ""
+                        if result.data and hasattr(result.data, "extra") and result.data.extra:
+                            checkin_success = result.data.extra.get("checkin_success")
+                            checkin_message = result.data.extra.get("checkin_message", "")
+                        if checkin_success is True:
+                            return provider_id, True, checkin_message
+                        elif checkin_success is False:
+                            return provider_id, False, checkin_message
+                        else:
+                            # None 表示未执行签到（可能没配置 Cookie）
+                            return provider_id, False, "未执行签到"
+                    except Exception as e:
+                        logger.warning(f"Provider {provider_id} 签到失败: {e}")
+                        return provider_id, False, str(e)
+
+            # 并行执行签到
+            tasks = [_checkin_provider(pid) for pid in provider_ids]
+            results = await asyncio.gather(*tasks)
+
+            # 统计结果
+            success_count = sum(1 for _, success, _ in results if success)
+            logger.info(
+                f"Provider 签到完成: {success_count}/{len(provider_ids)} 成功"
+            )
+
+            # 记录详细结果
+            for provider_id, success, message in results:
+                if success:
+                    logger.debug(f"  - {provider_id}: 签到成功 - {message}")
+                elif message != "未执行签到":
+                    logger.debug(f"  - {provider_id}: 签到失败 - {message}")
+
+        except Exception as e:
+            logger.exception(f"Provider 签到任务执行失败: {e}")
         finally:
             db.close()
 
@@ -823,12 +919,21 @@ class CleanupScheduler:
 
 
 # 全局单例
-_cleanup_scheduler = None
+_maintenance_scheduler = None
 
 
-def get_cleanup_scheduler() -> CleanupScheduler:
-    """获取清理调度器单例"""
-    global _cleanup_scheduler
-    if _cleanup_scheduler is None:
-        _cleanup_scheduler = CleanupScheduler()
-    return _cleanup_scheduler
+def get_maintenance_scheduler() -> MaintenanceScheduler:
+    """获取维护调度器单例"""
+    global _maintenance_scheduler
+    if _maintenance_scheduler is None:
+        _maintenance_scheduler = MaintenanceScheduler()
+    return _maintenance_scheduler
+
+
+# 兼容旧名称（deprecated）
+def get_cleanup_scheduler() -> MaintenanceScheduler:
+    """获取维护调度器单例（已废弃，请使用 get_maintenance_scheduler）"""
+    return get_maintenance_scheduler()
+
+
+CleanupScheduler = MaintenanceScheduler  # 兼容旧名称

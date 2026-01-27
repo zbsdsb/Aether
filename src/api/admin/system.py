@@ -651,7 +651,7 @@ class AdminTriggerCleanupAdapter(AdminApiAdapter):
 
         from sqlalchemy import func
 
-        from src.services.system.cleanup_scheduler import get_cleanup_scheduler
+        from src.services.system.maintenance_scheduler import get_maintenance_scheduler
 
         db = context.db
 
@@ -669,8 +669,8 @@ class AdminTriggerCleanupAdapter(AdminApiAdapter):
         )
 
         # 触发清理
-        cleanup_scheduler = get_cleanup_scheduler()
-        await cleanup_scheduler._perform_cleanup()
+        maintenance_scheduler = get_maintenance_scheduler()
+        await maintenance_scheduler._perform_cleanup()
 
         # 获取清理后的统计信息
         total_after = db.query(Usage).count()

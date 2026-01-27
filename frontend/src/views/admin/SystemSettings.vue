@@ -463,6 +463,33 @@
         </div>
       </CardSection>
 
+      <!-- 定时任务 -->
+      <CardSection
+        title="定时任务"
+        description="配置系统后台定时任务"
+      >
+        <div class="flex items-center gap-6">
+          <div class="flex items-center gap-2">
+            <Switch
+              id="enable-provider-checkin"
+              :model-value="systemConfig.enable_provider_checkin"
+              @update:model-value="handleProviderCheckinToggle"
+            />
+            <div>
+              <Label
+                for="enable-provider-checkin"
+                class="text-sm cursor-pointer"
+              >
+                启用 Provider 自动签到
+              </Label>
+              <p class="text-xs text-muted-foreground">
+                每天凌晨 1:05 执行
+              </p>
+            </div>
+          </div>
+        </div>
+      </CardSection>
+
       <!-- 系统版本信息 -->
       <CardSection
         title="系统信息"
@@ -848,6 +875,8 @@ interface SystemConfig {
   log_retention_days: number
   cleanup_batch_size: number
   audit_log_retention_days: number
+  // 定时任务
+  enable_provider_checkin: boolean
 }
 
 const basicConfigLoading = ref(false)
@@ -900,6 +929,8 @@ const systemConfig = ref<SystemConfig>({
   log_retention_days: 365,
   cleanup_batch_size: 1000,
   audit_log_retention_days: 30,
+  // 定时任务
+  enable_provider_checkin: true,
 })
 
 // 原始配置值（用于检测变动）
@@ -1002,6 +1033,8 @@ async function loadSystemConfig() {
       'log_retention_days',
       'cleanup_batch_size',
       'audit_log_retention_days',
+      // 定时任务
+      'enable_provider_checkin',
     ]
 
     for (const key of configs) {
@@ -1131,6 +1164,24 @@ async function handleAutoCleanupToggle(enabled: boolean) {
     log.error('保存自动清理配置失败:', err)
     // 回滚状态
     systemConfig.value.enable_auto_cleanup = previousValue
+  }
+}
+
+async function handleProviderCheckinToggle(enabled: boolean) {
+  const previousValue = systemConfig.value.enable_provider_checkin
+  systemConfig.value.enable_provider_checkin = enabled
+  try {
+    await adminApi.updateSystemConfig(
+      'enable_provider_checkin',
+      enabled,
+      '是否启用 Provider 自动签到任务'
+    )
+    success(enabled ? '已启用自动签到' : '已禁用自动签到')
+  } catch (err) {
+    error('保存配置失败')
+    log.error('保存自动签到配置失败:', err)
+    // 回滚状态
+    systemConfig.value.enable_provider_checkin = previousValue
   }
 }
 
