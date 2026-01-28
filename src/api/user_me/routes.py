@@ -1151,8 +1151,12 @@ class ListAvailableModelsAdapter(AuthenticatedApiAdapter):
         from src.core.api_format.conversion.compatibility import is_format_compatible
         from src.models.database import ProviderEndpoint
 
-        # 主流 API 格式列表
-        all_formats = [APIFormat.OPENAI.value, APIFormat.CLAUDE.value, APIFormat.GEMINI.value]
+        # 所有 API 格式列表（包括 CLI 格式）
+        all_formats = [
+            APIFormat.OPENAI.value, APIFormat.OPENAI_CLI.value,
+            APIFormat.CLAUDE.value, APIFormat.CLAUDE_CLI.value,
+            APIFormat.GEMINI.value, APIFormat.GEMINI_CLI.value,
+        ]
 
         # 步骤 1：一次性查询所有活跃端点（单次 DB 查询）
         endpoint_rows = (

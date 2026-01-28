@@ -39,14 +39,17 @@ from src.services.system.config import SystemConfigService
 
 router = APIRouter(tags=["System Catalog"])
 
-# 各格式对应的 API 格式列表
-# 注意: CLI 格式是透传格式，Models API 只返回非 CLI 格式的端点支持的模型
-_CLAUDE_FORMATS = [APIFormat.CLAUDE.value]
-_OPENAI_FORMATS = [APIFormat.OPENAI.value]
-_GEMINI_FORMATS = [APIFormat.GEMINI.value]
+# 各格式对应的 API 格式列表（包括对应的 CLI 格式）
+_CLAUDE_FORMATS = [APIFormat.CLAUDE.value, APIFormat.CLAUDE_CLI.value]
+_OPENAI_FORMATS = [APIFormat.OPENAI.value, APIFormat.OPENAI_CLI.value]
+_GEMINI_FORMATS = [APIFormat.GEMINI.value, APIFormat.GEMINI_CLI.value]
 
-# 所有非 CLI 格式（用于格式转换时的查询）
-_ALL_CHAT_FORMATS = [APIFormat.CLAUDE.value, APIFormat.OPENAI.value, APIFormat.GEMINI.value]
+# 所有格式（用于格式转换时的查询）
+_ALL_CHAT_FORMATS = [
+    APIFormat.CLAUDE.value, APIFormat.CLAUDE_CLI.value,
+    APIFormat.OPENAI.value, APIFormat.OPENAI_CLI.value,
+    APIFormat.GEMINI.value, APIFormat.GEMINI_CLI.value,
+]
 
 
 def _extract_api_key_from_request(
