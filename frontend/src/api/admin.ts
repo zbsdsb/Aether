@@ -1,11 +1,46 @@
 import apiClient from './client'
 
+// LDAP 配置导出结构
+export interface LDAPConfigExport {
+  server_url: string
+  bind_dn: string
+  bind_password?: string
+  base_dn: string
+  user_search_filter?: string
+  username_attr?: string
+  email_attr?: string
+  display_name_attr?: string
+  is_enabled?: boolean
+  is_exclusive?: boolean
+  use_starttls?: boolean
+  connect_timeout?: number
+}
+
+// OAuth Provider 导出结构
+export interface OAuthProviderExport {
+  provider_type: string
+  display_name: string
+  client_id: string
+  client_secret?: string
+  authorization_url_override?: string | null
+  token_url_override?: string | null
+  userinfo_url_override?: string | null
+  scopes?: string[] | null
+  redirect_uri: string
+  frontend_callback_url: string
+  attribute_mapping?: any
+  extra_config?: any
+  is_enabled?: boolean
+}
+
 // 配置导出数据结构
 export interface ConfigExportData {
   version: string
   exported_at: string
   global_models: GlobalModelExport[]
   providers: ProviderExport[]
+  ldap_config?: LDAPConfigExport | null
+  oauth_providers?: OAuthProviderExport[]
 }
 
 // 用户导出数据结构
@@ -254,6 +289,8 @@ export interface ConfigImportResponse {
     endpoints: { created: number; updated: number; skipped: number }
     keys: { created: number; updated: number; skipped: number }
     models: { created: number; updated: number; skipped: number }
+    ldap?: { created: number; updated: number; skipped: number }
+    oauth?: { created: number; updated: number; skipped: number }
     errors: string[]
   }
 }

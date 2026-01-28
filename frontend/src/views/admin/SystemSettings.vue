@@ -538,6 +538,10 @@
             <li>
               API Keys: {{ importPreview.providers?.reduce((sum: number, p: any) => sum + (p.api_keys?.length || 0), 0) }} 个
             </li>
+            <li v-if="importPreview.ldap_config">LDAP 配置: 1 个</li>
+            <li v-if="importPreview.oauth_providers?.length">
+              OAuth Providers: {{ importPreview.oauth_providers.length }} 个
+            </li>
           </ul>
         </div>
 
@@ -653,6 +657,26 @@
               创建: {{ importResult.stats.models.created }},
               更新: {{ importResult.stats.models.updated }},
               跳过: {{ importResult.stats.models.skipped }}
+            </p>
+          </div>
+          <div v-if="importResult.stats.ldap">
+            <p class="font-medium">
+              LDAP 配置
+            </p>
+            <p class="text-muted-foreground">
+              创建: {{ importResult.stats.ldap.created }},
+              更新: {{ importResult.stats.ldap.updated }},
+              跳过: {{ importResult.stats.ldap.skipped }}
+            </p>
+          </div>
+          <div v-if="importResult.stats.oauth">
+            <p class="font-medium">
+              OAuth Providers
+            </p>
+            <p class="text-muted-foreground">
+              创建: {{ importResult.stats.oauth.created }},
+              更新: {{ importResult.stats.oauth.updated }},
+              跳过: {{ importResult.stats.oauth.skipped }}
             </p>
           </div>
         </div>
@@ -1293,8 +1317,8 @@ function handleConfigFileSelect(event: Event) {
       const content = e.target?.result as string
       const data = JSON.parse(content) as ConfigExportData
 
-      // 验证版本
-      if (data.version !== '2.0') {
+      // 验证版本（支持 2.0 和 2.1）
+      if (!['2.0', '2.1'].includes(data.version)) {
         error(`不支持的配置版本: ${data.version}`)
         return
       }
