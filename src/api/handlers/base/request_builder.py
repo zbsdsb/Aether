@@ -13,11 +13,35 @@
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
-from typing import Any, Dict, FrozenSet, Optional, Tuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Optional, Tuple
 
 from src.core.crypto import crypto_service
 from src.core.api_format import HeaderBuilder, UPSTREAM_DROP_HEADERS
+
+if TYPE_CHECKING:
+    from src.models.database import ProviderAPIKey, ProviderEndpoint
+
+
+# ==============================================================================
+# Service Account 认证结果类型
+# ==============================================================================
+
+
+@dataclass
+class ProviderAuthInfo:
+    """Provider 认证信息（用于 Service Account 等异步认证场景）"""
+
+    auth_header: str
+    auth_value: str
+    # 解密后的认证配置（用于 URL 构建等场景，避免重复解密）
+    decrypted_auth_config: Optional[Dict[str, Any]] = None
+
+    def as_tuple(self) -> Tuple[str, str]:
+        """返回 (auth_header, auth_value) 元组"""
+        return (self.auth_header, self.auth_value)
 
 # ==============================================================================
 # 统一的头部配置常量
@@ -119,6 +143,7 @@ class RequestBuilder(ABC):
         key: Any,
         *,
         extra_headers: Optional[Dict[str, str]] = None,
+        pre_computed_auth: Optional[Tuple[str, str]] = None,
     ) -> Dict[str, str]:
         """构建请求头"""
         pass
@@ -133,6 +158,7 @@ class RequestBuilder(ABC):
         mapped_model: Optional[str] = None,
         is_stream: bool = False,
         extra_headers: Optional[Dict[str, str]] = None,
+        pre_computed_auth: Optional[Tuple[str, str]] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, str]]:
         """
         构建完整的请求（请求体 + 请求头）
@@ -145,6 +171,7 @@ class RequestBuilder(ABC):
             mapped_model: 映射后的模型名
             is_stream: 是否为流式请求
             extra_headers: 额外请求头
+            pre_computed_auth: 预先计算的认证信息 (auth_header, auth_value)
 
         Returns:
             Tuple[payload, headers]
@@ -159,6 +186,7 @@ class RequestBuilder(ABC):
             endpoint,
             key,
             extra_headers=extra_headers,
+            pre_computed_auth=pre_computed_auth,
         )
         return payload, headers
 
@@ -195,6 +223,7 @@ class PassthroughRequestBuilder(RequestBuilder):
         key: Any,
         *,
         extra_headers: Optional[Dict[str, str]] = None,
+        pre_computed_auth: Optional[Tuple[str, str]] = None,
     ) -> Dict[str, str]:
         """
         透传请求头 - 清理敏感头部（黑名单），透传其他所有头部
@@ -204,18 +233,24 @@ class PassthroughRequestBuilder(RequestBuilder):
             endpoint: 端点配置
             key: Provider API Key
             extra_headers: 额外请求头
+            pre_computed_auth: 预先计算的认证信息 (auth_header, auth_value)，
+                               用于 Service Account 等异步获取 token 的场景
         """
         from src.core.api_format import get_auth_config, resolve_api_format
 
         # 1. 根据 API 格式自动设置认证头
-        decrypted_key = crypto_service.decrypt(key.api_key)
-        api_format = getattr(endpoint, "api_format", None)
-        resolved_format = resolve_api_format(api_format)
-        auth_header, auth_type = (
-            get_auth_config(resolved_format) if resolved_format else ("Authorization", "bearer")
-        )
-
-        auth_value = f"Bearer {decrypted_key}" if auth_type == "bearer" else decrypted_key
+        if pre_computed_auth:
+            # 使用预先计算的认证信息（Service Account 等场景）
+            auth_header, auth_value = pre_computed_auth
+        else:
+            # 标准 API Key 认证
+            decrypted_key = crypto_service.decrypt(key.api_key)
+            api_format = getattr(endpoint, "api_format", None)
+            resolved_format = resolve_api_format(api_format)
+            auth_header, auth_type = (
+                get_auth_config(resolved_format) if resolved_format else ("Authorization", "bearer")
+            )
+            auth_value = f"Bearer {decrypted_key}" if auth_type == "bearer" else decrypted_key
         # 认证头始终受保护，防止 header_rules 覆盖
         protected_keys = {auth_header.lower(), "content-type"}
 
@@ -272,3 +307,81 @@ def build_passthrough_request(
         endpoint,
         key,
     )
+
+
+# ==============================================================================
+# Service Account 认证支持
+# ==============================================================================
+
+
+async def get_provider_auth(
+    endpoint: "ProviderEndpoint",
+    key: "ProviderAPIKey",
+) -> Optional[ProviderAuthInfo]:
+    """
+    获取 Provider 的认证信息
+
+    对于标准 API Key，返回 None（由 build_headers 自动处理）。
+    对于 Service Account，异步获取 Access Token 并返回认证信息。
+
+    Args:
+        endpoint: 端点配置
+        key: Provider API Key
+
+    Returns:
+        Service Account 场景: ProviderAuthInfo 对象（包含认证信息和解密后的配置）
+        API Key 场景: None（由 build_headers 处理）
+
+    Raises:
+        InvalidRequestException: 认证配置无效或认证失败
+    """
+    from src.core.exceptions import InvalidRequestException
+
+    auth_type = getattr(key, "auth_type", "api_key")
+
+    if auth_type == "vertex_ai":
+        from src.core.vertex_auth import VertexAuthError, VertexAuthService
+
+        try:
+            # 优先从 auth_config 读取，兼容从 api_key 读取（过渡期）
+            encrypted_auth_config = getattr(key, "auth_config", None)
+            if encrypted_auth_config:
+                # auth_config 是加密存储的，需要解密
+                decrypted_config = crypto_service.decrypt(encrypted_auth_config)
+                sa_json = json.loads(decrypted_config)
+            else:
+                # 兼容旧数据：从 api_key 读取
+                decrypted_key = crypto_service.decrypt(key.api_key)
+                # 检查是否是占位符（表示 auth_config 丢失）
+                if decrypted_key == "__placeholder__":
+                    raise InvalidRequestException("认证配置丢失，请重新添加该密钥。")
+                sa_json = json.loads(decrypted_key)
+
+            if not isinstance(sa_json, dict):
+                raise InvalidRequestException("Service Account JSON 无效，请重新添加该密钥。")
+
+            # 获取 Access Token
+            service = VertexAuthService(sa_json)
+            access_token = await service.get_access_token()
+
+            # Vertex AI 使用 Bearer token
+            return ProviderAuthInfo(
+                auth_header="Authorization",
+                auth_value=f"Bearer {access_token}",
+                decrypted_auth_config=sa_json,
+            )
+        except InvalidRequestException:
+            raise
+        except VertexAuthError as e:
+            raise InvalidRequestException(f"Vertex AI 认证失败：{e}")
+        except json.JSONDecodeError:
+            raise InvalidRequestException("Service Account JSON 格式无效，请重新添加该密钥。")
+        except Exception:
+            raise InvalidRequestException("Vertex AI 认证失败，请检查 Key 的 auth_config")
+
+    # 其他认证类型可在此扩展
+    # elif auth_type == "oauth2":
+    #     ...
+
+    # 标准 API Key：返回 None，由 build_headers 处理
+    return None

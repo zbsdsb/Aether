@@ -4,7 +4,7 @@ ProviderEndpoint 相关的 API 模型定义
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -166,7 +166,15 @@ class EndpointAPIKeyCreate(BaseModel):
         default=None, min_length=1, description="支持的 API 格式列表（必填，路由层校验）"
     )
 
-    api_key: str = Field(..., min_length=3, max_length=500, description="API Key（将自动加密）")
+    api_key: str = Field(default="", max_length=500, description="API Key（标准认证时必填，将自动加密）")
+    auth_type: Literal["api_key", "vertex_ai"] = Field(
+        default="api_key",
+        description="认证类型：api_key（标准 API Key）或 vertex_ai（Vertex AI Service Account）"
+    )
+    auth_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON"
+    )
     name: str = Field(..., min_length=1, max_length=100, description="密钥名称（必填，用于识别）")
 
     # 成本计算
@@ -313,7 +321,15 @@ class EndpointAPIKeyUpdate(BaseModel):
     )
 
     api_key: Optional[str] = Field(
-        default=None, min_length=3, max_length=500, description="API Key（将自动加密）"
+        default=None, min_length=3, max_length=500, description="API Key（标准认证时使用，将自动加密）"
+    )
+    auth_type: Optional[Literal["api_key", "vertex_ai"]] = Field(
+        default=None,
+        description="认证类型：api_key（标准 API Key）或 vertex_ai（Vertex AI Service Account）"
+    )
+    auth_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON"
     )
     name: Optional[str] = Field(default=None, min_length=1, max_length=100, description="密钥名称")
     rate_multipliers: Optional[Dict[str, float]] = Field(
@@ -445,6 +461,8 @@ class EndpointAPIKeyResponse(BaseModel):
     # Key 信息（脱敏）
     api_key_masked: str = Field(..., description="脱敏后的 Key")
     api_key_plain: Optional[str] = Field(default=None, description="完整的 Key")
+    auth_type: str = Field(default="api_key", description="认证类型：api_key 或 vertex_ai")
+    # auth_config 不在响应中返回（包含敏感信息），前端通过 auth_type 判断类型
     name: str = Field(..., description="密钥名称")
 
     # 成本计算

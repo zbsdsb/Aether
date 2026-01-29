@@ -55,7 +55,13 @@ export async function getModelCapabilities(modelName: string): Promise<ModelCapa
 /**
  * 获取完整的 API Key（用于查看和复制）
  */
-export async function revealEndpointKey(keyId: string): Promise<{ api_key: string }> {
+export interface RevealKeyResult {
+  auth_type: 'api_key' | 'vertex_ai'
+  api_key?: string
+  auth_config?: string | Record<string, any>
+}
+
+export async function revealEndpointKey(keyId: string): Promise<RevealKeyResult> {
   const response = await client.get(`/api/admin/endpoints/keys/${keyId}/reveal`)
   return response.data
 }
@@ -88,6 +94,8 @@ export async function addProviderKey(
   data: {
     api_formats: string[]  // 支持的 API 格式列表（必填）
     api_key: string
+    auth_type?: 'api_key' | 'vertex_ai'  // 认证类型
+    auth_config?: Record<string, any>  // 认证配置（Vertex AI Service Account JSON）
     name: string
     rate_multipliers?: Record<string, number> | null  // 按 API 格式的成本倍率
     internal_priority?: number
@@ -114,6 +122,8 @@ export async function updateProviderKey(
   data: Partial<{
     api_formats: string[]  // 支持的 API 格式列表
     api_key: string
+    auth_type: 'api_key' | 'vertex_ai'  // 认证类型
+    auth_config: Record<string, any>  // 认证配置（Vertex AI Service Account JSON）
     name: string
     rate_multipliers: Record<string, number> | null  // 按 API 格式的成本倍率
     internal_priority: number

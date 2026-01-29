@@ -35,7 +35,7 @@ from src.api.handlers.base.base_handler import (
     wait_for_with_disconnect_detection,
 )
 from src.api.handlers.base.parsers import get_parser_for_format
-from src.api.handlers.base.request_builder import PassthroughRequestBuilder
+from src.api.handlers.base.request_builder import PassthroughRequestBuilder, get_provider_auth
 from src.api.handlers.base.response_parser import ResponseParser
 from src.api.handlers.base.stream_context import StreamContext
 from src.api.handlers.base.stream_processor import StreamProcessor
@@ -681,6 +681,9 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             # 同格式：按原逻辑做轻量清理（子类可覆盖以移除不需要的字段）
             request_body = self.prepare_provider_request_body(request_body)
 
+        # 获取认证信息（处理 Service Account 等异步认证场景）
+        auth_info = await get_provider_auth(endpoint, key)
+
         # 构建请求（上游始终使用 header 认证，不跟随客户端的 query 方式）
         provider_payload, provider_headers = self._request_builder.build(
             request_body,
@@ -688,6 +691,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             endpoint,
             key,
             is_stream=True,
+            pre_computed_auth=auth_info.as_tuple() if auth_info else None,
         )
 
         ctx.provider_request_headers = provider_headers
@@ -701,6 +705,8 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             query_params=query_params,
             path_params={"model": url_model},
             is_stream=True,
+            key=key,
+            decrypted_auth_config=auth_info.decrypted_auth_config if auth_info else None,
         )
 
         logger.debug(
@@ -986,6 +992,9 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 # 同格式：按原逻辑做轻量清理（子类可覆盖以移除不需要的字段）
                 request_body = self.prepare_provider_request_body(request_body)
 
+            # 获取认证信息（处理 Service Account 等异步认证场景）
+            auth_info = await get_provider_auth(endpoint, key)
+
             # 构建请求（上游始终使用 header 认证，不跟随客户端的 query 方式）
             provider_payload, provider_hdrs = self._request_builder.build(
                 request_body,
@@ -993,6 +1002,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 endpoint,
                 key,
                 is_stream=False,
+                pre_computed_auth=auth_info.as_tuple() if auth_info else None,
             )
 
             provider_request_headers = provider_hdrs
@@ -1006,6 +1016,8 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 query_params=query_params,
                 path_params={"model": url_model},
                 is_stream=False,
+                key=key,
+                decrypted_auth_config=auth_info.decrypted_auth_config if auth_info else None,
             )
 
             logger.info(

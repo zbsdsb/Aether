@@ -2,6 +2,7 @@
 Provider API Keys 管理
 """
 
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -229,8 +230,35 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
         exclude_patterns_before = key.model_exclude_patterns
 
         update_data = self.key_data.model_dump(exclude_unset=True)
-        if "api_key" in update_data:
+
+        # 验证 auth_type 切换
+        current_auth_type = getattr(key, "auth_type", "api_key") or "api_key"
+        target_auth_type = update_data.get("auth_type", current_auth_type) or current_auth_type
+
+        # auth_type 切换校验 + 字段归一化
+        if "auth_type" in update_data:
+            if target_auth_type == "api_key":
+                if current_auth_type == "vertex_ai" and not update_data.get("api_key"):
+                    raise InvalidRequestException(
+                        "从 Vertex AI 切换到 API Key 认证模式时，必须提供新的 API Key"
+                    )
+                # 切换回 API Key：清理 Service Account 配置
+                update_data["auth_config"] = None
+            elif target_auth_type == "vertex_ai":
+                if current_auth_type != "vertex_ai" and not update_data.get("auth_config"):
+                    raise InvalidRequestException(
+                        "从 API Key 切换到 Vertex AI 认证模式时，必须提供 Service Account JSON"
+                    )
+                # Vertex AI 不使用 api_key：写入占位符（若未提供 api_key）
+                if "api_key" not in update_data:
+                    update_data["api_key"] = "__placeholder__"
+
+        # 加密 api_key（非 None 时）
+        if "api_key" in update_data and update_data["api_key"] is not None:
             update_data["api_key"] = crypto_service.encrypt(update_data["api_key"])
+        # 加密 auth_config（包含敏感的 Service Account 凭证）
+        if "auth_config" in update_data and update_data["auth_config"]:
+            update_data["auth_config"] = crypto_service.encrypt(json.dumps(update_data["auth_config"]))
 
         # 特殊处理 rpm_limit：需要区分"未提供"和"显式设置为 null"
         if "rpm_limit" in self.key_data.model_fields_set:
@@ -347,7 +375,7 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
 
 @dataclass
 class AdminRevealEndpointKeyAdapter(AdminApiAdapter):
-    """获取完整的 API Key（用于查看和复制）"""
+    """获取完整的 API Key 或 Auth Config（用于查看和复制）"""
 
     key_id: str
 
@@ -357,6 +385,42 @@ class AdminRevealEndpointKeyAdapter(AdminApiAdapter):
         if not key:
             raise NotFoundException(f"Key {self.key_id} 不存在")
 
+        auth_type = getattr(key, "auth_type", "api_key") or "api_key"
+
+        # Vertex AI 类型返回 auth_config（需要解密）
+        if auth_type == "vertex_ai":
+            encrypted_auth_config = getattr(key, "auth_config", None)
+            if encrypted_auth_config:
+                try:
+                    decrypted_config = crypto_service.decrypt(encrypted_auth_config)
+                    auth_config = json.loads(decrypted_config)
+                    logger.info(f"[REVEAL] 查看 Auth Config: ID={self.key_id}, Name={key.name}")
+                    return {"auth_type": "vertex_ai", "auth_config": auth_config}
+                except Exception as e:
+                    logger.error(f"解密 Auth Config 失败: ID={self.key_id}, Error={e}")
+                    raise InvalidRequestException(
+                        "无法解密认证配置，可能是加密密钥已更改。请重新添加该密钥。"
+                    )
+            # 兼容：auth_config 为空时尝试从 api_key 解密（仅对迁移前的旧数据有效）
+            try:
+                decrypted_key = crypto_service.decrypt(key.api_key)
+                # 检查是否是新格式的占位符（表示 auth_config 丢失）
+                if decrypted_key == "__placeholder__":
+                    logger.error(f"Vertex AI Key 缺少 auth_config: ID={self.key_id}")
+                    raise InvalidRequestException(
+                        "认证配置丢失，请重新添加该密钥。"
+                    )
+                logger.info(f"[REVEAL] 查看完整 Key (legacy vertex_ai): ID={self.key_id}, Name={key.name}")
+                return {"auth_type": "vertex_ai", "auth_config": decrypted_key}
+            except InvalidRequestException:
+                raise
+            except Exception as e:
+                logger.error(f"解密 Key 失败: ID={self.key_id}, Error={e}")
+                raise InvalidRequestException(
+                    "无法解密认证配置，可能是加密密钥已更改。请重新添加该密钥。"
+                )
+
+        # API Key 类型返回 api_key
         try:
             decrypted_key = crypto_service.decrypt(key.api_key)
         except Exception as e:
@@ -366,7 +430,7 @@ class AdminRevealEndpointKeyAdapter(AdminApiAdapter):
             )
 
         logger.info(f"[REVEAL] 查看完整 Key: ID={self.key_id}, Name={key.name}")
-        return {"api_key": decrypted_key}
+        return {"auth_type": "api_key", "api_key": decrypted_key}
 
 
 @dataclass
@@ -451,12 +515,16 @@ class AdminGetKeysGroupedByFormatAdapter(AdminApiAdapter):
             if not api_formats:
                 continue  # 跳过没有 API 格式的 Key
 
-            try:
-                decrypted_key = crypto_service.decrypt(key.api_key)
-                masked_key = f"{decrypted_key[:8]}***{decrypted_key[-4:]}"
-            except Exception as e:
-                logger.error(f"解密 Key 失败: key_id={key.id}, error={e}")
-                masked_key = "***ERROR***"
+            auth_type = getattr(key, "auth_type", "api_key") or "api_key"
+            if auth_type == "vertex_ai":
+                masked_key = "[Service Account]"
+            else:
+                try:
+                    decrypted_key = crypto_service.decrypt(key.api_key)
+                    masked_key = f"{decrypted_key[:8]}***{decrypted_key[-4:]}"
+                except Exception as e:
+                    logger.error(f"解密 Key 失败: key_id={key.id}, error={e}")
+                    masked_key = "***ERROR***"
 
             # 计算健康度指标
             success_rate = key.success_count / key.request_count if key.request_count > 0 else None
@@ -478,6 +546,7 @@ class AdminGetKeysGroupedByFormatAdapter(AdminApiAdapter):
             key_info = {
                 "id": key.id,
                 "name": key.name,
+                "auth_type": auth_type,
                 "api_key_masked": masked_key,
                 "internal_priority": key.internal_priority,
                 "global_priority_by_format": key.global_priority_by_format,
@@ -525,11 +594,17 @@ def _build_key_response(
     key: ProviderAPIKey, api_key_plain: str | None = None
 ) -> EndpointAPIKeyResponse:
     """构建 Key 响应对象的辅助函数"""
-    try:
-        decrypted_key = crypto_service.decrypt(key.api_key)
-        masked_key = f"{decrypted_key[:8]}***{decrypted_key[-4:]}"
-    except Exception:
-        masked_key = "***ERROR***"
+    auth_type = getattr(key, "auth_type", "api_key") or "api_key"
+
+    if auth_type == "vertex_ai":
+        # Vertex AI 使用 Service Account，不显示占位符
+        masked_key = "[Service Account]"
+    else:
+        try:
+            decrypted_key = crypto_service.decrypt(key.api_key)
+            masked_key = f"{decrypted_key[:8]}***{decrypted_key[-4:]}"
+        except Exception:
+            masked_key = "***ERROR***"
 
     success_rate = key.success_count / key.request_count if key.request_count > 0 else 0.0
     avg_response_time_ms = (
@@ -539,6 +614,8 @@ def _build_key_response(
     is_adaptive = key.rpm_limit is None
     key_dict = key.__dict__.copy()
     key_dict.pop("_sa_instance_state", None)
+    key_dict.pop("api_key", None)  # 移除敏感字段，避免泄露
+    key_dict.pop("auth_config", None)  # 移除敏感字段，避免泄露
 
     # 从 health_by_format 计算汇总字段（便于列表展示）
     health_by_format = key.health_by_format or {}
@@ -636,17 +713,38 @@ class AdminCreateProviderKeyAdapter(AdminApiAdapter):
         if not self.key_data.api_formats:
             raise InvalidRequestException("api_formats 为必填字段")
 
+        # 验证认证配置
+        auth_type = self.key_data.auth_type or "api_key"
+        if auth_type == "api_key":
+            if not self.key_data.api_key:
+                raise InvalidRequestException("API Key 认证模式下 api_key 为必填字段")
+        elif auth_type == "vertex_ai":
+            if not self.key_data.auth_config:
+                raise InvalidRequestException("Service Account 认证模式下 auth_config 为必填字段")
+
         # 允许同一个 API Key 在同一 Provider 下添加多次
         # 用户可以为不同的 API 格式创建独立的配置记录，便于分开管理
 
-        encrypted_key = crypto_service.encrypt(self.key_data.api_key)
+        # 加密 API Key（如果有）
+        encrypted_key = (
+            crypto_service.encrypt(self.key_data.api_key)
+            if self.key_data.api_key
+            else crypto_service.encrypt("__placeholder__")  # 占位符，保持 NOT NULL 约束
+        )
         now = datetime.now(timezone.utc)
+
+        # 加密 auth_config（包含敏感的 Service Account 凭证）
+        encrypted_auth_config = None
+        if self.key_data.auth_config:
+            encrypted_auth_config = crypto_service.encrypt(json.dumps(self.key_data.auth_config))
 
         new_key = ProviderAPIKey(
             id=str(uuid.uuid4()),
             provider_id=self.provider_id,
             api_formats=self.key_data.api_formats,
+            auth_type=auth_type,
             api_key=encrypted_key,
+            auth_config=encrypted_auth_config,
             name=self.key_data.name,
             note=self.key_data.note,
             rate_multipliers=self.key_data.rate_multipliers,

@@ -138,6 +138,7 @@ export interface EndpointAPIKey {
   api_formats: string[]  // 支持的 API 格式列表
   api_key_masked: string
   api_key_plain?: string | null
+  auth_type: 'api_key' | 'vertex_ai'  // 认证类型（必返回）
   name: string  // 密钥名称（必填，用于识别）
   rate_multipliers?: Record<string, number> | null  // 按 API 格式的成本倍率，如 {"CLAUDE_CLI": 1.0, "OPENAI_CLI": 0.8}
   internal_priority: number  // Key 内部优先级
@@ -218,6 +219,8 @@ export interface EndpointAPIKeyUpdate {
   api_formats?: string[]  // 支持的 API 格式列表
   name?: string
   api_key?: string  // 仅在需要更新时提供
+  auth_type?: 'api_key' | 'vertex_ai'  // 认证类型
+  auth_config?: Record<string, any>  // 认证配置（Vertex AI Service Account JSON）
   rate_multipliers?: Record<string, number> | null  // 按 API 格式的成本倍率
   internal_priority?: number
   global_priority_by_format?: Record<string, number> | null  // 按 API 格式的全局优先级

@@ -75,6 +75,87 @@ class GeminiUsageMetadata(BaseModelWithExtras):
 
 
 # ---------------------------------------------------------------------------
+# 文件 API 模型
+# ---------------------------------------------------------------------------
+
+
+class GeminiFileMetadata(BaseModelWithExtras):
+    """
+    Gemini 文件元数据
+
+    用于上传文件时指定的元数据信息
+    """
+
+    display_name: Optional[str] = Field(default=None, alias="displayName")
+
+
+class GeminiFileUploadRequest(BaseModelWithExtras):
+    """
+    Gemini 文件上传请求
+
+    用于 media.upload API 的请求体
+    """
+
+    file: Optional[GeminiFileMetadata] = None
+
+
+class GeminiFile(BaseModelWithExtras):
+    """
+    Gemini 文件资源
+
+    表示已上传到 Gemini API 的文件
+    """
+
+    name: Optional[str] = None  # 文件名，格式：files/xxx
+    display_name: Optional[str] = Field(default=None, alias="displayName")
+    mime_type: Optional[str] = Field(default=None, alias="mimeType")
+    size_bytes: Optional[str] = Field(default=None, alias="sizeBytes")
+    create_time: Optional[str] = Field(default=None, alias="createTime")
+    update_time: Optional[str] = Field(default=None, alias="updateTime")
+    expiration_time: Optional[str] = Field(default=None, alias="expirationTime")
+    sha256_hash: Optional[str] = Field(default=None, alias="sha256Hash")
+    uri: Optional[str] = None  # 文件 URI，用于在请求中引用
+    download_uri: Optional[str] = Field(default=None, alias="downloadUri")
+    state: Optional[str] = None  # PROCESSING, ACTIVE, FAILED
+    error: Optional[Dict[str, Any]] = None
+    # 视频文件元数据
+    video_metadata: Optional[Dict[str, Any]] = Field(default=None, alias="videoMetadata")
+
+
+class GeminiFileListResponse(BaseModelWithExtras):
+    """
+    Gemini 文件列表响应
+
+    用于 files.list API 的响应体
+    """
+
+    files: Optional[List["GeminiFile"]] = None
+    next_page_token: Optional[str] = Field(default=None, alias="nextPageToken")
+
+
+class GeminiFileUploadResponse(BaseModelWithExtras):
+    """
+    Gemini 文件上传响应
+
+    用于 media.upload API 的响应体
+    """
+
+    file: Optional[GeminiFile] = None
+
+
+class GeminiFilePart(BaseModelWithExtras):
+    """
+    Gemini 文件引用部分
+
+    用于在请求内容中引用已上传的文件
+    使用 file_data 字段引用文件 URI
+    """
+
+    file_data: Optional[Dict[str, Any]] = Field(default=None, alias="fileData")
+    # fileData 格式：{"mimeType": "...", "fileUri": "..."}
+
+
+# ---------------------------------------------------------------------------
 # Thought Signature 常量
 # ---------------------------------------------------------------------------
 

@@ -4,6 +4,7 @@
 负责:
 - 根据 API 格式或端点配置生成请求 URL
 - URL 脱敏（用于日志记录）
+- Vertex AI URL 自动构建
 """
 
 import re
@@ -14,7 +15,7 @@ from src.core.api_format import APIFormat, get_default_path, resolve_api_format
 from src.core.logger import logger
 
 if TYPE_CHECKING:
-    from src.models.database import ProviderEndpoint
+    from src.models.database import ProviderAPIKey, ProviderEndpoint
 
 
 # URL 中需要脱敏的查询参数（正则模式）
@@ -69,20 +70,36 @@ def build_provider_url(
     query_params: Optional[Dict[str, Any]] = None,
     path_params: Optional[Dict[str, Any]] = None,
     is_stream: bool = False,
+    key: Optional["ProviderAPIKey"] = None,
+    decrypted_auth_config: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     根据 endpoint 配置生成请求 URL
 
     优先级：
-    1. endpoint.custom_path - 自定义路径（支持模板变量如 {model}）
-    2. API 格式默认路径 - 根据 api_format 自动选择
+    1. Vertex AI 自动构建 - 当 key.auth_type == "vertex_ai" 时
+    2. endpoint.custom_path - 自定义路径（支持模板变量如 {model}）
+    3. API 格式默认路径 - 根据 api_format 自动选择
 
     Args:
         endpoint: 端点配置
         query_params: 查询参数
         path_params: 路径模板参数 (如 {model})
         is_stream: 是否为流式请求，用于 Gemini API 选择正确的操作方法
+        key: Provider API Key（用于 Vertex AI 等需要从密钥配置读取信息的场景）
+        decrypted_auth_config: 已解密的认证配置（避免重复解密，由 get_provider_auth 提供）
     """
+    # 检查是否为 Vertex AI 认证类型
+    auth_type = getattr(key, "auth_type", "api_key") if key else "api_key"
+    if auth_type == "vertex_ai":
+        return _build_vertex_ai_url(
+            key=key,
+            path_params=path_params,
+            query_params=query_params,
+            is_stream=is_stream,
+            decrypted_auth_config=decrypted_auth_config,
+        )
+
     # 准备路径参数，添加 Gemini API 所需的 action 参数
     effective_path_params = dict(path_params) if path_params else {}
 
@@ -152,3 +169,131 @@ def _resolve_default_path(api_format: Optional[str]) -> str:
 
     logger.warning(f"Unknown api_format '{api_format}' for endpoint, fallback to '/'")
     return "/"
+
+
+# Vertex AI 模型默认 region 映射
+# 用户可以通过 auth_config.model_regions 覆盖
+VERTEX_AI_DEFAULT_MODEL_REGIONS: Dict[str, str] = {
+    # Gemini 3 系列（使用 global）
+    "gemini-3-pro-image-preview": "global",
+    # Gemini 2.0 系列
+    "gemini-2.0-flash": "us-central1",
+    "gemini-2.0-flash-exp": "us-central1",
+    "gemini-2.0-flash-001": "us-central1",
+    "gemini-2.0-pro-exp": "us-central1",
+    "gemini-2.0-flash-exp-image-generation": "us-central1",
+    # Gemini 1.5 系列
+    "gemini-1.5-pro": "us-central1",
+    "gemini-1.5-pro-001": "us-central1",
+    "gemini-1.5-pro-002": "us-central1",
+    "gemini-1.5-flash": "us-central1",
+    "gemini-1.5-flash-001": "us-central1",
+    "gemini-1.5-flash-002": "us-central1",
+    # Imagen 系列
+    "imagen-3.0-generate-001": "us-central1",
+    "imagen-3.0-fast-generate-001": "us-central1",
+}
+
+
+def _build_vertex_ai_url(
+    key: "ProviderAPIKey",
+    *,
+    path_params: Optional[Dict[str, Any]] = None,
+    query_params: Optional[Dict[str, Any]] = None,
+    is_stream: bool = False,
+    decrypted_auth_config: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    构建 Vertex AI URL
+
+    Vertex AI URL 格式:
+    https://{region}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/publishers/google/models/{model}:{action}
+
+    从 auth_config 中读取:
+    - project_id: GCP 项目 ID（必需）
+    - region: 默认 GCP 区域（覆盖内置默认值）
+    - model_regions: 模型到区域的映射（可选），覆盖内置和默认配置
+
+    Region 优先级:
+    1. auth_config.model_regions[model] - 用户为该模型指定的区域
+    2. VERTEX_AI_DEFAULT_MODEL_REGIONS[model] - 内置的模型默认区域
+    3. auth_config.region - 用户配置的默认区域
+    4. global - 最终兜底
+
+    Args:
+        key: Provider API Key（包含 auth_config）
+        path_params: 路径参数（需要 model）
+        query_params: 查询参数
+        is_stream: 是否为流式请求
+        decrypted_auth_config: 已解密的认证配置（由 get_provider_auth 提供，避免重复解密）
+
+    Returns:
+        完整的 Vertex AI URL
+    """
+    import json
+    from src.core.crypto import crypto_service
+
+    # 优先使用传入的已解密配置，避免重复解密
+    auth_config: Dict[str, Any] = {}
+    if decrypted_auth_config:
+        auth_config = decrypted_auth_config
+    else:
+        # 兜底：从 key.auth_config 解密（理论上不应走到这里）
+        encrypted_auth_config = getattr(key, "auth_config", None)
+        if encrypted_auth_config:
+            try:
+                decrypted_config = crypto_service.decrypt(encrypted_auth_config)
+                auth_config = json.loads(decrypted_config)
+            except Exception as e:
+                logger.error(f"解密 Vertex AI auth_config 失败: {e}")
+                auth_config = {}
+
+    from src.core.exceptions import InvalidRequestException
+
+    # 获取必需的配置
+    project_id = auth_config.get("project_id")
+    if not project_id:
+        raise InvalidRequestException("Vertex AI 配置缺少 project_id（请在 Key 的 auth_config 中提供）")
+
+    # 获取模型名
+    model = (path_params or {}).get("model", "")
+    if not model:
+        raise InvalidRequestException("Vertex AI 请求缺少 model 参数")
+
+    # 确定 region（优先级：用户配置 > 内置默认 > 用户默认 > 兜底）
+    user_model_regions = auth_config.get("model_regions", {})
+    user_default_region = auth_config.get("region")
+
+    if model in user_model_regions:
+        region = user_model_regions[model]
+    elif model in VERTEX_AI_DEFAULT_MODEL_REGIONS:
+        region = VERTEX_AI_DEFAULT_MODEL_REGIONS[model]
+    elif user_default_region:
+        region = user_default_region
+    else:
+        region = "global"
+
+    # 确定 action
+    action = "streamGenerateContent" if is_stream else "generateContent"
+
+    # 构建 URL（global region 使用不同的 URL 格式）
+    if region == "global":
+        base_url = "https://aiplatform.googleapis.com"
+    else:
+        base_url = f"https://{region}-aiplatform.googleapis.com"
+    path = f"/v1/projects/{project_id}/locations/{region}/publishers/google/models/{model}:{action}"
+    url = f"{base_url}{path}"
+
+    # 添加查询参数
+    effective_query_params = dict(query_params) if query_params else {}
+    # Vertex AI 流式请求使用 SSE 格式
+    if is_stream:
+        effective_query_params.setdefault("alt", "sse")
+
+    if effective_query_params:
+        query_string = urlencode(effective_query_params, doseq=True)
+        if query_string:
+            url = f"{url}?{query_string}"
+
+    logger.debug(f"Vertex AI URL: {redact_url_for_log(url)} (region={region})")
+    return url

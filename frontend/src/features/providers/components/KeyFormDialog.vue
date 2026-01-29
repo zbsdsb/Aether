@@ -33,7 +33,47 @@
           />
         </div>
         <div>
-          <Label :for="apiKeyInputId">API 密钥 {{ editingKey ? '' : '*' }}</Label>
+          <Label :for="authTypeSelectId">认证类型</Label>
+          <Select
+            v-model="form.auth_type"
+            v-model:open="authTypeSelectOpen"
+          >
+            <SelectTrigger :id="authTypeSelectId">
+              <SelectValue placeholder="选择认证类型" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="api_key">
+                API Key
+              </SelectItem>
+              <SelectItem value="vertex_ai">
+                Vertex AI
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <!-- API 密钥 / Service Account JSON -->
+      <div>
+        <Label :for="apiKeyInputId">
+          {{ form.auth_type === 'vertex_ai' ? 'Service Account JSON' : 'API 密钥' }}
+          {{ editingKey ? '' : '*' }}
+        </Label>
+        <template v-if="form.auth_type === 'vertex_ai'">
+          <Textarea
+            :id="apiKeyInputId"
+            v-model="form.auth_config_text"
+            :required="!editingKey"
+            :placeholder="editingKey ? '留空表示不修改' : '粘贴完整的 Service Account JSON'"
+            class="min-h-[120px] font-mono text-xs"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="text-xs text-muted-foreground mt-1">
+            JSON 格式，包含 project_id、private_key 等字段
+          </p>
+        </template>
+        <template v-else>
           <Input
             :id="apiKeyInputId"
             v-model="form.api_key"
@@ -42,19 +82,19 @@
             :required="!editingKey"
             :placeholder="editingKey ? editingKey.api_key_masked : 'sk-...'"
           />
-          <p
-            v-if="apiKeyError"
-            class="text-xs text-destructive mt-1"
-          >
-            {{ apiKeyError }}
-          </p>
-          <p
-            v-else-if="editingKey"
-            class="text-xs text-muted-foreground mt-1"
-          >
-            留空表示不修改
-          </p>
-        </div>
+        </template>
+        <p
+          v-if="apiKeyError"
+          class="text-xs text-destructive mt-1"
+        >
+          {{ apiKeyError }}
+        </p>
+        <p
+          v-else-if="editingKey && form.auth_type === 'api_key'"
+          class="text-xs text-muted-foreground mt-1"
+        >
+          留空表示不修改
+        </p>
       </div>
 
       <!-- 备注 -->
@@ -275,7 +315,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Dialog, Button, Input, Label, Switch } from '@/components/ui'
+import { Dialog, Button, Input, Label, Switch, Select, SelectTrigger, SelectValue, SelectContent, SelectItem, Textarea } from '@/components/ui'
 import { Key, SquarePen } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { useFormDialog } from '@/composables/useFormDialog'
@@ -327,24 +367,45 @@ const showAutoFetchWarning = computed(() => {
   return true
 })
 
+// 检查是否正在切换认证类型
+const switchingToVertexAI = computed(() =>
+  !!props.editingKey &&
+  props.editingKey.auth_type !== 'vertex_ai' &&
+  form.value.auth_type === 'vertex_ai'
+)
+const switchingToApiKey = computed(() =>
+  !!props.editingKey &&
+  props.editingKey.auth_type !== 'api_key' &&
+  form.value.auth_type === 'api_key'
+)
+
 // 表单是否可以保存
 const canSave = computed(() => {
   // 必须填写密钥名称
   if (!form.value.name.trim()) return false
-  // 新增模式下必须填写 API 密钥
-  if (!props.editingKey && !form.value.api_key.trim()) return false
+  // 新增模式下根据认证类型判断必填字段
+  if (!props.editingKey) {
+    if (form.value.auth_type === 'api_key' && !form.value.api_key.trim()) return false
+    if (form.value.auth_type === 'vertex_ai' && !form.value.auth_config_text.trim()) return false
+  } else {
+    // 编辑模式下切换认证类型时，必须填写对应字段
+    if (switchingToApiKey.value && !form.value.api_key.trim()) return false
+    if (switchingToVertexAI.value && !form.value.auth_config_text.trim()) return false
+  }
   // 必须至少选择一个 API 格式
   if (form.value.api_formats.length === 0) return false
   // API 密钥格式验证（如果有输入）
-  if (form.value.api_key.trim() && form.value.api_key.trim().length < 3) return false
+  if (form.value.auth_type === 'api_key' && form.value.api_key.trim() && form.value.api_key.trim().length < 3) return false
   return true
 })
 
 const isOpen = computed(() => props.open)
 const saving = ref(false)
 const formNonce = ref(createFieldNonce())
+const authTypeSelectOpen = ref(false)
 const keyNameInputId = computed(() => `key-name-${formNonce.value}`)
 const apiKeyInputId = computed(() => `api-key-${formNonce.value}`)
+const authTypeSelectId = computed(() => `auth-type-${formNonce.value}`)
 const keyNameFieldName = computed(() => `key-name-field-${formNonce.value}`)
 const apiKeyFieldName = computed(() => `api-key-field-${formNonce.value}`)
 
@@ -353,7 +414,9 @@ const availableCapabilities = ref<CapabilityDefinition[]>([])
 
 const form = ref({
   name: '',
-  api_key: '',
+  api_key: '',  // 标准 API Key
+  auth_type: 'api_key' as 'api_key' | 'vertex_ai',  // 认证类型
+  auth_config_text: '',  // Service Account JSON 文本（用于表单输入）
   api_formats: [] as string[],  // 支持的 API 格式列表
   rate_multipliers: {} as Record<string, number>,  // 按 API 格式的成本倍率
   internal_priority: 10,
@@ -440,6 +503,8 @@ function resetForm() {
   form.value = {
     name: '',
     api_key: '',
+    auth_type: 'api_key',
+    auth_config_text: '',
     api_formats: [],  // 默认不选中任何格式
     rate_multipliers: {},
     internal_priority: 10,
@@ -460,6 +525,7 @@ function clearForNextAdd() {
   formNonce.value = createFieldNonce()
   form.value.name = ''
   form.value.api_key = ''
+  form.value.auth_config_text = ''
 }
 
 // 加载密钥数据（编辑模式）
@@ -469,6 +535,8 @@ function loadKeyData() {
   form.value = {
     name: props.editingKey.name,
     api_key: '',
+    auth_type: props.editingKey.auth_type || 'api_key',
+    auth_config_text: '',  // auth_config 不返回给前端，编辑时需要重新输入
     api_formats: props.editingKey.api_formats?.length > 0
       ? [...props.editingKey.api_formats]
       : [],  // 编辑模式下保持原有选择，不默认全选
@@ -512,6 +580,18 @@ function parsePatternText(text: string): string[] {
   return [...new Set(patterns)]
 }
 
+// 解析 Service Account JSON 文本
+function parseAuthConfig(): Record<string, any> | null {
+  if (form.value.auth_type !== 'vertex_ai') return null
+  const text = form.value.auth_config_text.trim()
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
 async function handleSave() {
   // 必须有 providerId
   if (!props.providerId) {
@@ -525,10 +605,32 @@ async function handleSave() {
     return
   }
 
-  // 新增模式下，API 密钥必填
-  if (!props.editingKey && !form.value.api_key.trim()) {
-    showError('请输入 API 密钥', '验证失败')
-    return
+  // 验证认证信息
+  if (form.value.auth_type === 'api_key') {
+    // API Key 模式：新增时必填
+    if (!props.editingKey && !form.value.api_key.trim()) {
+      showError('请输入 API 密钥', '验证失败')
+      return
+    }
+  } else if (form.value.auth_type === 'vertex_ai') {
+    // Service Account 模式：新增时必填，编辑时可选
+    if (!props.editingKey && !form.value.auth_config_text.trim()) {
+      showError('请输入 Service Account JSON', '验证失败')
+      return
+    }
+    // 验证 JSON 格式
+    if (form.value.auth_config_text.trim()) {
+      const parsed = parseAuthConfig()
+      if (!parsed) {
+        showError('Service Account JSON 格式无效', '验证失败')
+        return
+      }
+      // 验证必要字段
+      if (!parsed.client_email || !parsed.private_key || !parsed.project_id) {
+        showError('Service Account JSON 缺少必要字段 (client_email, private_key, project_id)', '验证失败')
+        return
+      }
+    }
   }
 
   // 验证至少选择一个 API 格式
@@ -559,6 +661,9 @@ async function handleSave() {
       ? filteredMultipliers
       : null
 
+    // 准备认证相关数据
+    const authConfig = parseAuthConfig()
+
     if (props.editingKey) {
       // 更新模式
       // 注意：rpm_limit 使用 null 表示自适应模式
@@ -566,6 +671,7 @@ async function handleSave() {
       const updateData: EndpointAPIKeyUpdate = {
         api_formats: form.value.api_formats,
         name: form.value.name,
+        auth_type: form.value.auth_type,
         rate_multipliers: rateMultipliersData,
         internal_priority: form.value.internal_priority,
         rpm_limit: form.value.rpm_limit,
@@ -579,8 +685,12 @@ async function handleSave() {
         model_exclude_patterns: parsePatternText(form.value.model_exclude_patterns_text)
       }
 
-      if (form.value.api_key.trim()) {
+      // 根据认证类型设置对应字段
+      if (form.value.auth_type === 'api_key' && form.value.api_key.trim()) {
         updateData.api_key = form.value.api_key
+      }
+      if (form.value.auth_type === 'vertex_ai' && authConfig) {
+        updateData.auth_config = authConfig
       }
 
       await updateProviderKey(props.editingKey.id, updateData)
@@ -589,7 +699,9 @@ async function handleSave() {
       // 新增模式
       await addProviderKey(props.providerId, {
         api_formats: form.value.api_formats,
-        api_key: form.value.api_key,
+        api_key: form.value.auth_type === 'api_key' ? form.value.api_key : '',
+        auth_type: form.value.auth_type,
+        auth_config: authConfig || undefined,
         name: form.value.name,
         rate_multipliers: rateMultipliersData,
         internal_priority: form.value.internal_priority,

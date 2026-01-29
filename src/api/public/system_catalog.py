@@ -270,9 +270,15 @@ async def test_connection(
 
     # 定义请求函数
     async def test_request_func(_prov, endpoint, key, _candidate):
+        from src.api.handlers.base.request_builder import get_provider_auth
+
+        # 获取认证信息（处理 Service Account 等异步认证场景）
+        auth_info = await get_provider_auth(endpoint, key)
+
         request_builder = PassthroughRequestBuilder()
         provider_payload, provider_headers = request_builder.build(
-            payload, {}, endpoint, key, is_stream=False
+            payload, {}, endpoint, key, is_stream=False,
+            pre_computed_auth=auth_info.as_tuple() if auth_info else None,
         )
 
         url = build_provider_url(
@@ -280,6 +286,8 @@ async def test_connection(
             query_params=dict(request.query_params),
             path_params={"model": model},
             is_stream=False,
+            key=key,
+            decrypted_auth_config=auth_info.decrypted_auth_config if auth_info else None,
         )
 
         async with httpx.AsyncClient(timeout=30.0, verify=get_ssl_context()) as client:

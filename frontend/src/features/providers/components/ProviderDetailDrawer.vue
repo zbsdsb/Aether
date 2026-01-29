@@ -208,7 +208,7 @@
                           <span class="text-sm font-medium truncate">{{ key.name || '未命名密钥' }}</span>
                           <div class="flex items-center gap-1">
                             <span class="text-[11px] font-mono text-muted-foreground">
-                              {{ key.api_key_masked }}
+                              {{ key.auth_type === 'vertex_ai' ? 'Vertex AI' : key.api_key_masked }}
                             </span>
                             <Button
                               variant="ghost"
@@ -743,7 +743,7 @@ function handleKeyPermissions(key: EndpointAPIKey) {
   keyPermissionsDialogOpen.value = true
 }
 
-// 复制完整密钥
+// 复制完整密钥或认证配置
 async function copyFullKey(key: EndpointAPIKey) {
   const cached = revealedKeys.value.get(key.id)
   if (cached) {
@@ -754,8 +754,20 @@ async function copyFullKey(key: EndpointAPIKey) {
   // 否则先获取再复制
   try {
     const result = await revealEndpointKey(key.id)
-    revealedKeys.value.set(key.id, result.api_key)
-    copyToClipboard(result.api_key)
+    let textToCopy: string
+
+    if (result.auth_type === 'vertex_ai' && result.auth_config) {
+      // Vertex AI 类型：复制 auth_config JSON
+      textToCopy = typeof result.auth_config === 'string'
+        ? result.auth_config
+        : JSON.stringify(result.auth_config, null, 2)
+    } else {
+      // API Key 类型：复制 api_key
+      textToCopy = result.api_key || ''
+    }
+
+    revealedKeys.value.set(key.id, textToCopy)
+    copyToClipboard(textToCopy)
   } catch (err: any) {
     showError(err.response?.data?.detail || '获取密钥失败', '错误')
   }

@@ -40,7 +40,7 @@ from src.api.handlers.base.base_handler import (
     wait_for_with_disconnect_detection,
 )
 from src.api.handlers.base.parsers import get_parser_for_format
-from src.api.handlers.base.request_builder import PassthroughRequestBuilder
+from src.api.handlers.base.request_builder import PassthroughRequestBuilder, get_provider_auth
 
 # 直接从具体模块导入，避免循环依赖
 from src.api.handlers.base.response_parser import (
@@ -718,6 +718,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
             request_body = self.prepare_provider_request_body(request_body)
             url_model = self.get_model_for_url(request_body, mapped_model) or mapped_model or ctx.model
 
+        # 获取认证信息（处理 Service Account 等异步认证场景）
+        auth_info = await get_provider_auth(endpoint, key)
+
         # 使用 RequestBuilder 构建请求体和请求头
         # 注意：mapped_model 已经应用到 request_body，这里不再传递
         # 上游始终使用 header 认证，不跟随客户端的 query 方式
@@ -727,6 +730,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             endpoint,
             key,
             is_stream=True,
+            pre_computed_auth=auth_info.as_tuple() if auth_info else None,
         )
 
         # 保存发送给 Provider 的请求信息（用于调试和统计）
@@ -738,6 +742,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
             query_params=query_params,
             path_params={"model": url_model},
             is_stream=True,  # CLI handler 处理流式请求
+            key=key,
+            decrypted_auth_config=auth_info.decrypted_auth_config if auth_info else None,
         )
 
         # 配置 HTTP 超时
@@ -2182,6 +2188,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 request_body = self.prepare_provider_request_body(request_body)
                 url_model = self.get_model_for_url(request_body, mapped_model) or mapped_model or model
 
+            # 获取认证信息（处理 Service Account 等异步认证场景）
+            auth_info = await get_provider_auth(endpoint, key)
+
             # 使用 RequestBuilder 构建请求体和请求头
             # 注意：mapped_model 已经应用到 request_body，这里不再传递
             # 上游始终使用 header 认证，不跟随客户端的 query 方式
@@ -2191,6 +2200,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 endpoint,
                 key,
                 is_stream=False,
+                pre_computed_auth=auth_info.as_tuple() if auth_info else None,
             )
 
             # 保存发送给 Provider 的请求信息（用于调试和统计）
@@ -2202,6 +2212,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 query_params=query_params,
                 path_params={"model": url_model},
                 is_stream=False,  # 非流式请求
+                key=key,
+                decrypted_auth_config=auth_info.decrypted_auth_config if auth_info else None,
             )
 
             logger.info(
