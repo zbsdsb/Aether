@@ -203,7 +203,7 @@ class OpenAIResponseParser(ResponseParser):
         result.response_id = response.get("id")
 
         # 提取 usage
-        usage = response.get("usage", {})
+        usage = response.get("usage") or {}
         result.input_tokens = usage.get("prompt_tokens", 0)
         result.output_tokens = usage.get("completion_tokens", 0)
 
@@ -218,7 +218,7 @@ class OpenAIResponseParser(ResponseParser):
         return result
 
     def extract_usage_from_response(self, response: Dict[str, Any]) -> Dict[str, int]:
-        usage = response.get("usage", {})
+        usage = response.get("usage") or {}
         return {
             "input_tokens": usage.get("prompt_tokens", 0),
             "output_tokens": usage.get("completion_tokens", 0),
@@ -342,7 +342,7 @@ class ClaudeResponseParser(ResponseParser):
         result.response_id = response.get("id")
 
         # 提取 usage
-        usage = response.get("usage", {})
+        usage = response.get("usage") or {}
         result.input_tokens = usage.get("input_tokens", 0)
         result.output_tokens = usage.get("output_tokens", 0)
         result.cache_creation_tokens = extract_cache_creation_tokens(usage)
@@ -361,9 +361,9 @@ class ClaudeResponseParser(ResponseParser):
     def extract_usage_from_response(self, response: Dict[str, Any]) -> Dict[str, int]:
         # 对于 message_start 事件，usage 在 message.usage 路径下
         # 对于其他响应，usage 在顶层
-        usage = response.get("usage", {})
+        usage = response.get("usage") or {}
         if not usage and "message" in response:
-            usage = response.get("message", {}).get("usage", {})
+            usage = (response.get("message") or {}).get("usage") or {}
 
         return {
             "input_tokens": usage.get("input_tokens", 0),
