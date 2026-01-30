@@ -6,6 +6,8 @@
 以避免 Starlette 已知的流式响应兼容性问题。
 """
 
+from __future__ import annotations
+
 import hashlib
 import time
 from typing import TYPE_CHECKING

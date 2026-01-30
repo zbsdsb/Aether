@@ -4,6 +4,8 @@ LDAP 认证模块
 提供 LDAP/Active Directory 用户认证支持
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from src.core.modules.base import (

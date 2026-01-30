@@ -28,6 +28,8 @@
    - 失效缓存亲和性，避免重复选择故障资源
 """
 
+from __future__ import annotations
+
 
 import hashlib
 import random

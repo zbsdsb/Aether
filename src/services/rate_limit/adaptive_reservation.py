@@ -10,6 +10,8 @@
 3. 置信度计算：综合考虑连续成功次数、429冷却时间、调整历史稳定性
 """
 
+from __future__ import annotations
+
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

@@ -4,6 +4,8 @@ API 格式检测
 提供从请求头、响应内容等检测 API 格式的函数。
 """
 
+from __future__ import annotations
+
 
 from typing import TYPE_CHECKING
 

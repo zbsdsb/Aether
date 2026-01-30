@@ -4,6 +4,7 @@ API 格式工具函数
 提供格式判断、规范化等工具函数，供整个项目使用。
 """
 
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 

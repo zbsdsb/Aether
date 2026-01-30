@@ -2,6 +2,7 @@
 认证服务
 """
 
+from __future__ import annotations
 
 import hashlib
 import secrets

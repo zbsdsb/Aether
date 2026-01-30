@@ -6,6 +6,8 @@
 - URL 脱敏（用于日志记录）
 """
 
+from __future__ import annotations
+
 import re
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode

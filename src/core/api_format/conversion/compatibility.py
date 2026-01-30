@@ -10,6 +10,8 @@
    - data_format_id 不同 -> 需要转换，检查全局开关 + 端点配置 + 转换器能力
 """
 
+from __future__ import annotations
+
 
 import logging
 from typing import TYPE_CHECKING

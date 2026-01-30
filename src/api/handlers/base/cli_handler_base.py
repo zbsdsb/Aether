@@ -10,6 +10,8 @@ CLI Message Handler 通用基类
 3. 简化新格式接入 - 只需实现 ResponseParser 和少量钩子方法
 """
 
+from __future__ import annotations
+
 import asyncio
 import codecs
 import json

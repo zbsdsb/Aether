@@ -4,6 +4,8 @@ OAuth 认证模块
 提供可配置的 OAuth 登录/绑定能力。
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from src.core.modules.base import (
