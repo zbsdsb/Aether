@@ -52,6 +52,7 @@ class CandidateResolver:
         request_id: Optional[str] = None,
         is_stream: bool = False,
         capability_requirements: Optional[Dict[str, bool]] = None,
+        preferred_key_ids: Optional[list[str]] = None,
     ) -> Tuple[List[ProviderCandidate], str]:
         """
         获取所有可用候选
@@ -64,6 +65,7 @@ class CandidateResolver:
             request_id: 请求 ID（用于日志）
             is_stream: 是否是流式请求，如果为 True 则过滤不支持流式的 Provider
             capability_requirements: 能力需求（用于过滤不满足能力要求的 Key）
+            preferred_key_ids: 优先使用的 Provider Key ID 列表（匹配则置顶）
 
         Returns:
             (所有候选组合的列表, global_model_id)
@@ -106,6 +108,28 @@ class CandidateResolver:
             )
 
         logger.debug(f"  [{request_id}] 获取到 {len(all_candidates)} 个候选组合")
+
+        if preferred_key_ids:
+            preferred_set = {str(kid) for kid in preferred_key_ids if kid}
+            if preferred_set:
+                preferred_candidates = [
+                    c for c in all_candidates if c.key and str(c.key.id) in preferred_set
+                ]
+                other_candidates = [
+                    c for c in all_candidates if not (c.key and str(c.key.id) in preferred_set)
+                ]
+                if preferred_candidates:
+                    matched_key_ids = [str(c.key.id) for c in preferred_candidates if c.key]
+                    logger.debug(
+                        f"  [{request_id}] 优先候选命中: {len(preferred_candidates)} 个 "
+                        f"(key_ids={matched_key_ids[:3]}{'...' if len(matched_key_ids) > 3 else ''})"
+                    )
+                else:
+                    logger.debug(
+                        f"  [{request_id}] 优先候选未命中: 请求的 key_ids={list(preferred_set)[:3]} "
+                        "不在可用候选中，将使用普通优先级"
+                    )
+                all_candidates = preferred_candidates + other_candidates
 
         # 如果没有解析到 global_model_id，使用原始 model_name 作为后备
         return all_candidates, global_model_id or model_name

@@ -439,6 +439,14 @@ class BaseMessageHandler:
             adapter_detector=self.adapter_detector,
         )
 
+    async def _resolve_preferred_key_ids(
+        self,
+        model_name: str,
+        request_body: Optional[Dict[str, Any]] = None,
+    ) -> Optional[list[str]]:
+        """可选的 Key 优先级解析钩子（默认不启用）。"""
+        return None
+
     def get_api_format(self, provider_type: Optional[str] = None) -> APIFormat:
         """根据 provider_type 解析 API 格式，未知类型默认 OPENAI"""
         if provider_type:

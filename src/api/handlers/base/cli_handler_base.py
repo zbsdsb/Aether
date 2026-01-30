@@ -568,6 +568,11 @@ class CliMessageHandlerBase(BaseMessageHandler):
             capability_requirements = self._resolve_capability_requirements(
                 model_name=ctx.model,
                 request_headers=original_headers,
+                request_body=original_request_body,
+            )
+            preferred_key_ids = await self._resolve_preferred_key_ids(
+                model_name=ctx.model,
+                request_body=original_request_body,
             )
 
             # 执行请求（通过 FallbackOrchestrator）
@@ -586,6 +591,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 request_id=self.request_id,
                 is_stream=True,
                 capability_requirements=capability_requirements or None,
+                preferred_key_ids=preferred_key_ids or None,
                 request_body_ref=request_body_ref,  # 传递容器引用
             )
 
@@ -2324,6 +2330,11 @@ class CliMessageHandlerBase(BaseMessageHandler):
             capability_requirements = self._resolve_capability_requirements(
                 model_name=model,
                 request_headers=original_headers,
+                request_body=original_request_body,
+            )
+            preferred_key_ids = await self._resolve_preferred_key_ids(
+                model_name=model,
+                request_body=original_request_body,
             )
 
             (
@@ -2340,6 +2351,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 request_func=sync_request_func,
                 request_id=self.request_id,
                 capability_requirements=capability_requirements or None,
+                preferred_key_ids=preferred_key_ids or None,
                 request_body_ref=request_body_ref,  # 传递容器引用
             )
 

@@ -245,3 +245,12 @@ register_capability(
     short_name="CLI 1M",
     error_patterns=["context", "token", "length", "exceed"],  # 上下文超限错误
 )
+
+register_capability(
+    name="gemini_files_api",
+    display_name="Gemini文件上传",
+    description="支持 Gemini Files API（上传、查询、删除），第三方 Key 通常不支持",
+    match_mode=CapabilityMatchMode.COMPATIBLE,  # 需要时选有的，不需要时都可选
+    config_mode=CapabilityConfigMode.REQUEST_PARAM,  # 从请求路径检测
+    short_name="文件上传",
+)

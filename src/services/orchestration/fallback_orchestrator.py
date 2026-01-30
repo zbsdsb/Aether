@@ -176,6 +176,7 @@ class FallbackOrchestrator:
         request_id: Optional[str] = None,
         is_stream: bool = False,
         capability_requirements: Optional[Dict[str, bool]] = None,
+        preferred_key_ids: Optional[list[str]] = None,
     ) -> Tuple[List[ProviderCandidate], str]:
         """
         收集所有可用的 Provider/Endpoint/Key 候选组合
@@ -190,6 +191,7 @@ class FallbackOrchestrator:
             request_id: 请求 ID（用于日志）
             is_stream: 是否是流式请求，如果为 True 则过滤不支持流式的 Provider
             capability_requirements: 能力需求（用于过滤不满足能力要求的 Key）
+            preferred_key_ids: 优先使用的 Provider Key ID 列表（匹配则置顶）
 
         Returns:
             (所有候选组合的列表, global_model_id)
@@ -206,6 +208,7 @@ class FallbackOrchestrator:
             request_id=request_id,
             is_stream=is_stream,
             capability_requirements=capability_requirements,
+            preferred_key_ids=preferred_key_ids,
         )
 
     def _create_candidate_records(
@@ -988,6 +991,7 @@ class FallbackOrchestrator:
         request_id: Optional[str] = None,
         is_stream: bool = False,
         capability_requirements: Optional[Dict[str, bool]] = None,
+        preferred_key_ids: Optional[list[str]] = None,
         request_body_ref: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Any, str, Optional[str], Optional[str], Optional[str], Optional[str]]:
         """
@@ -1001,6 +1005,7 @@ class FallbackOrchestrator:
             request_id: 请求 ID（用于日志）
             is_stream: 是否是流式请求，如果为 True 则过滤不支持流式的 Provider
             capability_requirements: 能力需求（用于过滤不满足能力要求的 Key）
+            preferred_key_ids: 优先使用的 Provider Key ID 列表（匹配则置顶）
             request_body_ref: 请求体引用容器（用于 Thinking 签名错误重试）
 
         Returns:
@@ -1036,6 +1041,7 @@ class FallbackOrchestrator:
             request_id=request_id,
             is_stream=is_stream,
             capability_requirements=capability_requirements,
+            preferred_key_ids=preferred_key_ids,
         )
 
         # 2. 批量创建候选记录

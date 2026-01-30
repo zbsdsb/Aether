@@ -15,6 +15,7 @@ from src.api.handlers.base.chat_handler_base import ChatHandlerBase
 from src.core.api_format import extract_client_api_key_with_query
 from src.core.logger import logger
 from src.models.gemini import GeminiRequest
+from src.services.gemini_files_mapping import extract_file_names_from_request
 from src.services.provider.transport import redact_url_for_log
 
 
@@ -55,6 +56,16 @@ class GeminiChatAdapter(ChatAdapterBase):
             dict(request.query_params),
             self._get_api_format(),
         )
+
+    def detect_capability_requirements(
+        self,
+        headers: Dict[str, str],  # noqa: ARG002 - 预留
+        request_body: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, bool]:
+        """检测是否需要 Gemini Files API 能力"""
+        if request_body and extract_file_names_from_request(request_body):
+            return {"gemini_files_api": True}
+        return {}
 
     def _merge_path_params(
         self, original_request_body: Dict[str, Any], path_params: Dict[str, Any]  # noqa: ARG002

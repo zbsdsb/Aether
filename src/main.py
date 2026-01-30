@@ -390,6 +390,10 @@ openapi_tags = [
         "description": "Gemini API 代理接口，兼容 Google Gemini API 格式",
     },
     {
+        "name": "Gemini Files API",
+        "description": "Gemini Files API 代理接口，支持文件上传、查询、删除等操作",
+    },
+    {
         "name": "System Catalog",
         "description": "系统目录接口，用于获取可用模型列表等",
     },
