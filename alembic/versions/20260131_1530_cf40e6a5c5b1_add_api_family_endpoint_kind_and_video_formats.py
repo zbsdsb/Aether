@@ -9,6 +9,7 @@ Create Date: 2026-01-31 15:30:00.000000
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Sequence, Union
 from uuid import uuid4
 
@@ -261,6 +262,7 @@ def create_video_endpoints(connection) -> None:
         else:
             continue
 
+        now = datetime.now(timezone.utc)
         connection.execute(
             text("""
                 INSERT INTO provider_endpoints
@@ -277,7 +279,9 @@ def create_video_endpoints(connection) -> None:
                     custom_path,
                     config,
                     format_acceptance_config,
-                    proxy
+                    proxy,
+                    created_at,
+                    updated_at
                 )
                 VALUES
                 (
@@ -293,7 +297,9 @@ def create_video_endpoints(connection) -> None:
                     NULL,
                     :config,
                     :format_acceptance_config,
-                    :proxy
+                    :proxy,
+                    :created_at,
+                    :updated_at
                 )
                 """),
             {
@@ -308,6 +314,8 @@ def create_video_endpoints(connection) -> None:
                 "config": _json_dumps(_json_loads(row.config)),
                 "format_acceptance_config": _json_dumps(_json_loads(row.format_acceptance_config)),
                 "proxy": _json_dumps(_json_loads(row.proxy)),
+                "created_at": now,
+                "updated_at": now,
             },
         )
 
