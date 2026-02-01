@@ -7,17 +7,18 @@ IP 安全管理接口
 from __future__ import annotations
 
 from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from src.api.base.adapter import ApiMode
 from src.api.base.authenticated_adapter import AuthenticatedApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import InvalidRequestException, translate_pydantic_error
 from src.database import get_db
 from src.services.rate_limit.ip_limiter import IPRateLimiter
-from src.api.base.context import ApiRequestContext
 
 router = APIRouter(prefix="/api/admin/security/ip", tags=["Admin - Security"])
 pipeline = ApiRequestPipeline()
@@ -78,7 +79,9 @@ async def add_to_blacklist(request: Request, db: Session = Depends(get_db)) -> N
 
 
 @router.delete("/blacklist/{ip_address}")
-async def remove_from_blacklist(ip_address: str, request: Request, db: Session = Depends(get_db)) -> None:
+async def remove_from_blacklist(
+    ip_address: str, request: Request, db: Session = Depends(get_db)
+) -> None:
     """
     从黑名单移除 IP
 
@@ -133,7 +136,9 @@ async def add_to_whitelist(request: Request, db: Session = Depends(get_db)) -> N
 
 
 @router.delete("/whitelist/{ip_address}")
-async def remove_from_whitelist(ip_address: str, request: Request, db: Session = Depends(get_db)) -> None:
+async def remove_from_whitelist(
+    ip_address: str, request: Request, db: Session = Depends(get_db)
+) -> None:
     """
     从白名单移除 IP
 

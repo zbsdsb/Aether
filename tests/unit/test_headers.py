@@ -1,10 +1,9 @@
-from src.core.api_format import APIFormat
 from src.core.api_format import (
     CORE_REDACT_HEADERS,
     HeaderBuilder,
-    build_upstream_headers,
-    detect_capabilities,
-    extract_client_api_key,
+    build_upstream_headers_for_endpoint,
+    detect_capabilities_for_endpoint,
+    extract_client_api_key_for_endpoint,
     filter_response_headers,
     get_header_value,
     normalize_headers,
@@ -36,25 +35,25 @@ class TestGetHeaderValue:
 class TestExtractClientApiKey:
     def test_bearer_token(self) -> None:
         headers = {"authorization": "Bearer test-token"}
-        assert extract_client_api_key(headers, APIFormat.OPENAI) == "test-token"
+        assert extract_client_api_key_for_endpoint(headers, "openai:chat") == "test-token"
 
     def test_bearer_token_requires_prefix(self) -> None:
         headers = {"Authorization": "test-token"}
-        assert extract_client_api_key(headers, APIFormat.OPENAI) is None
+        assert extract_client_api_key_for_endpoint(headers, "openai:chat") is None
 
     def test_header_auth(self) -> None:
         headers = {"X-API-Key": "abc"}
-        assert extract_client_api_key(headers, APIFormat.CLAUDE) == "abc"
+        assert extract_client_api_key_for_endpoint(headers, "claude:chat") == "abc"
 
 
 class TestDetectCapabilities:
     def test_claude_context_1m(self) -> None:
         headers = {"Anthropic-Beta": "context-1m,foo"}
-        assert detect_capabilities(headers, APIFormat.CLAUDE) == {"context_1m": True}
+        assert detect_capabilities_for_endpoint(headers, "claude:chat") == {"context_1m": True}
 
     def test_non_claude_noop(self) -> None:
         headers = {"Anthropic-Beta": "context-1m"}
-        assert detect_capabilities(headers, APIFormat.OPENAI) == {}
+        assert detect_capabilities_for_endpoint(headers, "openai:chat") == {}
 
 
 class TestHeaderBuilder:
@@ -77,14 +76,14 @@ class TestHeaderBuilder:
 
 class TestBuildUpstreamHeaders:
     def test_priority_and_drop_headers(self) -> None:
-        result = build_upstream_headers(
+        result = build_upstream_headers_for_endpoint(
             {
                 "Host": "example.com",
                 "X-Api-Key": "client",
                 "User-Agent": "ua",
                 "Content-Type": "text/plain",
             },
-            APIFormat.OPENAI,
+            "openai:chat",
             "provider",
             endpoint_headers={"Authorization": "bad", "X-Endpoint": "1", "Content-Type": "bad"},
             extra_headers={"User-Agent": "extra", "X-Extra": "1"},
@@ -98,9 +97,9 @@ class TestBuildUpstreamHeaders:
         assert result["X-Extra"] == "1"
 
     def test_drop_headers_empty_does_not_fallback(self) -> None:
-        result = build_upstream_headers(
+        result = build_upstream_headers_for_endpoint(
             {"Host": "example.com"},
-            APIFormat.OPENAI,
+            "openai:chat",
             "provider",
             drop_headers=frozenset(),
         )
@@ -108,9 +107,9 @@ class TestBuildUpstreamHeaders:
         assert result["Authorization"] == "Bearer provider"
 
     def test_no_duplicate_on_case_variants(self) -> None:
-        result = build_upstream_headers(
+        result = build_upstream_headers_for_endpoint(
             {"user-agent": "a"},
-            APIFormat.OPENAI,
+            "openai:chat",
             "provider",
             extra_headers={"User-Agent": "b"},
         )
@@ -118,7 +117,7 @@ class TestBuildUpstreamHeaders:
         assert result["User-Agent"] == "b"
 
     def test_default_content_type(self) -> None:
-        result = build_upstream_headers({}, APIFormat.OPENAI, "provider")
+        result = build_upstream_headers_for_endpoint({}, "openai:chat", "provider")
         assert result["Content-Type"] == "application/json"
 
 
@@ -149,4 +148,3 @@ class TestCapabilityResolverHeaderParsing:
             request_headers={"x-require-capability": "context_1m"}
         )
         assert reqs == {"context_1m": True}
-

@@ -83,7 +83,9 @@ def get_all_capabilities() -> list[CapabilityDefinition]:
 
 def get_user_configurable_capabilities() -> list[CapabilityDefinition]:
     """获取用户可配置的能力列表"""
-    return [c for c in _capabilities.values() if c.config_mode == CapabilityConfigMode.USER_CONFIGURABLE]
+    return [
+        c for c in _capabilities.values() if c.config_mode == CapabilityConfigMode.USER_CONFIGURABLE
+    ]
 
 
 # ============ 能力匹配检查 ============

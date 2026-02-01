@@ -7,20 +7,20 @@
 - API Key 认证
 """
 
-import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
+import pytest
 
-from src.services.auth.service import (
-    AuthService,
-    JWT_SECRET_KEY,
-    JWT_ALGORITHM,
-    JWT_EXPIRATION_HOURS,
-)
 from src.core.enums import AuthSource
 from src.models.database import UserRole
+from src.services.auth.service import (
+    JWT_ALGORITHM,
+    JWT_EXPIRATION_HOURS,
+    JWT_SECRET_KEY,
+    AuthService,
+)
 
 
 class TestJWTTokenCreation:

@@ -10,7 +10,7 @@ import asyncio
 
 import httpx
 
-from src.core.api_format import APIFormat, get_extra_headers_from_endpoint
+from src.core.api_format import get_extra_headers_from_endpoint
 from src.core.logger import logger
 from src.models.database import ProviderEndpoint
 from src.utils.ssl_utils import get_ssl_context
@@ -18,8 +18,8 @@ from src.utils.ssl_utils import get_ssl_context
 # 并发请求限制
 MAX_CONCURRENT_REQUESTS = 5
 
-# 只对这些基础格式获取模型列表，CLI 格式使用相同的上游 API
-MODEL_FETCH_FORMATS = [APIFormat.OPENAI, APIFormat.CLAUDE, APIFormat.GEMINI]
+# 只对这些基础 endpoint signature 获取模型列表，CLI 使用相同的上游 API
+MODEL_FETCH_FORMATS = ["openai:chat", "claude:chat", "gemini:chat"]
 
 
 def _get_adapter_for_format(api_format: str) -> type | None:
@@ -43,7 +43,7 @@ def build_all_format_configs(
     """
     构建所有 API 格式的端点配置
 
-    从所有 APIFormat 枚举值构建配置，如果该格式有专门的端点配置则使用，
+    从基础 endpoint signature 列表构建配置，如果该格式有专门的端点配置则使用，
     否则使用基础端点的 base_url 尝试。
 
     Args:
@@ -59,9 +59,9 @@ def build_all_format_configs(
     # 获取任意一个端点的 base_url 作为基础（用于尝试所有格式）
     # 优先使用 OPENAI 格式的端点，因为它最通用
     base_endpoint = (
-        format_to_endpoint.get("OPENAI")
-        or format_to_endpoint.get("CLAUDE")
-        or format_to_endpoint.get("GEMINI")
+        format_to_endpoint.get("openai:chat")
+        or format_to_endpoint.get("claude:chat")
+        or format_to_endpoint.get("gemini:chat")
         or next(iter(format_to_endpoint.values()))
     )
     base_url = base_endpoint.base_url
@@ -70,7 +70,7 @@ def build_all_format_configs(
     # 只对基础 API 格式获取模型，CLI 格式使用相同的上游 API
     endpoint_configs: list[dict] = []
     for fmt in MODEL_FETCH_FORMATS:
-        fmt_value = fmt.value
+        fmt_value = fmt
         # 如果该格式有专门的端点配置，使用其 base_url 和 headers
         if fmt_value in format_to_endpoint:
             ep = format_to_endpoint[fmt_value]
@@ -115,9 +115,7 @@ async def fetch_models_from_endpoints(
     has_success = False
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-    async def fetch_one(
-        client: httpx.AsyncClient, config: dict
-    ) -> tuple[list, str | None, bool]:
+    async def fetch_one(client: httpx.AsyncClient, config: dict) -> tuple[list, str | None, bool]:
         base_url = config["base_url"]
         if not base_url:
             return [], None, False

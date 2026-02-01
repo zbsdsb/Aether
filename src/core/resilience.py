@@ -11,16 +11,15 @@ import threading
 import time
 import traceback
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from collections.abc import Callable
-
-from ..core.exceptions import ProxyException
 from src.core.logger import logger
 
+from ..core.exceptions import ProxyException
 
 
 class ErrorSeverity(Enum):
@@ -383,7 +382,9 @@ async def safe_operation(operation_name: str, context: dict[str, Any] = None) ->
             logger.warning(f"操作警告 [{error_result['error_id']}]: {error_result['user_message']}")
 
 
-def graceful_degradation(fallback_func: Callable | None = None, fallback_value: Any | None = None) -> Any:
+def graceful_degradation(
+    fallback_func: Callable | None = None, fallback_value: Any | None = None
+) -> Any:
     """
     优雅降级装饰器
     当主要功能失败时，自动切换到备用方案

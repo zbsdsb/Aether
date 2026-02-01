@@ -18,7 +18,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from src.core.api_format import UPSTREAM_DROP_HEADERS, HeaderBuilder
+from src.core.api_format import (
+    UPSTREAM_DROP_HEADERS,
+    HeaderBuilder,
+    get_auth_config_for_endpoint,
+    make_signature_key,
+)
 from src.core.crypto import crypto_service
 
 if TYPE_CHECKING:
@@ -93,7 +98,7 @@ def build_test_request_body(
     使用格式转换注册表将 OpenAI 格式的测试请求转换为目标格式。
 
     Args:
-        format_id: 目标 API 格式 ID（如 "CLAUDE", "GEMINI", "OPENAI_CLI"）
+        format_id: 目标 endpoint signature（如 "claude:chat", "gemini:chat", "openai:cli"）
         request_data: 可选的请求数据，会与默认测试请求合并
 
     Returns:
@@ -110,11 +115,15 @@ def build_test_request_body(
     # 获取测试请求数据（OpenAI 格式）
     source_data = get_test_request_data(request_data)
 
-    # CLI 格式使用基础格式进行转换（CLAUDE_CLI -> CLAUDE）
+    # CLI 格式使用基础格式进行转换（claude:cli -> claude:chat）
     target_format = get_base_format(format_id) or format_id
 
-    # 使用注册表进行格式转换 (OPENAI -> 目标基础格式)
-    return format_conversion_registry.convert_request(source_data, "OPENAI", target_format)
+    # 使用注册表进行格式转换 (openai:chat -> 目标基础格式)
+    return format_conversion_registry.convert_request(
+        source_data,
+        make_signature_key("openai", "chat"),
+        target_format,
+    )
 
 
 # ==============================================================================
@@ -237,8 +246,6 @@ class PassthroughRequestBuilder(RequestBuilder):
             pre_computed_auth: 预先计算的认证信息 (auth_header, auth_value)，
                                用于 Service Account 等异步获取 token 的场景
         """
-        from src.core.api_format import get_auth_config, resolve_api_format
-
         # 1. 根据 API 格式自动设置认证头
         if pre_computed_auth:
             # 使用预先计算的认证信息（Service Account 等场景）
@@ -246,11 +253,23 @@ class PassthroughRequestBuilder(RequestBuilder):
         else:
             # 标准 API Key 认证
             decrypted_key = crypto_service.decrypt(key.api_key)
-            api_format = getattr(endpoint, "api_format", None)
-            resolved_format = resolve_api_format(api_format)
-            auth_header, auth_type = (
-                get_auth_config(resolved_format) if resolved_format else ("Authorization", "bearer")
-            )
+            raw_family = getattr(endpoint, "api_family", None)
+            raw_kind = getattr(endpoint, "endpoint_kind", None)
+            endpoint_sig: str | None = None
+            if (
+                isinstance(raw_family, str)
+                and isinstance(raw_kind, str)
+                and raw_family
+                and raw_kind
+            ):
+                endpoint_sig = make_signature_key(raw_family, raw_kind)
+            else:
+                # 兜底：允许 endpoint.api_format 已经是 signature key 的情况
+                raw_format = getattr(endpoint, "api_format", None)
+                if isinstance(raw_format, str) and ":" in raw_format:
+                    endpoint_sig = raw_format
+
+            auth_header, auth_type = get_auth_config_for_endpoint(endpoint_sig or "openai:chat")
             auth_value = f"Bearer {decrypted_key}" if auth_type == "bearer" else decrypted_key
         # 认证头始终受保护，防止 header_rules 覆盖
         protected_keys = {auth_header.lower(), "content-type"}

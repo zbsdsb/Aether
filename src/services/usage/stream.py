@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
 from collections.abc import AsyncIterator
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,6 @@ from src.core.logger import logger
 from src.database.database import create_session
 from src.models.database import ApiKey, User
 from src.services.usage.service import UsageService
-
 
 
 class StreamUsageTracker:
@@ -64,7 +63,7 @@ class StreamUsageTracker:
             provider_id: Provider ID（用于记录真实成本）
             provider_endpoint_id: Endpoint ID（用于记录真实成本）
             provider_api_key_id: API Key ID（用于记录真实成本）
-            api_format: API 格式（CLAUDE, CLAUDE_CLI, OPENAI, OPENAI_CLI）
+            api_format: endpoint signature（如 "claude:chat", "openai:cli"）
             endpoint_api_format: 端点原生 API 格式
             has_format_conversion: 是否发生了格式转换
         """
@@ -85,7 +84,7 @@ class StreamUsageTracker:
         self.provider_api_key_id = provider_api_key_id
 
         # API 格式和响应解析器
-        self.api_format = api_format or "CLAUDE"
+        self.api_format = api_format or "claude:chat"
         self.endpoint_api_format = endpoint_api_format
         self.has_format_conversion = has_format_conversion
         self.response_parser = get_parser_for_format(self.api_format)
@@ -144,7 +143,9 @@ class StreamUsageTracker:
         """
         self.status_code = status_code
         self.error_message = error_message
-        logger.debug(f"ID:{self.request_id} | 流式响应错误状态已设置 | 状态码:{status_code} | 错误:{error_message[:100]}")
+        logger.debug(
+            f"ID:{self.request_id} | 流式响应错误状态已设置 | 状态码:{status_code} | 错误:{error_message[:100]}"
+        )
 
     def _update_complete_response(self, chunk: dict[str, Any]) -> None:
         """根据响应块更新完整响应结构"""
@@ -465,7 +466,9 @@ class StreamUsageTracker:
         messages = request_data.get("messages", [])
         self.input_tokens = self.estimate_input_tokens(messages)
 
-        logger.debug(f"ID:{self.request_id} | 开始跟踪流式响应 | 估算输入tokens:{self.input_tokens}")
+        logger.debug(
+            f"ID:{self.request_id} | 开始跟踪流式响应 | 估算输入tokens:{self.input_tokens}"
+        )
 
         chunk_count = 0
         first_byte_time_ms = None  # 预先记录 TTFB，避免 yield 后计算不准确
@@ -479,7 +482,9 @@ class StreamUsageTracker:
                 if chunk_count == 1:
                     # 计算 TTFB（使用请求原始开始时间或 track_stream 开始时间）
                     base_time = self.request_start_time or self.start_time
-                    first_byte_time_ms = int((time.time() - base_time) * 1000) if base_time else None
+                    first_byte_time_ms = (
+                        int((time.time() - base_time) * 1000) if base_time else None
+                    )
 
                 # 先返回原始块给客户端，确保 TTFB 不受数据库操作影响
                 yield chunk
@@ -535,8 +540,10 @@ class StreamUsageTracker:
             # 流结束后记录使用量
             self.end_time = time.time()
 
-            logger.debug(f"ID:{self.request_id} | 流式响应结束 | 共处理{chunk_count}个chunks | "
-                f"累积内容长度:{len(self.accumulated_content)} | 输出tokens:{self.output_tokens}")
+            logger.debug(
+                f"ID:{self.request_id} | 流式响应结束 | 共处理{chunk_count}个chunks | "
+                f"累积内容长度:{len(self.accumulated_content)} | 输出tokens:{self.output_tokens}"
+            )
 
             # 检查是否收到了有效数据
             # 情况1: 收到了原始数据但无法解析为有效的SSE JSON
@@ -564,7 +571,9 @@ class StreamUsageTracker:
                 await self._record_usage()
             except Exception as e:
                 # 如果记录失败，至少输出基本的汇总日志
-                logger.exception(f"Failed to record stream usage for request {self.request_id}: {e}")
+                logger.exception(
+                    f"Failed to record stream usage for request {self.request_id}: {e}"
+                )
                 # 尝试输出基本的汇总日志，使用多层防护
                 try:
                     # 计算响应时间，使用多层后备机制
@@ -581,13 +590,17 @@ class StreamUsageTracker:
                         total_response_time = 0
 
                     # 安全地输出汇总日志
-                    logger.info(f"[请求完成] ID:{self.request_id or 'unknown'} | 200 | 耗时:{total_response_time}ms | "
-                        f"Token:输入{self.input_tokens}/输出{self.output_tokens} | 费用:未知(记录失败)")
+                    logger.info(
+                        f"[请求完成] ID:{self.request_id or 'unknown'} | 200 | 耗时:{total_response_time}ms | "
+                        f"Token:输入{self.input_tokens}/输出{self.output_tokens} | 费用:未知(记录失败)"
+                    )
                 except Exception as log_error:
                     # 最后的防线：输出最简单的完成标记
                     logger.error(f"Failed to output summary log: {log_error}")
                     try:
-                        logger.info(f"[请求完成] ID:{self.request_id or 'unknown'} | 记录失败但流已完成")
+                        logger.info(
+                            f"[请求完成] ID:{self.request_id or 'unknown'} | 记录失败但流已完成"
+                        )
                     except Exception:
                         # 如果连最简单的日志都失败了，放弃
                         pass
@@ -686,7 +699,9 @@ class StreamUsageTracker:
                 user, api_key = _load_user_and_key(db_for_usage)
             except InvalidRequestError:
                 # 会话处于不可用状态，需要回滚并重新开始
-                logger.warning(f"Session in invalid state for request {self.request_id}, rolling back and retrying")
+                logger.warning(
+                    f"Session in invalid state for request {self.request_id}, rolling back and retrying"
+                )
                 try:
                     db_for_usage.rollback()
                 except Exception:
@@ -703,7 +718,9 @@ class StreamUsageTracker:
                     created_temp_session = True
                     user, api_key = _load_user_and_key(db_for_usage)
                 except Exception as session_error:
-                    logger.exception(f"Failed to recover from invalid session for request {self.request_id}: {session_error}")
+                    logger.exception(
+                        f"Failed to recover from invalid session for request {self.request_id}: {session_error}"
+                    )
                     return
 
             # 根据状态码确定请求状态
@@ -774,8 +791,10 @@ class StreamUsageTracker:
             else:
                 cost_str = "$0"
 
-            logger.info(f"{status_prefix} ID:{self.request_id} | {self.status_code} | 耗时:{total_response_time}ms | "
-                f"Token:输入{self.input_tokens}/输出{self.output_tokens} | 费用:{cost_str}")
+            logger.info(
+                f"{status_prefix} ID:{self.request_id} | {self.status_code} | 耗时:{total_response_time}ms | "
+                f"Token:输入{self.input_tokens}/输出{self.output_tokens} | 费用:{cost_str}"
+            )
 
             # 记录提供商结果用于动态权重调整
             # 记录提供商结果的健康监控已由 FallbackOrchestrator 自动处理
@@ -936,7 +955,9 @@ class EnhancedStreamUsageTracker(StreamUsageTracker):
         messages = request_data.get("messages", [])
         self.input_tokens = self.estimate_input_tokens(messages)
 
-        logger.debug(f"ID:{self.request_id} | 开始跟踪流式响应(Enhanced) | 估算输入tokens:{self.input_tokens}")
+        logger.debug(
+            f"ID:{self.request_id} | 开始跟踪流式响应(Enhanced) | 估算输入tokens:{self.input_tokens}"
+        )
 
         chunk_count = 0
         first_byte_time_ms = None  # 预先记录 TTFB，避免 yield 后计算不准确
@@ -950,7 +971,9 @@ class EnhancedStreamUsageTracker(StreamUsageTracker):
                 if chunk_count == 1:
                     # 计算 TTFB（使用请求原始开始时间或 track_stream 开始时间）
                     base_time = self.request_start_time or self.start_time
-                    first_byte_time_ms = int((time.time() - base_time) * 1000) if base_time else None
+                    first_byte_time_ms = (
+                        int((time.time() - base_time) * 1000) if base_time else None
+                    )
 
                 # 先返回原始块给客户端，确保 TTFB 不受数据库操作影响
                 yield chunk
@@ -997,8 +1020,10 @@ class EnhancedStreamUsageTracker(StreamUsageTracker):
             # 流结束后记录使用量
             self.end_time = time.time()
 
-            logger.debug(f"ID:{self.request_id} | 流式响应结束 | 共处理{chunk_count}个chunks | "
-                f"累积内容长度:{len(self.accumulated_content)} | 输出tokens:{self.output_tokens}")
+            logger.debug(
+                f"ID:{self.request_id} | 流式响应结束 | 共处理{chunk_count}个chunks | "
+                f"累积内容长度:{len(self.accumulated_content)} | 输出tokens:{self.output_tokens}"
+            )
 
             # 检查是否收到了有效数据
             # 情况1: 收到了原始数据但无法解析为有效的SSE JSON
@@ -1026,7 +1051,9 @@ class EnhancedStreamUsageTracker(StreamUsageTracker):
                 await self._record_usage()
             except Exception as e:
                 # 如果记录失败，至少输出基本的汇总日志
-                logger.exception(f"Failed to record stream usage for request {self.request_id}: {e}")
+                logger.exception(
+                    f"Failed to record stream usage for request {self.request_id}: {e}"
+                )
                 # 尝试输出基本的汇总日志，使用多层防护
                 try:
                     # 计算响应时间，使用多层后备机制
@@ -1043,13 +1070,17 @@ class EnhancedStreamUsageTracker(StreamUsageTracker):
                         total_response_time = 0
 
                     # 安全地输出汇总日志
-                    logger.info(f"[请求完成] ID:{self.request_id or 'unknown'} | 200 | 耗时:{total_response_time}ms | "
-                        f"Token:输入{self.input_tokens}/输出{self.output_tokens} | 费用:未知(记录失败)")
+                    logger.info(
+                        f"[请求完成] ID:{self.request_id or 'unknown'} | 200 | 耗时:{total_response_time}ms | "
+                        f"Token:输入{self.input_tokens}/输出{self.output_tokens} | 费用:未知(记录失败)"
+                    )
                 except Exception as log_error:
                     # 最后的防线：输出最简单的完成标记
                     logger.error(f"Failed to output summary log: {log_error}")
                     try:
-                        logger.info(f"[请求完成] ID:{self.request_id or 'unknown'} | 记录失败但流已完成")
+                        logger.info(
+                            f"[请求完成] ID:{self.request_id or 'unknown'} | 记录失败但流已完成"
+                        )
                     except Exception:
                         # 如果连最简单的日志都失败了，放弃
                         pass
@@ -1096,7 +1127,7 @@ def create_stream_tracker(
         provider_id: Provider ID（用于记录真实成本）
         provider_endpoint_id: Endpoint ID（用于记录真实成本）
         provider_api_key_id: API Key ID（用于记录真实成本）
-        api_format: API 格式（CLAUDE, CLAUDE_CLI, OPENAI, OPENAI_CLI）
+        api_format: endpoint signature（如 "claude:chat", "openai:cli"）
         endpoint_api_format: 端点原生 API 格式
         has_format_conversion: 是否发生了格式转换
 

@@ -5,18 +5,17 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from collections.abc import Callable
-
 from sqlalchemy.orm import Session
 
-from src.core.api_format import APIFormat
+from src.core.api_format.signature import make_signature_key
 from src.core.exceptions import ConcurrencyLimitError
 from src.core.logger import logger
 from src.services.health.monitor import health_monitor
-from src.services.provider.format import normalize_api_format
+from src.services.provider.format import normalize_endpoint_signature
 from src.services.rate_limit.adaptive_reservation import get_adaptive_reservation_manager
 from src.services.request.candidate import RequestCandidateService
 
@@ -64,7 +63,7 @@ class RequestExecutor:
         user_api_key: Any,
         request_func: Callable[..., Any],
         request_id: str | None,
-        api_format: str | APIFormat,
+        api_format: str,
         model_name: str,
         is_stream: bool = False,
     ) -> ExecutionResult:
@@ -148,16 +147,11 @@ class RequestExecutor:
 
                 context.elapsed_ms = int((time.time() - context.start_time) * 1000)
 
-                provider_api_format = getattr(endpoint, "api_format", None)
-                provider_format_str = (
-                    provider_api_format.value
-                    if isinstance(provider_api_format, APIFormat)
-                    else str(provider_api_format or "")
-                )
-                client_format_str = (
-                    api_format.value if isinstance(api_format, APIFormat) else str(api_format)
-                )
-                health_format = normalize_api_format(provider_format_str or client_format_str).value
+                fam = str(getattr(endpoint, "api_family", "")).strip().lower()
+                kind = str(getattr(endpoint, "endpoint_kind", "")).strip().lower()
+                provider_format_str = make_signature_key(fam, kind) if fam and kind else ""
+                client_format_str = normalize_endpoint_signature(api_format)
+                health_format = provider_format_str or client_format_str
 
                 health_monitor.record_success(
                     db=self.db,
@@ -196,11 +190,7 @@ class RequestExecutor:
                         extra_data={
                             "is_cached_user": is_cached_user,
                             "model_name": model_name,
-                            "api_format": (
-                                api_format.value
-                                if isinstance(api_format, APIFormat)
-                                else api_format
-                            ),
+                            "api_format": api_format,
                         },
                     )
 

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.crypto import crypto_service
 from src.core.enums import AuthSource
@@ -17,7 +18,6 @@ from src.core.exceptions import InvalidRequestException, translate_pydantic_erro
 from src.core.logger import logger
 from src.database import get_db
 from src.models.database import AuditEventType, LDAPConfig, User, UserRole
-from src.api.base.context import ApiRequestContext
 from src.services.system.audit import AuditService
 
 router = APIRouter(prefix="/api/admin/ldap", tags=["Admin - LDAP"])

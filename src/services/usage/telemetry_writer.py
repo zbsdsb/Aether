@@ -2,7 +2,6 @@
 Telemetry writer abstraction for stream usage.
 """
 
-
 from __future__ import annotations
 
 import json
@@ -124,7 +123,7 @@ class QueueTelemetryWriter(TelemetryWriter):
             "user_id": self.user_id,
             "api_key_id": self.api_key_id,
         }
-        
+
         # 可选字段 - 只添加非 None/非默认值，减少 payload 大小
         # 注意：消费者端需要处理缺失字段的默认值
         if kwargs.get("provider"):
@@ -133,7 +132,7 @@ class QueueTelemetryWriter(TelemetryWriter):
             data["model"] = kwargs["model"]
         if kwargs.get("target_model"):
             data["target_model"] = kwargs["target_model"]
-        
+
         # Token 计数 - 0 是常见值，但仍需传递
         input_tokens = kwargs.get("input_tokens", 0)
         output_tokens = kwargs.get("output_tokens", 0)
@@ -141,7 +140,7 @@ class QueueTelemetryWriter(TelemetryWriter):
             data["input_tokens"] = input_tokens
         if output_tokens:
             data["output_tokens"] = output_tokens
-        
+
         # 缓存 token（cache_creation_tokens -> cache_creation_input_tokens 映射）
         cache_creation = kwargs.get("cache_creation_tokens", 0)
         cache_read = kwargs.get("cache_read_tokens", 0)
@@ -149,20 +148,20 @@ class QueueTelemetryWriter(TelemetryWriter):
             data["cache_creation_input_tokens"] = cache_creation
         if cache_read:
             data["cache_read_input_tokens"] = cache_read
-        
+
         # 时间指标
         if kwargs.get("response_time_ms") is not None:
             data["response_time_ms"] = kwargs["response_time_ms"]
         if kwargs.get("first_byte_time_ms") is not None:
             data["first_byte_time_ms"] = kwargs["first_byte_time_ms"]
-        
+
         # 状态信息
         status_code = kwargs.get("status_code", 200)
         if status_code != 200:
             data["status_code"] = status_code
         if kwargs.get("error_message"):
             data["error_message"] = kwargs["error_message"]
-        
+
         # 格式信息
         request_type = kwargs.get("request_type", "chat")
         if request_type != "chat":
@@ -173,11 +172,11 @@ class QueueTelemetryWriter(TelemetryWriter):
             data["endpoint_api_format"] = kwargs["endpoint_api_format"]
         if kwargs.get("has_format_conversion"):
             data["has_format_conversion"] = True
-        
+
         # 流式标记 - 默认 True，只记录 False
         if not kwargs.get("is_stream", True):
             data["is_stream"] = False
-        
+
         # Provider 追踪
         if kwargs.get("provider_id"):
             data["provider_id"] = kwargs["provider_id"]
@@ -185,7 +184,7 @@ class QueueTelemetryWriter(TelemetryWriter):
             data["provider_endpoint_id"] = kwargs["provider_endpoint_id"]
         if kwargs.get("provider_api_key_id"):
             data["provider_api_key_id"] = kwargs["provider_api_key_id"]
-        
+
         # 元数据
         if kwargs.get("metadata"):
             data["metadata"] = kwargs["metadata"]

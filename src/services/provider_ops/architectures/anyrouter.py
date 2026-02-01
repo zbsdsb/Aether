@@ -11,7 +11,6 @@ from typing import Any
 import httpx
 
 from src.core.logger import logger
-from src.utils.ssl_utils import get_ssl_context
 from src.services.provider_ops.actions import (
     AnyrouterBalanceAction,
     ProviderAction,
@@ -22,6 +21,7 @@ from src.services.provider_ops.architectures.base import (
     VerifyResult,
 )
 from src.services.provider_ops.types import ConnectorAuthType, ProviderActionType
+from src.utils.ssl_utils import get_ssl_context
 
 # acw_sc__v2 算法常量
 _XOR_KEY = "3000176000856006061501533003690027800375"

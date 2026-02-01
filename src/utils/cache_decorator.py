@@ -2,13 +2,11 @@
 
 import functools
 import json
+from collections.abc import Callable
 from typing import Any
 
-from collections.abc import Callable
-
-from src.core.logger import logger
-
 from src.clients.redis_client import get_redis_client_sync
+from src.core.logger import logger
 
 
 def _is_adapter_instance(obj: Any) -> bool:

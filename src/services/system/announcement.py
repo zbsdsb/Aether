@@ -14,7 +14,6 @@ from src.core.logger import logger
 from src.models.database import Announcement, AnnouncementRead, User, UserRole
 
 
-
 class AnnouncementService:
     """公告系统服务"""
 

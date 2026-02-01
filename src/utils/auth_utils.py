@@ -5,17 +5,17 @@
 
 from __future__ import annotations
 
-from typing import Any
 import hashlib
+from typing import Any
 
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from src.core.logger import logger
 from src.services.auth.service import AuthService
 
 from ..core.exceptions import ForbiddenException
-from src.core.logger import logger
 from ..database import get_db
 from ..models.database import User, UserRole
 

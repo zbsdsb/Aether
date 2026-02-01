@@ -15,7 +15,6 @@ from loguru import logger
 
 from src.services.model.availability import ModelAvailabilityQuery
 
-
 # ============================================================================
 # 测试辅助类
 # ============================================================================
@@ -63,12 +62,12 @@ class TestBaseActiveModelsSourceCode:
         """应使用内连接 GlobalModel（排除 global_model_id=NULL）"""
         source = inspect.getsource(ModelAvailabilityQuery.base_active_models)
 
-        assert "join(Model.global_model)" in source or ".join(Model.global_model)" in source, (
-            "base_active_models 应使用 join(Model.global_model) 内连接"
-        )
-        assert "outerjoin" not in source.lower(), (
-            "base_active_models 不应使用 outerjoin（会返回 global_model_id=NULL 的记录）"
-        )
+        assert (
+            "join(Model.global_model)" in source or ".join(Model.global_model)" in source
+        ), "base_active_models 应使用 join(Model.global_model) 内连接"
+        assert (
+            "outerjoin" not in source.lower()
+        ), "base_active_models 不应使用 outerjoin（会返回 global_model_id=NULL 的记录）"
 
     def test_filters_is_available_true_or_null(self) -> None:
         """应过滤 is_available = True 或 NULL"""
@@ -76,9 +75,9 @@ class TestBaseActiveModelsSourceCode:
 
         assert "or_(" in source, "base_active_models 应使用 or_() 处理 is_available"
         assert "is_available" in source, "base_active_models 应包含 is_available 条件"
-        assert "is_(True)" in source and "is_(None)" in source, (
-            "base_active_models 应同时检查 is_available = True 和 NULL"
-        )
+        assert (
+            "is_(True)" in source and "is_(None)" in source
+        ), "base_active_models 应同时检查 is_available = True 和 NULL"
 
     def test_filters_all_is_active_fields(self) -> None:
         """应过滤 Model/Provider/GlobalModel 的 is_active"""
@@ -97,7 +96,7 @@ class TestGetProviderKeyRules:
         result = ModelAvailabilityQuery.get_provider_key_rules(
             FakeSession([]),
             provider_ids=set(),
-            api_formats=["OPENAI"],
+            api_formats=["openai:chat"],
             provider_to_endpoint_formats={},
         )
         assert result == {}
@@ -114,13 +113,13 @@ class TestGetProviderKeyRules:
 
         try:
             # (key_id, provider_id, allowed_models, api_formats)
-            data = [("key-1", "provider-1", "invalid-string-type", ["OPENAI"])]
+            data = [("key-1", "provider-1", "invalid-string-type", ["openai:chat"])]
 
             result = ModelAvailabilityQuery.get_provider_key_rules(
                 FakeSession(data),
                 provider_ids={"provider-1"},
-                api_formats=["OPENAI"],
-                provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+                api_formats=["openai:chat"],
+                provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
             )
 
             assert "provider-1" not in result or len(result.get("provider-1", [])) == 0
@@ -143,13 +142,13 @@ class TestGetProviderKeyRules:
 
         try:
             # api_formats 是字符串而非列表
-            data = [("key-1", "provider-1", None, "OPENAI")]
+            data = [("key-1", "provider-1", None, "openai:chat")]
 
             result = ModelAvailabilityQuery.get_provider_key_rules(
                 FakeSession(data),
                 provider_ids={"provider-1"},
-                api_formats=["OPENAI"],
-                provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+                api_formats=["openai:chat"],
+                provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
             )
 
             assert "provider-1" not in result or len(result.get("provider-1", [])) == 0
@@ -160,27 +159,32 @@ class TestGetProviderKeyRules:
             logger.remove(handler_id)
 
     def test_skips_key_with_none_api_formats(self) -> None:
-        """api_formats 为 None 时应跳过该 Key（不打日志）"""
+        """api_formats 为 None 时应使用 endpoint 支持的格式（不打日志）"""
         data = [("key-1", "provider-1", None, None)]
 
         result = ModelAvailabilityQuery.get_provider_key_rules(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],
-            provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+            api_formats=["openai:chat"],
+            provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
         )
 
-        assert "provider-1" not in result or len(result.get("provider-1", [])) == 0
+        # api_formats=None 表示使用 endpoint_formats
+        assert "provider-1" in result
+        rules = result["provider-1"]
+        assert len(rules) == 1
+        allowed_models, usable_formats = rules[0]
+        assert "openai:chat" in usable_formats
 
     def test_allowed_models_none_means_no_restriction(self) -> None:
         """allowed_models = None 表示不限制模型"""
-        data = [("key-1", "provider-1", None, ["OPENAI"])]
+        data = [("key-1", "provider-1", None, ["openai:chat"])]
 
         result = ModelAvailabilityQuery.get_provider_key_rules(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],
-            provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+            api_formats=["openai:chat"],
+            provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
         )
 
         assert "provider-1" in result
@@ -188,17 +192,17 @@ class TestGetProviderKeyRules:
         assert len(rules) == 1
         allowed_models, usable_formats = rules[0]
         assert allowed_models is None  # None = 不限制
-        assert "OPENAI" in usable_formats
+        assert "openai:chat" in usable_formats
 
     def test_allowed_models_list_is_preserved(self) -> None:
         """allowed_models 为有效列表时应正常返回"""
-        data = [("key-1", "provider-1", ["claude-3-opus", "claude-3-sonnet"], ["OPENAI"])]
+        data = [("key-1", "provider-1", ["claude-3-opus", "claude-3-sonnet"], ["openai:chat"])]
 
         result = ModelAvailabilityQuery.get_provider_key_rules(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],
-            provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+            api_formats=["openai:chat"],
+            provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
         )
 
         assert "provider-1" in result
@@ -210,13 +214,13 @@ class TestGetProviderKeyRules:
     def test_skips_key_when_format_intersection_empty(self) -> None:
         """格式交集为空时不包含该 Key"""
         # Key 支持 CLAUDE，但请求的是 OPENAI
-        data = [("key-1", "provider-1", None, ["CLAUDE"])]
+        data = [("key-1", "provider-1", None, ["claude:chat"])]
 
         result = ModelAvailabilityQuery.get_provider_key_rules(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],
-            provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+            api_formats=["openai:chat"],
+            provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
         )
 
         assert "provider-1" not in result or len(result.get("provider-1", [])) == 0
@@ -224,15 +228,15 @@ class TestGetProviderKeyRules:
     def test_multiple_keys_same_provider(self) -> None:
         """同一 Provider 下多个 Key 应合并规则"""
         data = [
-            ("key-1", "provider-1", None, ["OPENAI"]),
-            ("key-2", "provider-1", ["claude-3-opus"], ["OPENAI"]),
+            ("key-1", "provider-1", None, ["openai:chat"]),
+            ("key-2", "provider-1", ["claude-3-opus"], ["openai:chat"]),
         ]
 
         result = ModelAvailabilityQuery.get_provider_key_rules(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],
-            provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+            api_formats=["openai:chat"],
+            provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
         )
 
         assert "provider-1" in result
@@ -248,7 +252,7 @@ class TestGetProvidersWithActiveKeys:
         result = ModelAvailabilityQuery.get_providers_with_active_keys(
             FakeSession([]),
             provider_ids=set(),
-            api_formats=["OPENAI"],
+            api_formats=["openai:chat"],
             provider_to_endpoint_formats={},
         )
         assert result == set()
@@ -265,13 +269,13 @@ class TestGetProvidersWithActiveKeys:
 
         try:
             # (provider_id, api_formats) - api_formats 是字符串
-            data = [("provider-1", "OPENAI")]
+            data = [("provider-1", "openai:chat")]
 
             result = ModelAvailabilityQuery.get_providers_with_active_keys(
                 FakeSession(data),
                 provider_ids={"provider-1"},
-                api_formats=["OPENAI"],
-                provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+                api_formats=["openai:chat"],
+                provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
             )
 
             assert "provider-1" not in result
@@ -282,27 +286,28 @@ class TestGetProvidersWithActiveKeys:
             logger.remove(handler_id)
 
     def test_skips_key_with_none_api_formats(self) -> None:
-        """api_formats 为 None 时应跳过该 Key（不打日志）"""
+        """api_formats 为 None 时应使用 endpoint 支持的格式（返回该 Provider）"""
         data = [("provider-1", None)]
 
         result = ModelAvailabilityQuery.get_providers_with_active_keys(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],
-            provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+            api_formats=["openai:chat"],
+            provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
         )
 
-        assert "provider-1" not in result
+        # api_formats=None 表示使用 endpoint_formats，所以应该返回
+        assert "provider-1" in result
 
     def test_returns_provider_when_format_matches(self) -> None:
         """格式匹配时应返回该 Provider"""
-        data = [("provider-1", ["OPENAI", "CLAUDE"])]
+        data = [("provider-1", ["openai:chat", "claude:chat"])]
 
         result = ModelAvailabilityQuery.get_providers_with_active_keys(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],
-            provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+            api_formats=["openai:chat"],
+            provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
         )
 
         assert "provider-1" in result
@@ -310,25 +315,25 @@ class TestGetProvidersWithActiveKeys:
     def test_skips_provider_when_format_intersection_empty(self) -> None:
         """格式交集为空时不返回该 Provider"""
         # Key 支持 GEMINI，但请求的是 OPENAI，且端点支持 OPENAI
-        data = [("provider-1", ["GEMINI"])]
+        data = [("provider-1", ["gemini:chat"])]
 
         result = ModelAvailabilityQuery.get_providers_with_active_keys(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],
-            provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+            api_formats=["openai:chat"],
+            provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
         )
 
         assert "provider-1" not in result
 
     def test_skips_provider_not_in_endpoint_formats(self) -> None:
         """Provider 不在 endpoint_formats 中时应跳过"""
-        data = [("provider-1", ["OPENAI"])]
+        data = [("provider-1", ["openai:chat"])]
 
         result = ModelAvailabilityQuery.get_providers_with_active_keys(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],
+            api_formats=["openai:chat"],
             provider_to_endpoint_formats={},  # 空，无匹配端点
         )
 
@@ -336,13 +341,13 @@ class TestGetProvidersWithActiveKeys:
 
     def test_case_insensitive_format_matching(self) -> None:
         """格式匹配应忽略大小写"""
-        data = [("provider-1", ["openai"])]  # 小写
+        data = [("provider-1", ["openai:chat"])]  # 小写
 
         result = ModelAvailabilityQuery.get_providers_with_active_keys(
             FakeSession(data),
             provider_ids={"provider-1"},
-            api_formats=["OPENAI"],  # 大写
-            provider_to_endpoint_formats={"provider-1": {"OPENAI"}},
+            api_formats=["OPENAI:CHAT"],  # 大写
+            provider_to_endpoint_formats={"provider-1": {"openai:chat"}},
         )
 
         assert "provider-1" in result
@@ -394,9 +399,9 @@ class TestFindModelByIdNoFallback:
 
         source = inspect.getsource(models_service.find_model_by_id)
 
-        assert "provider_model_name" not in source, (
-            "find_model_by_id 中不应出现 provider_model_name（已删除回退逻辑）"
-        )
+        assert (
+            "provider_model_name" not in source
+        ), "find_model_by_id 中不应出现 provider_model_name（已删除回退逻辑）"
 
 
 class TestGetAvailableModelIdsWithMappings:
@@ -408,9 +413,9 @@ class TestGetAvailableModelIdsWithMappings:
 
         source = inspect.getsource(models_service._get_available_model_ids_for_format)
 
-        assert "check_model_allowed_with_mappings" in source, (
-            "_get_available_model_ids_for_format 应使用 check_model_allowed_with_mappings"
-        )
+        assert (
+            "check_model_allowed_with_mappings" in source
+        ), "_get_available_model_ids_for_format 应使用 check_model_allowed_with_mappings"
 
     def test_source_code_extracts_model_mappings_from_config(self) -> None:
         """静态验证：应从 global_model.config 提取 model_mappings"""
@@ -418,12 +423,12 @@ class TestGetAvailableModelIdsWithMappings:
 
         source = inspect.getsource(models_service._get_available_model_ids_for_format)
 
-        assert "model_mappings" in source, (
-            "_get_available_model_ids_for_format 应提取 model_mappings"
-        )
-        assert ".config" in source or "config" in source, (
-            "_get_available_model_ids_for_format 应从 config 获取 model_mappings"
-        )
+        assert (
+            "model_mappings" in source
+        ), "_get_available_model_ids_for_format 应提取 model_mappings"
+        assert (
+            ".config" in source or "config" in source
+        ), "_get_available_model_ids_for_format 应从 config 获取 model_mappings"
 
 
 class TestModelMappingsIntegration:
@@ -521,18 +526,18 @@ class TestAccessRestrictionsFromApiKeyAndUser:
         api_key = MagicMock()
         api_key.allowed_providers = ["provider-a"]
         api_key.allowed_models = ["model-a"]
-        api_key.allowed_api_formats = ["OPENAI"]
+        api_key.allowed_api_formats = ["openai:chat"]
 
         user = MagicMock()
         user.allowed_providers = ["provider-b"]
         user.allowed_models = ["model-b"]
-        user.allowed_api_formats = ["CLAUDE"]
+        user.allowed_api_formats = ["claude:chat"]
 
         result = AccessRestrictions.from_api_key_and_user(api_key, user)
 
         assert result.allowed_providers == ["provider-a"]
         assert result.allowed_models == ["model-a"]
-        assert result.allowed_api_formats == ["OPENAI"]
+        assert result.allowed_api_formats == ["openai:chat"]
 
     def test_user_restrictions_used_when_api_key_has_none(self) -> None:
         """API Key 无限制时使用 User 的限制"""
@@ -548,13 +553,13 @@ class TestAccessRestrictionsFromApiKeyAndUser:
         user = MagicMock()
         user.allowed_providers = ["provider-b"]
         user.allowed_models = ["model-b"]
-        user.allowed_api_formats = ["CLAUDE"]
+        user.allowed_api_formats = ["claude:chat"]
 
         result = AccessRestrictions.from_api_key_and_user(api_key, user)
 
         assert result.allowed_providers == ["provider-b"]
         assert result.allowed_models == ["model-b"]
-        assert result.allowed_api_formats == ["CLAUDE"]
+        assert result.allowed_api_formats == ["claude:chat"]
 
     def test_partial_api_key_restrictions(self) -> None:
         """API Key 部分限制时，其余字段从 User 获取"""
@@ -570,13 +575,13 @@ class TestAccessRestrictionsFromApiKeyAndUser:
         user = MagicMock()
         user.allowed_providers = ["provider-b"]
         user.allowed_models = ["model-b"]
-        user.allowed_api_formats = ["CLAUDE"]
+        user.allowed_api_formats = ["claude:chat"]
 
         result = AccessRestrictions.from_api_key_and_user(api_key, user)
 
         assert result.allowed_providers == ["provider-a"]  # 来自 API Key
         assert result.allowed_models == ["model-b"]  # 来自 User
-        assert result.allowed_api_formats == ["CLAUDE"]  # 来自 User
+        assert result.allowed_api_formats == ["claude:chat"]  # 来自 User
 
     def test_only_api_key_provided(self) -> None:
         """只提供 API Key 时使用其限制"""
@@ -587,13 +592,13 @@ class TestAccessRestrictionsFromApiKeyAndUser:
         api_key = MagicMock()
         api_key.allowed_providers = ["provider-a"]
         api_key.allowed_models = ["model-a"]
-        api_key.allowed_api_formats = ["OPENAI"]
+        api_key.allowed_api_formats = ["openai:chat"]
 
         result = AccessRestrictions.from_api_key_and_user(api_key, None)
 
         assert result.allowed_providers == ["provider-a"]
         assert result.allowed_models == ["model-a"]
-        assert result.allowed_api_formats == ["OPENAI"]
+        assert result.allowed_api_formats == ["openai:chat"]
 
     def test_only_user_provided(self) -> None:
         """只提供 User 时使用其限制"""
@@ -604,13 +609,13 @@ class TestAccessRestrictionsFromApiKeyAndUser:
         user = MagicMock()
         user.allowed_providers = ["provider-b"]
         user.allowed_models = ["model-b"]
-        user.allowed_api_formats = ["CLAUDE"]
+        user.allowed_api_formats = ["claude:chat"]
 
         result = AccessRestrictions.from_api_key_and_user(None, user)
 
         assert result.allowed_providers == ["provider-b"]
         assert result.allowed_models == ["model-b"]
-        assert result.allowed_api_formats == ["CLAUDE"]
+        assert result.allowed_api_formats == ["claude:chat"]
 
 
 class TestAccessRestrictionsIsApiFormatAllowed:
@@ -622,27 +627,27 @@ class TestAccessRestrictionsIsApiFormatAllowed:
 
         restrictions = AccessRestrictions(allowed_api_formats=None)
 
-        assert restrictions.is_api_format_allowed("OPENAI") is True
-        assert restrictions.is_api_format_allowed("CLAUDE") is True
-        assert restrictions.is_api_format_allowed("GEMINI") is True
+        assert restrictions.is_api_format_allowed("openai:chat") is True
+        assert restrictions.is_api_format_allowed("claude:chat") is True
+        assert restrictions.is_api_format_allowed("gemini:chat") is True
 
     def test_format_in_allowed_list(self) -> None:
         """格式在允许列表中时返回 True"""
         from src.api.base.models_service import AccessRestrictions
 
-        restrictions = AccessRestrictions(allowed_api_formats=["OPENAI", "CLAUDE"])
+        restrictions = AccessRestrictions(allowed_api_formats=["openai:chat", "claude:chat"])
 
-        assert restrictions.is_api_format_allowed("OPENAI") is True
-        assert restrictions.is_api_format_allowed("CLAUDE") is True
+        assert restrictions.is_api_format_allowed("openai:chat") is True
+        assert restrictions.is_api_format_allowed("claude:chat") is True
 
     def test_format_not_in_allowed_list(self) -> None:
         """格式不在允许列表中时返回 False"""
         from src.api.base.models_service import AccessRestrictions
 
-        restrictions = AccessRestrictions(allowed_api_formats=["OPENAI"])
+        restrictions = AccessRestrictions(allowed_api_formats=["openai:chat"])
 
-        assert restrictions.is_api_format_allowed("CLAUDE") is False
-        assert restrictions.is_api_format_allowed("GEMINI") is False
+        assert restrictions.is_api_format_allowed("claude:chat") is False
+        assert restrictions.is_api_format_allowed("gemini:chat") is False
 
     def test_empty_allowed_list_blocks_all(self) -> None:
         """空允许列表阻止所有格式"""
@@ -650,8 +655,8 @@ class TestAccessRestrictionsIsApiFormatAllowed:
 
         restrictions = AccessRestrictions(allowed_api_formats=[])
 
-        assert restrictions.is_api_format_allowed("OPENAI") is False
-        assert restrictions.is_api_format_allowed("CLAUDE") is False
+        assert restrictions.is_api_format_allowed("openai:chat") is False
+        assert restrictions.is_api_format_allowed("claude:chat") is False
 
 
 class TestAccessRestrictionsIsModelAllowed:
@@ -720,5 +725,3 @@ class TestAccessRestrictionsIsModelAllowed:
         restrictions = AccessRestrictions(allowed_models=[])
 
         assert restrictions.is_model_allowed("claude-3-opus", "provider-a") is False
-
-

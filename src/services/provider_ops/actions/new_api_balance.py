@@ -163,8 +163,15 @@ class NewApiBalanceAction(BalanceAction):
 
                     # 检查是否是认证失败（未登录、无权限等）- Cookie 已失效
                     auth_fail_indicators = [
-                        "未登录", "请登录", "login", "unauthorized", "无权限", "权限不足",
-                        "turnstile", "captcha", "验证码",  # 需要人机验证
+                        "未登录",
+                        "请登录",
+                        "login",
+                        "unauthorized",
+                        "无权限",
+                        "权限不足",
+                        "turnstile",
+                        "captcha",
+                        "验证码",  # 需要人机验证
                     ]
                     is_auth_fail = any(ind in message.lower() for ind in auth_fail_indicators)
                     if is_auth_fail:

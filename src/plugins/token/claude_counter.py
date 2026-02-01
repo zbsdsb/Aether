@@ -163,9 +163,7 @@ class ClaudeTokenCounterPlugin(TokenCounterPlugin):
         model = model or self.default_model or "claude-3-5-sonnet-20241022"
         return self._estimate_tokens_from_text(text, model)
 
-    async def count_messages(
-        self, messages: list[dict[str, Any]], model: str | None = None
-    ) -> int:
+    async def count_messages(self, messages: list[dict[str, Any]], model: str | None = None) -> int:
         """计算消息列表的Token数量"""
         if not self.enabled:
             return 0

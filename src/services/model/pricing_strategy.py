@@ -16,6 +16,7 @@ from dataclasses import dataclass
 @dataclass
 class UsageTokens:
     """请求的 token 使用量"""
+
     input_tokens: int = 0
     output_tokens: int = 0
     cache_creation_input_tokens: int = 0
@@ -25,6 +26,7 @@ class UsageTokens:
 @dataclass
 class PricingConfig:
     """价格配置"""
+
     input_price_per_1m: float = 0.0
     output_price_per_1m: float = 0.0
     cache_creation_price_per_1m: float | None = None
@@ -37,6 +39,7 @@ class PricingConfig:
 @dataclass
 class CostResult:
     """计费结果"""
+
     input_cost: float = 0.0
     output_cost: float = 0.0
     cache_creation_cost: float = 0.0

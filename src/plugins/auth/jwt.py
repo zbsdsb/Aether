@@ -17,7 +17,6 @@ from src.services.auth.service import AuthService
 from .base import AuthContext, AuthPlugin
 
 
-
 class JwtAuthPlugin(AuthPlugin):
     """
     JWT认证插件

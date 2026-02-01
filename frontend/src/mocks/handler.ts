@@ -146,7 +146,7 @@ const MOCK_ENDPOINT_STATUS = {
   generated_at: new Date().toISOString(),
   formats: [
     {
-      api_format: 'CLAUDE',
+      api_format: 'claude:chat',
       api_path: '/v1/messages',
       total_attempts: 2580,
       success_count: 2540,
@@ -160,7 +160,7 @@ const MOCK_ENDPOINT_STATUS = {
       events: generateHealthEvents(80, 0.984, 0.012, 0.004, 900, 500)
     },
     {
-      api_format: 'CLAUDE_CLI',
+      api_format: 'claude:cli',
       api_path: '/v1/messages',
       total_attempts: 1890,
       success_count: 1780,
@@ -174,7 +174,7 @@ const MOCK_ENDPOINT_STATUS = {
       events: generateHealthEvents(120, 0.942, 0.045, 0.013, 1200, 800)
     },
     {
-      api_format: 'GEMINI',
+      api_format: 'gemini:chat',
       api_path: '/v1beta/models',
       total_attempts: 890,
       success_count: 890,
@@ -188,7 +188,7 @@ const MOCK_ENDPOINT_STATUS = {
       events: generateHealthEvents(45, 1.0, 0, 0, 400, 200)
     },
     {
-      api_format: 'GEMINI_CLI',
+      api_format: 'gemini:cli',
       api_path: '/v1beta/models',
       total_attempts: 456,
       success_count: 450,
@@ -202,7 +202,7 @@ const MOCK_ENDPOINT_STATUS = {
       events: generateHealthEvents(25, 0.987, 0.009, 0.004, 500, 300)
     },
     {
-      api_format: 'OPENAI',
+      api_format: 'openai:chat',
       api_path: '/v1/chat/completions',
       total_attempts: 1560,
       success_count: 1520,
@@ -216,7 +216,7 @@ const MOCK_ENDPOINT_STATUS = {
       events: generateHealthEvents(60, 0.974, 0.022, 0.004, 700, 400)
     },
     {
-      api_format: 'OPENAI_CLI',
+      api_format: 'openai:cli',
       api_path: '/responses',
       total_attempts: 2340,
       success_count: 2200,
@@ -324,7 +324,7 @@ function generateMockUsageRecords(count: number = 100) {
     { id: 'demo-user-uuid-0004', username: 'Bob Zhang', email: 'bob@demo.aether.ai' }
   ]
 
-  const apiFormats = ['CLAUDE', 'CLAUDE_CLI', 'OPENAI', 'OPENAI_CLI', 'GEMINI', 'GEMINI_CLI']
+  const apiFormats = ['claude:chat', 'claude:cli', 'openai:chat', 'openai:cli', 'gemini:chat', 'gemini:cli']
   const statusOptions: Array<'completed' | 'failed' | 'streaming'> = ['completed', 'completed', 'completed', 'completed', 'failed', 'streaming']
 
   for (let i = 0; i < count; i++) {
@@ -335,11 +335,11 @@ function generateMockUsageRecords(count: number = 100) {
     // 根据模型类型选择 API 格式
     let apiFormat = apiFormats[0]
     if (model.provider === 'anthropic') {
-      apiFormat = Math.random() > 0.3 ? 'CLAUDE_CLI' : 'CLAUDE'
+      apiFormat = Math.random() > 0.3 ? 'claude:cli' : 'claude:chat'
     } else if (model.provider === 'openai') {
-      apiFormat = Math.random() > 0.3 ? 'OPENAI_CLI' : 'OPENAI'
+      apiFormat = Math.random() > 0.3 ? 'openai:cli' : 'openai:chat'
     } else {
-      apiFormat = Math.random() > 0.3 ? 'GEMINI_CLI' : 'GEMINI'
+      apiFormat = Math.random() > 0.3 ? 'gemini:cli' : 'gemini:chat'
     }
 
     const inputTokens = 500 + Math.floor(Math.random() * 10000)
@@ -386,7 +386,7 @@ function generateMockUsageRecords(count: number = 100) {
       cost,
       actual_cost: actualCost,
       response_time_ms: responseTime,
-      is_stream: apiFormat.includes('CLI'),
+      is_stream: apiFormat.includes(':cli'),
       status_code: status === 'failed' ? [500, 502, 429, 400][Math.floor(Math.random() * 4)] : 200,
       error_message: status === 'failed' ? ['Rate limit exceeded', 'Internal server error', 'Model overloaded'][Math.floor(Math.random() * 3)] : undefined,
       status,
@@ -418,16 +418,16 @@ const MOCK_ALIASES = [
 
 // Mock Endpoint Keys
 const MOCK_ENDPOINT_KEYS = [
-  { id: 'ekey-001', provider_id: 'provider-001', api_formats: ['CLAUDE'], api_key_masked: 'sk-ant...abc1', name: 'Primary Key', rate_multiplier: 1.0, internal_priority: 1, health_score: 0.98, consecutive_failures: 0, request_count: 5000, success_count: 4950, error_count: 50, success_rate: 0.99, avg_response_time_ms: 1200, cache_ttl_minutes: 5, max_probe_interval_minutes: 32, is_active: true, created_at: '2024-01-01T00:00:00Z', updated_at: new Date().toISOString() },
-  { id: 'ekey-002', provider_id: 'provider-001', api_formats: ['CLAUDE'], api_key_masked: 'sk-ant...def2', name: 'Backup Key', rate_multiplier: 1.0, internal_priority: 2, health_score: 0.95, consecutive_failures: 1, request_count: 2000, success_count: 1950, error_count: 50, success_rate: 0.975, avg_response_time_ms: 1350, cache_ttl_minutes: 5, max_probe_interval_minutes: 32, is_active: true, created_at: '2024-02-01T00:00:00Z', updated_at: new Date().toISOString() },
-  { id: 'ekey-003', provider_id: 'provider-002', api_formats: ['OPENAI'], api_key_masked: 'sk-oai...ghi3', name: 'OpenAI Main', rate_multiplier: 1.0, internal_priority: 1, health_score: 0.97, consecutive_failures: 0, request_count: 3500, success_count: 3450, error_count: 50, success_rate: 0.986, avg_response_time_ms: 900, cache_ttl_minutes: 5, max_probe_interval_minutes: 32, is_active: true, created_at: '2024-01-15T00:00:00Z', updated_at: new Date().toISOString() }
+  { id: 'ekey-001', provider_id: 'provider-001', api_formats: ['claude:chat'], api_key_masked: 'sk-ant...abc1', name: 'Primary Key', rate_multiplier: 1.0, internal_priority: 1, health_score: 0.98, consecutive_failures: 0, request_count: 5000, success_count: 4950, error_count: 50, success_rate: 0.99, avg_response_time_ms: 1200, cache_ttl_minutes: 5, max_probe_interval_minutes: 32, is_active: true, created_at: '2024-01-01T00:00:00Z', updated_at: new Date().toISOString() },
+  { id: 'ekey-002', provider_id: 'provider-001', api_formats: ['claude:chat'], api_key_masked: 'sk-ant...def2', name: 'Backup Key', rate_multiplier: 1.0, internal_priority: 2, health_score: 0.95, consecutive_failures: 1, request_count: 2000, success_count: 1950, error_count: 50, success_rate: 0.975, avg_response_time_ms: 1350, cache_ttl_minutes: 5, max_probe_interval_minutes: 32, is_active: true, created_at: '2024-02-01T00:00:00Z', updated_at: new Date().toISOString() },
+  { id: 'ekey-003', provider_id: 'provider-002', api_formats: ['openai:chat'], api_key_masked: 'sk-oai...ghi3', name: 'OpenAI Main', rate_multiplier: 1.0, internal_priority: 1, health_score: 0.97, consecutive_failures: 0, request_count: 3500, success_count: 3450, error_count: 50, success_rate: 0.986, avg_response_time_ms: 900, cache_ttl_minutes: 5, max_probe_interval_minutes: 32, is_active: true, created_at: '2024-01-15T00:00:00Z', updated_at: new Date().toISOString() }
 ]
 
 // Mock Endpoints
 const MOCK_ENDPOINTS = [
-  { id: 'ep-001', provider_id: 'provider-001', provider_name: 'anthropic', api_format: 'CLAUDE', base_url: 'https://api.anthropic.com', max_retries: 2, is_active: true, total_keys: 2, active_keys: 2, created_at: '2024-01-01T00:00:00Z', updated_at: new Date().toISOString() },
-  { id: 'ep-002', provider_id: 'provider-002', provider_name: 'openai', api_format: 'OPENAI', base_url: 'https://api.openai.com', max_retries: 2, is_active: true, total_keys: 1, active_keys: 1, created_at: '2024-01-01T00:00:00Z', updated_at: new Date().toISOString() },
-  { id: 'ep-003', provider_id: 'provider-003', provider_name: 'google', api_format: 'GEMINI', base_url: 'https://generativelanguage.googleapis.com', max_retries: 2, is_active: true, total_keys: 1, active_keys: 1, created_at: '2024-01-15T00:00:00Z', updated_at: new Date().toISOString() }
+  { id: 'ep-001', provider_id: 'provider-001', provider_name: 'anthropic', api_format: 'claude:chat', base_url: 'https://api.anthropic.com', max_retries: 2, is_active: true, total_keys: 2, active_keys: 2, created_at: '2024-01-01T00:00:00Z', updated_at: new Date().toISOString() },
+  { id: 'ep-002', provider_id: 'provider-002', provider_name: 'openai', api_format: 'openai:chat', base_url: 'https://api.openai.com', max_retries: 2, is_active: true, total_keys: 1, active_keys: 1, created_at: '2024-01-01T00:00:00Z', updated_at: new Date().toISOString() },
+  { id: 'ep-003', provider_id: 'provider-003', provider_name: 'google', api_format: 'gemini:chat', base_url: 'https://generativelanguage.googleapis.com', max_retries: 2, is_active: true, total_keys: 1, active_keys: 1, created_at: '2024-01-15T00:00:00Z', updated_at: new Date().toISOString() }
 ]
 
 // Mock 能力定义
@@ -1218,8 +1218,8 @@ function generateMockEndpointsForProvider(providerId: string) {
       provider_id: providerId,
       provider_name: provider.name,
       api_format: format,
-      base_url: format.includes('CLAUDE') ? 'https://api.anthropic.com' :
-        format.includes('OPENAI') ? 'https://api.openai.com' :
+      base_url: format.includes('claude') ? 'https://api.anthropic.com' :
+        format.includes('openai') ? 'https://api.openai.com' :
           'https://generativelanguage.googleapis.com',
       max_retries: 2,
       is_active: healthDetail?.is_active ?? true,
@@ -1266,9 +1266,9 @@ function generateMockModelsForProvider(providerId: string) {
   if (!provider) return []
 
   // 基于 provider 的 api_formats 选择合适的模型
-  const hasClaude = provider.api_formats.some(f => f.includes('CLAUDE'))
-  const hasOpenAI = provider.api_formats.some(f => f.includes('OPENAI'))
-  const hasGemini = provider.api_formats.some(f => f.includes('GEMINI'))
+  const hasClaude = provider.api_formats.some(f => f.includes('claude'))
+  const hasOpenAI = provider.api_formats.some(f => f.includes('openai'))
+  const hasGemini = provider.api_formats.some(f => f.includes('gemini'))
 
   const models: any[] = []
   const now = new Date().toISOString()

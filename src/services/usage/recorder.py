@@ -36,7 +36,6 @@ from src.services.system.audit import audit_service
 from src.services.usage.service import UsageService
 
 
-
 class UsageRecorder:
     """
     统一的 Usage 记录器
@@ -144,9 +143,11 @@ class UsageRecorder:
             status_code=200,
         )
 
-        logger.debug(f"[UsageRecorder] 成功记录: provider={metadata.provider}, "
+        logger.debug(
+            f"[UsageRecorder] 成功记录: provider={metadata.provider}, "
             f"model={metadata.model}, api_format={metadata.api_format}, "
-            f"tokens={usage.input_tokens}+{usage.output_tokens}")
+            f"tokens={usage.input_tokens}+{usage.output_tokens}"
+        )
 
     async def record_failure(
         self,
@@ -213,9 +214,11 @@ class UsageRecorder:
             error_message=result.error_message,
         )
 
-        logger.debug(f"[UsageRecorder] 失败记录: provider={metadata.provider}, "
+        logger.debug(
+            f"[UsageRecorder] 失败记录: provider={metadata.provider}, "
             f"model={metadata.model}, api_format={metadata.api_format}, "
-            f"status={result.status_code}, error={result.error_message[:100] if result.error_message else 'N/A'}")
+            f"status={result.status_code}, error={result.error_message[:100] if result.error_message else 'N/A'}"
+        )
 
     async def record_from_exception(
         self,

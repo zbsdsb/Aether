@@ -15,7 +15,6 @@ from src.core.logger import logger
 from src.models.database import ApiKey, Usage
 
 
-
 class ApiKeyService:
     """API密钥管理服务"""
 
@@ -86,8 +85,10 @@ class ApiKeyService:
         db.commit()
         db.refresh(api_key)
 
-        logger.info(f"创建API密钥: 用户ID {user_id}, 密钥名 {api_key.name}, "
-            f"独立Key={is_standalone}, 初始余额={initial_balance_usd}")
+        logger.info(
+            f"创建API密钥: 用户ID {user_id}, 密钥名 {api_key.name}, "
+            f"独立Key={is_standalone}, 初始余额={initial_balance_usd}"
+        )
         return api_key, key  # 返回密钥对象和明文密钥
 
     @staticmethod
@@ -256,7 +257,9 @@ class ApiKeyService:
         is_allowed = request_count < api_key.rate_limit
 
         if not is_allowed:
-            logger.warning(f"API密钥速率限制: Key ID {api_key.id}, 请求数 {request_count}/{api_key.rate_limit}")
+            logger.warning(
+                f"API密钥速率限制: Key ID {api_key.id}, 请求数 {request_count}/{api_key.rate_limit}"
+            )
 
         return is_allowed, api_key.rate_limit - request_count
 
@@ -289,7 +292,9 @@ class ApiKeyService:
         if amount_usd < 0:
             current = api_key.current_balance_usd or 0
             if abs(amount_usd) > current:
-                logger.warning(f"余额扣除失败: 扣除金额 ${abs(amount_usd):.4f} 超过当前余额 ${current:.4f}")
+                logger.warning(
+                    f"余额扣除失败: 扣除金额 ${abs(amount_usd):.4f} 超过当前余额 ${current:.4f}"
+                )
                 return None
 
         # 调整当前余额
@@ -303,8 +308,10 @@ class ApiKeyService:
         db.refresh(api_key)
 
         action = "增加" if amount_usd > 0 else "扣除"
-        logger.info(f"余额调整成功: Key ID {key_id}, {action} ${abs(amount_usd):.4f}, "
-            f"新余额 ${api_key.current_balance_usd:.4f}")
+        logger.info(
+            f"余额调整成功: Key ID {key_id}, {action} ${abs(amount_usd):.4f}, "
+            f"新余额 ${api_key.current_balance_usd:.4f}"
+        )
         return api_key
 
     @staticmethod
@@ -338,14 +345,18 @@ class ApiKeyService:
             if should_delete:
                 # 物理删除（Usage记录会保留，因为是 SET NULL）
                 db.delete(api_key)
-                logger.info(f"删除过期API密钥: ID {api_key.id}, 名称 {api_key.name}, "
-                    f"过期时间 {api_key.expires_at}")
+                logger.info(
+                    f"删除过期API密钥: ID {api_key.id}, 名称 {api_key.name}, "
+                    f"过期时间 {api_key.expires_at}"
+                )
             else:
                 # 仅禁用
                 api_key.is_active = False
                 api_key.updated_at = now
-                logger.info(f"禁用过期API密钥: ID {api_key.id}, 名称 {api_key.name}, "
-                    f"过期时间 {api_key.expires_at}")
+                logger.info(
+                    f"禁用过期API密钥: ID {api_key.id}, 名称 {api_key.name}, "
+                    f"过期时间 {api_key.expires_at}"
+                )
             count += 1
 
         if count > 0:

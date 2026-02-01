@@ -989,7 +989,7 @@ function formatWebsiteDisplay(url: string): string {
 // 端点排序
 function sortEndpoints(endpoints: any[]) {
   return [...endpoints].sort((a, b) => {
-    const order = ['CLAUDE', 'OPENAI', 'CLAUDE_COMPATIBLE', 'OPENAI_COMPATIBLE', 'GEMINI', 'GEMINI_COMPATIBLE']
+    const order = ['claude:chat', 'claude:cli', 'openai:chat', 'openai:cli', 'gemini:chat', 'gemini:cli', 'openai:video', 'gemini:video']
     return order.indexOf(a.api_format) - order.indexOf(b.api_format)
   })
 }

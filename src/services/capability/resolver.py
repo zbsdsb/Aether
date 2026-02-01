@@ -9,16 +9,15 @@
 5. 显式传入 (用于重试升级)
 """
 
+from collections.abc import Callable
 from typing import Any
 
-from collections.abc import Callable
-
+from src.core.api_format import get_header_value
 from src.core.key_capabilities import (
     CAPABILITY_DEFINITIONS,
     CapabilityConfigMode,
     get_user_configurable_capabilities,
 )
-from src.core.api_format import get_header_value
 from src.core.logger import logger
 
 # Adapter 检测器类型：接受 headers 和可选的 request_body，返回能力需求字典
@@ -113,9 +112,7 @@ class CapabilityResolver:
                 # 只有尚未设置的能力才从 Adapter 检测
                 if cap_name not in requirements:
                     requirements[cap_name] = cap_value
-                    logger.debug(
-                        f"[CapabilityResolver] 从 Adapter 检测到 {cap_name}={cap_value}"
-                    )
+                    logger.debug(f"[CapabilityResolver] 从 Adapter 检测到 {cap_name}={cap_value}")
 
         # 5. 显式覆盖（重试时使用）
         if explicit_requirements:

@@ -19,10 +19,10 @@
     await UserCacheService.invalidate_user_cache(user_id, email)
 """
 
-
 from __future__ import annotations
 
 from typing import Any
+
 from sqlalchemy.orm import Session
 
 from src.config.constants import CacheTTL

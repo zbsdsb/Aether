@@ -7,10 +7,12 @@ OpenAI Chat Handler - 基于通用 Chat Handler 基类的简化实现
 
 from __future__ import annotations
 
-from starlette.requests import Request
 from typing import Any
 
+from starlette.requests import Request
+
 from src.api.handlers.base.chat_handler_base import ChatHandlerBase
+from src.core.api_format import ApiFamily, EndpointKind
 
 
 class OpenAIChatHandler(ChatHandlerBase):
@@ -23,7 +25,9 @@ class OpenAIChatHandler(ChatHandlerBase):
     - 请求格式：OpenAIRequest
     """
 
-    FORMAT_ID = "OPENAI"
+    FORMAT_ID = "openai:chat"
+    API_FAMILY = ApiFamily.OPENAI
+    ENDPOINT_KIND = EndpointKind.CHAT
 
     def extract_model_from_request(
         self,

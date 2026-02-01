@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import time
 import traceback
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 from fastapi import HTTPException, Request
@@ -30,12 +30,13 @@ from src.api.base.adapter import ApiAdapter, ApiMode
 from src.api.base.context import ApiRequestContext
 from src.api.handlers.base.cli_handler_base import CliMessageHandlerBase
 from src.core.api_format import (
-    APIFormat,
-    build_adapter_base_headers,
-    build_adapter_headers,
-    get_adapter_protected_keys,
+    ApiFamily,
+    EndpointKind,
+    build_adapter_base_headers_for_endpoint,
+    build_adapter_headers_for_endpoint,
+    get_adapter_protected_keys_for_endpoint,
     get_auth_handler,
-    get_default_auth_method,
+    get_default_auth_method_for_endpoint,
 )
 from src.core.exceptions import (
     InvalidRequestException,
@@ -68,6 +69,10 @@ class CliAdapterBase(ApiAdapter):
     FORMAT_ID: str = "UNKNOWN"
     HANDLER_CLASS: type[CliMessageHandlerBase]
 
+    # 新架构：结构化标识（逐步替代直接依赖 FORMAT_ID 的语义）
+    API_FAMILY: ClassVar[ApiFamily | None] = None
+    ENDPOINT_KIND: ClassVar[EndpointKind] = EndpointKind.CLI
+
     # 适配器配置
     name: str = "cli.base"
     mode = ApiMode.PROXY
@@ -82,21 +87,13 @@ class CliAdapterBase(ApiAdapter):
     # API 格式与头部处理 - 使用统一的 headers.py 函数
     # =========================================================================
 
-    @classmethod
-    def _get_api_format(cls) -> APIFormat:
-        """将 FORMAT_ID 转换为 APIFormat 枚举"""
-        try:
-            return APIFormat[cls.FORMAT_ID]
-        except KeyError:
-            return APIFormat.OPENAI
-
     def extract_api_key(self, request: Request) -> str | None:
         """
         从请求中提取 API 密钥
 
         使用 AuthHandler 新流程，根据 API 格式选择认证方式。
         """
-        auth_method = get_default_auth_method(self._get_api_format())
+        auth_method = get_default_auth_method_for_endpoint(self.FORMAT_ID)
         handler = get_auth_handler(auth_method)
         return handler.extract_credentials(request)
 
@@ -107,7 +104,7 @@ class CliAdapterBase(ApiAdapter):
 
         使用统一的头部处理函数。
         """
-        return build_adapter_base_headers(cls._get_api_format(), api_key)
+        return build_adapter_base_headers_for_endpoint(cls.FORMAT_ID, api_key)
 
     @classmethod
     def build_headers_with_extra(
@@ -118,7 +115,7 @@ class CliAdapterBase(ApiAdapter):
 
         使用统一的头部处理函数，自动保护关键头部不被覆盖。
         """
-        return build_adapter_headers(cls._get_api_format(), api_key, extra_headers)
+        return build_adapter_headers_for_endpoint(cls.FORMAT_ID, api_key, extra_headers)
 
     @classmethod
     def get_protected_header_keys(cls) -> tuple[str, ...]:
@@ -127,7 +124,7 @@ class CliAdapterBase(ApiAdapter):
 
         使用统一的头部处理函数。
         """
-        return get_adapter_protected_keys(cls._get_api_format())
+        return get_adapter_protected_keys_for_endpoint(cls.FORMAT_ID)
 
     async def handle(self, context: ApiRequestContext) -> Any:
         """处理 CLI API 请求"""
@@ -778,7 +775,15 @@ def _ensure_cli_adapters_loaded() -> None:
 
 
 def get_cli_adapter_class(api_format: str) -> type[CliAdapterBase] | None:
-    """根据 API format 获取 CLI Adapter 类"""
+    """
+    根据 API format 获取 CLI Adapter 类
+
+    Args:
+        api_format: API 格式标识（如 "openai:cli", "claude:cli", "gemini:cli"）
+
+    Returns:
+        对应的 CLI Adapter 类，如果未找到返回 None
+    """
     _ensure_cli_adapters_loaded()
     return _CLI_ADAPTER_REGISTRY.get(api_format.upper()) if api_format else None
 

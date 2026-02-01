@@ -4,7 +4,6 @@ Claude SSE 流解析器
 解析 Claude Messages API 的 Server-Sent Events 流。
 """
 
-
 import json
 from typing import Any
 

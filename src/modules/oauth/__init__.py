@@ -47,11 +47,7 @@ def _validate_config(db: Session) -> tuple[bool, str]:
     from src.models.database import OAuthProvider
 
     # 查找所有已启用的 Provider
-    enabled_providers = (
-        db.query(OAuthProvider)
-        .filter(OAuthProvider.is_enabled.is_(True))
-        .all()
-    )
+    enabled_providers = db.query(OAuthProvider).filter(OAuthProvider.is_enabled.is_(True)).all()
 
     if not enabled_providers:
         return False, "请先配置并启用至少一个 OAuth Provider"
@@ -87,4 +83,3 @@ oauth_module = ModuleDefinition(
     health_check=_health_check,
     validate_config=_validate_config,
 )
-

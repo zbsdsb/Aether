@@ -25,8 +25,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.core.logger import logger
-from .base import RateLimitResult, RateLimitStrategy
 
+from .base import RateLimitResult, RateLimitStrategy
 
 
 class SlidingWindow:

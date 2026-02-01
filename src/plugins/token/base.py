@@ -4,6 +4,7 @@ Token计数插件基类
 """
 
 from __future__ import annotations
+
 from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -71,9 +72,7 @@ class TokenCounterPlugin(BasePlugin):
         pass
 
     @abstractmethod
-    async def count_messages(
-        self, messages: list[dict[str, Any]], model: str | None = None
-    ) -> int:
+    async def count_messages(self, messages: list[dict[str, Any]], model: str | None = None) -> int:
         """计算消息列表的Token数量"""
         pass
 

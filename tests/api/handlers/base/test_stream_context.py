@@ -3,7 +3,7 @@ from src.api.handlers.base.stream_context import StreamContext
 
 
 def test_collected_text_append_and_property() -> None:
-    ctx = StreamContext(model="test-model", api_format="OPENAI")
+    ctx = StreamContext(model="test-model", api_format="openai:chat")
     assert ctx.collected_text == ""
 
     ctx.append_text("hello")
@@ -13,7 +13,7 @@ def test_collected_text_append_and_property() -> None:
 
 
 def test_reset_for_retry_clears_state() -> None:
-    ctx = StreamContext(model="test-model", api_format="OPENAI")
+    ctx = StreamContext(model="test-model", api_format="openai:chat")
     ctx.append_text("x")
     ctx.update_usage(input_tokens=10, output_tokens=5)
     ctx.parsed_chunks.append({"type": "chunk"})

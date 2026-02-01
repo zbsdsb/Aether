@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -486,9 +486,7 @@ class UpdateMyManagementTokenAdapter(ManagementTokenApiAdapter):
 
         context.add_audit_metadata(token_id=token.id, token_name=token.name)
 
-        return JSONResponse(
-            content={"message": "更新成功", "data": token_to_dict(token)}
-        )
+        return JSONResponse(content={"message": "更新成功", "data": token_to_dict(token)})
 
 
 @dataclass

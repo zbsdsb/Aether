@@ -14,6 +14,7 @@ from src.api.handlers.base.cli_adapter_base import CliAdapterBase, register_cli_
 from src.api.handlers.base.cli_handler_base import CliMessageHandlerBase
 from src.api.handlers.openai.adapter import OpenAIChatAdapter
 from src.config.settings import config
+from src.core.api_format import ApiFamily
 
 
 @register_cli_adapter
@@ -24,7 +25,8 @@ class OpenAICliAdapter(CliAdapterBase):
     处理 /v1/responses 端点的请求。
     """
 
-    FORMAT_ID = "OPENAI_CLI"
+    FORMAT_ID = "openai:cli"
+    API_FAMILY = ApiFamily.OPENAI
     BILLING_TEMPLATE = "openai"  # 使用 OpenAI 计费模板
     name = "openai.cli"
 
@@ -36,7 +38,7 @@ class OpenAICliAdapter(CliAdapterBase):
         return OpenAICliMessageHandler
 
     def __init__(self, allowed_api_formats: list[str] | None = None):
-        super().__init__(allowed_api_formats or ["OPENAI_CLI"])
+        super().__init__(allowed_api_formats)
 
     # =========================================================================
     # 模型列表查询
@@ -55,16 +57,16 @@ class OpenAICliAdapter(CliAdapterBase):
         cli_headers = {"User-Agent": config.internal_user_agent_openai_cli}
         if extra_headers:
             cli_headers.update(extra_headers)
-        models, error = await OpenAIChatAdapter.fetch_models(
-            client, base_url, api_key, cli_headers
-        )
+        models, error = await OpenAIChatAdapter.fetch_models(client, base_url, api_key, cli_headers)
         # 更新 api_format 为 CLI 格式
         for m in models:
             m["api_format"] = cls.FORMAT_ID
         return models, error
 
     @classmethod
-    def build_endpoint_url(cls, base_url: str, request_data: dict[str, Any], model_name: str | None = None) -> str:
+    def build_endpoint_url(
+        cls, base_url: str, request_data: dict[str, Any], model_name: str | None = None
+    ) -> str:
         """构建OpenAI CLI API端点URL"""
         base_url = base_url.rstrip("/")
         if base_url.endswith("/v1"):

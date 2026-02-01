@@ -12,7 +12,8 @@ from typing import Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from src.core.api_format.metadata import can_passthrough
+from src.core.api_format.metadata import can_passthrough_endpoint
+from src.core.api_format.signature import normalize_signature_key
 from src.core.logger import logger
 from src.models.database import (
     ApiKey,
@@ -2607,7 +2608,12 @@ class UsageService:
 
             # 兼容历史数据：当 streaming 状态已拿到两个格式但 has_format_conversion 为空时，回填推断结果
             if has_format_conversion is None and api_format and endpoint_api_format:
-                has_format_conversion = not can_passthrough(api_format, endpoint_api_format)
+                client_raw = str(api_format).strip()
+                endpoint_raw = str(endpoint_api_format).strip()
+                if ":" in client_raw and ":" in endpoint_raw:
+                    client_fmt = normalize_signature_key(client_raw)
+                    endpoint_fmt = normalize_signature_key(endpoint_raw)
+                    has_format_conversion = not can_passthrough_endpoint(client_fmt, endpoint_fmt)
 
             item: dict[str, Any] = {
                 "id": r.id,

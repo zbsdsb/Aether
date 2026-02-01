@@ -11,6 +11,7 @@ from src.api.handlers.base.cli_handler_base import (
     StreamContext,
 )
 from src.api.handlers.base.utils import extract_cache_creation_tokens
+from src.core.api_format import ApiFamily, EndpointKind
 
 
 class ClaudeCliMessageHandler(CliMessageHandlerBase):
@@ -29,7 +30,9 @@ class ClaudeCliMessageHandler(CliMessageHandlerBase):
     模型字段：请求体顶级 model 字段
     """
 
-    FORMAT_ID = "CLAUDE_CLI"
+    FORMAT_ID = "claude:cli"
+    API_FAMILY = ApiFamily.CLAUDE
+    ENDPOINT_KIND = EndpointKind.CLI
 
     def extract_model_from_request(
         self,
@@ -197,4 +200,3 @@ class ClaudeCliMessageHandler(CliMessageHandlerBase):
         # 记录模型名称
         if ctx.model:
             ctx.response_metadata["model"] = ctx.model
-

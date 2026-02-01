@@ -110,9 +110,7 @@ class AdaptiveRPMManager:
         is_adaptive = key.rpm_limit is None
 
         if not is_adaptive:
-            logger.debug(
-                f"Key {key.id} 设置了固定 RPM 限制 ({key.rpm_limit})，跳过自适应调整"
-            )
+            logger.debug(f"Key {key.id} 设置了固定 RPM 限制 ({key.rpm_limit})，跳过自适应调整")
             return int(key.rpm_limit)  # type: ignore[arg-type]
 
         # 更新429统计
@@ -318,7 +316,7 @@ class AdaptiveRPMManager:
 
         # 限制采样数量
         if len(samples) > self.UTILIZATION_WINDOW_SIZE:
-            samples = samples[-self.UTILIZATION_WINDOW_SIZE:]
+            samples = samples[-self.UTILIZATION_WINDOW_SIZE :]
 
         # 更新到 key 对象
         key.utilization_samples = samples  # type: ignore[assignment]
@@ -538,7 +536,7 @@ class AdaptiveRPMManager:
 
         # 保留最近N条记录
         if len(history) > self.MAX_HISTORY_RECORDS:
-            history = history[-self.MAX_HISTORY_RECORDS:]
+            history = history[-self.MAX_HISTORY_RECORDS :]
 
         key.adjustment_history = history  # type: ignore[assignment]
 

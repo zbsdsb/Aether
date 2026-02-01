@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 from src.api.handlers.base.chat_adapter_base import ChatAdapterBase, register_adapter
 from src.api.handlers.base.chat_handler_base import ChatHandlerBase
-from src.core.api_format import get_auth_handler
+from src.core.api_format import ApiFamily, get_auth_handler
 from src.core.api_format.enums import AuthMethod
 from src.core.logger import logger
 from src.models.gemini import GeminiRequest
@@ -31,7 +31,8 @@ class GeminiChatAdapter(ChatAdapterBase):
     端点: /v1beta/models/{model}:generateContent
     """
 
-    FORMAT_ID = "GEMINI"
+    FORMAT_ID = "gemini:chat"
+    API_FAMILY = ApiFamily.GEMINI
     BILLING_TEMPLATE = "gemini"  # 使用 Gemini 计费模板
     name = "gemini.chat"
 
@@ -43,7 +44,7 @@ class GeminiChatAdapter(ChatAdapterBase):
         return GeminiChatHandler
 
     def __init__(self, allowed_api_formats: list[str] | None = None):
-        super().__init__(allowed_api_formats or ["GEMINI"])
+        super().__init__(allowed_api_formats)
         logger.info(
             f"[{self.name}] 初始化 Gemini Chat 适配器 | API格式: {self.allowed_api_formats}"
         )

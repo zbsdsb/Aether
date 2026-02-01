@@ -1,7 +1,7 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.core.api_format import APIFormat
+import pytest
+
 from src.core.api_format.conversion import register_default_normalizers
 from src.services.cache.aware_scheduler import CacheAwareScheduler
 
@@ -18,9 +18,11 @@ def _mock_key(key_id: str, api_formats: list[str]) -> MagicMock:
 
 def _mock_endpoint(api_format: str, config: dict | None = None) -> MagicMock:
     endpoint = MagicMock()
-    endpoint.id = f"ep_{api_format.lower()}"
+    endpoint.id = f"ep_{api_format.lower().replace(':', '_')}"
     endpoint.is_active = True
     endpoint.api_format = api_format
+    endpoint.api_family = api_format.split(":", 1)[0]
+    endpoint.endpoint_kind = api_format.split(":", 1)[1]
     endpoint.format_acceptance_config = config
     return endpoint
 
@@ -37,16 +39,16 @@ async def test_build_candidates_blocks_cross_format_when_global_switch_off() -> 
     provider.name = "p1"
     provider.endpoints = [
         _mock_endpoint(
-            "OPENAI",
-            {"enabled": True, "accept_formats": ["CLAUDE"], "stream_conversion": True},
+            "openai:chat",
+            {"enabled": True, "accept_formats": ["claude:chat"], "stream_conversion": True},
         )
     ]
-    provider.api_keys = [_mock_key("k1", ["OPENAI"])]
+    provider.api_keys = [_mock_key("k1", ["openai:chat"])]
 
     candidates = await scheduler._build_candidates(
         db=MagicMock(),
         providers=[provider],
-        client_format=APIFormat.CLAUDE,
+        client_format="claude:chat",
         model_name="dummy-model",
         affinity_key=None,
         global_conversion_enabled=False,
@@ -67,16 +69,16 @@ async def test_build_candidates_includes_cross_format_when_enabled() -> None:
     provider.name = "p1"
     provider.endpoints = [
         _mock_endpoint(
-            "OPENAI",
-            {"enabled": True, "accept_formats": ["CLAUDE"], "stream_conversion": True},
+            "openai:chat",
+            {"enabled": True, "accept_formats": ["claude:chat"], "stream_conversion": True},
         )
     ]
-    provider.api_keys = [_mock_key("k1", ["OPENAI"])]
+    provider.api_keys = [_mock_key("k1", ["openai:chat"])]
 
     candidates = await scheduler._build_candidates(
         db=MagicMock(),
         providers=[provider],
-        client_format=APIFormat.CLAUDE,
+        client_format="claude:chat",
         model_name="dummy-model",
         affinity_key=None,
         global_conversion_enabled=True,
@@ -84,7 +86,7 @@ async def test_build_candidates_includes_cross_format_when_enabled() -> None:
 
     assert len(candidates) == 1
     assert candidates[0].needs_conversion is True
-    assert candidates[0].provider_api_format == "OPENAI"
+    assert candidates[0].provider_api_format == "openai:chat"
 
 
 @pytest.mark.asyncio
@@ -100,20 +102,20 @@ async def test_exact_matches_rank_before_convertible() -> None:
     # 故意把 OPENAI 放在 endpoints[0]，验证排序仍然是 CLAUDE（exact）在前
     provider.endpoints = [
         _mock_endpoint(
-            "OPENAI",
-            {"enabled": True, "accept_formats": ["CLAUDE"], "stream_conversion": True},
+            "openai:chat",
+            {"enabled": True, "accept_formats": ["claude:chat"], "stream_conversion": True},
         ),
-        _mock_endpoint("CLAUDE", None),
+        _mock_endpoint("claude:chat", None),
     ]
     provider.api_keys = [
-        _mock_key("k_openai", ["OPENAI"]),
-        _mock_key("k_claude", ["CLAUDE"]),
+        _mock_key("k_openai", ["openai:chat"]),
+        _mock_key("k_claude", ["claude:chat"]),
     ]
 
     candidates = await scheduler._build_candidates(
         db=MagicMock(),
         providers=[provider],
-        client_format=APIFormat.CLAUDE,
+        client_format="claude:chat",
         model_name="dummy-model",
         affinity_key=None,
         global_conversion_enabled=True,
@@ -121,6 +123,6 @@ async def test_exact_matches_rank_before_convertible() -> None:
 
     assert len(candidates) == 2
     assert candidates[0].needs_conversion is False
-    assert candidates[0].provider_api_format == "CLAUDE"
+    assert candidates[0].provider_api_format == "claude:chat"
     assert candidates[1].needs_conversion is True
-    assert candidates[1].provider_api_format == "OPENAI"
+    assert candidates[1].provider_api_format == "openai:chat"

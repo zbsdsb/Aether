@@ -3,7 +3,6 @@ API Key认证插件
 支持从header中提取API Key进行认证
 """
 
-
 from __future__ import annotations
 
 from fastapi import Request
@@ -14,7 +13,6 @@ from src.services.auth.service import AuthService
 from src.services.usage.service import UsageService
 
 from .base import AuthContext, AuthPlugin
-
 
 
 class ApiKeyAuthPlugin(AuthPlugin):

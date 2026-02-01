@@ -244,9 +244,15 @@ class CreateUserRequest(BaseModel):
     quota_usd: float | None = Field(default=None, description="USD配额，null表示使用系统默认配额")
     unlimited: bool = Field(default=False, description="是否无限配额")
     # 访问限制字段
-    allowed_providers: list[str] | None = Field(default=None, description="允许使用的提供商ID列表，null表示无限制")
-    allowed_api_formats: list[str] | None = Field(default=None, description="允许使用的API格式列表，null表示无限制")
-    allowed_models: list[str] | None = Field(default=None, description="允许使用的模型名称列表，null表示无限制")
+    allowed_providers: list[str] | None = Field(
+        default=None, description="允许使用的提供商ID列表，null表示无限制"
+    )
+    allowed_api_formats: list[str] | None = Field(
+        default=None, description="允许使用的API格式列表，null表示无限制"
+    )
+    allowed_models: list[str] | None = Field(
+        default=None, description="允许使用的模型名称列表，null表示无限制"
+    )
 
     @field_validator("quota_usd", mode="before")
     @classmethod
@@ -285,6 +291,30 @@ class CreateUserRequest(BaseModel):
             raise ValueError("用户名只能包含字母、数字、下划线、连字符和点号")
         return v
 
+    @field_validator("allowed_api_formats")
+    @classmethod
+    def validate_allowed_api_formats(cls, v: list[str] | None) -> list[str] | None:
+        """校验并规范化 allowed_api_formats（endpoint signature: family:kind）。"""
+        if v is None:
+            return None
+        from src.core.api_format import list_endpoint_definitions, resolve_endpoint_definition
+        from src.core.api_format.signature import normalize_signature_key
+
+        allowed = [d.signature_key for d in list_endpoint_definitions()]
+        out: list[str] = []
+        seen: set[str] = set()
+        for fmt in v:
+            if not fmt:
+                continue
+            norm = normalize_signature_key(fmt)
+            if resolve_endpoint_definition(norm) is None:
+                raise ValueError(f"allowed_api_formats 必须是以下之一: {allowed}，当前值: {fmt}")
+            if norm in seen:
+                continue
+            seen.add(norm)
+            out.append(norm)
+        return out
+
     @classmethod
     @field_validator("password")
     def validate_password(cls, v: Any) -> Any:
@@ -312,6 +342,12 @@ class UpdateUserRequest(BaseModel):
     allowed_models: list[str] | None = None  # 允许使用的模型名称列表
     quota_usd: float | None = None
     is_active: bool | None = None
+
+    @field_validator("allowed_api_formats")
+    @classmethod
+    def validate_allowed_api_formats(cls, v: list[str] | None) -> list[str] | None:
+        # 与 CreateUserRequest 保持一致
+        return CreateUserRequest.validate_allowed_api_formats(v)
 
     @field_validator("quota_usd", mode="before")
     @classmethod
@@ -343,6 +379,12 @@ class CreateApiKeyRequest(BaseModel):
     auto_delete_on_expiry: bool = Field(
         False, description="过期后是否自动删除（True=物理删除，False=仅禁用）"
     )
+
+    @field_validator("allowed_api_formats")
+    @classmethod
+    def validate_allowed_api_formats(cls, v: list[str] | None) -> list[str] | None:
+        # 与 CreateUserRequest 保持一致
+        return CreateUserRequest.validate_allowed_api_formats(v)
 
 
 class UserResponse(BaseModel):
@@ -408,8 +450,12 @@ class ProviderCreate(BaseModel):
     is_active: bool = Field(False, description="是否启用（默认false，需要配置API密钥后才能启用）")
 
     # 超时配置（秒），为空时使用全局配置
-    stream_first_byte_timeout: float | None = Field(None, ge=1, le=300, description="流式请求首字节超时（秒）")
-    request_timeout: float | None = Field(None, ge=1, le=600, description="非流式请求整体超时（秒）")
+    stream_first_byte_timeout: float | None = Field(
+        None, ge=1, le=300, description="流式请求首字节超时（秒）"
+    )
+    request_timeout: float | None = Field(
+        None, ge=1, le=600, description="非流式请求整体超时（秒）"
+    )
 
 
 class ProviderUpdate(BaseModel):
@@ -430,8 +476,12 @@ class ProviderUpdate(BaseModel):
     is_active: bool | None = None
 
     # 超时配置（秒），为空时使用全局配置
-    stream_first_byte_timeout: float | None = Field(None, ge=1, le=300, description="流式请求首字节超时（秒）")
-    request_timeout: float | None = Field(None, ge=1, le=600, description="非流式请求整体超时（秒）")
+    stream_first_byte_timeout: float | None = Field(
+        None, ge=1, le=300, description="流式请求首字节超时（秒）"
+    )
+    request_timeout: float | None = Field(
+        None, ge=1, le=600, description="非流式请求整体超时（秒）"
+    )
 
 
 class ProviderResponse(BaseModel):

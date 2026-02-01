@@ -85,7 +85,7 @@ class TestConvertSseLineBasic:
 
     def test_empty_line_returns_empty_list(self) -> None:
         handler = MockCliHandler()
-        ctx = StreamContext(model="test", api_format="OPENAI")
+        ctx = StreamContext(model="test", api_format="openai:chat")
 
         result = handler._convert_sse_line(ctx, "", [])
 
@@ -93,7 +93,7 @@ class TestConvertSseLineBasic:
 
     def test_whitespace_line_returns_line(self) -> None:
         handler = MockCliHandler()
-        ctx = StreamContext(model="test", api_format="OPENAI")
+        ctx = StreamContext(model="test", api_format="openai:chat")
 
         result = handler._convert_sse_line(ctx, "   ", [])
 
@@ -101,7 +101,7 @@ class TestConvertSseLineBasic:
 
     def test_done_marker_returns_as_is(self) -> None:
         handler = MockCliHandler()
-        ctx = StreamContext(model="test", api_format="OPENAI")
+        ctx = StreamContext(model="test", api_format="openai:chat")
 
         result = handler._convert_sse_line(ctx, "data: [DONE]", [])
 
@@ -109,7 +109,7 @@ class TestConvertSseLineBasic:
 
     def test_non_data_line_passthrough(self) -> None:
         handler = MockCliHandler()
-        ctx = StreamContext(model="test", api_format="OPENAI")
+        ctx = StreamContext(model="test", api_format="openai:chat")
 
         result = handler._convert_sse_line(ctx, "event: message_start", [])
 
@@ -117,7 +117,7 @@ class TestConvertSseLineBasic:
 
     def test_invalid_json_passthrough(self) -> None:
         handler = MockCliHandler()
-        ctx = StreamContext(model="test", api_format="OPENAI")
+        ctx = StreamContext(model="test", api_format="openai:chat")
 
         result = handler._convert_sse_line(ctx, "data: {invalid json}", [])
 
@@ -130,9 +130,9 @@ class TestConvertSseLineWithMockConverter:
     def test_same_format_returns_original(self) -> None:
         """同格式无需转换"""
         handler = MockCliHandler()
-        ctx = StreamContext(model="test", api_format="OPENAI")
-        ctx.provider_api_format = "OPENAI"
-        ctx.client_api_format = "OPENAI"
+        ctx = StreamContext(model="test", api_format="openai:chat")
+        ctx.provider_api_format = "openai:chat"
+        ctx.client_api_format = "openai:chat"
 
         chunk = {"choices": [{"delta": {"content": "hello"}}]}
         line = f"data: {json.dumps(chunk)}"
@@ -144,14 +144,14 @@ class TestConvertSseLineWithMockConverter:
 
     def test_state_initialization(self) -> None:
         """测试状态自动初始化
-        
+
         流式转换状态应使用用户请求的原始模型名（ctx.model），
         而非映射后的模型名（ctx.mapped_model），确保返回给客户端的响应使用原始模型名。
         """
         handler = MockCliHandler()
-        ctx = StreamContext(model="gpt-4", api_format="OPENAI")
-        ctx.provider_api_format = "OPENAI"
-        ctx.client_api_format = "OPENAI"
+        ctx = StreamContext(model="gpt-4", api_format="openai:chat")
+        ctx.provider_api_format = "openai:chat"
+        ctx.client_api_format = "openai:chat"
         ctx.mapped_model = "claude-3-5-sonnet"  # 映射后的模型名（发给上游的）
         ctx.request_id = "req_123"
 
@@ -181,9 +181,9 @@ class TestConvertSseLineOneInManyOut:
     def test_openai_to_claude_conversion(self) -> None:
         """测试 OpenAI -> Claude 流式转换"""
         handler = MockCliHandler()
-        ctx = StreamContext(model="gpt-4", api_format="OPENAI")
-        ctx.provider_api_format = "OPENAI"
-        ctx.client_api_format = "CLAUDE"
+        ctx = StreamContext(model="gpt-4", api_format="openai:chat")
+        ctx.provider_api_format = "openai:chat"
+        ctx.client_api_format = "claude:chat"
         ctx.mapped_model = "claude-3-5-sonnet"
         ctx.request_id = "req_test"
 
@@ -205,9 +205,9 @@ class TestConvertSseLineOneInManyOut:
     def test_claude_to_openai_conversion(self) -> None:
         """测试 Claude -> OpenAI 流式转换"""
         handler = MockCliHandler()
-        ctx = StreamContext(model="claude-3-5-sonnet", api_format="CLAUDE")
-        ctx.provider_api_format = "CLAUDE"
-        ctx.client_api_format = "OPENAI"
+        ctx = StreamContext(model="claude-3-5-sonnet", api_format="claude:chat")
+        ctx.provider_api_format = "claude:chat"
+        ctx.client_api_format = "openai:chat"
         ctx.mapped_model = "gpt-4"
         ctx.request_id = "msg_test"
 
@@ -225,9 +225,9 @@ class TestConvertSseLineOneInManyOut:
     def test_multiple_chunks_state_persistence(self) -> None:
         """测试多个 chunk 之间状态持久化"""
         handler = MockCliHandler()
-        ctx = StreamContext(model="gpt-4", api_format="OPENAI")
-        ctx.provider_api_format = "OPENAI"
-        ctx.client_api_format = "CLAUDE"
+        ctx = StreamContext(model="gpt-4", api_format="openai:chat")
+        ctx.provider_api_format = "openai:chat"
+        ctx.client_api_format = "claude:chat"
         ctx.mapped_model = "claude-3-5-sonnet"
 
         # 第一个 chunk
@@ -249,7 +249,7 @@ class TestStreamContextIntegration:
 
     def test_stream_conversion_state_reset_on_retry(self) -> None:
         """测试重试时重置流式转换状态"""
-        ctx = StreamContext(model="test", api_format="OPENAI")
+        ctx = StreamContext(model="test", api_format="openai:chat")
         ctx.stream_conversion_state = StreamState(model="test", message_id="123")
 
         ctx.reset_for_retry()
@@ -258,7 +258,7 @@ class TestStreamContextIntegration:
 
     def test_stream_conversion_state_field_exists(self) -> None:
         """测试 StreamContext 有 stream_conversion_state 字段"""
-        ctx = StreamContext(model="test", api_format="OPENAI")
+        ctx = StreamContext(model="test", api_format="openai:chat")
 
         assert hasattr(ctx, "stream_conversion_state")
         assert ctx.stream_conversion_state is None

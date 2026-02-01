@@ -4,8 +4,8 @@
 包含自适应 RPM 控制、并发管理、IP限流等功能。
 """
 
+from src.services.rate_limit.adaptive_rpm import AdaptiveConcurrencyManager  # 向后兼容别名
 from src.services.rate_limit.adaptive_rpm import (
-    AdaptiveConcurrencyManager,  # 向后兼容别名
     AdaptiveRPMManager,
     get_adaptive_rpm_manager,
 )

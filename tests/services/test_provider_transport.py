@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-
 from src.services.provider.transport import build_provider_url
 
 
@@ -14,7 +13,7 @@ class _DummyEndpoint:
 def test_gemini_stream_adds_alt_sse_and_drops_key_query_param() -> None:
     endpoint = _DummyEndpoint(
         base_url="https://generativelanguage.googleapis.com",
-        api_format="GEMINI",
+        api_format="gemini:chat",
     )
 
     url = build_provider_url(
@@ -34,7 +33,7 @@ def test_gemini_stream_adds_alt_sse_and_drops_key_query_param() -> None:
 def test_gemini_stream_does_not_override_existing_alt() -> None:
     endpoint = _DummyEndpoint(
         base_url="https://generativelanguage.googleapis.com",
-        api_format="GEMINI",
+        api_format="gemini:chat",
     )
 
     url = build_provider_url(
@@ -51,7 +50,7 @@ def test_gemini_stream_does_not_override_existing_alt() -> None:
 def test_gemini_non_stream_does_not_add_alt() -> None:
     endpoint = _DummyEndpoint(
         base_url="https://generativelanguage.googleapis.com",
-        api_format="GEMINI",
+        api_format="gemini:chat",
     )
 
     url = build_provider_url(
@@ -62,4 +61,3 @@ def test_gemini_non_stream_does_not_add_alt() -> None:
 
     assert url.endswith("/v1beta/models/gemini-1.5-pro:generateContent")
     assert "alt=" not in url
-

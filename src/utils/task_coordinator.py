@@ -9,13 +9,12 @@
 - 多实例部署：设置 SINGLE_INSTANCE_MODE=false 禁用启动清理
 """
 
-
 from __future__ import annotations
 
-from typing import Any
 import os
 import pathlib
 import uuid
+from typing import Any
 
 from src.core.logger import logger
 
@@ -77,9 +76,7 @@ class StartupTaskCoordinator:
                     return 0
                     """
                     result = await self.redis.eval(
-                        script, 2,
-                        self._redis_key(name), self._redis_key(name),
-                        token, ttl
+                        script, 2, self._redis_key(name), self._redis_key(name), token, ttl
                     )
                     if result == 1:
                         self._tokens[name] = token
@@ -88,9 +85,7 @@ class StartupTaskCoordinator:
                     return False
                 else:
                     # 多实例模式：直接使用 NX 选项竞争锁
-                    acquired = await self.redis.set(
-                        self._redis_key(name), token, nx=True, ex=ttl
-                    )
+                    acquired = await self.redis.set(self._redis_key(name), token, nx=True, ex=ttl)
                     if acquired:
                         self._tokens[name] = token
                         logger.info(f"任务 {name} 通过 Redis 锁独占执行")
@@ -143,7 +138,9 @@ class StartupTaskCoordinator:
             return False
 
 
-async def ensure_singleton_task(name: str, redis_client: Any | None = None, ttl: int | None = None) -> Any:
+async def ensure_singleton_task(
+    name: str, redis_client: Any | None = None, ttl: int | None = None
+) -> Any:
     """便捷协程，返回 (coordinator, acquired)"""
 
     coordinator = StartupTaskCoordinator(redis_client)

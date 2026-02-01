@@ -597,9 +597,7 @@ class GlobalModelService:
                 db.commit()
             except Exception as e:
                 db.rollback()
-                logger.error(
-                    f"Failed to auto-disassociate Provider {provider.name}: {e}"
-                )
+                logger.error(f"Failed to auto-disassociate Provider {provider.name}: {e}")
                 # 清空 success，记录整体错误
                 results["success"] = []
                 results["errors"].append(

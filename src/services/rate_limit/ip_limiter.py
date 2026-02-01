@@ -12,7 +12,6 @@ from src.clients.redis_client import get_redis_client
 from src.core.logger import logger
 
 
-
 class IPRateLimiter:
     """IP 速率限制服务"""
 
@@ -91,7 +90,9 @@ class IPRateLimiter:
             allowed = count <= rate_limit
 
             if not allowed:
-                logger.warning(f"IP 速率限制触发: {ip_address}, 类型: {endpoint_type}, 计数: {count}/{rate_limit}")
+                logger.warning(
+                    f"IP 速率限制触发: {ip_address}, 类型: {endpoint_type}, 计数: {count}/{rate_limit}"
+                )
 
             return allowed, remaining, ttl
 

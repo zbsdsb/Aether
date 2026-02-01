@@ -20,12 +20,7 @@ from src.api.base.models_service import (
     list_available_models,
 )
 from src.core.api_format import (
-    API_FORMAT_DEFINITIONS,
-    APIFormat,
-    ApiFormatDefinition,
     detect_request_context,
-    get_auth_handler,
-    get_default_auth_method,
 )
 from src.core.api_format.conversion import (
     format_conversion_registry,
@@ -35,30 +30,21 @@ from src.core.logger import logger
 from src.database import get_db
 from src.models.database import ApiKey, User
 from src.services.auth.service import AuthService
+from src.services.provider.format import normalize_endpoint_signature
 
 router = APIRouter(tags=["System Catalog"])
 
 # 各格式对应的 API 格式列表（包括对应的 CLI 格式）
-_CLAUDE_FORMATS = [APIFormat.CLAUDE.value, APIFormat.CLAUDE_CLI.value]
-_OPENAI_FORMATS = [APIFormat.OPENAI.value, APIFormat.OPENAI_CLI.value]
-_GEMINI_FORMATS = [APIFormat.GEMINI.value, APIFormat.GEMINI_CLI.value]
+_CLAUDE_FORMATS = ["claude:chat", "claude:cli"]
+_OPENAI_FORMATS = ["openai:chat", "openai:cli"]
+_GEMINI_FORMATS = ["gemini:chat", "gemini:cli"]
 
 # 所有格式（用于格式转换时的查询）
 _ALL_CHAT_FORMATS = [
-    APIFormat.CLAUDE.value,
-    APIFormat.CLAUDE_CLI.value,
-    APIFormat.OPENAI.value,
-    APIFormat.OPENAI_CLI.value,
-    APIFormat.GEMINI.value,
-    APIFormat.GEMINI_CLI.value,
+    *_CLAUDE_FORMATS,
+    *_OPENAI_FORMATS,
+    *_GEMINI_FORMATS,
 ]
-
-
-def _extract_api_key_from_request(request: Request, definition: ApiFormatDefinition) -> str | None:
-    """根据格式定义从请求中提取 API Key"""
-    auth_method = get_default_auth_method(definition.api_format)
-    handler = get_auth_handler(auth_method)
-    return handler.extract_credentials(request)
 
 
 def _detect_api_format_and_key(request: Request) -> tuple[str, str | None]:
@@ -74,17 +60,17 @@ def _detect_api_format_and_key(request: Request) -> tuple[str, str | None]:
         (api_format, api_key) 元组
     """
     context = detect_request_context(request)
-    return context.data_format.value.lower(), context.credentials
+    return context.endpoint.key, context.credentials
 
 
 def _get_formats_for_api(api_format: str) -> list[str]:
     """获取对应 API 格式的端点格式列表"""
-    if api_format == "claude":
+    fam = (api_format.split(":", 1)[0] if api_format else "").strip().lower()
+    if fam == "claude":
         return _CLAUDE_FORMATS
-    elif api_format == "gemini":
+    if fam == "gemini":
         return _GEMINI_FORMATS
-    else:
-        return _OPENAI_FORMATS
+    return _OPENAI_FORMATS
 
 
 def _is_format_conversion_enabled() -> bool:
@@ -101,30 +87,32 @@ def _get_convertible_formats(client_format: str, global_conversion_enabled: bool
     当启用格式转换时，返回所有可以转换的格式；
     否则只返回客户端格式本身（不包括同族的其他格式）。
     """
-    client_format_upper = client_format.upper()
+    client_format_norm = normalize_endpoint_signature(client_format)
 
     # 格式转换关闭时，只返回客户端格式本身
     if not global_conversion_enabled:
-        return [client_format_upper]
+        return [client_format_norm]
 
     # 收集所有可转换的格式
     register_default_normalizers()
-    convertible_formats = []
+    convertible_formats: list[str] = []
     for target_format in _ALL_CHAT_FORMATS:
+        target_norm = normalize_endpoint_signature(target_format)
         # 相同格式始终可用
-        if target_format == client_format_upper:
-            convertible_formats.append(target_format)
+        if target_norm == client_format_norm:
+            convertible_formats.append(target_norm)
             continue
 
         # 检查是否有双向转换器
         if format_conversion_registry.can_convert_full(
-            client_format_upper,
-            target_format,
+            client_format_norm,
+            target_norm,
             require_stream=False,
         ):
-            convertible_formats.append(target_format)
+            convertible_formats.append(target_norm)
 
-    return convertible_formats if convertible_formats else [client_format_upper]
+    # 去重并保持稳定顺序
+    return list(dict.fromkeys(convertible_formats)) if convertible_formats else [client_format_norm]
 
 
 def _flatten_provider_formats(provider_to_formats: dict[str, set[str]]) -> list[str]:
@@ -137,11 +125,17 @@ def _flatten_provider_formats(provider_to_formats: dict[str, set[str]]) -> list[
     return sorted(all_formats)
 
 
+def _get_family(api_format: str) -> str:
+    """从 endpoint signature 提取协议族（如 'openai:chat' -> 'openai'）。"""
+    return (str(api_format).split(":", 1)[0] if api_format else "").strip().lower()
+
+
 def _build_empty_list_response(api_format: str) -> dict:
     """根据 API 格式构建空列表响应"""
-    if api_format == "claude":
+    fam = _get_family(api_format)
+    if fam == "claude":
         return {"data": [], "has_more": False, "first_id": None, "last_id": None}
-    elif api_format == "gemini":
+    elif fam == "gemini":
         return {"models": []}
     else:
         return {"object": "list", "data": []}
@@ -159,9 +153,7 @@ def _filter_formats_by_restrictions(
     """
     if restrictions.allowed_api_formats is None:
         return formats, None
-    # 统一转为大写比较，兼容数据库中存储的大小写
-    allowed_upper = {f.upper() for f in restrictions.allowed_api_formats}
-    filtered = [f for f in formats if f.upper() in allowed_upper]
+    filtered = [f for f in formats if restrictions.is_api_format_allowed(f)]
     if not filtered:
         logger.info(f"[Models] API Key 不允许访问格式 {api_format}")
         return [], _build_empty_list_response(api_format)
@@ -191,7 +183,8 @@ def _authenticate(db: Session, api_key: str | None) -> tuple[User | None, ApiKey
 
 def _build_auth_error_response(api_format: str) -> JSONResponse:
     """根据 API 格式构建认证错误响应"""
-    if api_format == "claude":
+    fam = _get_family(api_format)
+    if fam == "claude":
         return JSONResponse(
             status_code=401,
             content={
@@ -202,7 +195,7 @@ def _build_auth_error_response(api_format: str) -> JSONResponse:
                 },
             },
         )
-    elif api_format == "gemini":
+    elif fam == "gemini":
         return JSONResponse(
             status_code=401,
             content={
@@ -383,7 +376,8 @@ def _build_gemini_model_response(model_info: ModelInfo) -> dict:
 
 def _build_404_response(model_id: str, api_format: str) -> JSONResponse:
     """根据 API 格式构建 404 响应"""
-    if api_format == "claude":
+    fam = _get_family(api_format)
+    if fam == "claude":
         return JSONResponse(
             status_code=404,
             content={
@@ -391,7 +385,7 @@ def _build_404_response(model_id: str, api_format: str) -> JSONResponse:
                 "error": {"type": "not_found_error", "message": f"Model '{model_id}' not found"},
             },
         )
-    elif api_format == "gemini":
+    elif fam == "gemini":
         return JSONResponse(
             status_code=404,
             content={
@@ -533,9 +527,9 @@ async def list_models(
     )
     logger.debug(f"[Models] 返回 {len(models)} 个模型")
 
-    if api_format == "claude":
+    if _get_family(api_format) == "claude":
         return _build_claude_list_response(models, before_id, after_id, limit)
-    elif api_format == "gemini":
+    elif _get_family(api_format) == "gemini":
         return _build_gemini_list_response(models, page_size, page_token)
     else:
         return _build_openai_list_response(models)
@@ -596,7 +590,7 @@ async def retrieve_model(
     api_format, api_key = _detect_api_format_and_key(request)
 
     # Gemini 格式的 name 带 "models/" 前缀，需要移除
-    if api_format == "gemini" and model_id.startswith("models/"):
+    if _get_family(api_format) == "gemini" and model_id.startswith("models/"):
         model_id = model_id[7:]
 
     logger.info(f"[Models] GET /v1/models/{model_id} | format={api_format}")
@@ -635,9 +629,9 @@ async def retrieve_model(
     if not model_info:
         return _build_404_response(model_id, api_format)
 
-    if api_format == "claude":
+    if _get_family(api_format) == "claude":
         return _build_claude_model_response(model_info)
-    elif api_format == "gemini":
+    elif _get_family(api_format) == "gemini":
         return _build_gemini_model_response(model_info)
     else:
         return _build_openai_model_response(model_info)
@@ -682,29 +676,27 @@ async def list_models_gemini(
     """
     logger.info("[Models] GET /v1beta/models | format=gemini")
 
-    # 从 x-goog-api-key 或 ?key= 提取 API Key
-    gemini_def = API_FORMAT_DEFINITIONS[APIFormat.GEMINI]
-    api_key = _extract_api_key_from_request(request, gemini_def)
+    api_format, api_key = _detect_api_format_and_key(request)
 
     # 认证
     user, key_record = _authenticate(db, api_key)
     if not user:
-        return _build_auth_error_response("gemini")
+        return _build_auth_error_response(api_format)
 
     # 构建访问限制
     restrictions = AccessRestrictions.from_api_key_and_user(key_record, user)
 
     # 获取可用格式（包括可转换的格式）
     global_conversion_enabled = _is_format_conversion_enabled()
-    candidate_formats = _get_convertible_formats("gemini", global_conversion_enabled)
+    candidate_formats = _get_convertible_formats(api_format, global_conversion_enabled)
     candidate_formats, empty_response = _filter_formats_by_restrictions(
-        candidate_formats, restrictions, "gemini"
+        candidate_formats, restrictions, api_format
     )
     if empty_response is not None:
         return empty_response
 
     provider_to_formats = get_compatible_provider_formats(
-        db, "gemini", candidate_formats, global_conversion_enabled
+        db, api_format, candidate_formats, global_conversion_enabled
     )
     formats = _flatten_provider_formats(provider_to_formats)
 
@@ -718,7 +710,7 @@ async def list_models_gemini(
         formats,
         restrictions,
         provider_to_formats=provider_to_formats,
-        client_format="gemini",
+        client_format=api_format,
     )
     logger.debug(f"[Models] 返回 {len(models)} 个模型")
     response = _build_gemini_list_response(models, page_size, page_token)
@@ -763,30 +755,28 @@ async def get_model_gemini(
     model_id = model_name[7:] if model_name.startswith("models/") else model_name
     logger.info(f"[Models] GET /v1beta/models/{model_id} | format=gemini")
 
-    # 从 x-goog-api-key 或 ?key= 提取 API Key
-    gemini_def = API_FORMAT_DEFINITIONS[APIFormat.GEMINI]
-    api_key = _extract_api_key_from_request(request, gemini_def)
+    api_format, api_key = _detect_api_format_and_key(request)
 
     # 认证
     user, key_record = _authenticate(db, api_key)
     if not user:
-        return _build_auth_error_response("gemini")
+        return _build_auth_error_response(api_format)
 
     # 构建访问限制
     restrictions = AccessRestrictions.from_api_key_and_user(key_record, user)
 
     # 获取可用格式（包括可转换的格式）
     global_conversion_enabled = _is_format_conversion_enabled()
-    candidate_formats = _get_convertible_formats("gemini", global_conversion_enabled)
+    candidate_formats = _get_convertible_formats(api_format, global_conversion_enabled)
     candidate_formats, _ = _filter_formats_by_restrictions(
-        candidate_formats, restrictions, "gemini"
+        candidate_formats, restrictions, api_format
     )
     provider_to_formats = get_compatible_provider_formats(
-        db, "gemini", candidate_formats, global_conversion_enabled
+        db, api_format, candidate_formats, global_conversion_enabled
     )
     formats = _flatten_provider_formats(provider_to_formats)
     if not formats:
-        return _build_404_response(model_id, "gemini")
+        return _build_404_response(model_id, api_format)
 
     available_provider_ids = get_available_provider_ids(db, formats, provider_to_formats)
     model_info = find_model_by_id(
@@ -799,6 +789,6 @@ async def get_model_gemini(
     )
 
     if not model_info:
-        return _build_404_response(model_id, "gemini")
+        return _build_404_response(model_id, api_format)
 
     return _build_gemini_model_response(model_info)

@@ -230,9 +230,9 @@ class HealthMonitor:
 
             if state == CircuitState.HALF_OPEN:
                 # 半开状态：记录成功
-                circuit_data["half_open_successes"] = int(
-                    circuit_data.get("half_open_successes") or 0
-                ) + 1
+                circuit_data["half_open_successes"] = (
+                    int(circuit_data.get("half_open_successes") or 0) + 1
+                )
 
                 if circuit_data["half_open_successes"] >= cls.HALF_OPEN_SUCCESS_THRESHOLD:
                     # 达到成功阈值，关闭熔断器
@@ -357,9 +357,9 @@ class HealthMonitor:
 
             if state == CircuitState.HALF_OPEN:
                 # 半开状态：记录失败
-                circuit_data["half_open_failures"] = int(
-                    circuit_data.get("half_open_failures") or 0
-                ) + 1
+                circuit_data["half_open_failures"] = (
+                    int(circuit_data.get("half_open_failures") or 0) + 1
+                )
 
                 if circuit_data["half_open_failures"] >= cls.HALF_OPEN_FAILURE_THRESHOLD:
                     # 达到失败阈值，重新打开熔断器
@@ -581,9 +581,7 @@ class HealthMonitor:
         return cls._get_status_from_circuit_data(circuit_data)
 
     @classmethod
-    def _get_status_from_circuit_data(
-        cls, circuit_data: dict[str, Any]
-    ) -> tuple[bool, str | None]:
+    def _get_status_from_circuit_data(cls, circuit_data: dict[str, Any]) -> tuple[bool, str | None]:
         """从熔断器数据获取状态描述"""
         if not circuit_data.get("open"):
             return True, None
@@ -662,9 +660,7 @@ class HealthMonitor:
                 result["health_score"] = float(health_data.get("health_score") or 1.0)
                 result["error_rate"] = cls._calculate_error_rate_from_window(window, now_ts)
                 result["window_size"] = len(valid_window)
-                result["consecutive_failures"] = int(
-                    health_data.get("consecutive_failures") or 0
-                )
+                result["consecutive_failures"] = int(health_data.get("consecutive_failures") or 0)
                 result["last_failure_at"] = health_data.get("last_failure_at")
                 result["circuit_breaker"] = {
                     "state": cls._get_circuit_state_from_data(circuit_data, now),
@@ -678,7 +674,7 @@ class HealthMonitor:
             else:
                 # 返回所有格式的健康度数据
                 formats_health = {}
-                for fmt in (key.api_formats or []):
+                for fmt in key.api_formats or []:
                     health_data = health_by_format.get(fmt, _default_health_data())
                     circuit_data = circuit_by_format.get(fmt, _default_circuit_data())
                     window = health_data.get("request_results_window") or []
@@ -688,9 +684,7 @@ class HealthMonitor:
                         "health_score": float(health_data.get("health_score") or 1.0),
                         "error_rate": cls._calculate_error_rate_from_window(window, now_ts),
                         "window_size": len(valid_window),
-                        "consecutive_failures": int(
-                            health_data.get("consecutive_failures") or 0
-                        ),
+                        "consecutive_failures": int(health_data.get("consecutive_failures") or 0),
                         "last_failure_at": health_data.get("last_failure_at"),
                         "circuit_breaker": {
                             "state": cls._get_circuit_state_from_data(circuit_data, now),
@@ -701,9 +695,7 @@ class HealthMonitor:
                             "half_open_successes": int(
                                 circuit_data.get("half_open_successes") or 0
                             ),
-                            "half_open_failures": int(
-                                circuit_data.get("half_open_failures") or 0
-                            ),
+                            "half_open_failures": int(circuit_data.get("half_open_failures") or 0),
                         },
                     }
 
@@ -711,9 +703,7 @@ class HealthMonitor:
 
                 # 计算整体健康度（取最低值）
                 if formats_health:
-                    result["health_score"] = min(
-                        h["health_score"] for h in formats_health.values()
-                    )
+                    result["health_score"] = min(h["health_score"] for h in formats_health.values())
                     result["any_circuit_open"] = any(
                         h["circuit_breaker"]["open"] for h in formats_health.values()
                     )
@@ -731,9 +721,7 @@ class HealthMonitor:
     def get_endpoint_health(cls, db: Session, endpoint_id: str) -> dict[str, Any] | None:
         """获取 Endpoint 健康状态"""
         try:
-            endpoint = (
-                db.query(ProviderEndpoint).filter(ProviderEndpoint.id == endpoint_id).first()
-            )
+            endpoint = db.query(ProviderEndpoint).filter(ProviderEndpoint.id == endpoint_id).first()
             if not endpoint:
                 return None
 
@@ -781,6 +769,12 @@ class HealthMonitor:
             logger.error(f"重置健康度失败: {e}")
             db.rollback()
             return False
+
+    @classmethod
+    def reset_open_circuit_count(cls) -> None:
+        """重置进程级别的熔断计数器（批量恢复后调用）。"""
+        cls._open_circuit_keys = 0
+        health_open_circuits.set(0)
 
     @classmethod
     def manually_enable(cls, db: Session, key_id: str | None = None) -> bool:
@@ -915,18 +909,14 @@ class HealthMonitor:
     # ==================== 便捷方法 ====================
 
     @classmethod
-    def get_health_score(
-        cls, key: ProviderAPIKey, api_format: str | None = None
-    ) -> float:
+    def get_health_score(cls, key: ProviderAPIKey, api_format: str | None = None) -> float:
         """获取指定格式的健康度分数"""
         if not api_format:
             # 返回所有格式中的最低健康度
             health_by_format = key.health_by_format or {}
             if not health_by_format:
                 return 1.0
-            return min(
-                float(h.get("health_score") or 1.0) for h in health_by_format.values()
-            )
+            return min(float(h.get("health_score") or 1.0) for h in health_by_format.values())
 
         health_data = cls._get_health_data(key, api_format)
         return float(health_data.get("health_score") or 1.0)

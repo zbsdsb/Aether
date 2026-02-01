@@ -4,16 +4,17 @@ Endpoint 健康监控 API
 
 from __future__ import annotations
 
-from typing import Any
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import NotFoundException
 from src.core.logger import logger
@@ -27,10 +28,16 @@ from src.models.endpoint_models import (
     HealthSummaryResponse,
 )
 from src.services.health.endpoint import EndpointHealthService
-from src.services.health.monitor import health_monitor
-from src.api.base.context import ApiRequestContext
+from src.services.health.monitor import HealthMonitor, health_monitor
 
 router = APIRouter(tags=["Endpoint Health"])
+
+
+def _format_str(api_format_enum: Any) -> str:
+    """将 DB 查询返回的 api_format（可能是 enum 或 str）统一转为 str。"""
+    return api_format_enum.value if hasattr(api_format_enum, "value") else str(api_format_enum)
+
+
 pipeline = ApiRequestPipeline()
 
 
@@ -234,8 +241,6 @@ class AdminEndpointHealthStatusAdapter(AdminApiAdapter):
     lookback_hours: int
 
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
-        from src.services.health.endpoint import EndpointHealthService
-
         db = context.db
 
         # 使用共享服务获取健康状态（管理员视图）
@@ -265,30 +270,7 @@ class AdminApiFormatHealthMonitorAdapter(AdminApiAdapter):
         now = datetime.now(timezone.utc)
         since = now - timedelta(hours=self.lookback_hours)
 
-        # 1. 获取所有活跃的 API 格式及其 Provider 数量
-        active_formats = (
-            db.query(
-                ProviderEndpoint.api_format,
-                func.count(func.distinct(ProviderEndpoint.provider_id)).label("provider_count"),
-            )
-            .join(Provider, ProviderEndpoint.provider_id == Provider.id)
-            .filter(
-                ProviderEndpoint.is_active.is_(True),
-                Provider.is_active.is_(True),
-            )
-            .group_by(ProviderEndpoint.api_format)
-            .all()
-        )
-
-        # 构建所有格式的 provider_count 映射
-        all_formats: dict[str, int] = {}
-        for api_format_enum, provider_count in active_formats:
-            api_format = (
-                api_format_enum.value if hasattr(api_format_enum, "value") else str(api_format_enum)
-            )
-            all_formats[api_format] = provider_count
-
-        # 1.1 建立每个 API 格式对应的 Endpoint ID 列表（用于时间线生成），并收集活跃的 provider+format 组合
+        # 1. 单次查询获取所有活跃 endpoint 行，在内存中聚合 provider_count / endpoint_map
         endpoint_rows = (
             db.query(ProviderEndpoint.api_format, ProviderEndpoint.id, ProviderEndpoint.provider_id)
             .join(Provider, ProviderEndpoint.provider_id == Provider.id)
@@ -298,14 +280,20 @@ class AdminApiFormatHealthMonitorAdapter(AdminApiAdapter):
             )
             .all()
         )
+
+        all_formats: dict[str, int] = {}  # api_format -> distinct provider count
         endpoint_map: dict[str, list[str]] = defaultdict(list)
         active_provider_formats: set[tuple[str, str]] = set()
+        _provider_sets: dict[str, set[str]] = defaultdict(set)
+
         for api_format_enum, endpoint_id, provider_id in endpoint_rows:
-            api_format = (
-                api_format_enum.value if hasattr(api_format_enum, "value") else str(api_format_enum)
-            )
-            endpoint_map[api_format].append(endpoint_id)
-            active_provider_formats.add((str(provider_id), api_format))
+            fmt = _format_str(api_format_enum)
+            endpoint_map[fmt].append(endpoint_id)
+            _provider_sets[fmt].add(str(provider_id))
+            active_provider_formats.add((str(provider_id), fmt))
+
+        for fmt, pids in _provider_sets.items():
+            all_formats[fmt] = len(pids)
 
         # 1.2 统计每个 API 格式可用的活跃 Key 数量（Key 属于 Provider，通过 api_formats 关联格式）
         key_counts: dict[str, int] = {}
@@ -321,7 +309,7 @@ class AdminApiFormatHealthMonitorAdapter(AdminApiAdapter):
             )
             for provider_id, api_formats in active_provider_keys:
                 pid = str(provider_id)
-                for fmt in (api_formats or []):
+                for fmt in api_formats or []:
                     if (pid, fmt) not in active_provider_formats:
                         continue
                     key_counts[fmt] = key_counts.get(fmt, 0) + 1
@@ -347,12 +335,10 @@ class AdminApiFormatHealthMonitorAdapter(AdminApiAdapter):
         # 构建每个格式的状态统计
         status_counts: dict[str, dict[str, int]] = {}
         for api_format_enum, status, count in status_counts_query:
-            api_format = (
-                api_format_enum.value if hasattr(api_format_enum, "value") else str(api_format_enum)
-            )
-            if api_format not in status_counts:
-                status_counts[api_format] = {"success": 0, "failed": 0, "skipped": 0}
-            status_counts[api_format][status] = count
+            fmt = _format_str(api_format_enum)
+            if fmt not in status_counts:
+                status_counts[fmt] = {"success": 0, "failed": 0, "skipped": 0}
+            status_counts[fmt][status] = count
 
         # 3. 获取最近一段时间的 RequestCandidate（限制数量）
         # 使用上面定义的 final_statuses，排除中间状态
@@ -376,15 +362,13 @@ class AdminApiFormatHealthMonitorAdapter(AdminApiAdapter):
         grouped_attempts: dict[str, list[RequestCandidate]] = {}
 
         for attempt, api_format_enum, provider_id in rows:
-            api_format = (
-                api_format_enum.value if hasattr(api_format_enum, "value") else str(api_format_enum)
-            )
-            if api_format not in grouped_attempts:
-                grouped_attempts[api_format] = []
+            fmt = _format_str(api_format_enum)
+            if fmt not in grouped_attempts:
+                grouped_attempts[fmt] = []
 
             # 只保留每个 API 格式最近 per_format_limit 条记录
-            if len(grouped_attempts[api_format]) < self.per_format_limit:
-                grouped_attempts[api_format].append(attempt)
+            if len(grouped_attempts[fmt]) < self.per_format_limit:
+                grouped_attempts[fmt].append(attempt)
 
         # 4. 为所有活跃格式生成监控数据（包括没有请求记录的）
         monitors: list[ApiFormatHealthMonitor] = []
@@ -551,17 +535,22 @@ class AdminRecoverAllKeysHealthAdapter(AdminApiAdapter):
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         db = context.db
 
-        # 查找所有有熔断格式的 Key（检查 circuit_breaker_by_format JSON 字段）
-        all_keys = db.query(ProviderAPIKey).all()
+        # 粗过滤：仅加载 circuit_breaker_by_format 非空的 Key，避免全表扫描
+        candidates = (
+            db.query(ProviderAPIKey)
+            .filter(
+                ProviderAPIKey.circuit_breaker_by_format.isnot(None),
+                ProviderAPIKey.circuit_breaker_by_format != "{}",
+            )
+            .all()
+        )
 
-        # 筛选出有任何格式熔断的 Key
-        circuit_open_keys = []
-        for key in all_keys:
-            circuit_by_format = key.circuit_breaker_by_format or {}
-            for fmt, circuit_data in circuit_by_format.items():
-                if circuit_data.get("open"):
-                    circuit_open_keys.append(key)
-                    break
+        # 精确筛选有任何格式熔断的 Key
+        circuit_open_keys = [
+            key
+            for key in candidates
+            if any(cb.get("open") for cb in (key.circuit_breaker_by_format or {}).values())
+        ]
 
         if not circuit_open_keys:
             return {
@@ -586,11 +575,8 @@ class AdminRecoverAllKeysHealthAdapter(AdminApiAdapter):
 
         db.commit()
 
-        # 重置健康监控器的计数
-        from src.services.health.monitor import HealthMonitor, health_open_circuits
-
-        HealthMonitor._open_circuit_keys = 0
-        health_open_circuits.set(0)
+        # 重置健康监控器的熔断计数
+        HealthMonitor.reset_open_circuit_count()
 
         logger.info(f"管理员批量恢复 {len(recovered_keys)} 个 Key 的健康状态")
 

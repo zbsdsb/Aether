@@ -16,7 +16,7 @@ from src.api.base.adapter import ApiAdapter, ApiMode
 from src.api.base.context import ApiRequestContext
 from src.api.handlers.base.chat_adapter_base import ChatAdapterBase, register_adapter
 from src.api.handlers.base.chat_handler_base import ChatHandlerBase
-from src.core.api_format import get_header_value
+from src.core.api_format import ApiFamily, get_header_value
 from src.core.logger import logger
 from src.core.optimization_utils import TokenCounter
 from src.models.claude import ClaudeMessagesRequest, ClaudeTokenCountRequest
@@ -58,7 +58,8 @@ class ClaudeChatAdapter(ChatAdapterBase):
     处理 Claude Chat 格式的请求（/v1/messages 端点，进行格式验证）。
     """
 
-    FORMAT_ID = "CLAUDE"
+    FORMAT_ID = "claude:chat"
+    API_FAMILY = ApiFamily.CLAUDE
     BILLING_TEMPLATE = "claude"  # 使用 Claude 计费模板
     name = "claude.chat"
 
@@ -70,7 +71,7 @@ class ClaudeChatAdapter(ChatAdapterBase):
         return ClaudeChatHandler
 
     def __init__(self, allowed_api_formats: list[str] | None = None):
-        super().__init__(allowed_api_formats or ["CLAUDE"])
+        super().__init__(allowed_api_formats)
         logger.info(f"[{self.name}] 初始化Chat模式适配器 | API格式: {self.allowed_api_formats}")
 
     def detect_capability_requirements(

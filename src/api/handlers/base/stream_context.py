@@ -260,8 +260,7 @@ class StreamContext:
 
         # 第一行:基本信息 + 首字时间
         line1 = (
-            f"[{status}] {request_id[:8]} | {self.model} | "
-            f"{self.provider_name or 'unknown'}"
+            f"[{status}] {request_id[:8]} | {self.model} | " f"{self.provider_name or 'unknown'}"
         )
         if self.first_byte_time_ms is not None:
             line1 += f" | TTFB: {self.first_byte_time_ms}ms"

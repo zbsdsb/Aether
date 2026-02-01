@@ -2,10 +2,10 @@
 认证相关API端点
 """
 
-
 from __future__ import annotations
 
 from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
 from pydantic import ValidationError
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from src.api.base.adapter import ApiAdapter, ApiMode
 from src.api.base.authenticated_adapter import AuthenticatedApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import InvalidRequestException
 from src.core.logger import logger
@@ -34,15 +35,14 @@ from src.models.api import (
     VerifyEmailResponse,
 )
 from src.models.database import AuditEventType, User, UserRole
-from src.services.auth.service import AuthService
 from src.services.auth.ldap import LDAPService
+from src.services.auth.service import AuthService
+from src.services.email import EmailSenderService, EmailVerificationService
 from src.services.rate_limit.ip_limiter import IPRateLimiter
 from src.services.system.audit import AuditService
 from src.services.system.config import SystemConfigService
 from src.services.user.service import UserService
-from src.services.email import EmailSenderService, EmailVerificationService
 from src.utils.request_utils import get_client_ip, get_user_agent
-from src.api.base.context import ApiRequestContext
 
 
 def validate_email_suffix(db: Session, email: str) -> tuple[bool, str | None]:
@@ -307,7 +307,10 @@ class AuthLoginAdapter(AuthPublicAdapter):
             }
         )
         refresh_token = AuthService.create_refresh_token(
-            data={"user_id": user.id, "created_at": user.created_at.isoformat() if user.created_at else None}
+            data={
+                "user_id": user.id,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+            }
         )
         response = LoginResponse(
             access_token=access_token,
@@ -348,10 +351,14 @@ class AuthRefreshAdapter(AuthPublicAdapter):
             if not user.is_active:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="用户已禁用")
             if user.is_deleted:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="用户不存在或已禁用")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="用户不存在或已禁用"
+                )
 
             if not AuthService.token_identity_matches_user(token_payload, user):
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的刷新令牌")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的刷新令牌"
+                )
 
             new_access_token = AuthService.create_access_token(
                 data={
@@ -361,7 +368,10 @@ class AuthRefreshAdapter(AuthPublicAdapter):
                 }
             )
             new_refresh_token = AuthService.create_refresh_token(
-                data={"user_id": user.id, "created_at": user.created_at.isoformat() if user.created_at else None}
+                data={
+                    "user_id": user.id,
+                    "created_at": user.created_at.isoformat() if user.created_at else None,
+                }
             )
             logger.info(f"令牌刷新成功: user_id={user.id}")
             return RefreshTokenResponse(
@@ -382,8 +392,12 @@ class AuthRegistrationSettingsAdapter(AuthPublicAdapter):
         """公开返回注册相关配置"""
         db = context.db
 
-        enable_registration = SystemConfigService.get_config(db, "enable_registration", default=False)
-        require_verification = SystemConfigService.get_config(db, "require_email_verification", default=False)
+        enable_registration = SystemConfigService.get_config(
+            db, "enable_registration", default=False
+        )
+        require_verification = SystemConfigService.get_config(
+            db, "require_email_verification", default=False
+        )
         email_configured = EmailSenderService.is_smtp_configured(db)
 
         # 如果邮箱服务未配置，强制 require_email_verification 为 False
@@ -434,7 +448,8 @@ class AuthRegisterAdapter(AuthPublicAdapter):
         # 仅允许 LDAP 登录时拒绝本地注册
         if LDAPService.is_ldap_exclusive(db):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="系统已启用 LDAP 专属登录，禁止本地注册"
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="系统已启用 LDAP 专属登录，禁止本地注册",
             )
 
         allow_registration = db.query(SystemConfig).filter_by(key="enable_registration").first()
@@ -452,7 +467,9 @@ class AuthRegisterAdapter(AuthPublicAdapter):
 
         email = register_request.email
         email_configured = EmailSenderService.is_smtp_configured(db)
-        require_verification = SystemConfigService.get_config(db, "require_email_verification", default=False)
+        require_verification = SystemConfigService.get_config(
+            db, "require_email_verification", default=False
+        )
 
         # 如果邮箱服务未配置，强制不要求邮箱验证
         if not email_configured:
@@ -495,7 +512,9 @@ class AuthRegisterAdapter(AuthPublicAdapter):
 
         try:
             # 读取系统配置的默认配额
-            default_quota = SystemConfigService.get_config(db, "default_user_quota_usd", default=10.0)
+            default_quota = SystemConfigService.get_config(
+                db, "default_user_quota_usd", default=10.0
+            )
 
             # email_verified 逻辑：
             # - 要求邮箱验证且已通过验证：True
@@ -513,7 +532,8 @@ class AuthRegisterAdapter(AuthPublicAdapter):
             AuditService.log_event(
                 db=db,
                 event_type=AuditEventType.USER_CREATED,
-                description=f"User registered: {user.username}" + (f" ({user.email})" if user.email else ""),
+                description=f"User registered: {user.username}"
+                + (f" ({user.email})" if user.email else ""),
                 user_id=user.id,
                 ip_address=client_ip,
                 user_agent=user_agent,
@@ -671,8 +691,8 @@ class AuthSendVerificationCodeAdapter(AuthPublicAdapter):
             )
 
         # 生成并发送验证码（使用服务中的默认配置）
-        success, code_or_error, error_detail = await EmailVerificationService.send_verification_code(
-            email
+        success, code_or_error, error_detail = (
+            await EmailVerificationService.send_verification_code(email)
         )
 
         if not success:

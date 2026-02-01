@@ -30,7 +30,6 @@
 
 from __future__ import annotations
 
-
 import hashlib
 import random
 import re
@@ -40,7 +39,8 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session, selectinload
 
-from src.core.api_format import APIFormat
+from src.core.api_format.enums import EndpointKind
+from src.core.api_format.signature import make_signature_key, parse_signature_key
 from src.core.exceptions import ModelNotSupportedException, ProviderNotAvailableException
 from src.core.logger import logger
 from src.models.database import (
@@ -60,7 +60,7 @@ from src.services.cache.affinity_manager import (
 )
 from src.services.cache.model_cache import ModelCacheService
 from src.services.health.monitor import health_monitor
-from src.services.provider.format import normalize_api_format
+from src.services.provider.format import normalize_endpoint_signature
 from src.services.rate_limit.adaptive_reservation import (
     AdaptiveReservationManager,
     get_adaptive_reservation_manager,
@@ -194,7 +194,7 @@ class CacheAwareScheduler:
         self,
         db: Session,
         affinity_key: str,
-        api_format: str | APIFormat,
+        api_format: str,
         model_name: str,
         excluded_endpoints: list[str] | None = None,
         excluded_keys: list[str] | None = None,
@@ -222,14 +222,14 @@ class CacheAwareScheduler:
         excluded_endpoints_set = set(excluded_endpoints or [])
         excluded_keys_set = set(excluded_keys or [])
 
-        normalized_format = normalize_api_format(api_format)
+        normalized_format = normalize_endpoint_signature(api_format)
 
         logger.debug(
             f"[CacheAwareScheduler] select_with_cache_affinity: "
-            f"affinity_key={affinity_key[:8]}..., api_format={normalized_format.value}, model={model_name}"
+            f"affinity_key={affinity_key[:8]}..., api_format={normalized_format}, model={model_name}"
         )
 
-        self._metrics["last_api_format"] = normalized_format.value
+        self._metrics["last_api_format"] = normalized_format
         self._metrics["last_model_name"] = model_name
 
         provider_offset = 0
@@ -290,22 +290,17 @@ class CacheAwareScheduler:
                     f"并发状态[{snapshot.describe()}]"
                 )
 
-                if key.cache_ttl_minutes > 0 and global_model_id:
-                    ttl = key.cache_ttl_minutes * 60 if key.cache_ttl_minutes > 0 else None
-                    api_format_str = (
-                        normalized_format.value
-                        if isinstance(normalized_format, APIFormat)
-                        else normalized_format
-                    )
-                    await self.set_cache_affinity(
-                        affinity_key=affinity_key,
-                        provider_id=str(provider.id),
-                        endpoint_id=str(endpoint.id),
-                        key_id=str(key.id),
-                        api_format=api_format_str,
-                        global_model_id=global_model_id,
-                        ttl=int(ttl) if ttl is not None else None,
-                    )
+            if key.cache_ttl_minutes > 0 and global_model_id:
+                ttl = key.cache_ttl_minutes * 60 if key.cache_ttl_minutes > 0 else None
+                await self.set_cache_affinity(
+                    affinity_key=affinity_key,
+                    provider_id=str(provider.id),
+                    endpoint_id=str(endpoint.id),
+                    key_id=str(key.id),
+                    api_format=normalized_format,
+                    global_model_id=global_model_id,
+                    ttl=int(ttl) if ttl is not None else None,
+                )
 
                 if is_cached_user:
                     self._metrics["cache_hits"] += 1
@@ -549,7 +544,7 @@ class CacheAwareScheduler:
     async def list_all_candidates(
         self,
         db: Session,
-        api_format: str | APIFormat,
+        api_format: str,
         model_name: str,
         affinity_key: str | None = None,
         user_api_key: ApiKey | None = None,
@@ -584,7 +579,13 @@ class CacheAwareScheduler:
         """
         await self._ensure_initialized()
 
-        target_format = normalize_api_format(api_format)
+        target_format = normalize_endpoint_signature(api_format)
+
+        logger.debug(
+            "[Scheduler] list_all_candidates: model=%s, api_format=%s",
+            model_name,
+            target_format,
+        )
 
         # 0. 解析 model_name 到 GlobalModel（支持直接匹配和映射名匹配，使用 ModelCacheService）
         global_model = await ModelCacheService.resolve_global_model_by_name_or_mapping(
@@ -594,6 +595,12 @@ class CacheAwareScheduler:
         if not global_model:
             logger.warning(f"GlobalModel not found: {model_name}")
             raise ModelNotSupportedException(model=model_name)
+
+        logger.debug(
+            "[Scheduler] GlobalModel resolved: id=%s, name=%s",
+            global_model.id,
+            global_model.name,
+        )
 
         # 使用 GlobalModel.id 作为缓存亲和性的模型标识，确保映射名和规范名都能命中同一个缓存
         global_model_id: str = str(global_model.id)
@@ -613,11 +620,10 @@ class CacheAwareScheduler:
 
         # 0.1 检查 API 格式是否被允许
         if allowed_api_formats is not None:
-            # 统一转为大写比较，兼容数据库中存储的大小写
-            allowed_upper = {f.upper() for f in allowed_api_formats}
-            if target_format.value.upper() not in allowed_upper:
+            allowed_norm = {normalize_endpoint_signature(f) for f in allowed_api_formats if f}
+            if target_format not in allowed_norm:
                 logger.debug(
-                    f"API Key {user_api_key.id[:8] if user_api_key else 'N/A'}... 不允许使用 API 格式 {target_format.value}, "
+                    f"API Key {user_api_key.id[:8] if user_api_key else 'N/A'}... 不允许使用 API 格式 {target_format}, "
                     f"允许的格式: {allowed_api_formats}"
                 )
                 return [], global_model_id
@@ -642,6 +648,20 @@ class CacheAwareScheduler:
             provider_limit=provider_limit,
         )
 
+        logger.debug(
+            "[Scheduler] Found %d active providers",
+            len(providers),
+        )
+        for p in providers:
+            logger.debug(
+                "[Scheduler] Provider: id=%s, name=%s, is_active=%s, endpoints=%d, models=%d",
+                p.id[:8] if p.id else "N/A",
+                p.name,
+                p.is_active,
+                len(p.endpoints) if p.endpoints else 0,
+                len(p.models) if p.models else 0,
+            )
+
         if not providers:
             return [], global_model_id
 
@@ -660,6 +680,7 @@ class CacheAwareScheduler:
 
         # 2. 构建候选列表（传入 is_stream 和 capability_requirements 用于过滤）
         from src.config.settings import config
+
         global_conversion_enabled = config.format_conversion_enabled
         candidates = await self._build_candidates(
             db=db,
@@ -675,7 +696,7 @@ class CacheAwareScheduler:
         )
 
         # 3. 应用优先级模式排序
-        candidates = self._apply_priority_mode_sort(candidates, affinity_key, target_format.value)
+        candidates = self._apply_priority_mode_sort(candidates, affinity_key, target_format)
 
         # 更新指标
         self._metrics["total_candidates"] += len(candidates)
@@ -683,7 +704,7 @@ class CacheAwareScheduler:
 
         logger.debug(
             f"预先获取到 {len(candidates)} 个可用组合 "
-            f"(api_format={target_format.value}, model={model_name})"
+            f"(api_format={target_format}, model={model_name})"
         )
 
         # 4. 根据调度模式应用不同的排序策略
@@ -698,7 +719,7 @@ class CacheAwareScheduler:
                 )
         elif self.scheduling_mode == self.SCHEDULING_MODE_LOAD_BALANCE:
             # 负载均衡模式：忽略缓存，同优先级内随机轮换
-            candidates = self._apply_load_balance(candidates, target_format.value)
+            candidates = self._apply_load_balance(candidates, target_format)
             for candidate in candidates:
                 candidate.is_cached = False
         else:
@@ -877,11 +898,14 @@ class CacheAwareScheduler:
 
                         mapping_api_formats = raw.get("api_formats")
                         if api_format and mapping_api_formats:
-                            if (
-                                isinstance(mapping_api_formats, list)
-                                and api_format not in mapping_api_formats
-                            ):
-                                continue
+                            # 新模式：endpoint signature（family:kind），按小写 canonical 比较
+                            if isinstance(mapping_api_formats, list):
+                                target = str(api_format).strip().lower()
+                                allowed = {
+                                    str(fmt).strip().lower() for fmt in mapping_api_formats if fmt
+                                }
+                                if target not in allowed:
+                                    continue
 
                         provider_model_names.add(name.strip())
 
@@ -982,7 +1006,7 @@ class CacheAwareScheduler:
         self,
         db: Session,
         providers: list[Provider],
-        client_format: APIFormat,
+        client_format: str,
         model_name: str,
         affinity_key: str | None,
         model_mappings: list[str] | None = None,
@@ -1014,9 +1038,21 @@ class CacheAwareScheduler:
         from src.core.api_format.conversion.compatibility import is_format_compatible
 
         candidates: list[ProviderCandidate] = []
-        client_format_str = client_format.value
+        client_format_str = normalize_endpoint_signature(client_format)
+        client_sig = parse_signature_key(client_format_str)
+        client_family, client_kind = client_sig.api_family, client_sig.endpoint_kind
+        # chat/cli 互相可回退（用于同协议族下的端点变体），video/image 等不跨类回退
+        if client_kind in {EndpointKind.CHAT, EndpointKind.CLI}:
+            allowed_kinds = {EndpointKind.CHAT, EndpointKind.CLI}
+        else:
+            allowed_kinds = {client_kind}
 
         for provider in providers:
+            logger.debug(
+                "[Scheduler] Checking provider: %s, endpoints=%d",
+                provider.name,
+                len(provider.endpoints) if provider.endpoints else 0,
+            )
             # 按端点格式分别判断兼容性与模型/Key 可用性：
             # - 同格式端点优先（needs_conversion=False）
             # - 跨格式端点次之（needs_conversion=True）
@@ -1026,14 +1062,62 @@ class CacheAwareScheduler:
             exact_candidates: list[ProviderCandidate] = []
             convertible_candidates: list[ProviderCandidate] = []
 
-            for endpoint in provider.endpoints:
-                if not endpoint.is_active:
+            # 使用新架构字段 (api_family, endpoint_kind) 进行预过滤与排序：
+            # - family/kind 匹配的 endpoint 排在前面（但不做硬过滤，避免破坏格式转换路径）
+            # - chat/cli 请求允许互相回退（优先同 kind）
+            # - video 等请求只允许同 kind
+            endpoints = list(provider.endpoints or [])
+            allowed_kind_values = {k.value for k in allowed_kinds}
+            preferred: list[ProviderEndpoint] = []
+            preferred_other_family: list[ProviderEndpoint] = []
+            fallback: list[ProviderEndpoint] = []
+            fallback_other_family: list[ProviderEndpoint] = []
+
+            for ep in endpoints:
+                if not getattr(ep, "is_active", False):
                     continue
 
-                endpoint_format_str = (
-                    endpoint.api_format
-                    if isinstance(endpoint.api_format, str)
-                    else endpoint.api_format.value
+                raw_family = getattr(ep, "api_family", None)
+                raw_kind = getattr(ep, "endpoint_kind", None)
+                if not isinstance(raw_family, str) or not raw_family.strip():
+                    continue
+                if not isinstance(raw_kind, str) or not raw_kind.strip():
+                    continue
+
+                ep_family = raw_family.strip().lower()
+                ep_kind = raw_kind.strip().lower()
+
+                if allowed_kind_values and ep_kind not in allowed_kind_values:
+                    continue
+
+                same_family = ep_family == client_family.value
+                same_kind = ep_kind == client_kind.value
+                if same_kind and same_family:
+                    preferred.append(ep)
+                elif same_kind:
+                    preferred_other_family.append(ep)
+                elif same_family:
+                    fallback.append(ep)
+                else:
+                    fallback_other_family.append(ep)
+
+            endpoints = preferred + preferred_other_family + fallback + fallback_other_family
+
+            for endpoint in endpoints:
+                logger.debug(
+                    "[Scheduler] Checking endpoint: family=%s, kind=%s, is_active=%s, base_url=%s",
+                    getattr(endpoint, "api_family", None),
+                    getattr(endpoint, "endpoint_kind", None),
+                    getattr(endpoint, "is_active", None),
+                    (endpoint.base_url[:50] if endpoint.base_url else "N/A"),
+                )
+                if not endpoint.is_active:
+                    logger.debug("[Scheduler] Endpoint skipped: not active")
+                    continue
+
+                endpoint_format_str = make_signature_key(
+                    str(getattr(endpoint, "api_family", "")).strip().lower(),
+                    str(getattr(endpoint, "endpoint_kind", "")).strip().lower(),
                 )
 
                 is_compatible, needs_conversion, _compat_reason = is_format_compatible(
@@ -1042,6 +1126,13 @@ class CacheAwareScheduler:
                     getattr(endpoint, "format_acceptance_config", None),
                     is_stream,
                     global_conversion_enabled,
+                )
+                logger.debug(
+                    "[Scheduler] Format compatibility: client=%s, endpoint=%s, compatible=%s, reason=%s",
+                    client_format_str,
+                    endpoint_format_str,
+                    is_compatible,
+                    _compat_reason,
                 )
                 if not is_compatible:
                     continue
@@ -1058,6 +1149,13 @@ class CacheAwareScheduler:
                     )
                 supports_model, skip_reason, _model_caps, provider_model_names = (
                     model_support_cache[endpoint_format_str]
+                )
+                logger.debug(
+                    "[Scheduler] Model support: provider=%s, model=%s, supports=%s, reason=%s",
+                    provider.name,
+                    model_name,
+                    supports_model,
+                    skip_reason,
                 )
                 if not supports_model:
                     logger.debug(
@@ -1111,7 +1209,7 @@ class CacheAwareScheduler:
                         skip_reason=key_skip_reason,
                         mapping_matched_model=mapping_matched_model,
                         needs_conversion=needs_conversion,
-                        provider_api_format=str(endpoint_format_str or "").upper(),
+                        provider_api_format=str(endpoint_format_str or ""),
                     )
 
                     if needs_conversion:
@@ -1132,7 +1230,7 @@ class CacheAwareScheduler:
         self,
         candidates: list[ProviderCandidate],
         affinity_key: str,
-        api_format: APIFormat,
+        api_format: str,
         global_model_id: str,
     ) -> list[ProviderCandidate]:
         """
@@ -1151,7 +1249,7 @@ class CacheAwareScheduler:
         """
         try:
             # 查询该亲和性标识符在当前 API 格式和模型下的缓存亲和性
-            api_format_str = api_format.value if isinstance(api_format, APIFormat) else api_format
+            api_format_str = str(api_format)
             affinity = await self._affinity_manager.get_affinity(
                 affinity_key, api_format_str, global_model_id
             )
@@ -1164,6 +1262,7 @@ class CacheAwareScheduler:
 
             # 判断候选是否应该被降级（用于分组）
             from src.config.settings import config
+
             global_keep_priority = config.keep_priority_on_conversion
 
             def should_demote(c: ProviderCandidate) -> bool:

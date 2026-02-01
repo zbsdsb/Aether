@@ -6,10 +6,12 @@ Gemini Chat Handler
 
 from __future__ import annotations
 
-from starlette.requests import Request
 from typing import Any
 
+from starlette.requests import Request
+
 from src.api.handlers.base.chat_handler_base import ChatHandlerBase
+from src.core.api_format import ApiFamily, EndpointKind
 
 
 class GeminiChatHandler(ChatHandlerBase):
@@ -23,7 +25,9 @@ class GeminiChatHandler(ChatHandlerBase):
     - 响应格式: JSON 数组流（非 SSE）
     """
 
-    FORMAT_ID = "GEMINI"
+    FORMAT_ID = "gemini:chat"
+    API_FAMILY = ApiFamily.GEMINI
+    ENDPOINT_KIND = EndpointKind.CHAT
 
     async def _resolve_preferred_key_ids(
         self,

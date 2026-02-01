@@ -4,7 +4,6 @@ Usage Redis Streams consumer.
 高性能消费者实现，支持批量处理和单次提交多条记录。
 """
 
-
 from __future__ import annotations
 
 import asyncio
@@ -104,9 +103,7 @@ async def ensure_usage_stream_group() -> None:
             id="0-0",
             mkstream=True,
         )
-        logger.info(
-            f"[usage-queue] Created consumer group {config.usage_queue_stream_group}"
-        )
+        logger.info(f"[usage-queue] Created consumer group {config.usage_queue_stream_group}")
     except ResponseError as exc:
         if "BUSYGROUP" in str(exc):
             return
@@ -115,7 +112,7 @@ async def ensure_usage_stream_group() -> None:
 
 class UsageQueueConsumer:
     """Usage 队列消费者
-    
+
     性能优化：
     - 缓存配置值避免重复属性访问
     - STREAMING 事件使用 pipeline 批量 ACK
@@ -259,14 +256,14 @@ class UsageQueueConsumer:
     ) -> None:
         """批量处理 STREAMING 事件（状态更新）"""
         success_ids: list[str] = []
-        
+
         for message_id, event in messages:
             try:
                 await self._apply_streaming_event(event)
                 success_ids.append(message_id)
             except Exception as exc:
                 await self._handle_processing_error(redis_client, message_id, {}, exc)
-        
+
         # 使用 pipeline 批量 ACK 成功处理的消息
         if success_ids:
             pipe = redis_client.pipeline()
@@ -276,8 +273,8 @@ class UsageQueueConsumer:
 
     async def _process_record_batch(
         self,
-                redis_client: Any,
-                messages: list[tuple[str, dict[str, Any], UsageEvent]],
+        redis_client: Any,
+        messages: list[tuple[str, dict[str, Any], UsageEvent]],
     ) -> None:
         """批量处理记录类型的事件"""
         db = create_session()
@@ -306,7 +303,9 @@ class UsageQueueConsumer:
 
         except Exception as exc:
             # 批量处理失败，回退到逐条处理（复用已创建的 db session）
-            logger.warning(f"[usage-queue] Batch processing failed, falling back to individual: {exc}")
+            logger.warning(
+                f"[usage-queue] Batch processing failed, falling back to individual: {exc}"
+            )
             try:
                 db.rollback()  # 清理批量失败的事务状态
             except Exception:
@@ -330,7 +329,9 @@ class UsageQueueConsumer:
                     else:
                         await self._handle_processing_error(redis_client, message_id, fields, ie)
                 except Exception as individual_exc:
-                    await self._handle_processing_error(redis_client, message_id, fields, individual_exc)
+                    await self._handle_processing_error(
+                        redis_client, message_id, fields, individual_exc
+                    )
             # 批量 ACK 成功处理的消息
             if success_ids:
                 pipe = redis_client.pipeline()
@@ -342,10 +343,10 @@ class UsageQueueConsumer:
 
     async def _handle_processing_error(
         self,
-                redis_client: Any,
-                message_id: str,
-                fields: dict[str, Any],
-                error: Exception,
+        redis_client: Any,
+        message_id: str,
+        fields: dict[str, Any],
+        error: Exception,
     ) -> None:
         retries = await self._get_delivery_count(redis_client, message_id)
         if retries >= self._max_retries:
@@ -415,9 +416,7 @@ class UsageQueueConsumer:
         finally:
             db.close()
 
-    async def _apply_record_event(
-        self, event: UsageEvent, db: Session | None = None
-    ) -> None:
+    async def _apply_record_event(self, event: UsageEvent, db: Session | None = None) -> None:
         """处理记录类型事件（逐条写入，用于 fallback）
 
         Args:
@@ -501,9 +500,7 @@ class UsageQueueConsumer:
                 pending_count = int(pending.get("pending", 0))
             elif isinstance(pending, (list, tuple)) and pending:
                 pending_count = int(pending[0])
-            logger.info(
-                f"[usage-queue] backlog={stream_len} pending={pending_count}"
-            )
+            logger.info(f"[usage-queue] backlog={stream_len} pending={pending_count}")
         except Exception as exc:
             logger.debug(f"[usage-queue] metrics log failed: {exc}")
 

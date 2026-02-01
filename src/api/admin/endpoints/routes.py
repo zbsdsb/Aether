@@ -4,10 +4,10 @@ ProviderEndpoint CRUD 管理 API
 
 from __future__ import annotations
 
-from typing import Any
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import and_
@@ -15,13 +15,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.models_service import invalidate_models_list_cache
 from src.api.base.pipeline import ApiRequestPipeline
+from src.core.api_format.signature import parse_signature_key
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.logger import logger
 from src.database import get_db
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
-from src.api.base.context import ApiRequestContext
 from src.models.endpoint_models import (
     ProviderEndpointCreate,
     ProviderEndpointResponse,
@@ -243,7 +244,7 @@ class AdminListProviderEndpointsAdapter(AdminApiAdapter):
         total_keys_map: dict[str, int] = {}
         active_keys_map: dict[str, int] = {}
         for api_formats, is_active in keys:
-            for fmt in (api_formats or []):
+            for fmt in api_formats or []:
                 total_keys_map[fmt] = total_keys_map.get(fmt, 0) + 1
                 if is_active:
                     active_keys_map[fmt] = active_keys_map.get(fmt, 0) + 1
@@ -299,11 +300,18 @@ class AdminCreateProviderEndpointAdapter(AdminApiAdapter):
             )
 
         now = datetime.now(timezone.utc)
+        sig = parse_signature_key(self.endpoint_data.api_format)
+        api_family = sig.api_family.value
+        endpoint_kind = sig.endpoint_kind.value
+        # 使用归一化后的 signature key，确保格式一致性
+        normalized_api_format = sig.key
 
         new_endpoint = ProviderEndpoint(
             id=str(uuid.uuid4()),
             provider_id=self.provider_id,
-            api_format=self.endpoint_data.api_format,
+            api_format=normalized_api_format,
+            api_family=api_family,
+            endpoint_kind=endpoint_kind,
             base_url=self.endpoint_data.base_url,
             custom_path=self.endpoint_data.custom_path,
             header_rules=self.endpoint_data.header_rules,
@@ -323,7 +331,9 @@ class AdminCreateProviderEndpointAdapter(AdminApiAdapter):
         # 清除 /v1/models 列表缓存
         await invalidate_models_list_cache()
 
-        logger.info(f"[OK] 创建 Endpoint: Provider={provider.name}, Format={self.endpoint_data.api_format}, ID={new_endpoint.id}")
+        logger.info(
+            f"[OK] 创建 Endpoint: Provider={provider.name}, Format={self.endpoint_data.api_format}, ID={new_endpoint.id}"
+        )
 
         endpoint_dict = {
             k: v
@@ -417,6 +427,11 @@ class AdminUpdateProviderEndpointAdapter(AdminApiAdapter):
             # proxy 为 None 时保留，用于清除代理配置
         for field, value in update_data.items():
             setattr(endpoint, field, value)
+
+        # Phase 3/4: 自动维护新架构字段，确保新增/历史数据都能被调度器按 family/kind 查询
+        sig = parse_signature_key(endpoint.api_format)
+        endpoint.api_family = sig.api_family.value
+        endpoint.endpoint_kind = sig.endpoint_kind.value
         endpoint.updated_at = datetime.now(timezone.utc)
 
         db.commit()
@@ -426,10 +441,14 @@ class AdminUpdateProviderEndpointAdapter(AdminApiAdapter):
         await invalidate_models_list_cache()
 
         provider = db.query(Provider).filter(Provider.id == endpoint.provider_id).first()
-        logger.info(f"[OK] 更新 Endpoint: ID={self.endpoint_id}, Updates={list(update_data.keys())}")
+        logger.info(
+            f"[OK] 更新 Endpoint: ID={self.endpoint_id}, Updates={list(update_data.keys())}"
+        )
 
         endpoint_format = (
-            endpoint.api_format if isinstance(endpoint.api_format, str) else endpoint.api_format.value
+            endpoint.api_format
+            if isinstance(endpoint.api_format, str)
+            else endpoint.api_format.value
         )
         keys = (
             db.query(ProviderAPIKey.api_formats, ProviderAPIKey.is_active)
@@ -472,7 +491,9 @@ class AdminDeleteProviderEndpointAdapter(AdminApiAdapter):
             raise NotFoundException(f"Endpoint {self.endpoint_id} 不存在")
 
         endpoint_format = (
-            endpoint.api_format if isinstance(endpoint.api_format, str) else endpoint.api_format.value
+            endpoint.api_format
+            if isinstance(endpoint.api_format, str)
+            else endpoint.api_format.value
         )
 
         # 查询包含该格式的所有 Key，并从 api_formats 中移除该格式
@@ -488,7 +509,7 @@ class AdminDeleteProviderEndpointAdapter(AdminApiAdapter):
                 # 移除该格式
                 new_formats = [f for f in key.api_formats if f != endpoint_format]
                 key.api_formats = new_formats if new_formats else []
-                flag_modified(key, 'api_formats')
+                flag_modified(key, "api_formats")
 
         db.delete(endpoint)
         db.commit()

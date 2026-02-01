@@ -14,9 +14,9 @@
 
 from __future__ import annotations
 
-from typing import Any
 import asyncio
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
@@ -196,9 +196,11 @@ class MaintenanceScheduler:
 
                 logger.info("开始执行统计数据聚合...")
 
-                from src.models.database import StatsDaily, User as DBUser
-                from src.services.system.scheduler import APP_TIMEZONE
                 from zoneinfo import ZoneInfo
+
+                from src.models.database import StatsDaily
+                from src.models.database import User as DBUser
+                from src.services.system.scheduler import APP_TIMEZONE
 
                 # 使用业务时区计算日期，确保与定时任务触发时间一致
                 # 定时任务在 Asia/Shanghai 凌晨 1 点触发，此时应聚合 Asia/Shanghai 的"昨天"
@@ -227,9 +229,9 @@ class MaintenanceScheduler:
                     from src.models.database import StatsDailyModel, StatsDailyProvider
 
                     yesterday_business_date = today_local.date() - timedelta(days=1)
-                    max_backfill_days: int = SystemConfigService.get_config(
-                        db, "max_stats_backfill_days", 30
-                    ) or 30
+                    max_backfill_days: int = (
+                        SystemConfigService.get_config(db, "max_stats_backfill_days", 30) or 30
+                    )
 
                     # 计算回填检查的起始日期
                     check_start_date = yesterday_business_date - timedelta(
@@ -287,7 +289,9 @@ class MaintenanceScheduler:
                     # 需要回填 StatsDailyProvider 的日期
                     missing_provider_dates = all_dates - existing_provider_dates
                     # 合并所有需要处理的日期
-                    dates_to_process = missing_daily_dates | missing_model_dates | missing_provider_dates
+                    dates_to_process = (
+                        missing_daily_dates | missing_model_dates | missing_provider_dates
+                    )
 
                     if dates_to_process:
                         sorted_dates = sorted(dates_to_process)
@@ -298,9 +302,7 @@ class MaintenanceScheduler:
                             f"StatsDailyProvider 缺失 {len(missing_provider_dates)} 天)"
                         )
 
-                        users = (
-                            db.query(DBUser.id).filter(DBUser.is_active.is_(True)).all()
-                        )
+                        users = db.query(DBUser.id).filter(DBUser.is_active.is_(True)).all()
 
                         failed_dates = 0
                         failed_users = 0
@@ -496,15 +498,9 @@ class MaintenanceScheduler:
 
             # 获取所有已配置 provider_ops 的活跃 Provider（只查询需要的字段）
             providers = (
-                db.query(Provider.id, Provider.config)
-                .filter(Provider.is_active.is_(True))
-                .all()
+                db.query(Provider.id, Provider.config).filter(Provider.is_active.is_(True)).all()
             )
-            provider_ids = [
-                p.id
-                for p in providers
-                if p.config and p.config.get("provider_ops")
-            ]
+            provider_ids = [p.id for p in providers if p.config and p.config.get("provider_ops")]
 
             if not provider_ids:
                 logger.info("无已配置的 Provider，跳过签到任务")
@@ -548,9 +544,7 @@ class MaintenanceScheduler:
 
             # 统计结果
             success_count = sum(1 for _, success, _ in results if success)
-            logger.info(
-                f"Provider 签到完成: {success_count}/{len(provider_ids)} 成功"
-            )
+            logger.info(f"Provider 签到完成: {success_count}/{len(provider_ids)} 成功")
 
             # 记录详细结果
             for provider_id, success, message in results:
@@ -694,12 +688,12 @@ class MaintenanceScheduler:
                             .values(
                                 request_body=null(),
                                 response_body=null(),
-                                request_body_compressed=compress_json(req_body)
-                                if req_body
-                                else None,
-                                response_body_compressed=compress_json(resp_body)
-                                if resp_body
-                                else None,
+                                request_body_compressed=(
+                                    compress_json(req_body) if req_body else None
+                                ),
+                                response_body_compressed=(
+                                    compress_json(resp_body) if resp_body else None
+                                ),
                             )
                         )
                         if result.rowcount > 0:
@@ -858,9 +852,7 @@ class MaintenanceScheduler:
                     break
 
                 total_cleaned += rows_updated
-                logger.debug(
-                    f"已清理 {rows_updated} 条记录的 header 字段，累计 {total_cleaned} 条"
-                )
+                logger.debug(f"已清理 {rows_updated} 条记录的 header 字段，累计 {total_cleaned} 条")
 
                 await asyncio.sleep(0.1)
 

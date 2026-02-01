@@ -485,7 +485,7 @@ function handleDialogUpdate(value: boolean) {
 
 // 主 Tab 状态
 const activeMainTab = ref<'provider' | 'key'>('provider')
-const activeFormatTab = ref<string>('CLAUDE')
+const activeFormatTab = ref<string>('claude:chat')
 
 // 提供商排序状态
 const sortedProviders = ref<ProviderWithEndpointsSummary[]>([])

@@ -776,9 +776,9 @@ class AdminListAffinitiesAdapter(AdminApiAdapter):
         global_model_map: dict[str, GlobalModel] = {}
         if global_model_ids:
             # model_name 可能是 UUID 格式的 global_model_id，也可能是原始模型名称
-            global_models = db.query(GlobalModel).filter(
-                GlobalModel.id.in_(list(global_model_ids))
-            ).all()
+            global_models = (
+                db.query(GlobalModel).filter(GlobalModel.id.in_(list(global_model_ids))).all()
+            )
             global_model_map = {str(gm.id): gm for gm in global_models}
 
         keyword_lower = self.keyword.lower() if self.keyword else None
@@ -830,12 +830,14 @@ class AdminListAffinitiesAdapter(AdminApiAdapter):
                 "global_model_id": affinity.get("model_name"),  # 原始的 global_model_id
                 "model_name": (
                     global_model_map.get(affinity.get("model_name")).name
-                    if affinity.get("model_name") and global_model_map.get(affinity.get("model_name"))
+                    if affinity.get("model_name")
+                    and global_model_map.get(affinity.get("model_name"))
                     else affinity.get("model_name")  # 如果找不到 GlobalModel，显示原始值
                 ),
                 "model_display_name": (
                     global_model_map.get(affinity.get("model_name")).display_name
-                    if affinity.get("model_name") and global_model_map.get(affinity.get("model_name"))
+                    if affinity.get("model_name")
+                    and global_model_map.get(affinity.get("model_name"))
                     else None
                 ),
                 "api_format": affinity.get("api_format"),
@@ -916,7 +918,9 @@ class AdminClearUserCacheAdapter(AdminApiAdapter):
                         )
                         count += 1
 
-                logger.info(f"已清除API Key缓存亲和性: api_key_name={api_key.name}, affinity_key={affinity_key[:8]}..., 清除数量={count}")
+                logger.info(
+                    f"已清除API Key缓存亲和性: api_key_name={api_key.name}, affinity_key={affinity_key[:8]}..., 清除数量={count}"
+                )
 
                 response = {
                     "status": "ok",
@@ -969,7 +973,9 @@ class AdminClearUserCacheAdapter(AdminApiAdapter):
                     )
                     count += 1
 
-            logger.info(f"已清除用户缓存亲和性: username={user.username}, user_id={user_id[:8]}..., 清除数量={count}")
+            logger.info(
+                f"已清除用户缓存亲和性: username={user.username}, user_id={user_id[:8]}..., 清除数量={count}"
+            )
 
             response = {
                 "status": "ok",
@@ -1075,7 +1081,9 @@ class AdminClearProviderCacheAdapter(AdminApiAdapter):
             redis_client = get_redis_client_sync()
             affinity_mgr = await get_affinity_manager(redis_client)
             count = await affinity_mgr.invalidate_all_for_provider(self.provider_id)
-            logger.info(f"已清除Provider缓存亲和性: provider_id={self.provider_id[:8]}..., count={count}")
+            logger.info(
+                f"已清除Provider缓存亲和性: provider_id={self.provider_id[:8]}..., count={count}"
+            )
             context.add_audit_metadata(
                 action="cache_clear_provider",
                 provider_id=self.provider_id,
@@ -1094,8 +1102,8 @@ class AdminClearProviderCacheAdapter(AdminApiAdapter):
 
 class AdminCacheConfigAdapter(AdminApiAdapter):
     async def handle(self, context: ApiRequestContext) -> dict[str, Any]:  # type: ignore[override]
-        from src.services.cache.affinity_manager import CacheAffinityManager
         from src.config.constants import ConcurrencyDefaults
+        from src.services.cache.affinity_manager import CacheAffinityManager
         from src.services.rate_limit.adaptive_reservation import get_adaptive_reservation_manager
 
         # 获取动态预留管理器的配置
@@ -1334,11 +1342,13 @@ class AdminModelMappingCacheStatsAdapter(AdminApiAdapter):
                         )
 
                         if cached_str == "NOT_FOUND":
-                            unmapped_entries.append({
-                                "mapping_name": mapping_name,
-                                "status": "not_found",
-                                "ttl": ttl if ttl > 0 else None,
-                            })
+                            unmapped_entries.append(
+                                {
+                                    "mapping_name": mapping_name,
+                                    "status": "not_found",
+                                    "ttl": ttl if ttl > 0 else None,
+                                }
+                            )
                         else:
                             try:
                                 cached_data = json.loads(cached_str)
@@ -1380,27 +1390,33 @@ class AdminModelMappingCacheStatsAdapter(AdminApiAdapter):
                                                 provider_names.append(provider.name)
                                     provider_names = sorted(list(set(provider_names)))
 
-                                mappings.append({
-                                    "mapping_name": mapping_name,
-                                    "global_model_name": global_model_name,
-                                    "global_model_display_name": global_model_display_name,
-                                    "providers": provider_names,
-                                    "ttl": ttl if ttl > 0 else None,
-                                })
+                                mappings.append(
+                                    {
+                                        "mapping_name": mapping_name,
+                                        "global_model_name": global_model_name,
+                                        "global_model_display_name": global_model_display_name,
+                                        "providers": provider_names,
+                                        "ttl": ttl if ttl > 0 else None,
+                                    }
+                                )
 
                             except json.JSONDecodeError:
-                                unmapped_entries.append({
-                                    "mapping_name": mapping_name,
-                                    "status": "invalid",
-                                    "ttl": ttl if ttl > 0 else None,
-                                })
+                                unmapped_entries.append(
+                                    {
+                                        "mapping_name": mapping_name,
+                                        "status": "invalid",
+                                        "ttl": ttl if ttl > 0 else None,
+                                    }
+                                )
                 except Exception as e:
                     logger.warning(f"解析缓存键 {key} 失败: {e}")
-                    unmapped_entries.append({
-                        "mapping_name": mapping_name,
-                        "status": "error",
-                        "ttl": None,
-                    })
+                    unmapped_entries.append(
+                        {
+                            "mapping_name": mapping_name,
+                            "status": "error",
+                            "ttl": None,
+                        }
+                    )
 
             # 按 mapping_name 排序
             mappings.sort(key=lambda x: x["mapping_name"])
@@ -1408,8 +1424,13 @@ class AdminModelMappingCacheStatsAdapter(AdminApiAdapter):
             # 3. 解析 provider_global 缓存（Provider 级别的模型解析缓存）
             provider_model_mappings = []
             # 预加载 Provider 和 GlobalModel 数据
-            provider_map = {str(p.id): p for p in db.query(Provider).filter(Provider.is_active.is_(True)).all()}
-            global_model_map = {str(gm.id): gm for gm in db.query(GlobalModel).filter(GlobalModel.is_active.is_(True)).all()}
+            provider_map = {
+                str(p.id): p for p in db.query(Provider).filter(Provider.is_active.is_(True)).all()
+            }
+            global_model_map = {
+                str(gm.id): gm
+                for gm in db.query(GlobalModel).filter(GlobalModel.is_active.is_(True)).all()
+            }
 
             for key in provider_global_keys[:100]:  # 最多处理 100 个
                 # key 格式: model:provider_global:{provider_id}:{global_model_id}
@@ -1447,7 +1468,9 @@ class AdminModelMappingCacheStatsAdapter(AdminApiAdapter):
                                 mapping_names = []
                                 if cached_model_mappings:
                                     for mapping_entry in cached_model_mappings:
-                                        if isinstance(mapping_entry, dict) and mapping_entry.get("name"):
+                                        if isinstance(mapping_entry, dict) and mapping_entry.get(
+                                            "name"
+                                        ):
                                             mapping_names.append(mapping_entry["name"])
 
                                 # provider_model_name 为空时跳过
@@ -1463,19 +1486,23 @@ class AdminModelMappingCacheStatsAdapter(AdminApiAdapter):
                                 if has_name_mapping or has_mappings:
                                     # 构建用于展示的映射列表
                                     # 如果只有名称映射没有额外映射，则用 global_model_name 作为"请求名称"
-                                    display_mappings = mapping_names if mapping_names else [global_model.name]
+                                    display_mappings = (
+                                        mapping_names if mapping_names else [global_model.name]
+                                    )
 
-                                    provider_model_mappings.append({
-                                        "provider_id": provider_id,
-                                        "provider_name": provider.name,
-                                        "global_model_id": global_model_id,
-                                        "global_model_name": global_model.name,
-                                        "global_model_display_name": global_model.display_name,
-                                        "provider_model_name": provider_model_name,
-                                        "aliases": display_mappings,
-                                        "ttl": ttl if ttl > 0 else None,
-                                        "hit_count": hit_count,
-                                    })
+                                    provider_model_mappings.append(
+                                        {
+                                            "provider_id": provider_id,
+                                            "provider_name": provider.name,
+                                            "global_model_id": global_model_id,
+                                            "global_model_name": global_model.name,
+                                            "global_model_display_name": global_model.display_name,
+                                            "provider_model_name": provider_model_name,
+                                            "aliases": display_mappings,
+                                            "ttl": ttl if ttl > 0 else None,
+                                            "hit_count": hit_count,
+                                        }
+                                    )
                         except json.JSONDecodeError:
                             pass
                 except Exception as e:
@@ -1496,7 +1523,9 @@ class AdminModelMappingCacheStatsAdapter(AdminApiAdapter):
                     "global_model_resolve": len(global_model_resolve_keys),
                 },
                 "mappings": mappings,
-                "provider_model_mappings": provider_model_mappings if provider_model_mappings else None,
+                "provider_model_mappings": (
+                    provider_model_mappings if provider_model_mappings else None
+                ),
                 "unmapped": unmapped_entries if unmapped_entries else None,
             }
 

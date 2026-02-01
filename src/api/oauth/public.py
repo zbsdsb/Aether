@@ -1,6 +1,5 @@
 """OAuth 公开端点（无需登录）。"""
 
-
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status

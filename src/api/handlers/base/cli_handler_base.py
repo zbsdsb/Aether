@@ -16,13 +16,11 @@ import asyncio
 import codecs
 import json
 import time
+from collections.abc import AsyncGenerator, Callable
 from typing import (
     TYPE_CHECKING,
     Any,
 )
-
-from collections.abc import Callable
-from collections.abc import AsyncGenerator
 
 import httpx
 from fastapi import BackgroundTasks, Request
@@ -30,7 +28,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
-    from src.core.api_format import ApiFormatDefinition
+    from src.core.api_format import EndpointDefinition
 
 from src.api.handlers.base.base_handler import (
     BaseMessageHandler,
@@ -77,7 +75,6 @@ from src.services.cache.aware_scheduler import ProviderCandidate
 from src.services.provider.transport import build_provider_url
 from src.utils.sse_parser import SSEEventParser
 from src.utils.timeout import read_first_chunk_with_ttfb_timeout
-
 
 # ==============================================================================
 # SSE 行解析辅助函数
@@ -163,7 +160,7 @@ def _format_converted_events_to_sse(
         SSE 行列表（每个元素是完整的 SSE 事件，包含尾部空行）
     """
     result: list[str] = []
-    needs_event_line = client_format.upper() in ("CLAUDE", "CLAUDE_CLI")
+    needs_event_line = str(client_format or "").strip().lower().startswith("claude:")
 
     for evt in converted_events:
         payload = json.dumps(evt, ensure_ascii=False)
@@ -357,16 +354,11 @@ class CliMessageHandlerBase(BaseMessageHandler):
         return request_body
 
     @staticmethod
-    def _get_format_metadata(format_id: str) -> ApiFormatDefinition | None:
-        """获取格式元数据（解析失败返回 None）"""
-        from src.core.api_format import APIFormat
-        from src.core.api_format.metadata import API_FORMAT_DEFINITIONS
+    def _get_format_metadata(format_id: str) -> "EndpointDefinition | None":
+        """获取 endpoint 元数据（解析失败返回 None）"""
+        from src.core.api_format.metadata import resolve_endpoint_definition
 
-        try:
-            fmt = APIFormat(format_id.upper())
-            return API_FORMAT_DEFINITIONS.get(fmt)
-        except (ValueError, KeyError):
-            return None
+        return resolve_endpoint_definition(format_id)
 
     def _finalize_converted_request(
         self,
@@ -447,7 +439,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
         )
 
         # 先计算 URL 模型（在清理 body 中的 model 字段之前）
-        url_model = self.get_model_for_url(converted_body, mapped_model) or mapped_model or fallback_model
+        url_model = (
+            self.get_model_for_url(converted_body, mapped_model) or mapped_model or fallback_model
+        )
 
         # 统一设置并清理 model/stream 字段
         self._finalize_converted_request(
@@ -704,7 +698,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
             else str(ctx.client_api_format)
         )
         provider_api_format = str(ctx.provider_api_format or "")
-        needs_conversion = bool(getattr(candidate, "needs_conversion", False)) if candidate else False
+        needs_conversion = (
+            bool(getattr(candidate, "needs_conversion", False)) if candidate else False
+        )
         ctx.needs_conversion = needs_conversion
 
         # 跨格式：先做请求体转换（失败触发 failover）
@@ -720,7 +716,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
         else:
             # 同格式：按原逻辑做轻量清理（子类可覆盖）
             request_body = self.prepare_provider_request_body(request_body)
-            url_model = self.get_model_for_url(request_body, mapped_model) or mapped_model or ctx.model
+            url_model = (
+                self.get_model_for_url(request_body, mapped_model) or mapped_model or ctx.model
+            )
 
         # 获取认证信息（处理 Service Account 等异步认证场景）
         auth_info = await get_provider_auth(endpoint, key)
@@ -964,7 +962,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
                     # 格式转换或直接透传
                     if needs_conversion:
-                        converted_lines, converted_events = self._convert_sse_line(ctx, line, events)
+                        converted_lines, converted_events = self._convert_sse_line(
+                            ctx, line, events
+                        )
                         # 记录转换后的数据到 parsed_chunks
                         self._record_converted_chunks(ctx, converted_events)
                         for converted_line in converted_lines:
@@ -1015,8 +1015,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
             else:
                 logger.debug("流式数据转发完成")
                 # 为 OpenAI 客户端补齐 [DONE] 标记（非 CLI 格式）
-                client_fmt = (ctx.client_api_format or "").upper()
-                if needs_conversion and client_fmt == "OPENAI":
+                client_fmt = (ctx.client_api_format or "").strip().lower()
+                if needs_conversion and client_fmt == "openai:chat":
                     yield b"data: [DONE]\n\n"
 
         except GeneratorExit:
@@ -1306,7 +1306,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
                     # 格式转换或直接透传
                     if needs_conversion:
-                        converted_lines, converted_events = self._convert_sse_line(ctx, line, events)
+                        converted_lines, converted_events = self._convert_sse_line(
+                            ctx, line, events
+                        )
                         # 记录转换后的数据到 parsed_chunks
                         self._record_converted_chunks(ctx, converted_events)
                         for converted_line in converted_lines:
@@ -1383,7 +1385,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
                     # 格式转换或直接透传
                     if needs_conversion:
-                        converted_lines, converted_events = self._convert_sse_line(ctx, line, events)
+                        converted_lines, converted_events = self._convert_sse_line(
+                            ctx, line, events
+                        )
                         # 记录转换后的数据到 parsed_chunks
                         self._record_converted_chunks(ctx, converted_events)
                         for converted_line in converted_lines:
@@ -1437,8 +1441,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
             else:
                 logger.debug("流式数据转发完成")
                 # 为 OpenAI 客户端补齐 [DONE] 标记（非 CLI 格式）
-                client_fmt = (ctx.client_api_format or "").upper()
-                if needs_conversion and client_fmt == "OPENAI":
+                client_fmt = (ctx.client_api_format or "").strip().lower()
+                if needs_conversion and client_fmt == "openai:chat":
                     yield b"data: [DONE]\n\n"
 
         except GeneratorExit:
@@ -1693,19 +1697,17 @@ class CliMessageHandlerBase(BaseMessageHandler):
             new_input = usage.get("input_tokens", 0) or 0
             new_output = usage.get("output_tokens", 0) or 0
             new_cached = usage.get("cache_read_tokens") or usage.get("cache_read_input_tokens") or 0
-            new_cache_creation = usage.get("cache_creation_tokens") or usage.get("cache_creation_input_tokens") or 0
+            new_cache_creation = (
+                usage.get("cache_creation_tokens") or usage.get("cache_creation_input_tokens") or 0
+            )
 
             # 取最大值更新（与 _process_event_data 相同的策略）
             if new_input > ctx.input_tokens:
                 ctx.input_tokens = new_input
-                logger.debug(
-                    f"[{ctx.request_id}] 从转换后事件更新 input_tokens: {new_input}"
-                )
+                logger.debug(f"[{ctx.request_id}] 从转换后事件更新 input_tokens: {new_input}")
             if new_output > ctx.output_tokens:
                 ctx.output_tokens = new_output
-                logger.debug(
-                    f"[{ctx.request_id}] 从转换后事件更新 output_tokens: {new_output}"
-                )
+                logger.debug(f"[{ctx.request_id}] 从转换后事件更新 output_tokens: {new_output}")
             if new_cached > ctx.cached_tokens:
                 ctx.cached_tokens = new_cached
             if new_cache_creation > ctx.cache_creation_tokens:
@@ -1969,9 +1971,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                         # Provider 响应元数据（如 Gemini 的 modelVersion）
                         response_metadata=ctx.response_metadata if ctx.response_metadata else None,
                     )
-                    logger.debug(
-                        f"[{ctx.request_id}] Usage 记录完成: cost=${total_cost:.6f}"
-                    )
+                    logger.debug(f"[{ctx.request_id}] Usage 记录完成: cost=${total_cost:.6f}")
                     # 简洁的请求完成摘要（两行格式）
                     line1 = f"[OK] {self.request_id[:8]} | {ctx.model} | {ctx.provider_name}"
                     if ctx.first_byte_time_ms:
@@ -2186,7 +2186,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
             else:
                 # 同格式：按原逻辑做轻量清理（子类可覆盖）
                 request_body = self.prepare_provider_request_body(request_body)
-                url_model = self.get_model_for_url(request_body, mapped_model) or mapped_model or model
+                url_model = (
+                    self.get_model_for_url(request_body, mapped_model) or mapped_model or model
+                )
 
             # 获取认证信息（处理 Service Account 等异步认证场景）
             auth_info = await get_provider_auth(endpoint, key)
@@ -2532,7 +2534,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
         - CLAUDE 和 CLAUDE_CLI、GEMINI 和 GEMINI_CLI：格式相同，只是认证不同，可透传
         - OPENAI 和 OPENAI_CLI：格式不同（Chat Completions vs Responses API），需要转换
         """
-        from src.core.api_format.utils import get_base_format
+        from src.core.api_format.metadata import can_passthrough_endpoint
+        from src.core.api_format.signature import normalize_signature_key
 
         if not ctx.provider_api_format or not ctx.client_api_format:
             logger.debug(
@@ -2541,8 +2544,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
             )
             return False
 
-        provider_format = str(ctx.provider_api_format).upper()
-        client_format = str(ctx.client_api_format).upper()
+        provider_format = normalize_signature_key(str(ctx.provider_api_format))
+        client_format = normalize_signature_key(str(ctx.client_api_format))
 
         # 1. 格式完全匹配 -> 不需要转换
         if provider_format == client_format:
@@ -2552,26 +2555,18 @@ class CliMessageHandlerBase(BaseMessageHandler):
             )
             return False
 
-        # 2. 同族格式检查
-        provider_base = get_base_format(provider_format)
-        client_base = get_base_format(client_format)
-
-        if provider_base == client_base:
-            # OPENAI 和 OPENAI_CLI 的请求/响应格式不同，需要转换
-            # CLAUDE 和 CLAUDE_CLI、GEMINI 和 GEMINI_CLI 格式相同，可透传
-            result = provider_base == "OPENAI"
+        # 2. 根据 data_format_id 判断是否可透传（可透传则不需要转换）
+        if can_passthrough_endpoint(client_format, provider_format):
             logger.debug(
                 f"[{getattr(ctx, 'request_id', 'unknown')}] _needs_format_conversion: "
-                f"provider={provider_format}(base={provider_base}), "
-                f"client={client_format}(base={client_base}) -> {result} (same family, OPENAI needs conversion)"
+                f"provider={provider_format}, client={client_format} -> False (passthroughable)"
             )
-            return result
+            return False
 
-        # 3. 跨格式 -> 需要转换
+        # 3. 其他情况 -> 需要转换
         logger.debug(
             f"[{getattr(ctx, 'request_id', 'unknown')}] _needs_format_conversion: "
-            f"provider={provider_format}(base={provider_base}), "
-            f"client={client_format}(base={client_base}) -> True (cross-format)"
+            f"provider={provider_format}, client={client_format} -> True"
         )
         return True
 
@@ -2617,17 +2612,17 @@ class CliMessageHandlerBase(BaseMessageHandler):
         if not line or line.strip() == "":
             return ([line] if line else [], [])
 
-        client_format = (ctx.client_api_format or "").upper()
+        client_format = (ctx.client_api_format or "").strip().lower()
 
         # [DONE] 标记处理：只有 OpenAI 客户端需要，Claude 客户端不需要
         if line == "data: [DONE]":
-            if client_format.startswith("OPENAI"):
+            if client_format.startswith("openai"):
                 return [line], []
             else:
                 # Claude/Gemini 客户端不需要 [DONE] 标记
                 return [], []
 
-        provider_format = (ctx.provider_api_format or "").upper()
+        provider_format = (ctx.provider_api_format or "").strip().lower()
 
         # 过滤上游控制行（id/retry），避免与目标格式混淆
         if line.startswith(("id:", "retry:")):
@@ -2682,9 +2677,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             logger.warning(f"格式转换失败，透传原始数据: {e}")
             return [line], []
 
-    def _parse_sse_line_to_json(
-        self, line: str, provider_format: str
-    ) -> tuple[Any | None, str]:
+    def _parse_sse_line_to_json(self, line: str, provider_format: str) -> tuple[Any | None, str]:
         """
         解析 SSE 行为 JSON 对象
 
@@ -2718,9 +2711,8 @@ class CliMessageHandlerBase(BaseMessageHandler):
             return None, "skip"
 
         # Gemini JSON-array 格式
-        if provider_format == "GEMINI":
+        if provider_format.startswith("gemini"):
             return _parse_gemini_json_array_line(line)
 
         # 其他格式：无法识别，透传
         return None, "passthrough"
-

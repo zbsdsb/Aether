@@ -1,11 +1,16 @@
 import asyncio
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from redis.exceptions import ResponseError
 
 from src.config.settings import config
+from src.services.usage.consumer_streams import (
+    UsageQueueConsumer,
+    _consumer_name,
+    ensure_usage_stream_group,
+)
 from src.services.usage.events import (
     UsageEvent,
     UsageEventType,
@@ -15,11 +20,6 @@ from src.services.usage.events import (
 from src.services.usage.telemetry_writer import (
     DbTelemetryWriter,
     QueueTelemetryWriter,
-)
-from src.services.usage.consumer_streams import (
-    UsageQueueConsumer,
-    ensure_usage_stream_group,
-    _consumer_name,
 )
 
 
@@ -58,9 +58,7 @@ async def test_queue_writer_publishes_event(monkeypatch):
     async def _get_redis_client(require_redis=False):
         return dummy
 
-    monkeypatch.setattr(
-        "src.services.usage.telemetry_writer.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.telemetry_writer.get_redis_client", _get_redis_client)
 
     old_stream_key = config.usage_queue_stream_key
     old_maxlen = config.usage_queue_stream_maxlen
@@ -252,9 +250,7 @@ async def test_queue_writer_record_failure(monkeypatch):
     async def _get_redis_client(require_redis=False):
         return dummy
 
-    monkeypatch.setattr(
-        "src.services.usage.telemetry_writer.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.telemetry_writer.get_redis_client", _get_redis_client)
 
     old_maxlen = config.usage_queue_stream_maxlen
     try:
@@ -291,9 +287,7 @@ async def test_queue_writer_record_cancelled(monkeypatch):
     async def _get_redis_client(require_redis=False):
         return dummy
 
-    monkeypatch.setattr(
-        "src.services.usage.telemetry_writer.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.telemetry_writer.get_redis_client", _get_redis_client)
 
     writer = QueueTelemetryWriter(
         request_id="req-cancel",
@@ -314,9 +308,7 @@ async def test_queue_writer_include_headers_bodies(monkeypatch):
     async def _get_redis_client(require_redis=False):
         return dummy
 
-    monkeypatch.setattr(
-        "src.services.usage.telemetry_writer.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.telemetry_writer.get_redis_client", _get_redis_client)
 
     old_include_headers = config.usage_queue_include_headers
     old_include_bodies = config.usage_queue_include_bodies
@@ -384,9 +376,7 @@ async def test_queue_writer_body_truncation(monkeypatch):
     async def _get_redis_client(require_redis=False):
         return dummy
 
-    monkeypatch.setattr(
-        "src.services.usage.telemetry_writer.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.telemetry_writer.get_redis_client", _get_redis_client)
 
     old_include_bodies = config.usage_queue_include_bodies
     old_max_bytes = config.usage_queue_body_max_bytes
@@ -418,12 +408,11 @@ async def test_queue_writer_body_truncation(monkeypatch):
 @pytest.mark.asyncio
 async def test_queue_writer_redis_unavailable(monkeypatch):
     """测试 Redis 不可用时抛出异常"""
+
     async def _get_redis_client(require_redis=False):
         return None
 
-    monkeypatch.setattr(
-        "src.services.usage.telemetry_writer.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.telemetry_writer.get_redis_client", _get_redis_client)
 
     writer = QueueTelemetryWriter(
         request_id="req-no-redis",
@@ -443,9 +432,7 @@ async def test_queue_writer_xadd_error(monkeypatch):
     async def _get_redis_client(require_redis=False):
         return dummy
 
-    monkeypatch.setattr(
-        "src.services.usage.telemetry_writer.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.telemetry_writer.get_redis_client", _get_redis_client)
 
     writer = QueueTelemetryWriter(
         request_id="req-xadd-fail",
@@ -537,6 +524,7 @@ def test_consumer_name():
     assert ":" in name
     # 应包含 PID
     import os
+
     assert str(os.getpid()) in name
 
 
@@ -548,9 +536,7 @@ async def test_ensure_stream_group_creates_group(monkeypatch):
     async def _get_redis_client(require_redis=False):
         return mock_redis
 
-    monkeypatch.setattr(
-        "src.services.usage.consumer_streams.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.consumer_streams.get_redis_client", _get_redis_client)
 
     await ensure_usage_stream_group()
 
@@ -570,9 +556,7 @@ async def test_ensure_stream_group_handles_busygroup(monkeypatch):
     async def _get_redis_client(require_redis=False):
         return mock_redis
 
-    monkeypatch.setattr(
-        "src.services.usage.consumer_streams.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.consumer_streams.get_redis_client", _get_redis_client)
 
     # 不应抛出异常
     await ensure_usage_stream_group()
@@ -587,9 +571,7 @@ async def test_ensure_stream_group_raises_other_errors(monkeypatch):
     async def _get_redis_client(require_redis=False):
         return mock_redis
 
-    monkeypatch.setattr(
-        "src.services.usage.consumer_streams.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.consumer_streams.get_redis_client", _get_redis_client)
 
     with pytest.raises(ResponseError, match="SOME OTHER ERROR"):
         await ensure_usage_stream_group()
@@ -598,12 +580,11 @@ async def test_ensure_stream_group_raises_other_errors(monkeypatch):
 @pytest.mark.asyncio
 async def test_ensure_stream_group_no_redis(monkeypatch):
     """测试 Redis 不可用时直接返回"""
+
     async def _get_redis_client(require_redis=False):
         return None
 
-    monkeypatch.setattr(
-        "src.services.usage.consumer_streams.get_redis_client", _get_redis_client
-    )
+    monkeypatch.setattr("src.services.usage.consumer_streams.get_redis_client", _get_redis_client)
 
     # 不应抛出异常
     await ensure_usage_stream_group()

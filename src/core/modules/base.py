@@ -6,12 +6,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
-
-from collections.abc import Callable
-from collections.abc import Awaitable
 
 if TYPE_CHECKING:
     from fastapi import APIRouter

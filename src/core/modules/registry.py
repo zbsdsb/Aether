@@ -280,9 +280,7 @@ class ModuleRegistry:
             logger.warning(f"Module [{name}] health check failed: {e}")
             return ModuleHealth.UNHEALTHY
 
-    async def get_module_status_async(
-        self, name: str, db: Session
-    ) -> ModuleStatus | None:
+    async def get_module_status_async(self, name: str, db: Session) -> ModuleStatus | None:
         """异步获取模块状态（包含健康检查）"""
         if name not in self._modules:
             return None

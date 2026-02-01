@@ -11,14 +11,12 @@
 
 from __future__ import annotations
 
-from typing import Any
 import asyncio
 import json
-
 from collections.abc import Callable
+from typing import Any
 
 import redis.asyncio as aioredis
-from src.core.logger import logger
 
 from src.clients.redis_client import get_redis_client_sync
 from src.core.logger import logger
@@ -69,9 +67,11 @@ class CacheSyncService:
             self._listener_task = asyncio.create_task(self._listen())
             self._running = True
 
-            logger.info("[CacheSync] 缓存同步服务已启动，订阅频道: "
+            logger.info(
+                "[CacheSync] 缓存同步服务已启动，订阅频道: "
                 f"{self.CHANNEL_GLOBAL_MODEL}, "
-                f"{self.CHANNEL_MODEL}, {self.CHANNEL_CLEAR_ALL}")
+                f"{self.CHANNEL_MODEL}, {self.CHANNEL_CLEAR_ALL}"
+            )
         except Exception as e:
             logger.error(f"[CacheSync] 启动失败: {e}")
             raise
@@ -167,7 +167,9 @@ class CacheSyncService:
 _cache_sync_service: CacheSyncService | None = None
 
 
-async def get_cache_sync_service(redis_client: aioredis.Redis | None = None) -> CacheSyncService | None:
+async def get_cache_sync_service(
+    redis_client: aioredis.Redis | None = None,
+) -> CacheSyncService | None:
     """
     获取缓存同步服务实例
 

@@ -4,16 +4,17 @@ Provider API Keys 管理
 
 from __future__ import annotations
 
-from typing import Any
 import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.models_service import invalidate_models_list_cache
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.crypto import crypto_service
@@ -28,7 +29,6 @@ from src.models.endpoint_models import (
     EndpointAPIKeyUpdate,
 )
 from src.services.cache.provider_cache import ProviderCacheService
-from src.api.base.context import ApiRequestContext
 
 router = APIRouter(tags=["Provider Keys"])
 pipeline = ApiRequestPipeline()
@@ -261,7 +261,9 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
             update_data["api_key"] = crypto_service.encrypt(update_data["api_key"])
         # 加密 auth_config（包含敏感的 Service Account 凭证）
         if "auth_config" in update_data and update_data["auth_config"]:
-            update_data["auth_config"] = crypto_service.encrypt(json.dumps(update_data["auth_config"]))
+            update_data["auth_config"] = crypto_service.encrypt(
+                json.dumps(update_data["auth_config"])
+            )
 
         # 特殊处理 rpm_limit：需要区分"未提供"和"显式设置为 null"
         if "rpm_limit" in self.key_data.model_fields_set:
@@ -410,10 +412,10 @@ class AdminRevealEndpointKeyAdapter(AdminApiAdapter):
                 # 检查是否是新格式的占位符（表示 auth_config 丢失）
                 if decrypted_key == "__placeholder__":
                     logger.error(f"Vertex AI Key 缺少 auth_config: ID={self.key_id}")
-                    raise InvalidRequestException(
-                        "认证配置丢失，请重新添加该密钥。"
-                    )
-                logger.info(f"[REVEAL] 查看完整 Key (legacy vertex_ai): ID={self.key_id}, Name={key.name}")
+                    raise InvalidRequestException("认证配置丢失，请重新添加该密钥。")
+                logger.info(
+                    f"[REVEAL] 查看完整 Key (legacy vertex_ai): ID={self.key_id}, Name={key.name}"
+                )
                 return {"auth_type": "vertex_ai", "auth_config": decrypted_key}
             except InvalidRequestException:
                 raise
@@ -760,10 +762,14 @@ class AdminCreateProviderKeyAdapter(AdminApiAdapter):
             auto_fetch_models=self.key_data.auto_fetch_models,
             locked_models=self.key_data.locked_models if self.key_data.locked_models else None,
             model_include_patterns=(
-                self.key_data.model_include_patterns if self.key_data.model_include_patterns else None
+                self.key_data.model_include_patterns
+                if self.key_data.model_include_patterns
+                else None
             ),
             model_exclude_patterns=(
-                self.key_data.model_exclude_patterns if self.key_data.model_exclude_patterns else None
+                self.key_data.model_exclude_patterns
+                if self.key_data.model_exclude_patterns
+                else None
             ),
             request_count=0,
             success_count=0,

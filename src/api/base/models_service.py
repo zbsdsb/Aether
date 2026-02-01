@@ -11,17 +11,20 @@
 """
 
 from __future__ import annotations
+
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
 from src.config.constants import CacheTTL
-from src.core.cache_service import CacheService
 from src.core.api_format.conversion.compatibility import is_format_compatible
+from src.core.cache_service import CacheService
 from src.core.logger import logger
-from src.services.model.availability import ModelAvailabilityQuery
 from src.models.database import ApiKey, Model, Provider, ProviderEndpoint, User
+from src.services.model.availability import ModelAvailabilityQuery
+from src.services.provider.format import normalize_endpoint_signature
 
 # 缓存 key 前缀
 _CACHE_KEY_PREFIX = "models:list"
@@ -60,7 +63,9 @@ async def _set_cached_models(
     try:
         data = [asdict(m) for m in models]
         await CacheService.set(cache_key, data, ttl_seconds=_CACHE_TTL)
-        logger.debug(f"[ModelsService] 已缓存: {cache_key}, {len(models)} 个模型, TTL={_CACHE_TTL}s")
+        logger.debug(
+            f"[ModelsService] 已缓存: {cache_key}, {len(models)} 个模型, TTL={_CACHE_TTL}s"
+        )
     except Exception as e:
         logger.warning(f"[ModelsService] 缓存写入失败: {e}")
 
@@ -119,9 +124,7 @@ class AccessRestrictions:
     allowed_api_formats: list[str] | None = None  # 允许的 API 格式列表
 
     @classmethod
-    def from_api_key_and_user(
-        cls, api_key: ApiKey | None, user: User | None
-    ) -> AccessRestrictions:
+    def from_api_key_and_user(cls, api_key: ApiKey | None, user: User | None) -> AccessRestrictions:
         """
         从 API Key 和 User 合并访问限制
 
@@ -164,14 +167,16 @@ class AccessRestrictions:
         检查 API 格式是否被允许
 
         Args:
-            api_format: API 格式 (如 "OPENAI", "CLAUDE", "GEMINI")
+            api_format: endpoint signature（如 "openai:chat"）
 
         Returns:
             True 如果格式被允许，False 否则
         """
         if self.allowed_api_formats is None:
             return True
-        return api_format in self.allowed_api_formats
+        target = normalize_endpoint_signature(api_format)
+        allowed = {normalize_endpoint_signature(f) for f in self.allowed_api_formats if f}
+        return target in allowed
 
     def is_model_allowed(self, model_id: str, provider_id: str) -> bool:
         """
@@ -201,14 +206,14 @@ def _normalize_api_formats(
     api_formats: list[str] | None,
     provider_to_formats: dict[str, set[str]] | None = None,
 ) -> list[str]:
-    """规范化 API 格式列表（大写），必要时从 provider_to_formats 兜底"""
+    """规范化 API 格式列表（endpoint signature，小写 canonical），必要时从 provider_to_formats 兜底"""
     if api_formats:
-        return [str(fmt).upper() for fmt in api_formats if fmt is not None]
+        return [normalize_endpoint_signature(str(fmt)) for fmt in api_formats if fmt]
     if not provider_to_formats:
         return []
     all_formats: set[str] = set()
     for formats in provider_to_formats.values():
-        all_formats.update(str(fmt).upper() for fmt in formats)
+        all_formats.update(normalize_endpoint_signature(str(fmt)) for fmt in formats if fmt)
     return list(all_formats)
 
 
@@ -226,7 +231,9 @@ def _get_provider_model_names_for_formats(
     if not isinstance(raw_mappings, list):
         return names
 
-    usable_formats_upper = {f.upper() for f in usable_formats} if usable_formats else None
+    usable_formats_norm = (
+        {normalize_endpoint_signature(f) for f in usable_formats} if usable_formats else None
+    )
 
     for raw in raw_mappings:
         if not isinstance(raw, dict):
@@ -236,15 +243,12 @@ def _get_provider_model_names_for_formats(
             continue
 
         mapping_api_formats = raw.get("api_formats")
-        if usable_formats_upper and mapping_api_formats:
-            if isinstance(mapping_api_formats, list):
-                mapping_formats = {
-                    str(fmt).upper()
-                    for fmt in mapping_api_formats
-                    if isinstance(fmt, str)
-                }
-                if not mapping_formats & usable_formats_upper:
-                    continue
+        if usable_formats_norm and mapping_api_formats and isinstance(mapping_api_formats, list):
+            mapping_formats = {
+                normalize_endpoint_signature(str(fmt)) for fmt in mapping_api_formats if fmt
+            }
+            if not mapping_formats & usable_formats_norm:
+                continue
 
         names.add(name.strip())
 
@@ -266,39 +270,52 @@ def get_compatible_provider_formats(
     if not normalized_formats:
         return {}
 
-    target_formats = set(normalized_formats)
-    client_format_upper = client_format.upper()
+    target_pairs: list[tuple[str, str]] = []
+    for fmt in normalized_formats:
+        try:
+            fam, kind = fmt.split(":", 1)
+        except ValueError:
+            continue
+        if fam and kind:
+            target_pairs.append((fam, kind))
+    if not target_pairs:
+        return {}
+
+    client_format_norm = normalize_endpoint_signature(client_format)
 
     endpoint_rows = (
         db.query(
             ProviderEndpoint.provider_id,
-            ProviderEndpoint.api_format,
+            ProviderEndpoint.api_family,
+            ProviderEndpoint.endpoint_kind,
             ProviderEndpoint.format_acceptance_config,
         )
         .join(Provider, ProviderEndpoint.provider_id == Provider.id)
         .filter(
             Provider.is_active.is_(True),
             ProviderEndpoint.is_active.is_(True),
-            ProviderEndpoint.api_format.in_(list(target_formats)),
+            ProviderEndpoint.api_family.isnot(None),
+            ProviderEndpoint.endpoint_kind.isnot(None),
+            tuple_(ProviderEndpoint.api_family, ProviderEndpoint.endpoint_kind).in_(target_pairs),
         )
         .all()
     )
 
     provider_to_formats: dict[str, set[str]] = {}
-    for provider_id, endpoint_format, format_acceptance_config in endpoint_rows:
-        if not provider_id or not endpoint_format:
+    for provider_id, api_family, endpoint_kind, format_acceptance_config in endpoint_rows:
+        if not provider_id or not api_family or not endpoint_kind:
             continue
+        endpoint_format = normalize_endpoint_signature(f"{api_family}:{endpoint_kind}")
         is_compatible, _needs_conversion, _reason = is_format_compatible(
-            client_format_upper,
-            str(endpoint_format),
+            client_format_norm,
+            endpoint_format,
             format_acceptance_config,
             is_stream=False,
             global_conversion_enabled=global_conversion_enabled,
         )
         if not is_compatible:
             continue
-        fmt_upper = str(endpoint_format).upper()
-        provider_to_formats.setdefault(provider_id, set()).add(fmt_upper)
+        provider_to_formats.setdefault(provider_id, set()).add(endpoint_format)
 
     return provider_to_formats
 
@@ -420,7 +437,9 @@ def _extract_model_info(model: Any) -> ModelInfo | None:
     """
     global_model = model.global_model
     if global_model is None:
-        logger.warning(f"[ModelService] Model {getattr(model, 'id', 'unknown')} 缺少 global_model，跳过")
+        logger.warning(
+            f"[ModelService] Model {getattr(model, 'id', 'unknown')} 缺少 global_model，跳过"
+        )
         return None
 
     model_id: str = global_model.name

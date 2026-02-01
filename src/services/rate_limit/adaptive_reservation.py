@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-
 from src.config.constants import AdaptiveReservationDefaults
 
 if TYPE_CHECKING:
@@ -165,9 +164,7 @@ class AdaptiveReservationManager:
 
         return request_count
 
-    def _calculate_load_ratio(
-        self, current_usage: int, effective_limit: int | None
-    ) -> float:
+    def _calculate_load_ratio(self, current_usage: int, effective_limit: int | None) -> float:
         """计算当前负载率"""
         if not effective_limit or effective_limit <= 0:
             return 0.0

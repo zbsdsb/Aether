@@ -21,19 +21,16 @@
 - 本类作为协调者，组合使用上述组件
 """
 
-
 from __future__ import annotations
 
-from typing import Any, NoReturn
-
 from collections.abc import Callable
+from typing import Any, NoReturn
 
 import httpx
 from redis import Redis
 from sqlalchemy.orm import Session
 
 from src.config.settings import config
-from src.core.api_format import APIFormat
 from src.core.api_format.conversion.exceptions import FormatConversionError
 from src.core.error_utils import extract_error_message
 from src.core.exceptions import (
@@ -51,7 +48,7 @@ from src.services.cache.aware_scheduler import (
     get_cache_aware_scheduler,
 )
 from src.services.message.thinking_rectifier import ThinkingRectifier
-from src.services.provider.format import normalize_api_format
+from src.services.provider.format import normalize_endpoint_signature
 from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
 from src.services.rate_limit.concurrency_manager import get_concurrency_manager
 from src.services.request.candidate import RequestCandidateService
@@ -172,7 +169,7 @@ class FallbackOrchestrator:
 
     async def _fetch_all_candidates(
         self,
-        api_format: APIFormat,
+        api_format: str,
         model_name: str,
         affinity_key: str,
         user_api_key: ApiKey | None = None,
@@ -256,7 +253,7 @@ class FallbackOrchestrator:
         user_api_key: ApiKey,
         request_func: Callable[..., Any],
         request_id: str | None,
-        api_format: APIFormat,
+        api_format: str,
         model_name: str,
         affinity_key: str,
         global_model_id: str,
@@ -343,8 +340,11 @@ class FallbackOrchestrator:
         if not config.thinking_rectifier_enabled:
             logger.info(f"  [{request_id}] Thinking 错误：整流器已禁用，终止重试")
             self._mark_thinking_error_failed(
-                candidate_record_id, converted_error, elapsed_ms,
-                captured_key_concurrent, serializable_extra_data
+                candidate_record_id,
+                converted_error,
+                elapsed_ms,
+                captured_key_concurrent,
+                serializable_extra_data,
             )
             raise converted_error
 
@@ -352,8 +352,11 @@ class FallbackOrchestrator:
         if request_body_ref is None:
             logger.warning(f"  [{request_id}] Thinking 错误：无法获取请求体引用，终止重试")
             self._mark_thinking_error_failed(
-                candidate_record_id, converted_error, elapsed_ms,
-                captured_key_concurrent, serializable_extra_data
+                candidate_record_id,
+                converted_error,
+                elapsed_ms,
+                captured_key_concurrent,
+                serializable_extra_data,
             )
             raise converted_error
 
@@ -361,8 +364,11 @@ class FallbackOrchestrator:
         if request_body_ref.get("_rectified", False):
             logger.warning(f"  [{request_id}] Thinking 错误：已整流仍失败，终止重试")
             self._mark_thinking_error_failed(
-                candidate_record_id, converted_error, elapsed_ms,
-                captured_key_concurrent, {**serializable_extra_data, "rectified": True}
+                candidate_record_id,
+                converted_error,
+                elapsed_ms,
+                captured_key_concurrent,
+                {**serializable_extra_data, "rectified": True},
             )
             raise converted_error
 
@@ -383,8 +389,11 @@ class FallbackOrchestrator:
             # 标记当前尝试为失败（整流前的状态）
             # 注意：整流后重试会复用此记录 ID，成功时会覆盖为 success 状态
             self._mark_thinking_error_failed(
-                candidate_record_id, converted_error, elapsed_ms,
-                captured_key_concurrent, {**serializable_extra_data, "rectified": True}
+                candidate_record_id,
+                converted_error,
+                elapsed_ms,
+                captured_key_concurrent,
+                {**serializable_extra_data, "rectified": True},
             )
 
             # 返回 continue：在当前候选的重试循环中继续，使用整流后的请求体重试
@@ -392,8 +401,11 @@ class FallbackOrchestrator:
         else:
             logger.warning(f"  [{request_id}] Thinking 错误：无可整流内容")
             self._mark_thinking_error_failed(
-                candidate_record_id, converted_error, elapsed_ms,
-                captured_key_concurrent, serializable_extra_data
+                candidate_record_id,
+                converted_error,
+                elapsed_ms,
+                captured_key_concurrent,
+                serializable_extra_data,
             )
             raise converted_error
 
@@ -425,7 +437,7 @@ class FallbackOrchestrator:
         retry_index: int,
         max_retries_for_candidate: int,
         affinity_key: str,
-        api_format: APIFormat,
+        api_format: str,
         global_model_id: str,
         request_id: str | None,
         attempt: int,
@@ -506,9 +518,7 @@ class FallbackOrchestrator:
                     "provider_id": str(provider.id),
                     "provider_endpoint_id": str(endpoint.id),
                     "provider_api_key_id": str(key.id),
-                    "api_format": (
-                        api_format.value if hasattr(api_format, "value") else str(api_format)
-                    ),
+                    "api_format": str(api_format),
                 }
                 raise client_error
             else:
@@ -588,9 +598,7 @@ class FallbackOrchestrator:
                     "provider_id": str(provider.id),
                     "provider_endpoint_id": str(endpoint.id),
                     "provider_api_key_id": str(key.id),
-                    "api_format": (
-                        api_format.value if hasattr(api_format, "value") else str(api_format)
-                    ),
+                    "api_format": str(api_format),
                 }
                 raise converted_error
 
@@ -662,7 +670,7 @@ class FallbackOrchestrator:
         user_api_key: ApiKey,
         model_name: str,
         is_stream: bool,
-        api_format_enum: APIFormat,
+        api_format: str,
     ) -> None:
         """创建 pending 状态的使用记录（用于实时状态追踪）"""
         if not request_id:
@@ -681,7 +689,7 @@ class FallbackOrchestrator:
                 api_key=user_api_key,
                 model=model_name,
                 is_stream=is_stream,
-                api_format=api_format_enum.value,
+                api_format=api_format,
             )
         except Exception as e:
             # 创建 pending 记录失败不应阻塞请求
@@ -694,7 +702,7 @@ class FallbackOrchestrator:
         user_api_key: ApiKey,
         request_func: Callable[..., Any],
         request_id: str | None,
-        api_format_enum: APIFormat,
+        api_format: str,
         model_name: str,
         affinity_key: str,
         global_model_id: str,
@@ -724,7 +732,7 @@ class FallbackOrchestrator:
                 user_api_key=user_api_key,
                 request_func=request_func,
                 request_id=request_id,
-                api_format_enum=api_format_enum,
+                api_format=api_format,
                 model_name=model_name,
                 affinity_key=affinity_key,
                 global_model_id=global_model_id,
@@ -735,9 +743,9 @@ class FallbackOrchestrator:
             )
 
             if result["success"]:
-                response: tuple[
-                    Any, str, str | None, str | None, str | None, str | None
-                ] = result["response"]
+                response: tuple[Any, str, str | None, str | None, str | None, str | None] = result[
+                    "response"
+                ]
                 return response
 
             # 更新计数器和错误信息
@@ -746,14 +754,12 @@ class FallbackOrchestrator:
             if result.get("error"):
                 last_error = result["error"]
             if result.get("should_raise") and last_error is not None:
-                self._attach_metadata_to_error(
-                    last_error, last_candidate, model_name, api_format_enum
-                )
+                self._attach_metadata_to_error(last_error, last_candidate, model_name, api_format)
                 raise last_error
 
         # 所有组合都已尝试完毕，全部失败
         self._raise_all_failed_exception(
-            request_id, max_attempts, last_candidate, model_name, api_format_enum, last_error
+            request_id, max_attempts, last_candidate, model_name, api_format, last_error
         )
 
     async def _try_candidate_with_retries(
@@ -764,7 +770,7 @@ class FallbackOrchestrator:
         user_api_key: ApiKey,
         request_func: Callable[..., Any],
         request_id: str | None,
-        api_format_enum: APIFormat,
+        api_format: str,
         model_name: str,
         affinity_key: str,
         global_model_id: str,
@@ -820,7 +826,7 @@ class FallbackOrchestrator:
                     user_api_key=user_api_key,
                     request_func=request_func,
                     request_id=request_id,
-                    api_format=api_format_enum,
+                    api_format=api_format,
                     model_name=model_name,
                     affinity_key=affinity_key,
                     global_model_id=global_model_id,
@@ -839,7 +845,7 @@ class FallbackOrchestrator:
                     retry_index=retry_index,
                     max_retries_for_candidate=max_retries_for_candidate,
                     affinity_key=affinity_key,
-                    api_format=api_format_enum,
+                    api_format=api_format,
                     global_model_id=global_model_id,
                     request_id=request_id,
                     attempt=attempt_counter,
@@ -886,7 +892,7 @@ class FallbackOrchestrator:
         error: Exception | None,
         candidate: ProviderCandidate | None,
         model_name: str,
-        api_format_enum: APIFormat,
+        api_format: str,
     ) -> None:
         """附加 candidate 信息到异常，以便记录 usage"""
         if not error or not candidate:
@@ -915,7 +921,7 @@ class FallbackOrchestrator:
             provider_api_key_id=(
                 getattr(existing_metadata, "provider_api_key_id", None) or str(candidate.key.id)
             ),
-            api_format=api_format_enum.value,
+            api_format=api_format,
         )
         # 使用 setattr 避免类型检查错误
         setattr(error, "request_metadata", metadata)
@@ -926,7 +932,7 @@ class FallbackOrchestrator:
         max_attempts: int,
         last_candidate: ProviderCandidate | None,
         model_name: str,
-        api_format_enum: APIFormat,
+        api_format: str,
         last_error: Exception | None = None,
     ) -> NoReturn:
         """所有组合都失败时抛出异常"""
@@ -940,7 +946,7 @@ class FallbackOrchestrator:
                 "provider_id": str(last_candidate.provider.id),
                 "provider_endpoint_id": str(last_candidate.endpoint.id),
                 "provider_api_key_id": str(last_candidate.key.id),
-                "api_format": api_format_enum.value,
+                "api_format": api_format,
             }
 
         # 提取上游错误响应
@@ -988,7 +994,7 @@ class FallbackOrchestrator:
 
     async def execute_with_fallback(
         self,
-        api_format: str | APIFormat,
+        api_format: str,
         model_name: str,
         user_api_key: ApiKey,
         request_func: Callable[[Provider, ProviderEndpoint, ProviderAPIKey], Any],
@@ -1002,7 +1008,7 @@ class FallbackOrchestrator:
         执行请求，并在失败时自动故障转移（缓存感知）
 
         Args:
-            api_format: API 格式（如 'CLAUDE', 'OPENAI'）
+            api_format: endpoint signature（如 'claude:chat', 'openai:cli'）
             model_name: 模型名称
             user_api_key: 用户的 API Key对象
             request_func: 请求函数，接收 (provider, endpoint, key) 参数，返回响应
@@ -1023,22 +1029,22 @@ class FallbackOrchestrator:
         # 准备执行上下文
         affinity_key = str(user_api_key.id)
         user_id = str(user_api_key.user_id)
-        api_format_enum = normalize_api_format(api_format)
+        api_format_norm = normalize_endpoint_signature(api_format)
 
         logger.debug(
             f"[FallbackOrchestrator] execute_with_fallback 被调用: "
-            f"api_format={api_format_enum.value}, model_name={model_name}, "
+            f"api_format={api_format_norm}, model_name={model_name}, "
             f"request_id={request_id}, is_stream={is_stream}"
         )
 
         # 创建 pending 状态的使用记录
         self._create_pending_usage_record(
-            request_id, user_api_key, model_name, is_stream, api_format_enum
+            request_id, user_api_key, model_name, is_stream, api_format_norm
         )
 
         # 1. 收集所有候选（同时获取规范化的 global_model_id 用于缓存亲和性）
         all_candidates, global_model_id = await self._fetch_all_candidates(
-            api_format=api_format_enum,
+            api_format=api_format_norm,
             model_name=model_name,
             affinity_key=affinity_key,
             user_api_key=user_api_key,
@@ -1064,7 +1070,7 @@ class FallbackOrchestrator:
             user_api_key=user_api_key,
             request_func=request_func,
             request_id=request_id,
-            api_format_enum=api_format_enum,
+            api_format=api_format_norm,
             model_name=model_name,
             affinity_key=affinity_key,
             global_model_id=global_model_id,

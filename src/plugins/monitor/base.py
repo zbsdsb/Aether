@@ -83,7 +83,9 @@ class MonitorPlugin(BasePlugin):
         pass
 
     @abstractmethod
-    async def increment(self, name: str, value: float = 1, labels: dict[str, str] | None = None) -> Any:
+    async def increment(
+        self, name: str, value: float = 1, labels: dict[str, str] | None = None
+    ) -> Any:
         """
         增加计数器
 

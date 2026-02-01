@@ -1,18 +1,45 @@
 """
-API 格式辅助函数，确保在调度/编排链路中使用统一的枚举值。
+Endpoint signature 辅助函数。
+
+调度/编排链路使用 endpoint signature key：`family:kind`（如 "claude:chat", "openai:cli"）。
 """
 
+from __future__ import annotations
+
+from src.core.api_format.enums import ApiFamily, EndpointKind
+from src.core.api_format.signature import (
+    EndpointSignature,
+    make_signature_key,
+    normalize_signature_key,
+)
+
+DEFAULT_ENDPOINT_SIGNATURE: str = make_signature_key(ApiFamily.CLAUDE, EndpointKind.CHAT)
 
 
-from src.core.api_format import APIFormat, resolve_api_format
-
-
-def normalize_api_format(
-    value: str | APIFormat | None, default: APIFormat = APIFormat.CLAUDE
-) -> APIFormat:
+def normalize_endpoint_signature(
+    value: str | EndpointSignature | tuple[ApiFamily, EndpointKind] | None,
+    *,
+    default: str = DEFAULT_ENDPOINT_SIGNATURE,
+) -> str:
     """
-    将任意字符串/枚举值归一化为 APIFormat。
-    未识别的值回退到默认枚举（默认 CLAUDE）。
+    将任意输入归一化为 canonical signature key（`family:kind`，小写）。
+
+    不支持旧格式（如 "CLAUDE_CLI"），仅接受 `family:kind` 格式。
+    解析失败时返回默认值。
     """
-    resolved = resolve_api_format(value)
-    return resolved or default
+    if value is None:
+        return default
+    if isinstance(value, EndpointSignature):
+        return value.key
+    if isinstance(value, tuple) and len(value) == 2:
+        fam, kind = value
+        if isinstance(fam, ApiFamily) and isinstance(kind, EndpointKind):
+            return make_signature_key(fam, kind)
+        return default
+    if isinstance(value, str):
+        try:
+            return normalize_signature_key(value)
+        except ValueError:
+            # 如果解析失败，返回默认值
+            return default
+    return default

@@ -12,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.models.admin_requests import ProxyConfig
 
-
 # ========== Header Rule 类型定义 ==========
 # 请求头规则支持三种操作：
 # - set: 设置/覆盖请求头 {"action": "set", "key": "X-Custom", "value": "val"}
@@ -29,7 +28,12 @@ class ProviderEndpointCreate(BaseModel):
     """创建 Endpoint 请求"""
 
     provider_id: str = Field(..., description="Provider ID")
-    api_format: str = Field(..., description="API 格式 (CLAUDE, OPENAI, CLAUDE_CLI, OPENAI_CLI)")
+    api_format: str = Field(
+        ...,
+        description=(
+            "Endpoint signature（例如: claude:chat/claude:cli, openai:chat/openai:cli/openai:video, gemini:chat/gemini:cli/gemini:video）"
+        ),
+    )
     base_url: str = Field(..., min_length=1, max_length=500, description="API 基础 URL")
     custom_path: str | None = Field(default=None, max_length=200, description="自定义请求路径")
 
@@ -57,13 +61,14 @@ class ProviderEndpointCreate(BaseModel):
     @classmethod
     def validate_api_format(cls, v: str) -> str:
         """验证 API 格式"""
-        from src.core.api_format import APIFormat
+        from src.core.api_format import list_endpoint_definitions, resolve_endpoint_definition
+        from src.core.api_format.signature import normalize_signature_key
 
-        allowed = [fmt.value for fmt in APIFormat]
-        v_upper = v.upper()
-        if v_upper not in allowed:
-            raise ValueError(f"API 格式必须是 {allowed} 之一")
-        return v_upper
+        normalized = normalize_signature_key(v)
+        if resolve_endpoint_definition(normalized) is None:
+            allowed = [d.signature_key for d in list_endpoint_definitions()]
+            raise ValueError(f"api_format 必须是以下之一: {allowed}")
+        return normalized
 
     @field_validator("base_url")
     @classmethod
@@ -125,9 +130,7 @@ class ProviderEndpointResponse(BaseModel):
     custom_path: str | None = None
 
     # 请求头配置
-    header_rules: list[HeaderRule] | None = Field(
-        default=None, description="请求头规则列表"
-    )
+    header_rules: list[HeaderRule] | None = Field(default=None, description="请求头规则列表")
 
     max_retries: int
 
@@ -165,23 +168,25 @@ class EndpointAPIKeyCreate(BaseModel):
 
     provider_id: str | None = Field(default=None, description="Provider ID（从 URL 获取）")
     api_formats: list[str] | None = Field(
-        default=None, min_length=1, description="支持的 API 格式列表（必填，路由层校验）"
+        default=None, min_length=1, description="支持的 endpoint signature 列表（必填，路由层校验）"
     )
 
-    api_key: str = Field(default="", max_length=500, description="API Key（标准认证时必填，将自动加密）")
+    api_key: str = Field(
+        default="", max_length=500, description="API Key（标准认证时必填，将自动加密）"
+    )
     auth_type: Literal["api_key", "vertex_ai"] = Field(
         default="api_key",
-        description="认证类型：api_key（标准 API Key）或 vertex_ai（Vertex AI Service Account）"
+        description="认证类型：api_key（标准 API Key）或 vertex_ai（Vertex AI Service Account）",
     )
     auth_config: dict[str, Any] | None = Field(
-        default=None,
-        description="认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON"
+        default=None, description="认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON"
     )
     name: str = Field(..., min_length=1, max_length=100, description="密钥名称（必填，用于识别）")
 
     # 成本计算
     rate_multipliers: dict[str, float] | None = Field(
-        default=None, description="按 API 格式的成本倍率，如 {'CLAUDE_CLI': 1.0, 'OPENAI_CLI': 0.8}"
+        default=None,
+        description="按 endpoint signature 的成本倍率，如 {'claude:cli': 1.0, 'openai:cli': 0.8}",
     )
 
     # 优先级和限制（数字越小越优先）
@@ -236,19 +241,20 @@ class EndpointAPIKeyCreate(BaseModel):
         if v is None:
             return v
 
-        from src.core.api_format import APIFormat
+        from src.core.api_format import list_endpoint_definitions, resolve_endpoint_definition
+        from src.core.api_format.signature import normalize_signature_key
 
-        allowed = [fmt.value for fmt in APIFormat]
-        validated = []
-        seen = set()
+        allowed = [d.signature_key for d in list_endpoint_definitions()]
+        validated: list[str] = []
+        seen: set[str] = set()
         for fmt in v:
-            fmt_upper = fmt.upper()
-            if fmt_upper not in allowed:
-                raise ValueError(f"API 格式必须是 {allowed} 之一，当前值: {fmt}")
-            if fmt_upper in seen:
+            normalized = normalize_signature_key(fmt)
+            if resolve_endpoint_definition(normalized) is None:
+                raise ValueError(f"api_formats 必须是以下之一: {allowed}，当前值: {fmt}")
+            if normalized in seen:
                 continue  # 静默去重
-            seen.add(fmt_upper)
-            validated.append(fmt_upper)
+            seen.add(normalized)
+            validated.append(normalized)
         return validated
 
     @field_validator("allowed_models")
@@ -323,25 +329,29 @@ class EndpointAPIKeyUpdate(BaseModel):
     )
 
     api_key: str | None = Field(
-        default=None, min_length=3, max_length=500, description="API Key（标准认证时使用，将自动加密）"
+        default=None,
+        min_length=3,
+        max_length=500,
+        description="API Key（标准认证时使用，将自动加密）",
     )
     auth_type: Literal["api_key", "vertex_ai"] | None = Field(
         default=None,
-        description="认证类型：api_key（标准 API Key）或 vertex_ai（Vertex AI Service Account）"
+        description="认证类型：api_key（标准 API Key）或 vertex_ai（Vertex AI Service Account）",
     )
     auth_config: dict[str, Any] | None = Field(
-        default=None,
-        description="认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON"
+        default=None, description="认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON"
     )
     name: str | None = Field(default=None, min_length=1, max_length=100, description="密钥名称")
     rate_multipliers: dict[str, float] | None = Field(
-        default=None, description="按 API 格式的成本倍率，如 {'CLAUDE_CLI': 1.0, 'OPENAI_CLI': 0.8}"
+        default=None,
+        description="按 endpoint signature 的成本倍率，如 {'claude:cli': 1.0, 'openai:cli': 0.8}",
     )
     internal_priority: int | None = Field(
         default=None, description="Key 内部优先级（提供商优先模式，数字越小越优先）"
     )
     global_priority_by_format: dict[str, int] | None = Field(
-        default=None, description="按 API 格式的全局优先级，如 {'CLAUDE': 1, 'CLAUDE_CLI': 2}"
+        default=None,
+        description="按 endpoint signature 的全局优先级，如 {'claude:chat': 1, 'claude:cli': 2}",
     )
     # rpm_limit: 使用特殊标记区分"未提供"和"设置为 null（自适应模式）"
     # - 不提供字段：不更新
@@ -365,9 +375,7 @@ class EndpointAPIKeyUpdate(BaseModel):
     )
     is_active: bool | None = Field(default=None, description="是否启用")
     note: str | None = Field(default=None, max_length=500, description="备注说明")
-    auto_fetch_models: bool | None = Field(
-        default=None, description="是否启用自动获取模型"
-    )
+    auto_fetch_models: bool | None = Field(default=None, description="是否启用自动获取模型")
     locked_models: list[str] | None = Field(
         default=None, description="被锁定的模型列表（刷新时不会被删除）"
     )
@@ -386,20 +394,7 @@ class EndpointAPIKeyUpdate(BaseModel):
         if v is None:
             return v
 
-        from src.core.api_format import APIFormat
-
-        allowed = [fmt.value for fmt in APIFormat]
-        validated = []
-        seen = set()
-        for fmt in v:
-            fmt_upper = fmt.upper()
-            if fmt_upper not in allowed:
-                raise ValueError(f"API 格式必须是 {allowed} 之一，当前值: {fmt}")
-            if fmt_upper in seen:
-                continue  # 静默去重
-            seen.add(fmt_upper)
-            validated.append(fmt_upper)
-        return validated
+        return EndpointAPIKeyCreate.validate_api_formats(v)
 
     @field_validator("allowed_models")
     @classmethod
@@ -458,7 +453,9 @@ class EndpointAPIKeyResponse(BaseModel):
     id: str
 
     provider_id: str = Field(..., description="Provider ID")
-    api_formats: list[str] = Field(default=[], description="支持的 API 格式列表")
+    api_formats: list[str] = Field(
+        default=[], description="支持的 endpoint signature 列表（如 openai:chat, claude:cli）"
+    )
 
     # Key 信息（脱敏）
     api_key_masked: str = Field(..., description="脱敏后的 Key")
@@ -469,13 +466,14 @@ class EndpointAPIKeyResponse(BaseModel):
 
     # 成本计算
     rate_multipliers: dict[str, float] | None = Field(
-        default=None, description="按 API 格式的成本倍率，如 {'CLAUDE_CLI': 1.0, 'OPENAI_CLI': 0.8}"
+        default=None,
+        description="按 endpoint signature 的成本倍率，如 {'claude:cli': 1.0, 'openai:cli': 0.8}",
     )
 
     # 优先级和限制
     internal_priority: int = Field(default=50, description="Endpoint 内部优先级")
     global_priority_by_format: dict[str, int] | None = Field(
-        default=None, description="按 API 格式的全局优先级"
+        default=None, description="按 endpoint signature 的全局优先级"
     )
     rpm_limit: int | None = None
     allowed_models: list[str] | None = None
@@ -485,12 +483,12 @@ class EndpointAPIKeyResponse(BaseModel):
     cache_ttl_minutes: int = Field(default=5, description="缓存 TTL（分钟），0=禁用")
     max_probe_interval_minutes: int = Field(default=32, description="熔断探测间隔（分钟）")
 
-    # 按格式的健康度数据
+    # 按 endpoint signature 的健康度数据
     health_by_format: dict[str, Any] | None = Field(
-        default=None, description="按 API 格式存储的健康度数据"
+        default=None, description="按 endpoint signature 存储的健康度数据"
     )
     circuit_breaker_by_format: dict[str, Any] | None = Field(
-        default=None, description="按 API 格式存储的熔断器状态"
+        default=None, description="按 endpoint signature 存储的熔断器状态"
     )
 
     # 聚合字段（从 health_by_format 计算，用于列表显示）
@@ -648,8 +646,12 @@ class ProviderUpdateRequest(BaseModel):
     max_retries: int | None = Field(None, ge=0, le=10, description="最大重试次数")
     proxy: dict[str, Any] | None = Field(None, description="代理配置")
     # 超时配置（秒），为空时使用全局配置
-    stream_first_byte_timeout: float | None = Field(None, ge=1, le=300, description="流式请求首字节超时（秒）")
-    request_timeout: float | None = Field(None, ge=1, le=600, description="非流式请求整体超时（秒）")
+    stream_first_byte_timeout: float | None = Field(
+        None, ge=1, le=300, description="流式请求首字节超时（秒）"
+    )
+    request_timeout: float | None = Field(
+        None, ge=1, le=600, description="非流式请求整体超时（秒）"
+    )
 
 
 class ProviderWithEndpointsSummary(BaseModel):
@@ -679,7 +681,9 @@ class ProviderWithEndpointsSummary(BaseModel):
     max_retries: int | None = Field(default=2, description="最大重试次数")
     proxy: dict[str, Any] | None = Field(default=None, description="代理配置")
     # 超时配置（秒），为空时使用全局配置
-    stream_first_byte_timeout: float | None = Field(default=None, description="流式请求首字节超时（秒）")
+    stream_first_byte_timeout: float | None = Field(
+        default=None, description="流式请求首字节超时（秒）"
+    )
     request_timeout: float | None = Field(default=None, description="非流式请求整体超时（秒）")
 
     # Endpoint 统计
@@ -780,9 +784,7 @@ class ApiFormatHealthMonitor(BaseModel):
     time_range_start: datetime | None = Field(
         default=None, description="时间线所覆盖区间的开始时间"
     )
-    time_range_end: datetime | None = Field(
-        default=None, description="时间线所覆盖区间的结束时间"
-    )
+    time_range_end: datetime | None = Field(default=None, description="时间线所覆盖区间的结束时间")
 
 
 class ApiFormatHealthMonitorResponse(BaseModel):

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
 import asyncio
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.models_service import invalidate_models_list_cache
-from src.services.cache.model_cache import ModelCacheService
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.enums import ProviderBillingType
 from src.core.exceptions import InvalidRequestException, NotFoundException
@@ -21,8 +21,8 @@ from src.core.model_permissions import match_model_with_pattern, parse_allowed_m
 from src.database import get_db
 from src.models.admin_requests import CreateProviderRequest, UpdateProviderRequest
 from src.models.database import GlobalModel, Provider, ProviderAPIKey
+from src.services.cache.model_cache import ModelCacheService
 from src.services.cache.provider_cache import ProviderCacheService
-from src.api.base.context import ApiRequestContext
 
 router = APIRouter(tags=["Provider CRUD"])
 pipeline = ApiRequestPipeline()
@@ -159,7 +159,9 @@ async def create_provider(request: Request, db: Session = Depends(get_db)) -> An
 
 
 @router.put("/{provider_id}")
-async def update_provider(provider_id: str, request: Request, db: Session = Depends(get_db)) -> None:
+async def update_provider(
+    provider_id: str, request: Request, db: Session = Depends(get_db)
+) -> None:
     """
     更新提供商配置
 
@@ -195,7 +197,9 @@ async def update_provider(provider_id: str, request: Request, db: Session = Depe
 
 
 @router.delete("/{provider_id}")
-async def delete_provider(provider_id: str, request: Request, db: Session = Depends(get_db)) -> None:
+async def delete_provider(
+    provider_id: str, request: Request, db: Session = Depends(get_db)
+) -> None:
     """
     删除提供商
 

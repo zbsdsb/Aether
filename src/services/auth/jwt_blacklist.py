@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from src.clients.redis_client import get_redis_client
 from src.core.logger import logger
 
-
 # 安全策略配置：当 Redis 不可用时的行为
 # True = fail-closed（安全优先，拒绝访问）
 # False = fail-open（可用性优先，允许访问）
@@ -71,7 +70,12 @@ class JWTBlacklistService:
             await redis_client.setex(redis_key, ttl_seconds, reason)
 
             token_fp = JWTBlacklistService._get_token_hash(token)[:12]
-            logger.info("Token 已加入黑名单: token_fp={} (原因: {}, TTL: {}s)", token_fp, reason, ttl_seconds)
+            logger.info(
+                "Token 已加入黑名单: token_fp={} (原因: {}, TTL: {}s)",
+                token_fp,
+                reason,
+                ttl_seconds,
+            )
             return True
 
         except Exception as e:
@@ -94,7 +98,9 @@ class JWTBlacklistService:
         if redis_client is None:
             # Redis 不可用时，根据安全策略决定行为
             if BLACKLIST_FAIL_CLOSED:
-                logger.warning("Redis 不可用，采用 fail-closed 策略拒绝访问（可通过 JWT_BLACKLIST_FAIL_CLOSED=false 改变）")
+                logger.warning(
+                    "Redis 不可用，采用 fail-closed 策略拒绝访问（可通过 JWT_BLACKLIST_FAIL_CLOSED=false 改变）"
+                )
                 return True  # 返回 True 表示在黑名单中，拒绝访问
             else:
                 logger.debug("Redis 不可用，采用 fail-open 策略允许访问")

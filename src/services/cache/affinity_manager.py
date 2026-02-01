@@ -31,7 +31,6 @@ from src.config.constants import CacheTTL
 from src.core.logger import logger
 
 
-
 class CacheAffinity(NamedTuple):
     """缓存亲和性信息"""
 
@@ -78,7 +77,9 @@ class CacheAffinityManager:
     # 默认缓存TTL（秒）- 使用统一常量
     DEFAULT_CACHE_TTL = CacheTTL.CACHE_AFFINITY
 
-    def __init__(self, redis_client: Any | None = None, default_ttl: int = DEFAULT_CACHE_TTL) -> None:
+    def __init__(
+        self, redis_client: Any | None = None, default_ttl: int = DEFAULT_CACHE_TTL
+    ) -> None:
         """
         初始化缓存亲和性管理器
 
@@ -114,7 +115,9 @@ class CacheAffinityManager:
         if self.redis:
             logger.debug("CacheAffinityManager: 使用Redis存储")
         else:
-            logger.debug("CacheAffinityManager: Redis不可用，回退到内存存储(仅适用于单实例/开发环境)")
+            logger.debug(
+                "CacheAffinityManager: Redis不可用，回退到内存存储(仅适用于单实例/开发环境)"
+            )
 
     def _is_memory_backend(self) -> bool:
         """是否处于内存模式"""
@@ -172,8 +175,7 @@ class CacheAffinityManager:
             清理的条目数量
         """
         expired_keys = [
-            key for key, (expire_at, _) in self._l1_cache.items()
-            if current_time > expire_at
+            key for key, (expire_at, _) in self._l1_cache.items() if current_time > expire_at
         ]
         for key in expired_keys:
             self._l1_cache.pop(key, None)
@@ -181,8 +183,7 @@ class CacheAffinityManager:
         # 如果缓存仍然过大，按过期时间排序移除最旧的条目
         if len(self._l1_cache) > self._l1_max_size:
             sorted_items = sorted(
-                self._l1_cache.items(),
-                key=lambda x: x[1][0]  # 按 expire_at 排序
+                self._l1_cache.items(), key=lambda x: x[1][0]  # 按 expire_at 排序
             )
             # 移除最旧的 20% 条目
             remove_count = len(self._l1_cache) - int(self._l1_max_size * 0.8)
@@ -191,7 +192,9 @@ class CacheAffinityManager:
             expired_keys.extend([k for k, _ in sorted_items[:remove_count]])
 
         if expired_keys:
-            logger.debug(f"L1 缓存清理: 移除 {len(expired_keys)} 个条目，当前 {len(self._l1_cache)} 个")
+            logger.debug(
+                f"L1 缓存清理: 移除 {len(expired_keys)} 个条目，当前 {len(self._l1_cache)} 个"
+            )
 
         return len(expired_keys)
 
@@ -371,16 +374,20 @@ class CacheAffinityManager:
                         or existing_affinity.key_id != key_id
                     ):
                         self._stats["key_switches"] += 1
-                        logger.debug(f"Key {affinity_key[:8]}... 在 {api_format} 格式下切换后端: "
+                        logger.debug(
+                            f"Key {affinity_key[:8]}... 在 {api_format} 格式下切换后端: "
                             f"[{existing_affinity.provider_id[:8]}.../{existing_affinity.endpoint_id[:8]}.../"
                             f"{existing_affinity.key_id[:8]}...] → "
-                            f"[{provider_id[:8]}.../{endpoint_id[:8]}.../{key_id[:8]}...], 重置计数器")
+                            f"[{provider_id[:8]}.../{endpoint_id[:8]}.../{key_id[:8]}...], 重置计数器"
+                        )
                         created_at = current_time
                         request_count = 1
                     else:
-                        logger.debug(f"刷新缓存亲和性: key={affinity_key[:8]}..., api_format={api_format}, "
+                        logger.debug(
+                            f"刷新缓存亲和性: key={affinity_key[:8]}..., api_format={api_format}, "
                             f"provider={provider_id[:8]}..., endpoint={endpoint_id[:8]}..., "
-                            f"provider_key={key_id[:8]}..., ttl+={ttl}s")
+                            f"provider_key={key_id[:8]}..., ttl+={ttl}s"
+                        )
                 else:
                     created_at = current_time
                     request_count = 1
@@ -399,9 +406,11 @@ class CacheAffinityManager:
 
                 await self._save_affinity_dict(cache_key, ttl, affinity_dict)
 
-            logger.debug(f"设置缓存亲和性: key={affinity_key[:8]}..., api_format={api_format}, "
+            logger.debug(
+                f"设置缓存亲和性: key={affinity_key[:8]}..., api_format={api_format}, "
                 f"model={model_name}, provider={provider_id[:8]}..., endpoint={endpoint_id[:8]}..., "
-                f"provider_key={key_id[:8]}..., ttl={ttl}s")
+                f"provider_key={key_id[:8]}..., ttl={ttl}s"
+            )
         except Exception as e:
             logger.exception(f"设置缓存亲和性失败: {e}")
 
@@ -443,8 +452,10 @@ class CacheAffinityManager:
             should_invalidate = False
 
         if not should_invalidate:
-            logger.debug(f"跳过失效: affinity_key={affinity_key[:8]}..., api_format={api_format}, "
-                f"model={model_name}, 过滤条件不匹配 (key={key_id}, provider={provider_id}, endpoint={endpoint_id})")
+            logger.debug(
+                f"跳过失效: affinity_key={affinity_key[:8]}..., api_format={api_format}, "
+                f"model={model_name}, 过滤条件不匹配 (key={key_id}, provider={provider_id}, endpoint={endpoint_id})"
+            )
             return
 
         try:
@@ -454,10 +465,12 @@ class CacheAffinityManager:
 
             self._stats["cache_invalidations"] += 1
 
-            logger.debug(f"失效缓存亲和性: affinity_key={affinity_key[:8]}..., api_format={api_format}, "
+            logger.debug(
+                f"失效缓存亲和性: affinity_key={affinity_key[:8]}..., api_format={api_format}, "
                 f"model={model_name}, provider={existing_affinity.provider_id[:8]}..., "
                 f"endpoint={existing_affinity.endpoint_id[:8]}..., "
-                f"provider_key={existing_affinity.key_id[:8]}...")
+                f"provider_key={existing_affinity.key_id[:8]}..."
+            )
         except Exception as e:
             logger.exception(f"删除缓存亲和性失败: {e}")
 
@@ -493,8 +506,10 @@ class CacheAffinityManager:
                     self._stats["cache_invalidations"] += 1
 
             if invalidated_count > 0:
-                logger.debug(f"批量失效Provider缓存亲和性: provider={provider_id[:8]}..., "
-                    f"失效数量={invalidated_count}")
+                logger.debug(
+                    f"批量失效Provider缓存亲和性: provider={provider_id[:8]}..., "
+                    f"失效数量={invalidated_count}"
+                )
 
             return invalidated_count
 

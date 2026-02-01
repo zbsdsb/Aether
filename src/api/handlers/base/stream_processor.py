@@ -14,11 +14,9 @@ from __future__ import annotations
 import asyncio
 import codecs
 import json
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from typing import Any
-
-from collections.abc import Callable
-from collections.abc import AsyncGenerator
 
 import httpx
 
@@ -310,8 +308,9 @@ class StreamProcessor:
                     # 预读阶段格式转换试验：首字节前可 failover
                     # 如果需要跨格式转换，对首个有效数据块做试转换
                     if ctx.needs_conversion and isinstance(data, dict):
-                        client_format = (ctx.client_api_format or "").upper()
-                        provider_format = (ctx.provider_api_format or "").upper()
+                        # 新模式：endpoint signature key（family:kind），这里仅用于转换器选择，不做 legacy 兼容
+                        client_format = (ctx.client_api_format or "").strip().lower()
+                        provider_format = (ctx.provider_api_format or "").strip().lower()
                         if client_format and provider_format:
                             try:
                                 # 试转换：传 state=None，不保留状态
@@ -414,14 +413,15 @@ class StreamProcessor:
             # 使用增量解码器处理跨 chunk 的 UTF-8 字符
             decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
-            # ctx.api_format 可能是 APIFormat 枚举，需要取 value
-            _api_format_str = (
-                ctx.api_format.value
-                if hasattr(ctx.api_format, "value")
-                else str(ctx.api_format or "")
+            _api_format_str = str(ctx.api_format or "")
+            client_format = (ctx.client_api_format or _api_format_str).strip().lower()
+            provider_format = (ctx.provider_api_format or _api_format_str).strip().lower()
+            client_family = (
+                client_format.split(":", 1)[0] if ":" in client_format else client_format
             )
-            client_format = (ctx.client_api_format or _api_format_str).upper()
-            provider_format = (ctx.provider_api_format or _api_format_str).upper()
+            provider_family = (
+                provider_format.split(":", 1)[0] if ":" in provider_format else provider_format
+            )
             # 使用 handler 层预计算的 needs_conversion（由 candidate 决定）
             needs_conversion = ctx.needs_conversion
 
@@ -446,7 +446,7 @@ class StreamProcessor:
                     streaming_started = True
 
             def _build_stream_error_payload(message: str) -> dict:
-                if client_format.startswith("OPENAI"):
+                if client_family == "openai":
                     return {
                         "error": {
                             "message": message,
@@ -502,7 +502,7 @@ class StreamProcessor:
                             and normalized_line[5:].strip() == "[DONE]"
                         ):
                             skip_next_blank_line = True
-                            if client_format.startswith("OPENAI"):
+                            if client_family == "openai":
                                 openai_done_sent = True
                                 return [b"data: [DONE]\n\n"]
                             return []
@@ -510,7 +510,7 @@ class StreamProcessor:
                         # 默认只处理 SSE 的 data 行；但 Gemini 上游可能返回 JSON-array/chunks（无 data 前缀）
                         is_data_line = normalized_line.startswith("data:")
                         if not is_data_line:
-                            if provider_format != "GEMINI":
+                            if provider_family != "gemini":
                                 return []
                             data_content = normalized_line.strip()
                         else:
@@ -554,9 +554,7 @@ class StreamProcessor:
                             error_bytes = (
                                 f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
                             )
-                            done_bytes = (
-                                b"data: [DONE]\n\n" if client_format.startswith("OPENAI") else b""
-                            )
+                            done_bytes = b"data: [DONE]\n\n" if client_family == "openai" else b""
                             if done_bytes:
                                 openai_done_sent = True
                             return [error_bytes, done_bytes]
@@ -572,9 +570,7 @@ class StreamProcessor:
 
                             # 统一使用 SSE 格式输出（Gemini streamGenerateContent 也使用 SSE）
                             # 参考: https://ai.google.dev/api/generate-content
-                            out.append(
-                                f"data: {json.dumps(evt, ensure_ascii=False)}\n\n".encode()
-                            )
+                            out.append(f"data: {json.dumps(evt, ensure_ascii=False)}\n\n".encode())
                         return out
 
                 # 统一处理 prefetched + iterator
@@ -669,7 +665,7 @@ class StreamProcessor:
                                     return
 
                 # Provider 流结束后，为 OpenAI 客户端补齐 [DONE]（许多上游不发送该哨兵）
-                if client_format.startswith("OPENAI") and not openai_done_sent:
+                if client_family == "openai" and not openai_done_sent:
                     _mark_stream_started()
                     yield b"data: [DONE]\n\n"
 
@@ -944,9 +940,7 @@ class StreamProcessor:
                 self._extractors[format_name] = extractor
         return self._extractors.get(format_name)
 
-    def _detect_format_and_extract(
-        self, data: dict
-    ) -> tuple[str | None, ContentExtractor | None]:
+    def _detect_format_and_extract(self, data: dict) -> tuple[str | None, ContentExtractor | None]:
         """
         检测数据格式并提取内容
 
@@ -1042,9 +1036,7 @@ class _LightweightSmoother:
                 self._extractors[format_name] = extractor
         return self._extractors.get(format_name)
 
-    def _detect_format_and_extract(
-        self, data: dict
-    ) -> tuple[str | None, ContentExtractor | None]:
+    def _detect_format_and_extract(self, data: dict) -> tuple[str | None, ContentExtractor | None]:
         for format_name in get_extractor_formats():
             extractor = self._get_extractor(format_name)
             if extractor:
@@ -1062,9 +1054,7 @@ class _LightweightSmoother:
             return [content]
         return [content[i : i + self.chunk_size] for i in range(0, text_length, self.chunk_size)]
 
-    async def smooth(
-        self, stream_generator: AsyncGenerator[bytes]
-    ) -> AsyncGenerator[bytes]:
+    async def smooth(self, stream_generator: AsyncGenerator[bytes]) -> AsyncGenerator[bytes]:
         buffer = b""
         is_first_content = True
 

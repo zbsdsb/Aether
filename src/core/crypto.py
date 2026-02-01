@@ -9,6 +9,7 @@
 """
 
 from __future__ import annotations
+
 import base64
 import hashlib
 
@@ -16,10 +17,10 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from ..config import config
-from ..core.exceptions import DecryptionException
 from src.core.logger import logger
 
+from ..config import config
+from ..core.exceptions import DecryptionException
 
 
 class CryptoService:

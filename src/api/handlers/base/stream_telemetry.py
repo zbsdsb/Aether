@@ -20,7 +20,11 @@ from src.config.settings import config
 from src.core.logger import logger
 from src.database import get_db
 from src.models.database import ApiKey, User
-from src.services.usage.telemetry_writer import DbTelemetryWriter, QueueTelemetryWriter, TelemetryWriter
+from src.services.usage.telemetry_writer import (
+    DbTelemetryWriter,
+    QueueTelemetryWriter,
+    TelemetryWriter,
+)
 
 
 class StreamTelemetryRecorder:
@@ -96,13 +100,20 @@ class StreamTelemetryRecorder:
                     return
                 actual_request_body = ctx.provider_request_body or original_request_body
                 response_body = None
-                if not isinstance(writer, QueueTelemetryWriter) or config.usage_queue_include_bodies:
+                if (
+                    not isinstance(writer, QueueTelemetryWriter)
+                    or config.usage_queue_include_bodies
+                ):
                     response_body = ctx.build_response_body(response_time_ms)
 
                 try:
                     await self._dispatch_record(
-                        writer, ctx, original_headers, actual_request_body,
-                        response_body, response_time_ms,
+                        writer,
+                        ctx,
+                        original_headers,
+                        actual_request_body,
+                        response_body,
+                        response_time_ms,
                     )
                 except Exception as writer_error:
                     if not isinstance(writer, QueueTelemetryWriter):
@@ -122,8 +133,12 @@ class StreamTelemetryRecorder:
                     if response_body is None:
                         response_body = ctx.build_response_body(response_time_ms)
                     await self._dispatch_record(
-                        db_writer, ctx, original_headers, actual_request_body,
-                        response_body, response_time_ms,
+                        db_writer,
+                        ctx,
+                        original_headers,
+                        actual_request_body,
+                        response_body,
+                        response_time_ms,
                     )
 
                 # 更新候选记录状态
@@ -152,11 +167,13 @@ class StreamTelemetryRecorder:
         """记录成功的请求"""
         # 流式成功时，返回给客户端的是提供商响应头 + SSE 必需头
         client_response_headers = filter_proxy_response_headers(ctx.response_headers)
-        client_response_headers.update({
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-            "content-type": "text/event-stream",
-        })
+        client_response_headers.update(
+            {
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "content-type": "text/event-stream",
+            }
+        )
 
         await writer.record_success(
             provider=ctx.provider_name or "unknown",
@@ -200,7 +217,9 @@ class StreamTelemetryRecorder:
     ) -> None:
         """记录失败的请求"""
         # 失败时返回给客户端的是 JSON 错误响应，如果没有设置则使用默认值
-        client_response_headers = ctx.client_response_headers or {"content-type": "application/json"}
+        client_response_headers = ctx.client_response_headers or {
+            "content-type": "application/json"
+        }
 
         await writer.record_failure(
             provider=ctx.provider_name or "unknown",
@@ -242,7 +261,9 @@ class StreamTelemetryRecorder:
         response_time_ms: int,
     ) -> None:
         """记录客户端取消的请求"""
-        client_response_headers = ctx.client_response_headers or {"content-type": "application/json"}
+        client_response_headers = ctx.client_response_headers or {
+            "content-type": "application/json"
+        }
 
         await writer.record_cancelled(
             provider=ctx.provider_name or "unknown",
@@ -319,7 +340,9 @@ class StreamTelemetryRecorder:
             )
         else:
             # 请求链路追踪使用 upstream_response（原始响应），回退到 error_message（友好消息）
-            trace_error_message = ctx.upstream_response or ctx.error_message or f"HTTP {ctx.status_code}"
+            trace_error_message = (
+                ctx.upstream_response or ctx.error_message or f"HTTP {ctx.status_code}"
+            )
             RequestCandidateService.mark_candidate_failed(
                 db=db,
                 candidate_id=ctx.attempt_id,
@@ -408,18 +431,30 @@ class StreamTelemetryRecorder:
         """根据上下文状态分发到对应的记录方法"""
         if ctx.is_success():
             await self._record_success(
-                writer, ctx, original_headers, actual_request_body,
-                response_body, response_time_ms,
+                writer,
+                ctx,
+                original_headers,
+                actual_request_body,
+                response_body,
+                response_time_ms,
             )
         elif ctx.is_client_disconnected():
             await self._record_cancelled(
-                writer, ctx, original_headers, actual_request_body,
-                response_body, response_time_ms,
+                writer,
+                ctx,
+                original_headers,
+                actual_request_body,
+                response_body,
+                response_time_ms,
             )
         else:
             await self._record_failure(
-                writer, ctx, original_headers, actual_request_body,
-                response_body, response_time_ms,
+                writer,
+                ctx,
+                original_headers,
+                actual_request_body,
+                response_body,
+                response_time_ms,
             )
 
     def _get_status_from_ctx(self, ctx: StreamContext) -> str:
@@ -440,7 +475,5 @@ class StreamTelemetryRecorder:
             )
             return None
 
-        bg_telemetry = MessageTelemetry(
-            bg_db, user, api_key_obj, self.request_id, self.client_ip
-        )
+        bg_telemetry = MessageTelemetry(bg_db, user, api_key_obj, self.request_id, self.client_ip)
         return DbTelemetryWriter(bg_telemetry)

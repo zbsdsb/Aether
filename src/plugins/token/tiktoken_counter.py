@@ -138,9 +138,7 @@ class TiktokenCounterPlugin(TokenCounterPlugin):
             # 简单估算: 平均每个字符0.75个token
             return int(len(text) * 0.75)
 
-    async def count_messages(
-        self, messages: list[dict[str, Any]], model: str | None = None
-    ) -> int:
+    async def count_messages(self, messages: list[dict[str, Any]], model: str | None = None) -> int:
         """计算消息列表的Token数量"""
         if not self.enabled:
             return 0

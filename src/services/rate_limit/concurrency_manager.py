@@ -10,12 +10,12 @@ RPM 限制管理器 - 支持 Redis 或内存的 Key 级别 RPM 限制
 
 from __future__ import annotations
 
-from typing import Any
 import asyncio
 import math
 import os
 import time
 from contextlib import asynccontextmanager
+from typing import Any
 
 import redis.asyncio as aioredis
 
@@ -75,7 +75,9 @@ class ConcurrencyManager:
             if self._redis:
                 logger.info("[OK] ConcurrencyManager 已复用全局 Redis 客户端")
             else:
-                logger.warning("[WARN] Redis 不可用，RPM 限制降级为内存模式（仅在单实例环境下安全）")
+                logger.warning(
+                    "[WARN] Redis 不可用，RPM 限制降级为内存模式（仅在单实例环境下安全）"
+                )
                 # 内存模式下启动后台清理任务
                 self._start_background_cleanup()
         except Exception as e:
@@ -191,14 +193,11 @@ class ConcurrencyManager:
                 evict_count = max(1, self._max_memory_rpm_entries // 5)
                 # 按 bucket（时间）排序，删除最旧的
                 sorted_keys = sorted(
-                    self._memory_key_rpm_counts.items(),
-                    key=lambda x: x[1][0]  # 按 bucket 排序
+                    self._memory_key_rpm_counts.items(), key=lambda x: x[1][0]  # 按 bucket 排序
                 )
                 for k, _ in sorted_keys[:evict_count]:
                     del self._memory_key_rpm_counts[k]
-                logger.warning(
-                    f"[WARN] 内存 RPM 计数器达到上限，已淘汰 {evict_count} 个最旧条目"
-                )
+                logger.warning(f"[WARN] 内存 RPM 计数器达到上限，已淘汰 {evict_count} 个最旧条目")
         self._memory_key_rpm_counts[key_id] = (bucket, count)
 
     def _cleanup_expired_memory_rpm_counts(self, current_bucket: int, force: bool = False) -> None:
@@ -487,9 +486,7 @@ class ConcurrencyManager:
             from src.core.exceptions import ConcurrencyLimitError
 
             user_type = "缓存用户" if is_cached_user else "新用户"
-            raise ConcurrencyLimitError(
-                f"RPM 限制已达上限: key={key_id}, 类型={user_type}"
-            )
+            raise ConcurrencyLimitError(f"RPM 限制已达上限: key={key_id}, 类型={user_type}")
 
         # 记录开始时间和状态
         import time

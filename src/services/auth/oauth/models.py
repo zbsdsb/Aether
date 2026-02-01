@@ -29,4 +29,3 @@ class OAuthFlowError(Exception):
         super().__init__(error_code)
         self.error_code = error_code
         self.detail = detail
-

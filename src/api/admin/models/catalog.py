@@ -4,17 +4,17 @@
 基于 GlobalModel 的聚合视图
 """
 
-from typing import Any
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session, joinedload
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.database import get_db
 from src.models.database import GlobalModel, Model
-from src.api.base.context import ApiRequestContext
 from src.models.pydantic_models import (
     ModelCapabilities,
     ModelCatalogItem,

@@ -11,7 +11,6 @@ from src.clients.redis_client import get_redis_client
 from src.core.logger import logger
 
 
-
 class CacheService:
     """缓存服务"""
 

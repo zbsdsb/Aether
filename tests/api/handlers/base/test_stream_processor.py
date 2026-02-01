@@ -1,6 +1,11 @@
 from typing import Any
 
-from src.api.handlers.base.response_parser import ParsedChunk, ParsedResponse, ResponseParser, StreamStats
+from src.api.handlers.base.response_parser import (
+    ParsedChunk,
+    ParsedResponse,
+    ResponseParser,
+    StreamStats,
+)
 from src.api.handlers.base.stream_context import StreamContext
 from src.api.handlers.base.stream_processor import StreamProcessor
 from src.utils.sse_parser import SSEEventParser
@@ -21,7 +26,7 @@ class DummyParser(ResponseParser):
 
 
 def test_process_line_strips_newlines_and_finalizes_event() -> None:
-    ctx = StreamContext(model="test-model", api_format="OPENAI")
+    ctx = StreamContext(model="test-model", api_format="openai:chat")
     processor = StreamProcessor(request_id="test-request", default_parser=DummyParser())
     sse_parser = SSEEventParser()
 
@@ -29,4 +34,3 @@ def test_process_line_strips_newlines_and_finalizes_event() -> None:
     processor._process_line(ctx, sse_parser, "\n")
 
     assert ctx.has_completion is True
-

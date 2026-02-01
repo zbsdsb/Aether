@@ -94,9 +94,7 @@ class TestThinkingErrorPatterns:
         error = '{"error": {"message": "expected redacted_thinking, found text"}}'
         assert classifier._is_thinking_error(error) is True
 
-    def test_detect_expected_redacted_thinking_backticks(
-        self, classifier: ErrorClassifier
-    ) -> None:
+    def test_detect_expected_redacted_thinking_backticks(self, classifier: ErrorClassifier) -> None:
         """检测带反引号的 expected redacted_thinking 错误"""
         error = '{"error": {"message": "expected `redacted_thinking`, found `text`"}}'
         assert classifier._is_thinking_error(error) is True

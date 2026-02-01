@@ -27,9 +27,9 @@
 
 from __future__ import annotations
 
-
 import asyncio
 import time
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -38,18 +38,14 @@ from typing import (
     runtime_checkable,
 )
 
-from collections.abc import Callable
-from collections.abc import Awaitable, Coroutine
-
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from src.clients.redis_client import get_redis_client_sync
-from src.core.api_format import APIFormat, resolve_api_format
 from src.core.logger import logger
 from src.services.orchestration.fallback_orchestrator import FallbackOrchestrator
-from src.services.provider.format import normalize_api_format
+from src.services.provider.format import normalize_endpoint_signature
 from src.services.system.audit import audit_service
 from src.services.usage.service import UsageService
 
@@ -238,7 +234,9 @@ class MessageTelemetry:
         """
         provider_name = provider or "unknown"
         if provider_name == "unknown":
-            logger.warning(f"[Telemetry] Recording failure with unknown provider (request_id={self.request_id})")
+            logger.warning(
+                f"[Telemetry] Recording failure with unknown provider (request_id={self.request_id})"
+            )
 
         await UsageService.record_usage(
             db=self.db,
@@ -393,8 +391,9 @@ class BaseMessageHandler:
         self.client_ip = client_ip
         self.user_agent = user_agent
         self.start_time = start_time
-        self.allowed_api_formats = allowed_api_formats or [APIFormat.CLAUDE.value]
-        self.primary_api_format = normalize_api_format(self.allowed_api_formats[0])
+        # 新模式：endpoint signature key（family:kind），如 "claude:chat"
+        self.allowed_api_formats = allowed_api_formats or ["claude:chat"]
+        self.primary_api_format = normalize_endpoint_signature(self.allowed_api_formats[0])
         self.adapter_detector = adapter_detector
 
         redis_client = get_redis_client_sync()
@@ -446,13 +445,6 @@ class BaseMessageHandler:
         """可选的 Key 优先级解析钩子（默认不启用）。"""
         return None
 
-    def get_api_format(self, provider_type: str | None = None) -> APIFormat:
-        """根据 provider_type 解析 API 格式，未知类型默认 OPENAI"""
-        if provider_type:
-            result = resolve_api_format(provider_type, default=APIFormat.OPENAI)
-            return result or APIFormat.OPENAI
-        return self.primary_api_format
-
     def build_provider_payload(
         self,
         original_body: dict[str, Any],
@@ -477,6 +469,7 @@ class BaseMessageHandler:
             request_id: 请求 ID，如果不传则使用 self.request_id
         """
         import asyncio
+
         from src.database.database import get_db
 
         target_request_id = request_id or self.request_id
@@ -511,6 +504,7 @@ class BaseMessageHandler:
             ctx: 流式上下文，包含 provider 相关信息
         """
         import asyncio
+
         from src.database.database import get_db
 
         target_request_id = self.request_id
@@ -567,14 +561,23 @@ class BaseMessageHandler:
             error: 异常对象
         """
         from src.core.exceptions import (
+            ModelNotSupportedException,
             ProviderException,
             QuotaExceededException,
             RateLimitException,
-            ModelNotSupportedException,
             UpstreamClientException,
         )
 
-        if isinstance(error, (ProviderException, QuotaExceededException, RateLimitException, ModelNotSupportedException, UpstreamClientException)):
+        if isinstance(
+            error,
+            (
+                ProviderException,
+                QuotaExceededException,
+                RateLimitException,
+                ModelNotSupportedException,
+                UpstreamClientException,
+            ),
+        ):
             # 业务异常：简洁日志，不打印堆栈
             logger.error(f"{message}: [{type(error).__name__}] {error}")
         else:

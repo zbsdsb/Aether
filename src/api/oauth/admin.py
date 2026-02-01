@@ -1,6 +1,5 @@
 """OAuth 管理端点（管理员）。"""
 
-
 from __future__ import annotations
 
 from typing import Any
@@ -97,25 +96,33 @@ async def list_provider_configs(request: Request, db: Session = Depends(get_db))
 
 
 @router.get("/providers/{provider_type}", response_model=OAuthProviderAdminResponse)
-async def get_provider_config(provider_type: str, request: Request, db: Session = Depends(get_db)) -> Any:
+async def get_provider_config(
+    provider_type: str, request: Request, db: Session = Depends(get_db)
+) -> Any:
     adapter = GetOAuthProviderConfigAdapter(provider_type=provider_type)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
 @router.put("/providers/{provider_type}", response_model=OAuthProviderAdminResponse)
-async def upsert_provider_config(provider_type: str, request: Request, db: Session = Depends(get_db)) -> Any:
+async def upsert_provider_config(
+    provider_type: str, request: Request, db: Session = Depends(get_db)
+) -> Any:
     adapter = UpsertOAuthProviderConfigAdapter(provider_type=provider_type)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
 @router.delete("/providers/{provider_type}")
-async def delete_provider_config(provider_type: str, request: Request, db: Session = Depends(get_db)) -> Any:
+async def delete_provider_config(
+    provider_type: str, request: Request, db: Session = Depends(get_db)
+) -> Any:
     adapter = DeleteOAuthProviderConfigAdapter(provider_type=provider_type)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
 @router.post("/providers/{provider_type}/test", response_model=OAuthProviderTestResponse)
-async def test_provider_config(provider_type: str, request: Request, db: Session = Depends(get_db)) -> Any:
+async def test_provider_config(
+    provider_type: str, request: Request, db: Session = Depends(get_db)
+) -> Any:
     adapter = TestOAuthProviderConfigAdapter(provider_type=provider_type)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
@@ -165,7 +172,11 @@ class GetOAuthProviderConfigAdapter(AdminApiAdapter):
         self.provider_type = provider_type
 
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
-        row = context.db.query(OAuthProvider).filter(OAuthProvider.provider_type == self.provider_type).first()
+        row = (
+            context.db.query(OAuthProvider)
+            .filter(OAuthProvider.provider_type == self.provider_type)
+            .first()
+        )
         if not row:
             raise InvalidRequestException("Provider 配置不存在")
         return OAuthProviderAdminResponse(
@@ -248,9 +259,11 @@ class TestOAuthProviderConfigAdapter(AdminApiAdapter):
         # 如果没有提供 client_secret，尝试从数据库获取已保存的
         client_secret = req.client_secret
         if not client_secret:
-            existing = context.db.query(OAuthProvider).filter(
-                OAuthProvider.provider_type == self.provider_type
-            ).first()
+            existing = (
+                context.db.query(OAuthProvider)
+                .filter(OAuthProvider.provider_type == self.provider_type)
+                .first()
+            )
             if existing and existing.client_secret_encrypted:
                 client_secret = existing.get_client_secret()
 

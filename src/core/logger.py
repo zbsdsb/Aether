@@ -35,8 +35,7 @@ from loguru import logger
 # ============================================================================
 
 IS_DOCKER = (
-    os.path.exists("/.dockerenv")
-    or os.environ.get("DOCKER_CONTAINER", "false").lower() == "true"
+    os.path.exists("/.dockerenv") or os.environ.get("DOCKER_CONTAINER", "false").lower() == "true"
 )
 
 # 日志级别: 默认开发环境 DEBUG, 生产环境 INFO
@@ -53,9 +52,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 # ============================================================================
 
 CONSOLE_FORMAT_DEV = (
-    "<green>{time:HH:mm:ss}</green> | "
-    "<level>{level: <8}</level> | "
-    "<cyan>{message}</cyan>"
+    "<green>{time:HH:mm:ss}</green> | " "<level>{level: <8}</level> | " "<cyan>{message}</cyan>"
 )
 
 CONSOLE_FORMAT_PROD = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}"

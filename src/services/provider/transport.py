@@ -13,8 +13,13 @@ import re
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
-from src.core.api_format import APIFormat, get_default_path, resolve_api_format
+from src.core.api_format import (
+    EndpointKind,
+    get_default_path_for_endpoint,
+    make_signature_key,
+)
 from src.core.logger import logger
+from src.services.provider.format import normalize_endpoint_signature
 
 if TYPE_CHECKING:
     from src.models.database import ProviderAPIKey, ProviderEndpoint
@@ -102,13 +107,29 @@ def build_provider_url(
             decrypted_auth_config=decrypted_auth_config,
         )
 
-    # 准备路径参数，添加 Gemini API 所需的 action 参数
-    effective_path_params = dict(path_params) if path_params else {}
+    # endpoint signature（新模式）
+    raw_family = getattr(endpoint, "api_family", None)
+    raw_kind = getattr(endpoint, "endpoint_kind", None)
+    endpoint_sig = ""
+    if isinstance(raw_family, str) and isinstance(raw_kind, str) and raw_family and raw_kind:
+        endpoint_sig = make_signature_key(raw_family, raw_kind)
+    else:
+        # 兜底：允许 api_format 已直接存 signature key 的情况
+        raw_format = getattr(endpoint, "api_format", None)
+        if isinstance(raw_format, str) and ":" in raw_format:
+            endpoint_sig = raw_format
 
-    # 为 Gemini API 格式自动添加 action 参数
-    resolved_format = resolve_api_format(endpoint.api_format)
-    if resolved_format in (APIFormat.GEMINI, APIFormat.GEMINI_CLI):
-        if "action" not in effective_path_params:
+    # endpoint_sig 为空时保持为空（更安全：默认路径回退到 "/"，避免误判为 claude:chat）
+    endpoint_sig = normalize_endpoint_signature(endpoint_sig) if endpoint_sig else ""
+
+    # 准备路径参数（Gemini chat/cli 需要 action）
+    effective_path_params = dict(path_params) if path_params else {}
+    if endpoint_sig.startswith("gemini:"):
+        try:
+            kind = EndpointKind(endpoint_sig.split(":", 1)[1])
+        except Exception:
+            kind = None
+        if kind in {EndpointKind.CHAT, EndpointKind.CLI} and "action" not in effective_path_params:
             effective_path_params["action"] = (
                 "streamGenerateContent" if is_stream else "generateContent"
             )
@@ -124,7 +145,7 @@ def build_provider_url(
                 pass
     else:
         # 使用 API 格式的默认路径
-        path = _resolve_default_path(endpoint.api_format)
+        path = _resolve_default_path(endpoint_sig)
         if effective_path_params:
             try:
                 path = path.format(**effective_path_params)
@@ -143,9 +164,9 @@ def build_provider_url(
     # 合并查询参数
     effective_query_params = dict(query_params) if query_params else {}
 
-    # Gemini 格式下清除可能存在的 key 参数（避免客户端传入的认证信息泄露到上游）
+    # Gemini family 下清除可能存在的 key 参数（避免客户端传入的认证信息泄露到上游）
     # 上游认证始终使用 header 方式，不使用 URL 参数
-    if resolved_format in (APIFormat.GEMINI, APIFormat.GEMINI_CLI):
+    if endpoint_sig.startswith("gemini:"):
         effective_query_params.pop("key", None)
         # Gemini streamGenerateContent 官方支持 `?alt=sse` 返回 SSE（data: {...}）。
         # 网关侧统一使用 SSE 输出，优先向上游请求 SSE 以减少解析分支；同时保留 JSON-array 兜底解析。
@@ -161,16 +182,13 @@ def build_provider_url(
     return url
 
 
-def _resolve_default_path(api_format: str | None) -> str:
-    """
-    根据 API 格式返回默认路径
-    """
-    resolved = resolve_api_format(api_format)
-    if resolved:
-        return get_default_path(resolved)
-
-    logger.warning(f"Unknown api_format '{api_format}' for endpoint, fallback to '/'")
-    return "/"
+def _resolve_default_path(endpoint_sig: str | None) -> str:
+    """根据 endpoint signature 返回默认路径。"""
+    try:
+        return get_default_path_for_endpoint(endpoint_sig or "")
+    except Exception:
+        logger.warning(f"Unknown endpoint signature '{endpoint_sig}' for endpoint, fallback to '/'")
+        return "/"
 
 
 # ==============================================================================
@@ -179,15 +197,15 @@ def _resolve_default_path(api_format: str | None) -> str:
 
 # Vertex AI 模型前缀到 API 格式的映射
 # 用于 auth_type=vertex_ai 时，根据模型名动态确定实际的请求/响应格式
-# 格式：前缀 -> APIFormat 值
+# 格式：前缀 -> endpoint signature（family:kind）
 VERTEX_AI_MODEL_FORMAT_MAPPING: dict[str, str] = {
-    "claude-": "CLAUDE",  # Anthropic Claude 模型
-    "gemini-": "GEMINI",  # Google Gemini 模型
-    "imagen-": "GEMINI",  # Google Imagen 模型（使用 Gemini 格式）
+    "claude-": "claude:chat",  # Anthropic Claude 模型
+    "gemini-": "gemini:chat",  # Google Gemini 模型
+    "imagen-": "gemini:chat",  # Google Imagen 模型（使用 Gemini chat 格式）
 }
 
-# Vertex AI 默认 API 格式（当模型前缀不匹配时）
-VERTEX_AI_DEFAULT_FORMAT: str = "GEMINI"
+# Vertex AI 默认 endpoint signature（当模型前缀不匹配时）
+VERTEX_AI_DEFAULT_FORMAT: str = "gemini:chat"
 
 
 def get_vertex_ai_effective_format(
@@ -220,7 +238,7 @@ def get_vertex_ai_effective_format(
         auth_config: 解密后的认证配置（可选），可包含 model_format_mapping 和 default_format
 
     Returns:
-        实际应使用的 API 格式（如 "CLAUDE", "GEMINI"）
+        实际应使用的 endpoint signature（如 "claude:chat", "gemini:chat"）
     """
     # 用户配置的模型-格式映射
     user_format_mapping: dict[str, str] = {}
@@ -232,21 +250,39 @@ def get_vertex_ai_effective_format(
 
     # 1. 用户配置：精确匹配
     if model in user_format_mapping:
-        return user_format_mapping[model].upper()
+        try:
+            return normalize_endpoint_signature(user_format_mapping[model])
+        except Exception:
+            logger.warning(
+                "Invalid vertex_ai model_format_mapping value for model '%s': %r",
+                model,
+                user_format_mapping[model],
+            )
 
     # 2. 用户配置：前缀匹配
     for prefix, api_format in user_format_mapping.items():
         if prefix.endswith("-") and model.startswith(prefix):
-            return api_format.upper()
+            try:
+                return normalize_endpoint_signature(api_format)
+            except Exception:
+                logger.warning(
+                    "Invalid vertex_ai model_format_mapping value for prefix '%s': %r",
+                    prefix,
+                    api_format,
+                )
+                break
 
     # 3. 内置配置：前缀匹配
     for prefix, api_format in VERTEX_AI_MODEL_FORMAT_MAPPING.items():
         if model.startswith(prefix):
-            return api_format
+            return normalize_endpoint_signature(api_format)
 
     # 4. 用户默认格式
     if user_default_format:
-        return user_default_format.upper()
+        try:
+            return normalize_endpoint_signature(user_default_format)
+        except Exception:
+            logger.warning("Invalid vertex_ai default_format: %r", user_default_format)
 
     # 5. 内置默认格式
     return VERTEX_AI_DEFAULT_FORMAT

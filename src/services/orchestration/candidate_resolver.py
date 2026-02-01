@@ -10,12 +10,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from src.core.api_format import APIFormat
 from src.core.exceptions import ProviderNotAvailableException
 from src.core.logger import logger
 from src.models.database import ApiKey
 from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
-
 
 
 class CandidateResolver:
@@ -45,7 +43,7 @@ class CandidateResolver:
 
     async def fetch_candidates(
         self,
-        api_format: APIFormat,
+        api_format: str,
         model_name: str,
         affinity_key: str,
         user_api_key: ApiKey | None = None,
@@ -78,6 +76,12 @@ class CandidateResolver:
         provider_batch_size = 20
         global_model_id: str | None = None
 
+        logger.debug(
+            "[CandidateResolver] fetch_candidates starting: model=%s, api_format=%s",
+            model_name,
+            api_format,
+        )
+
         while True:
             candidates, resolved_global_model_id = await self.cache_scheduler.list_all_candidates(
                 db=self.db,
@@ -91,6 +95,12 @@ class CandidateResolver:
                 capability_requirements=capability_requirements,
             )
 
+            logger.debug(
+                "[CandidateResolver] list_all_candidates batch: offset=%d, returned=%d candidates",
+                provider_offset,
+                len(candidates),
+            )
+
             if resolved_global_model_id and global_model_id is None:
                 global_model_id = resolved_global_model_id
 
@@ -99,6 +109,11 @@ class CandidateResolver:
 
             all_candidates.extend(candidates)
             provider_offset += provider_batch_size
+
+            logger.debug(
+                "[CandidateResolver] fetch_candidates completed: total=%d candidates",
+                len(all_candidates),
+            )
 
         if not all_candidates:
             logger.error(f"  [{request_id}] 没有找到任何可用的 Provider/Endpoint/Key 组合")
@@ -196,7 +211,9 @@ class CandidateResolver:
                 candidate_record_map[(candidate_index, 0)] = record_id
             else:
                 # max_retries 已从 Endpoint 迁移到 Provider（Endpoint 仍可能保留旧字段用于兼容）
-                max_retries_for_candidate = int(provider.max_retries or 2) if candidate.is_cached else 1
+                max_retries_for_candidate = (
+                    int(provider.max_retries or 2) if candidate.is_cached else 1
+                )
 
                 for retry_index in range(max_retries_for_candidate):
                     record_id = str(uuid.uuid4())
@@ -226,7 +243,9 @@ class CandidateResolver:
             )
             self.db.flush()
 
-            logger.debug(f"  [{request_id}] 批量插入完成: {len(candidate_records_to_insert)} 条记录")
+            logger.debug(
+                f"  [{request_id}] 批量插入完成: {len(candidate_records_to_insert)} 条记录"
+            )
 
         return candidate_record_map
 

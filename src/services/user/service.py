@@ -18,7 +18,6 @@ from src.services.cache.user_cache import UserCacheService
 from src.utils.transaction_manager import retry_on_database_error, transactional
 
 
-
 class UserService:
     """用户管理服务"""
 
@@ -198,7 +197,12 @@ class UserService:
         ]
 
         # 允许设置为 None 的字段（表示无限制）
-        nullable_fields = ["quota_usd", "allowed_providers", "allowed_api_formats", "allowed_models"]
+        nullable_fields = [
+            "quota_usd",
+            "allowed_providers",
+            "allowed_api_formats",
+            "allowed_models",
+        ]
 
         for field, value in kwargs.items():
             if field not in updatable_fields:
@@ -442,7 +446,9 @@ class UserService:
         # 应用访问限制过滤
         filtered_models = []
         for model in all_models:
-            model_name = model.global_model.name if model.global_model else model.provider_model_name
+            model_name = (
+                model.global_model.name if model.global_model else model.provider_model_name
+            )
             # 使用 AccessRestrictions.is_model_allowed 检查模型是否可访问
             if restrictions.is_model_allowed(model_name, model.provider_id):
                 filtered_models.append(model)

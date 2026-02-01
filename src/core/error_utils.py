@@ -2,9 +2,8 @@
 错误消息处理工具函数
 """
 
-
-
 from __future__ import annotations
+
 
 def extract_error_message(error: Exception, status_code: int | None = None) -> str:
     """

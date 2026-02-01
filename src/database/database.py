@@ -3,19 +3,19 @@
 """
 
 import time
-from typing import Any, cast
 from collections.abc import Generator
+from typing import Any, cast
 
-from starlette.requests import Request
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
+from starlette.requests import Request
+
+from src.core.logger import logger
 
 from ..config import config
-from src.core.logger import logger
 from ..models.database import Base, SystemConfig, User, UserRole
-
 
 # 延迟初始化的数据库引擎和会话工厂
 _engine: Engine | None = None
@@ -135,7 +135,9 @@ def _ensure_engine() -> Engine:
 
     _log_pool_capacity()
 
-    logger.debug(f"数据库引擎已初始化: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else 'local'}")
+    logger.debug(
+        f"数据库引擎已初始化: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else 'local'}"
+    )
 
     return _engine
 
@@ -280,6 +282,7 @@ def init_db() -> None:
     注意：数据库表结构由 Alembic 管理，部署时请运行 ./migrate.sh
     """
     import sys
+
     from sqlalchemy.exc import OperationalError
 
     logger.info("初始化数据库...")

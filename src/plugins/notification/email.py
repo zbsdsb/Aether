@@ -44,18 +44,14 @@ class EmailNotificationPlugin(NotificationPlugin):
 
         # 邮件配置
         self.from_email = config.get("from_email") if config else None
-        self.from_name = (
-            config.get("from_name", "Aether") if config else "Aether"
-        )
+        self.from_name = config.get("from_name", "Aether") if config else "Aether"
         self.to_emails = config.get("to_emails", []) if config else []
         self.cc_emails = config.get("cc_emails", []) if config else []
         self.bcc_emails = config.get("bcc_emails", []) if config else []
 
         # 模板配置
         self.use_html = config.get("use_html", True) if config else True
-        self.subject_prefix = (
-            config.get("subject_prefix", "[Aether]") if config else "[Aether]"
-        )
+        self.subject_prefix = config.get("subject_prefix", "[Aether]") if config else "[Aether]"
 
         # 缓冲配置
         self._buffer: list[Notification] = []

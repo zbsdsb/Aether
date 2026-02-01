@@ -9,6 +9,7 @@ from typing import Any
 
 from src.api.handlers.base.chat_handler_base import ChatHandlerBase
 from src.api.handlers.base.utils import extract_cache_creation_tokens
+from src.core.api_format import ApiFamily, EndpointKind
 
 
 class ClaudeChatHandler(ChatHandlerBase):
@@ -21,7 +22,9 @@ class ClaudeChatHandler(ChatHandlerBase):
     - 请求格式：ClaudeMessagesRequest
     """
 
-    FORMAT_ID = "CLAUDE"
+    FORMAT_ID = "claude:chat"
+    API_FAMILY = ApiFamily.CLAUDE
+    ENDPOINT_KIND = EndpointKind.CHAT
 
     def extract_model_from_request(
         self,

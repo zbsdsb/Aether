@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import ValidationError
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from src.api.base.adapter import ApiAdapter, ApiMode
 from src.api.base.admin_adapter import AdminApiAdapter
 from src.api.base.authenticated_adapter import AuthenticatedApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import InvalidRequestException, translate_pydantic_error
 from src.database import get_db
@@ -19,8 +20,6 @@ from src.models.api import CreateAnnouncementRequest, UpdateAnnouncementRequest
 from src.models.database import User
 from src.services.auth.service import AuthService
 from src.services.system.announcement import AnnouncementService
-from src.api.base.context import ApiRequestContext
-
 
 router = APIRouter(prefix="/api/announcements", tags=["Announcements"])
 pipeline = ApiRequestPipeline()

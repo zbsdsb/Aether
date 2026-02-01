@@ -10,8 +10,9 @@
 期望：Provider B 应该被跳过，因为它不支持 haiku 模型
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.models.database import GlobalModel, Model, Provider
 from src.services.cache.aware_scheduler import CacheAwareScheduler

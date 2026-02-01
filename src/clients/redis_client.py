@@ -16,8 +16,9 @@ import time
 from enum import Enum
 
 import redis.asyncio as aioredis
-from src.core.logger import logger
 from redis.asyncio import sentinel as redis_sentinel
+
+from src.core.logger import logger
 
 
 class RedisState(Enum):

@@ -27,8 +27,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from src.clients.http_client import HTTPClientPool
-from src.core.api_format import APIFormat, get_auth_handler, get_default_auth_method
-from src.core.api_format.metadata import get_api_format_definition
+from src.core.api_format import get_auth_handler, get_default_auth_method_for_endpoint
 from src.core.crypto import crypto_service
 from src.core.logger import logger
 from src.database import get_db
@@ -38,10 +37,7 @@ from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCand
 from src.services.gemini_files_mapping import delete_file_key_mapping, store_file_key_mapping
 from src.services.provider.transport import redact_url_for_log
 
-# 从配置获取路径前缀
-_gemini_def = get_api_format_definition(APIFormat.GEMINI)
-
-router = APIRouter(tags=["Gemini Files API"], prefix=_gemini_def.path_prefix)
+router = APIRouter(tags=["Gemini Files API"])
 
 # Gemini Files API 基础 URL
 GEMINI_FILES_BASE_URL = "https://generativelanguage.googleapis.com"
@@ -70,7 +66,7 @@ def _extract_gemini_api_key(request: Request) -> str | None:
     1. URL 参数 ?key=
     2. x-goog-api-key 请求头
     """
-    auth_method = get_default_auth_method(APIFormat.GEMINI)
+    auth_method = get_default_auth_method_for_endpoint("gemini:chat")
     handler = get_auth_handler(auth_method)
     return handler.extract_credentials(request)
 
@@ -175,7 +171,7 @@ def _resolve_files_model_name(
             Model.is_active == True,
             Provider.is_active == True,
             ProviderEndpoint.is_active == True,
-            ProviderEndpoint.api_format == APIFormat.GEMINI.value,
+            ProviderEndpoint.api_family == "gemini",
         )
         .distinct()
         .order_by(GlobalModel.name.asc())
@@ -193,7 +189,7 @@ async def _select_provider_candidate(
     scheduler = CacheAwareScheduler()
     candidates, _global_model_id = await scheduler.list_all_candidates(
         db=db,
-        api_format=APIFormat.GEMINI,
+        api_format="gemini:chat",
         model_name=model_name,
         affinity_key=str(user_api_key.id),
         user_api_key=user_api_key,

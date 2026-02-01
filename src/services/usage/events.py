@@ -2,8 +2,8 @@
 Usage 事件定义与序列化工具（用于 Redis Streams）
 """
 
-
 from __future__ import annotations
+
 import json
 import time
 from dataclasses import dataclass

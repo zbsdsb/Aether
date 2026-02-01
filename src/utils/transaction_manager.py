@@ -8,17 +8,14 @@ from __future__ import annotations
 
 import functools
 import inspect
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Any
-
-from collections.abc import Callable
-from collections.abc import Generator
 
 from sqlalchemy.exc import DatabaseError, IntegrityError
 from sqlalchemy.orm import Session
 
 from src.core.logger import logger
-
 
 
 class TransactionError(Exception):
@@ -65,6 +62,7 @@ def transactional(commit: bool = True, rollback_on_error: bool = True) -> Any:
     def decorator(func: Callable) -> Callable:
         # 检查是否是异步函数
         if inspect.iscoroutinefunction(func):
+
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 db_session = _find_db_session(args, kwargs)
@@ -107,6 +105,7 @@ def transactional(commit: bool = True, rollback_on_error: bool = True) -> Any:
 
             return async_wrapper
         else:
+
             @functools.wraps(func)
             def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
                 db_session = _find_db_session(args, kwargs)
@@ -138,9 +137,7 @@ def transactional(commit: bool = True, rollback_on_error: bool = True) -> Any:
                             db_session.rollback()
                         except Exception:
                             pass
-                        logger.error(
-                            f"事务回滚: {transaction_id} - {type(e).__name__}: {str(e)}"
-                        )
+                        logger.error(f"事务回滚: {transaction_id} - {type(e).__name__}: {str(e)}")
                     else:
                         logger.error(
                             f"事务异常（未回滚）: {transaction_id} - {type(e).__name__}: {str(e)}"
@@ -222,7 +219,9 @@ def retry_on_database_error(max_retries: int = 3, delay: float = 0.1) -> Any:
                     if attempt < max_retries - 1:
                         # 随机化延迟，避免多个请求同时重试
                         actual_delay = delay * (2**attempt) + random.uniform(0, 0.1)
-                        logger.warning(f"数据库操作失败，{actual_delay:.2f}秒后重试 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                        logger.warning(
+                            f"数据库操作失败，{actual_delay:.2f}秒后重试 (尝试 {attempt + 1}/{max_retries}): {str(e)}"
+                        )
                         time.sleep(actual_delay)
                         continue
                     else:

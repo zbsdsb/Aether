@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
@@ -12,9 +12,15 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from src.api.base.authenticated_adapter import AuthenticatedApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.crypto import crypto_service
-from src.core.exceptions import ForbiddenException, InvalidRequestException, NotFoundException, translate_pydantic_error
+from src.core.exceptions import (
+    ForbiddenException,
+    InvalidRequestException,
+    NotFoundException,
+    translate_pydantic_error,
+)
 from src.core.logger import logger
 from src.database import get_db
 from src.models.api import (
@@ -30,8 +36,6 @@ from src.models.database import ApiKey, GlobalModel, Model, Provider, Usage, Use
 from src.services.usage.service import UsageService
 from src.services.user.apikey import ApiKeyService
 from src.services.user.preference import PreferenceService
-from src.api.base.context import ApiRequestContext
-
 
 router = APIRouter(prefix="/api/users/me", tags=["User Profile"])
 pipeline = ApiRequestPipeline()
@@ -480,6 +484,7 @@ class ChangePasswordAdapter(AuthenticatedApiAdapter):
 
         # LDAP 用户不能修改密码
         from src.core.enums import AuthSource
+
         if user.auth_source == AuthSource.LDAP:
             raise ForbiddenException("LDAP 用户不能在此修改密码")
 
@@ -746,7 +751,8 @@ class GetUsageAdapter(AuthenticatedApiAdapter):
 
         # 过滤掉 unknown/pending provider 的记录（请求未到达任何提供商）
         filtered_summary = [
-            item for item in summary_list
+            item
+            for item in summary_list
             if item.get("provider") not in ("unknown", "pending", None)
         ]
 
@@ -757,8 +763,12 @@ class GetUsageAdapter(AuthenticatedApiAdapter):
         total_output_tokens = (
             sum(item["output_tokens"] for item in filtered_summary) if filtered_summary else 0
         )
-        total_tokens = sum(item["total_tokens"] for item in filtered_summary) if filtered_summary else 0
-        total_cost = sum(item["total_cost_usd"] for item in filtered_summary) if filtered_summary else 0.0
+        total_tokens = (
+            sum(item["total_tokens"] for item in filtered_summary) if filtered_summary else 0
+        )
+        total_cost = (
+            sum(item["total_cost_usd"] for item in filtered_summary) if filtered_summary else 0.0
+        )
 
         # 管理员可以看到真实成本
         total_actual_cost = 0.0
@@ -823,20 +833,22 @@ class GetUsageAdapter(AuthenticatedApiAdapter):
         for stats in provider_summary.values():
             avg_response_time_ms = (
                 stats["total_response_time_ms"] / stats["response_time_count"]
-                if stats["response_time_count"] > 0 else 0
+                if stats["response_time_count"] > 0
+                else 0
             )
             success_rate = (
-                (stats["success_count"] / stats["requests"] * 100)
-                if stats["requests"] > 0 else 100
+                (stats["success_count"] / stats["requests"] * 100) if stats["requests"] > 0 else 100
             )
-            summary_by_provider.append({
-                "provider": stats["provider"],
-                "requests": stats["requests"],
-                "total_tokens": stats["total_tokens"],
-                "total_cost_usd": stats["total_cost_usd"],
-                "success_rate": round(success_rate, 2),
-                "avg_response_time_ms": round(avg_response_time_ms, 2),
-            })
+            summary_by_provider.append(
+                {
+                    "provider": stats["provider"],
+                    "requests": stats["requests"],
+                    "total_tokens": stats["total_tokens"],
+                    "total_cost_usd": stats["total_cost_usd"],
+                    "success_rate": round(success_rate, 2),
+                    "avg_response_time_ms": round(avg_response_time_ms, 2),
+                }
+            )
         summary_by_provider = sorted(summary_by_provider, key=lambda x: x["requests"], reverse=True)
 
         query = (
@@ -866,7 +878,9 @@ class GetUsageAdapter(AuthenticatedApiAdapter):
 
         # 计算总数用于分页
         total_records = query.count()
-        usage_records = query.order_by(Usage.created_at.desc()).offset(self.offset).limit(self.limit).all()
+        usage_records = (
+            query.order_by(Usage.created_at.desc()).offset(self.offset).limit(self.limit).all()
+        )
 
         avg_resp_query = db.query(func.avg(Usage.response_time_ms)).filter(
             Usage.user_id == user.id,
@@ -918,12 +932,13 @@ class GetUsageAdapter(AuthenticatedApiAdapter):
 
     def _build_usage_records(self, usage_records: list, is_admin: bool = False) -> list:
         """构建使用记录列表，包含格式转换信息的回填逻辑
-        
+
         Args:
             usage_records: 使用记录列表
             is_admin: 是否为管理员，管理员可以看到模型映射信息
         """
-        from src.core.api_format.metadata import can_passthrough
+        from src.core.api_format.metadata import can_passthrough_endpoint
+        from src.core.api_format.signature import normalize_signature_key
 
         records = []
         for r, api_key, endpoint in usage_records:
@@ -935,49 +950,53 @@ class GetUsageAdapter(AuthenticatedApiAdapter):
 
             has_format_conversion = r.has_format_conversion
             if has_format_conversion is None:
-                # 使用 can_passthrough 判断是否需要转换，与实际转换逻辑保持一致
-                client_fmt = str(api_format or "").upper()
-                endpoint_fmt = str(endpoint_api_format or "").upper()
-                if client_fmt and endpoint_fmt:
-                    has_format_conversion = not can_passthrough(client_fmt, endpoint_fmt)
+                # 新模式：仅对 signature 进行推断（历史旧值保持 False，避免解析失败）
+                client_raw = str(api_format or "").strip()
+                endpoint_raw = str(endpoint_api_format or "").strip()
+                if client_raw and endpoint_raw and ":" in client_raw and ":" in endpoint_raw:
+                    client_fmt = normalize_signature_key(client_raw)
+                    endpoint_fmt = normalize_signature_key(endpoint_raw)
+                    has_format_conversion = not can_passthrough_endpoint(client_fmt, endpoint_fmt)
                 else:
                     has_format_conversion = False
 
-            records.append({
-                "id": r.id,
-                "model": r.model,
-                # 只有管理员可以看到模型映射信息，普通用户只能看到请求的模型
-                "target_model": r.target_model if is_admin else None,
-                "api_format": api_format,
-                "endpoint_api_format": endpoint_api_format,
-                "has_format_conversion": bool(has_format_conversion),
-                "input_tokens": r.input_tokens,
-                "output_tokens": r.output_tokens,
-                "total_tokens": r.total_tokens,
-                "cost": r.total_cost_usd,
-                "response_time_ms": r.response_time_ms,
-                "first_byte_time_ms": r.first_byte_time_ms,
-                "is_stream": r.is_stream,
-                "status": r.status,  # 请求状态: pending, streaming, completed, failed
-                "created_at": r.created_at.isoformat(),
-                "cache_creation_input_tokens": r.cache_creation_input_tokens,
-                "cache_read_input_tokens": r.cache_read_input_tokens,
-                "status_code": r.status_code,
-                "error_message": r.error_message,
-                "input_price_per_1m": r.input_price_per_1m,
-                "output_price_per_1m": r.output_price_per_1m,
-                "cache_creation_price_per_1m": r.cache_creation_price_per_1m,
-                "cache_read_price_per_1m": r.cache_read_price_per_1m,
-                "api_key": (
-                    {
-                        "id": str(api_key.id),
-                        "name": api_key.name,
-                        "display": api_key.get_display_key(),
-                    }
-                    if api_key
-                    else None
-                ),
-            })
+            records.append(
+                {
+                    "id": r.id,
+                    "model": r.model,
+                    # 只有管理员可以看到模型映射信息，普通用户只能看到请求的模型
+                    "target_model": r.target_model if is_admin else None,
+                    "api_format": api_format,
+                    "endpoint_api_format": endpoint_api_format,
+                    "has_format_conversion": bool(has_format_conversion),
+                    "input_tokens": r.input_tokens,
+                    "output_tokens": r.output_tokens,
+                    "total_tokens": r.total_tokens,
+                    "cost": r.total_cost_usd,
+                    "response_time_ms": r.response_time_ms,
+                    "first_byte_time_ms": r.first_byte_time_ms,
+                    "is_stream": r.is_stream,
+                    "status": r.status,  # 请求状态: pending, streaming, completed, failed
+                    "created_at": r.created_at.isoformat(),
+                    "cache_creation_input_tokens": r.cache_creation_input_tokens,
+                    "cache_read_input_tokens": r.cache_read_input_tokens,
+                    "status_code": r.status_code,
+                    "error_message": r.error_message,
+                    "input_price_per_1m": r.input_price_per_1m,
+                    "output_price_per_1m": r.output_price_per_1m,
+                    "cache_creation_price_per_1m": r.cache_creation_price_per_1m,
+                    "cache_read_price_per_1m": r.cache_read_price_per_1m,
+                    "api_key": (
+                        {
+                            "id": str(api_key.id),
+                            "name": api_key.name,
+                            "display": api_key.get_display_key(),
+                        }
+                        if api_key
+                        else None
+                    ),
+                }
+            )
         return records
 
 
@@ -1065,9 +1084,7 @@ class ListAvailableModelsAdapter(AuthenticatedApiAdapter):
         global_conversion_enabled = app_config.format_conversion_enabled
 
         # 获取所有可用的 Provider ID（考虑格式转换）
-        available_provider_ids = self._get_all_available_provider_ids(
-            db, global_conversion_enabled
-        )
+        available_provider_ids = self._get_all_available_provider_ids(db, global_conversion_enabled)
 
         if not available_provider_ids:
             return {"models": [], "total": 0}
@@ -1154,30 +1171,42 @@ class ListAvailableModelsAdapter(AuthenticatedApiAdapter):
         - 在内存中进行格式兼容性过滤
         - 一次性查询 Key 可用性
         """
+        from sqlalchemy import tuple_
+
         from src.api.base.models_service import get_available_provider_ids
-        from src.core.api_format import APIFormat
         from src.core.api_format.conversion.compatibility import is_format_compatible
+        from src.core.api_format.signature import make_signature_key
         from src.models.database import ProviderEndpoint
 
-        # 所有 API 格式列表（包括 CLI 格式）
+        # 所有 Chat/CLI endpoint signature（用于计算“可访问并集”）
         all_formats = [
-            APIFormat.OPENAI.value, APIFormat.OPENAI_CLI.value,
-            APIFormat.CLAUDE.value, APIFormat.CLAUDE_CLI.value,
-            APIFormat.GEMINI.value, APIFormat.GEMINI_CLI.value,
+            "openai:chat",
+            "openai:cli",
+            "claude:chat",
+            "claude:cli",
+            "gemini:chat",
+            "gemini:cli",
         ]
+
+        target_pairs = [(f.split(":", 1)[0], f.split(":", 1)[1]) for f in all_formats]
 
         # 步骤 1：一次性查询所有活跃端点（单次 DB 查询）
         endpoint_rows = (
             db.query(
                 ProviderEndpoint.provider_id,
-                ProviderEndpoint.api_format,
+                ProviderEndpoint.api_family,
+                ProviderEndpoint.endpoint_kind,
                 ProviderEndpoint.format_acceptance_config,
             )
             .join(Provider, ProviderEndpoint.provider_id == Provider.id)
             .filter(
                 Provider.is_active.is_(True),
                 ProviderEndpoint.is_active.is_(True),
-                ProviderEndpoint.api_format.in_(all_formats),
+                ProviderEndpoint.api_family.isnot(None),
+                ProviderEndpoint.endpoint_kind.isnot(None),
+                tuple_(ProviderEndpoint.api_family, ProviderEndpoint.endpoint_kind).in_(
+                    target_pairs
+                ),
             )
             .all()
         )
@@ -1189,23 +1218,23 @@ class ListAvailableModelsAdapter(AuthenticatedApiAdapter):
         # 只要端点能被任意一种客户端格式访问，就将其 Provider 加入结果
         provider_to_formats: dict[str, set[str]] = {}
 
-        for provider_id, endpoint_format, format_acceptance_config in endpoint_rows:
-            if not provider_id or not endpoint_format:
+        for provider_id, api_family, endpoint_kind, format_acceptance_config in endpoint_rows:
+            if not provider_id or not api_family or not endpoint_kind:
                 continue
 
-            endpoint_format_upper = str(endpoint_format).upper()
+            endpoint_format = make_signature_key(str(api_family), str(endpoint_kind))
 
             # 检查该端点是否能被任意客户端格式访问
             for client_format in all_formats:
                 is_compatible, _, _ = is_format_compatible(
                     client_format,
-                    endpoint_format_upper,
+                    endpoint_format,
                     format_acceptance_config,
                     is_stream=False,
                     global_conversion_enabled=global_conversion_enabled,
                 )
                 if is_compatible:
-                    provider_to_formats.setdefault(provider_id, set()).add(endpoint_format_upper)
+                    provider_to_formats.setdefault(provider_id, set()).add(endpoint_format)
                     break  # 只要有一种客户端格式能访问就够了
 
         if not provider_to_formats:
@@ -1221,7 +1250,6 @@ class ListAvailableProvidersAdapter(AuthenticatedApiAdapter):
 
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         from sqlalchemy.orm import selectinload
-
 
         db = context.db
 
@@ -1397,7 +1425,9 @@ class UpdateApiKeyCapabilitiesAdapter(AuthenticatedApiAdapter):
             },
         )
 
-        logger.debug(f"用户 {user.id} 更新API密钥 {self.api_key_id} 的强制能力配置: {force_capabilities}")
+        logger.debug(
+            f"用户 {user.id} 更新API密钥 {self.api_key_id} 的强制能力配置: {force_capabilities}"
+        )
         return {
             "message": "API密钥能力配置已更新",
             "force_capabilities": api_key.force_capabilities,

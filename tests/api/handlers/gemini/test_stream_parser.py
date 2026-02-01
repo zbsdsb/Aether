@@ -17,4 +17,3 @@ def test_is_done_event_false_when_no_candidates_or_reason() -> None:
     parser = GeminiStreamParser()
     assert parser.is_done_event({}) is False
     assert parser.is_done_event({"candidates": [{}]}) is False
-

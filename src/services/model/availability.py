@@ -8,9 +8,7 @@
 - API Key/User 的请求级访问限制由 models_service.AccessRestrictions 处理
 """
 
-
-
-from sqlalchemy import or_
+from sqlalchemy import or_, tuple_
 from sqlalchemy.orm import Query, Session, contains_eager
 
 from src.core.logger import logger
@@ -21,6 +19,7 @@ from src.models.database import (
     ProviderAPIKey,
     ProviderEndpoint,
 )
+from src.services.provider.format import normalize_endpoint_signature
 
 
 class ModelAvailabilityQuery:
@@ -86,23 +85,45 @@ class ModelAvailabilityQuery:
         Returns:
             {provider_id: {format1, format2, ...}}
         """
-        target_formats = {f.upper() for f in api_formats}
+        target_pairs: list[tuple[str, str]] = []
+        for fmt in api_formats:
+            if not fmt:
+                continue
+            try:
+                norm = normalize_endpoint_signature(fmt)
+                fam, kind = norm.split(":", 1)
+                if fam and kind:
+                    target_pairs.append((fam, kind))
+            except Exception:
+                continue
+        if not target_pairs:
+            return {}
 
         endpoint_rows = (
-            db.query(ProviderEndpoint.provider_id, ProviderEndpoint.api_format)
+            db.query(
+                ProviderEndpoint.provider_id,
+                ProviderEndpoint.api_family,
+                ProviderEndpoint.endpoint_kind,
+            )
             .join(Provider, ProviderEndpoint.provider_id == Provider.id)
             .filter(
                 Provider.is_active.is_(True),
-                ProviderEndpoint.api_format.in_(list(target_formats)),
                 ProviderEndpoint.is_active.is_(True),
+                ProviderEndpoint.api_family.isnot(None),
+                ProviderEndpoint.endpoint_kind.isnot(None),
+                tuple_(ProviderEndpoint.api_family, ProviderEndpoint.endpoint_kind).in_(
+                    target_pairs
+                ),
             )
             .all()
         )
 
         provider_to_formats: dict[str, set[str]] = {}
-        for provider_id, fmt in endpoint_rows:
-            if provider_id and fmt:
-                provider_to_formats.setdefault(provider_id, set()).add(str(fmt).upper())
+        for provider_id, fam, kind in endpoint_rows:
+            if provider_id and fam and kind:
+                provider_to_formats.setdefault(provider_id, set()).add(
+                    normalize_endpoint_signature(f"{fam}:{kind}")
+                )
 
         return provider_to_formats
 
@@ -123,7 +144,7 @@ class ModelAvailabilityQuery:
         if not provider_ids:
             return set()
 
-        target_formats = {f.upper() for f in api_formats}
+        target_formats = {normalize_endpoint_signature(f) for f in api_formats if f}
 
         key_rows = (
             db.query(ProviderAPIKey.provider_id, ProviderAPIKey.api_formats)
@@ -144,17 +165,24 @@ class ModelAvailabilityQuery:
                 continue
 
             # 类型兜底：key_formats 是 JSON 字段
-            if not isinstance(key_formats, list):
-                if key_formats is not None:
-                    logger.warning(
-                        f"[ModelAvailability] Key api_formats 类型异常, "
-                        f"provider_id={provider_id}, type={type(key_formats).__name__}"
-                    )
+            if key_formats is None:
+                # None = 全支持（兼容历史数据）
+                key_formats_norm = set(endpoint_formats)
+            elif not isinstance(key_formats, list):
+                logger.warning(
+                    "[ModelAvailability] Key api_formats 类型异常, provider_id=%s, type=%s",
+                    provider_id,
+                    type(key_formats).__name__,
+                )
                 continue
+            else:
+                key_formats_norm = {
+                    normalize_endpoint_signature(str(f))
+                    for f in key_formats
+                    if isinstance(f, str) and f
+                }
 
-            key_formats_upper: set[str] = {str(f).upper() for f in key_formats if isinstance(f, str)}
-
-            if key_formats_upper & endpoint_formats & target_formats:
+            if key_formats_norm & endpoint_formats & target_formats:
                 available_provider_ids.add(provider_id)
 
         return available_provider_ids
@@ -179,7 +207,7 @@ class ModelAvailabilityQuery:
         if not provider_ids:
             return {}
 
-        target_formats = {f.upper() for f in api_formats}
+        target_formats = {normalize_endpoint_signature(f) for f in api_formats if f}
 
         key_rows = (
             db.query(
@@ -205,16 +233,23 @@ class ModelAvailabilityQuery:
                 continue
 
             # 类型兜底：key_formats
-            if not isinstance(key_formats, list):
-                if key_formats is not None:
-                    logger.warning(
-                        f"[ModelAvailability] Key api_formats 类型异常, "
-                        f"key_id={key_id}, type={type(key_formats).__name__}"
-                    )
+            if key_formats is None:
+                key_formats_norm = set(endpoint_formats)
+            elif not isinstance(key_formats, list):
+                logger.warning(
+                    "[ModelAvailability] Key api_formats 类型异常, key_id=%s, type=%s",
+                    key_id,
+                    type(key_formats).__name__,
+                )
                 continue
+            else:
+                key_formats_norm = {
+                    normalize_endpoint_signature(str(f))
+                    for f in key_formats
+                    if isinstance(f, str) and f
+                }
 
-            key_formats_upper: set[str] = {str(f).upper() for f in key_formats if isinstance(f, str)}
-            usable_formats = key_formats_upper & endpoint_formats & target_formats
+            usable_formats = key_formats_norm & endpoint_formats & target_formats
             if not usable_formats:
                 continue
 
@@ -259,4 +294,3 @@ class ModelAvailabilityQuery:
             query = query.filter(Model.provider_id.in_(provider_ids))
 
         return query
-

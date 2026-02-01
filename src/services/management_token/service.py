@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
 import ipaddress
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -159,9 +159,7 @@ class ManagementTokenService:
             ValueError: 如果名称已存在或超过数量限制
         """
         # 检查用户 Token 数量限制
-        token_count = (
-            db.query(ManagementToken).filter(ManagementToken.user_id == user_id).count()
-        )
+        token_count = db.query(ManagementToken).filter(ManagementToken.user_id == user_id).count()
         max_tokens = config.management_token_max_per_user
         if token_count >= max_tokens:
             raise ValueError(f"已达到 Token 数量上限（{max_tokens}）")
@@ -335,9 +333,7 @@ class ManagementTokenService:
         return token
 
     @staticmethod
-    def delete_token(
-        db: Session, token_id: str, user_id: str | None = None
-    ) -> bool:
+    def delete_token(db: Session, token_id: str, user_id: str | None = None) -> bool:
         """删除 Token
 
         Args:

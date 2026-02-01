@@ -7,10 +7,10 @@ API Pipeline 测试
 - 审计日志记录
 """
 
-import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import HTTPException
 
 from src.api.base.pipeline import ApiRequestPipeline
@@ -142,7 +142,11 @@ class TestPipelineAuditLogging:
         ) as mock_log:
             with patch("time.time", return_value=1001.0):
                 pipeline._record_audit_event(
-                    mock_context, mock_adapter, success=False, status_code=500, error="Internal error"
+                    mock_context,
+                    mock_adapter,
+                    success=False,
+                    status_code=500,
+                    error="Internal error",
                 )
 
             mock_log.assert_called_once()

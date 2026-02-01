@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import secrets
 import time
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, cast
-from collections.abc import Awaitable
 
 from redis.asyncio import Redis
 

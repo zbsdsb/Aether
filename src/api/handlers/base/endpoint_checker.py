@@ -15,18 +15,23 @@
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any
-from collections.abc import Iterable
+
+import asyncio
+import json
 import time
 import uuid
-import json
-import asyncio
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
+from src.core.api_format import (
+    CORE_REDACT_HEADERS,
+    merge_headers_with_protection,
+    redact_headers_for_log,
+)
 from src.core.logger import logger
-from src.core.api_format import CORE_REDACT_HEADERS, merge_headers_with_protection, redact_headers_for_log
 from src.utils.ssl_utils import get_ssl_context
 
 
@@ -88,7 +93,7 @@ async def run_endpoint_check(
         provider_id=provider_id,
         db=db,
         user=user,
-        request_id=str(uuid.uuid4())[:8]
+        request_id=str(uuid.uuid4())[:8],
     )
 
     # 使用协调器执行检查
@@ -113,6 +118,7 @@ async def run_endpoint_check(
         response_data["usage"] = result.usage_data
 
     return response_data
+
 
 async def _calculate_and_record_usage(
     *,
@@ -146,9 +152,9 @@ async def _calculate_and_record_usage(
     Returns:
         Dict包含用量统计信息
     """
-    from src.services.usage.service import UsageService
-    from src.services.request.candidate import RequestCandidateService
     from src.models.database import ApiKey, ProviderAPIKey
+    from src.services.request.candidate import RequestCandidateService
+    from src.services.usage.service import UsageService
 
     # 获取Provider API Key对象（不是用户API Key）
     provider_api_key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == api_key_id).first()
@@ -160,6 +166,7 @@ async def _calculate_and_record_usage(
     provider_endpoint = None
     if api_format and provider_api_key.provider_id:
         from src.models.database import Provider
+
         provider = db.query(Provider).filter(Provider.id == provider_api_key.provider_id).first()
         if provider:
             for ep in provider.endpoints:
@@ -172,7 +179,9 @@ async def _calculate_and_record_usage(
     if user:
         try:
             user_api_key = db.query(ApiKey).filter(ApiKey.user_id == user.id).first()
-            logger.info(f"[endpoint_check] User API Key found: {user_api_key.id if user_api_key else None}")
+            logger.info(
+                f"[endpoint_check] User API Key found: {user_api_key.id if user_api_key else None}"
+            )
         except Exception as e:
             logger.warning(f"[endpoint_check] Failed to get user API Key: {e}")
             user_api_key = None
@@ -181,7 +190,12 @@ async def _calculate_and_record_usage(
     # 用量记录会关联到执行测试的用户，但实际的API调用使用Provider的配置
 
     # Token计数 - 优先使用直接传递的数据，否则使用原有逻辑
-    if input_tokens is None or output_tokens is None or cache_creation_input_tokens is None or cache_read_input_tokens is None:
+    if (
+        input_tokens is None
+        or output_tokens is None
+        or cache_creation_input_tokens is None
+        or cache_read_input_tokens is None
+    ):
         # 使用原有逻辑计算token
         logger.info(f"[endpoint_check] Calculating tokens from response data")
 
@@ -191,7 +205,7 @@ async def _calculate_and_record_usage(
             usage_info = response_data.get("usage", {})
 
         if not api_format:
-            api_format = "OPENAI"
+            api_format = "openai:chat"
 
         logger.info(f"[endpoint_check] Detected API format: {api_format}")
 
@@ -199,8 +213,9 @@ async def _calculate_and_record_usage(
             logger.info(f"[endpoint_check] Found usage field in response: {usage_info}")
             # 使用提取函数获取token数据
             api_identifier = provider_name  # 在这个旧函数中，我们只能使用provider_name
-            extracted_input, extracted_output, extracted_cache_creation, extracted_cache_read = \
+            extracted_input, extracted_output, extracted_cache_creation, extracted_cache_read = (
                 _extract_tokens_from_response(api_identifier, response_data)
+            )
 
             input_tokens = input_tokens or extracted_input
             output_tokens = output_tokens or extracted_output
@@ -209,10 +224,13 @@ async def _calculate_and_record_usage(
 
         else:
             # 如果没有usage字段，使用fallback
-            logger.warning(f"[endpoint_check] No usage field found in response, using fallback counting")
+            logger.warning(
+                f"[endpoint_check] No usage field found in response, using fallback counting"
+            )
             try:
-                fallback_input, fallback_output, fallback_cache_creation, fallback_cache_read = \
+                fallback_input, fallback_output, fallback_cache_creation, fallback_cache_read = (
                     _fallback_token_counting(request_data, response_data)
+                )
 
                 input_tokens = input_tokens or fallback_input
                 output_tokens = output_tokens or fallback_output
@@ -226,16 +244,20 @@ async def _calculate_and_record_usage(
                 cache_creation_input_tokens = cache_creation_input_tokens or 0
                 cache_read_input_tokens = cache_read_input_tokens or 0
 
-    logger.info(f"[endpoint_check] Final token count | input={input_tokens}, output={output_tokens}, "
-               f"cache_creation={cache_creation_input_tokens}, cache_read={cache_read_input_tokens}")
+    logger.info(
+        f"[endpoint_check] Final token count | input={input_tokens}, output={output_tokens}, "
+        f"cache_creation={cache_creation_input_tokens}, cache_read={cache_read_input_tokens}"
+    )
 
     try:
         # 使用UsageService记录用量
         # 测试请求会关联到执行测试的用户API Key，但实际使用Provider API Key
-        logger.info(f"[endpoint_check] Recording usage | provider={provider_name}, model={model_name}, "
-                   f"tokens=({input_tokens}+{output_tokens}), status={status_code}, "
-                   f"user_api_key_id={user_api_key.id if user_api_key else None}, "
-                   f"provider_endpoint_id={provider_endpoint.id if provider_endpoint else None}")
+        logger.info(
+            f"[endpoint_check] Recording usage | provider={provider_name}, model={model_name}, "
+            f"tokens=({input_tokens}+{output_tokens}), status={status_code}, "
+            f"user_api_key_id={user_api_key.id if user_api_key else None}, "
+            f"provider_endpoint_id={provider_endpoint.id if provider_endpoint else None}"
+        )
 
         usage_record = await UsageService.record_usage_async(
             db=db,
@@ -269,7 +291,9 @@ async def _calculate_and_record_usage(
 
         # 检查费用计算是否成功
         total_cost = float(usage_record.total_cost_usd) if usage_record.total_cost_usd else 0.0
-        actual_cost = float(usage_record.actual_total_cost_usd) if usage_record.actual_total_cost_usd else 0.0
+        actual_cost = (
+            float(usage_record.actual_total_cost_usd) if usage_record.actual_total_cost_usd else 0.0
+        )
         cache_cost = float(usage_record.cache_cost_usd) if usage_record.cache_cost_usd else 0.0
 
         # 如果费用为0但Token不为0，可能是价格配置缺失，使用默认价格
@@ -280,9 +304,11 @@ async def _calculate_and_record_usage(
             total_cost = ((input_tokens + output_tokens) / 1_000_000) * fallback_price_per_1m
             actual_cost = total_cost  # 测试请求使用实际成本
 
-        logger.info(f"[endpoint_check] Usage recorded successfully | "
-                   f"usage_id={usage_record.id}, total_cost=${total_cost:.6f}, "
-                   f"actual_cost=${actual_cost:.6f}")
+        logger.info(
+            f"[endpoint_check] Usage recorded successfully | "
+            f"usage_id={usage_record.id}, total_cost=${total_cost:.6f}, "
+            f"actual_cost=${actual_cost:.6f}"
+        )
 
         # 创建RequestCandidate记录，用于监控追踪API
         try:
@@ -323,7 +349,9 @@ async def _calculate_and_record_usage(
                     extra_data={"model_name": model_name, "api_format": api_format},
                 )
 
-            logger.info(f"[endpoint_check] RequestCandidate created | request_id=test_{request_id}, candidate_id={candidate.id}")
+            logger.info(
+                f"[endpoint_check] RequestCandidate created | request_id=test_{request_id}, candidate_id={candidate.id}"
+            )
         except Exception as e:
             logger.warning(f"[endpoint_check] Failed to create RequestCandidate: {e}")
             # 不影响主要功能
@@ -359,7 +387,9 @@ async def _calculate_and_record_usage(
         }
 
 
-def _extract_tokens_from_response(api_identifier: str, response_data: dict[str, Any] | None) -> tuple[int, int, int, int]:
+def _extract_tokens_from_response(
+    api_identifier: str, response_data: dict[str, Any] | None
+) -> tuple[int, int, int, int]:
     """
     从响应中提取Token计数信息
 
@@ -395,6 +425,7 @@ def _extract_tokens_from_response(api_identifier: str, response_data: dict[str, 
             # 尝试提取cache creation tokens
             try:
                 from src.api.handlers.base.utils import extract_cache_creation_tokens
+
                 cache_creation_input_tokens = extract_cache_creation_tokens(usage_info)
             except Exception as e:
                 logger.warning(f"[endpoint_check] Failed to extract cache creation tokens: {e}")
@@ -402,14 +433,18 @@ def _extract_tokens_from_response(api_identifier: str, response_data: dict[str, 
         elif "openai" in api_identifier_lower:
             # OpenAI格式
             input_tokens = usage_info.get("prompt_tokens", 0) or usage_info.get("input_tokens", 0)
-            output_tokens = usage_info.get("completion_tokens", 0) or usage_info.get("output_tokens", 0)
+            output_tokens = usage_info.get("completion_tokens", 0) or usage_info.get(
+                "output_tokens", 0
+            )
             cache_creation_input_tokens = 0
             cache_read_input_tokens = 0
 
         elif "gemini" in api_identifier_lower or "google" in api_identifier_lower:
             # Gemini格式 - 使用与OpenAI类似的字段名
             input_tokens = usage_info.get("prompt_tokens", 0) or usage_info.get("input_tokens", 0)
-            output_tokens = usage_info.get("completion_tokens", 0) or usage_info.get("output_tokens", 0)
+            output_tokens = usage_info.get("completion_tokens", 0) or usage_info.get(
+                "output_tokens", 0
+            )
             cache_creation_input_tokens = 0
             cache_read_input_tokens = 0
 
@@ -421,31 +456,38 @@ def _extract_tokens_from_response(api_identifier: str, response_data: dict[str, 
             cache_read_input_tokens = usage_info.get("cache_read_input_tokens", 0)
             try:
                 from src.api.handlers.base.utils import extract_cache_creation_tokens
+
                 cache_creation_input_tokens = extract_cache_creation_tokens(usage_info)
             except Exception as e:
                 logger.warning(f"[endpoint_check] Failed to extract cache creation tokens: {e}")
 
         else:
             # 默认情况：尝试通用提取
-            logger.warning(f"[endpoint_check] Unknown API identifier: {api_identifier}, using generic token extraction")
+            logger.warning(
+                f"[endpoint_check] Unknown API identifier: {api_identifier}, using generic token extraction"
+            )
             input_tokens = usage_info.get("input_tokens", 0) or usage_info.get("prompt_tokens", 0)
-            output_tokens = usage_info.get("output_tokens", 0) or usage_info.get("completion_tokens", 0)
+            output_tokens = usage_info.get("output_tokens", 0) or usage_info.get(
+                "completion_tokens", 0
+            )
 
     except Exception as e:
         logger.warning(f"[endpoint_check] Error extracting tokens from response: {e}")
         return 0, 0, 0, 0
 
-    logger.info(f"[endpoint_check] Tokens extracted from response | "
-               f"api_identifier={api_identifier}, "
-               f"input={input_tokens}, output={output_tokens}, "
-               f"cache_creation={cache_creation_input_tokens}, cache_read={cache_read_input_tokens}")
+    logger.info(
+        f"[endpoint_check] Tokens extracted from response | "
+        f"api_identifier={api_identifier}, "
+        f"input={input_tokens}, output={output_tokens}, "
+        f"cache_creation={cache_creation_input_tokens}, cache_read={cache_read_input_tokens}"
+    )
 
     return input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens
 
 
-
-
-def _fallback_token_counting(request_data: dict[str, Any], response_data: dict[str, Any] | None) -> tuple[int, int, int, int]:
+def _fallback_token_counting(
+    request_data: dict[str, Any], response_data: dict[str, Any] | None
+) -> tuple[int, int, int, int]:
     """
     回退的Token计数方法（简单估算）
 
@@ -496,16 +538,21 @@ def _fallback_token_counting(request_data: dict[str, Any], response_data: dict[s
                             output_text += part["text"]
                     output_tokens = max(1, len(output_text.split()) // 4)
 
-    logger.info(f"[endpoint_check] Fallback token count | input={input_tokens}, output={output_tokens}")
+    logger.info(
+        f"[endpoint_check] Fallback token count | input={input_tokens}, output={output_tokens}"
+    )
     return input_tokens, output_tokens, 0, 0
+
 
 # =========================================================================
 # 重构后的架构类 - 分离关注点
 # =========================================================================
 
+
 @dataclass
 class EndpointCheckRequest:
     """端点检查请求数据类"""
+
     url: str
     headers: dict[str, str]
     json_body: dict[str, Any]
@@ -523,6 +570,7 @@ class EndpointCheckRequest:
 @dataclass
 class EndpointCheckResult:
     """端点检查结果数据类"""
+
     status_code: int
     headers: dict[str, str]
     response_time_ms: int
@@ -547,9 +595,7 @@ class HttpRequestExecutor:
             # 使用httpx进行异步请求
             async with httpx.AsyncClient(timeout=self.timeout, verify=get_ssl_context()) as client:
                 response = await client.post(
-                    url=request.url,
-                    json=request.json_body,
-                    headers=request.headers
+                    url=request.url, json=request.json_body, headers=request.headers
                 )
 
             end_time = time.time()
@@ -559,7 +605,9 @@ class HttpRequestExecutor:
             if response.status_code == 200:
                 try:
                     response_data = response.json()
-                    logger.debug(f"[{request.api_format}] check_endpoint | response | json={_truncate_repr(response_data)}")
+                    logger.debug(
+                        f"[{request.api_format}] check_endpoint | response | json={_truncate_repr(response_data)}"
+                    )
                 except Exception:
                     response_data = None
                     logger.debug(f"[{request.api_format}] check_endpoint | response | invalid json")
@@ -569,18 +617,20 @@ class HttpRequestExecutor:
                     headers=dict(response.headers),
                     response_time_ms=response_time_ms,
                     request_id=request_id,
-                    response_data=response_data
+                    response_data=response_data,
                 )
             else:
                 # 对于非200状态码，使用错误处理器
                 error_body = response.text[:500] if response.text else "(empty)"
-                logger.debug(f"[{request.api_format}] check_endpoint | response | error={error_body}")
+                logger.debug(
+                    f"[{request.api_format}] check_endpoint | response | error={error_body}"
+                )
 
                 # 创建HTTPStatusError让错误处理器处理
                 http_error = httpx.HTTPStatusError(
                     message=f"HTTP {response.status_code}: {error_body}",
                     request=None,  # 我们不需要完整的request对象
-                    response=response
+                    response=response,
                 )
 
                 return await ErrorHandler.handle_error(http_error, request)
@@ -594,7 +644,9 @@ class UsageCalculator:
     """用量计算器 - 专门负责Token计数和费用计算"""
 
     @staticmethod
-    def calculate_tokens(request: EndpointCheckRequest, result: EndpointCheckResult) -> tuple[int, int, int, int]:
+    def calculate_tokens(
+        request: EndpointCheckRequest, result: EndpointCheckResult
+    ) -> tuple[int, int, int, int]:
         """
         计算Token数量
 
@@ -612,7 +664,9 @@ class UsageCalculator:
         return _extract_tokens_from_response(api_identifier, result.response_data)
 
     @staticmethod
-    def _fallback_token_counting(request_data: dict[str, Any], response_data: dict[str, Any] | None) -> tuple[int, int, int, int]:
+    def _fallback_token_counting(
+        request_data: dict[str, Any], response_data: dict[str, Any] | None
+    ) -> tuple[int, int, int, int]:
         """回退的Token计数方法（简单估算）"""
         # 估算输入Token
         messages = request_data.get("messages", request_data.get("contents", []))
@@ -657,6 +711,7 @@ class UsageCalculator:
                         output_tokens = max(1, len(output_text.split()) // 4)
 
         return input_tokens, output_tokens, 0, 0
+
 
 class AsyncBatchUsageRecorder:
     """异步用量记录器 - 批处理数据库操作"""
@@ -711,7 +766,9 @@ class AsyncBatchUsageRecorder:
             # 目前保持简单的逐条插入，但减少了锁的竞争
             for record in records_to_flush:
                 # 调用原有的用量记录逻辑（简化版）
-                logger.debug(f"[AsyncBatchUsageRecorder] Flushing usage record: {record.get('request_id', 'unknown')}")
+                logger.debug(
+                    f"[AsyncBatchUsageRecorder] Flushing usage record: {record.get('request_id', 'unknown')}"
+                )
 
             logger.info(f"[AsyncBatchUsageRecorder] Flushed {len(records_to_flush)} usage records")
         except Exception as e:
@@ -741,6 +798,7 @@ class AsyncBatchUsageRecorder:
 # 全局批处理器实例（单例）
 _global_batch_recorder: AsyncBatchUsageRecorder | None = None
 
+
 def get_batch_recorder() -> AsyncBatchUsageRecorder:
     """获取全局批处理器实例"""
     global _global_batch_recorder
@@ -753,32 +811,48 @@ def get_batch_recorder() -> AsyncBatchUsageRecorder:
 # 统一错误处理机制
 # =========================================================================
 
+
 class EndpointCheckError(Exception):
     """端点检查错误基类"""
-    def __init__(self, message: str, error_type: str, status_code: int = 500, details: dict[str, Any] | None = None):
+
+    def __init__(
+        self,
+        message: str,
+        error_type: str,
+        status_code: int = 500,
+        details: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.message = message
         self.error_type = error_type
         self.status_code = status_code
         self.details = details or {}
 
+
 class NetworkError(EndpointCheckError):
     """网络请求错误"""
+
     def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message, "network_error", 0, details)
 
+
 class AuthenticationError(EndpointCheckError):
     """认证错误"""
+
     def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message, "authentication_error", 401, details)
 
+
 class RateLimitError(EndpointCheckError):
     """速率限制错误"""
+
     def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message, "rate_limit_error", 429, details)
 
+
 class UpstreamError(EndpointCheckError):
     """上游服务错误"""
+
     def __init__(self, message: str, status_code: int, details: dict[str, Any] | None = None):
         super().__init__(message, "upstream_error", status_code, details)
 
@@ -803,7 +877,9 @@ class ErrorHandler:
             return ErrorHandler._handle_unknown_error(error, request)
 
     @staticmethod
-    def _handle_network_error(error: httpx.RequestError, request: EndpointCheckRequest) -> EndpointCheckResult:
+    def _handle_network_error(
+        error: httpx.RequestError, request: EndpointCheckRequest
+    ) -> EndpointCheckResult:
         """处理网络错误"""
         error_message = f"Network error: {str(error)}"
         logger.warning(f"[{request.api_format}] Network error: {error}")
@@ -827,12 +903,14 @@ class ErrorHandler:
             response_data={
                 "error_type": error_type,
                 "original_error": str(error),
-                "retryable": True
-            }
+                "retryable": True,
+            },
         )
 
     @staticmethod
-    def _handle_timeout_error(error: httpx.TimeoutException, request: EndpointCheckRequest) -> EndpointCheckResult:
+    def _handle_timeout_error(
+        error: httpx.TimeoutException, request: EndpointCheckRequest
+    ) -> EndpointCheckResult:
         """处理超时错误"""
         logger.warning(f"[{request.api_format}] Request timeout: {error}")
         return EndpointCheckResult(
@@ -845,14 +923,18 @@ class ErrorHandler:
                 "error_type": "timeout",
                 "original_error": str(error),
                 "retryable": True,
-                "timeout_seconds": request.timeout
-            }
+                "timeout_seconds": request.timeout,
+            },
         )
 
     @staticmethod
-    def _handle_http_status_error(error: httpx.HTTPStatusError, request: EndpointCheckRequest) -> EndpointCheckResult:
+    def _handle_http_status_error(
+        error: httpx.HTTPStatusError, request: EndpointCheckRequest
+    ) -> EndpointCheckResult:
         """处理HTTP状态错误"""
-        logger.warning(f"[{request.api_format}] HTTP error: {error.response.status_code} - {error.response.text[:200]}")
+        logger.warning(
+            f"[{request.api_format}] HTTP error: {error.response.status_code} - {error.response.text[:200]}"
+        )
 
         # 根据状态码分类错误
         status_code = error.response.status_code
@@ -887,14 +969,18 @@ class ErrorHandler:
                 "error_type": error_type,
                 "http_status": status_code,
                 "response_body": error.response.text[:500] if error.response.text else "",
-                "retryable": retryable
-            }
+                "retryable": retryable,
+            },
         )
 
     @staticmethod
-    def _handle_business_error(error: EndpointCheckError, request: EndpointCheckRequest) -> EndpointCheckResult:
+    def _handle_business_error(
+        error: EndpointCheckError, request: EndpointCheckRequest
+    ) -> EndpointCheckResult:
         """处理业务逻辑错误"""
-        logger.warning(f"[{request.api_format}] Business error: {error.error_type} - {error.message}")
+        logger.warning(
+            f"[{request.api_format}] Business error: {error.error_type} - {error.message}"
+        )
         return EndpointCheckResult(
             status_code=error.status_code,
             headers={},
@@ -904,12 +990,14 @@ class ErrorHandler:
             response_data={
                 "error_type": error.error_type,
                 "details": error.details,
-                "retryable": error.status_code >= 500 or error.status_code == 429
-            }
+                "retryable": error.status_code >= 500 or error.status_code == 429,
+            },
         )
 
     @staticmethod
-    def _handle_validation_error(error: ValueError, request: EndpointCheckRequest) -> EndpointCheckResult:
+    def _handle_validation_error(
+        error: ValueError, request: EndpointCheckRequest
+    ) -> EndpointCheckResult:
         """处理验证错误"""
         logger.warning(f"[{request.api_format}] Validation error: {error}")
         return EndpointCheckResult(
@@ -921,15 +1009,18 @@ class ErrorHandler:
             response_data={
                 "error_type": "validation_error",
                 "original_error": str(error),
-                "retryable": False
-            }
+                "retryable": False,
+            },
         )
 
     @staticmethod
-    def _handle_unknown_error(error: Exception, request: EndpointCheckRequest) -> EndpointCheckResult:
+    def _handle_unknown_error(
+        error: Exception, request: EndpointCheckRequest
+    ) -> EndpointCheckResult:
         """处理未知错误"""
         logger.error(f"[{request.api_format}] Unknown error: {type(error).__name__}: {error}")
         import traceback
+
         logger.error(f"[{request.api_format}] Traceback: {traceback.format_exc()}")
 
         return EndpointCheckResult(
@@ -941,8 +1032,8 @@ class ErrorHandler:
             response_data={
                 "error_type": "internal_error",
                 "original_error": str(error),
-                "retryable": False
-            }
+                "retryable": False,
+            },
         )
 
 
@@ -950,9 +1041,11 @@ class ErrorHandler:
 # 配置化支持
 # =========================================================================
 
+
 @dataclass
 class EndpointCheckConfig:
     """端点检查配置"""
+
     # 性能配置
     timeout: float = 30.0
     max_retries: int = 3
@@ -986,20 +1079,31 @@ class EndpointCheckConfig:
         import os
 
         return cls(
-            timeout=float(os.getenv('ENDPOINT_CHECK_TIMEOUT', '30.0')),
-            max_retries=int(os.getenv('ENDPOINT_CHECK_MAX_RETRIES', '3')),
-            retry_delay=float(os.getenv('ENDPOINT_CHECK_RETRY_DELAY', '1.0')),
-            api_format_cache_size=int(os.getenv('ENDPOINT_CHECK_CACHE_SIZE', '512')),
-            enable_batch_recording=os.getenv('ENDPOINT_CHECK_BATCH_RECORDING', 'true').lower() == 'true',
-            batch_size=int(os.getenv('ENDPOINT_CHECK_BATCH_SIZE', '10')),
-            batch_flush_interval=float(os.getenv('ENDPOINT_CHECK_BATCH_INTERVAL', '2.0')),
-            enable_detailed_logging=os.getenv('ENDPOINT_CHECK_DETAILED_LOGGING', 'false').lower() == 'true',
-            enable_structured_logging=os.getenv('ENDPOINT_CHECK_STRUCTURED_LOGGING', 'true').lower() == 'true',
-            enable_usage_calculation=os.getenv('ENDPOINT_CHECK_USAGE_CALCULATION', 'true').lower() == 'true',
-            enable_fallback_token_counting=os.getenv('ENDPOINT_CHECK_FALLBACK_COUNTING', 'true').lower() == 'true',
-            enable_error_classification=os.getenv('ENDPOINT_CHECK_ERROR_CLASSIFICATION', 'true').lower() == 'true',
-            retry_on_server_errors=os.getenv('ENDPOINT_CHECK_RETRY_SERVER_ERRORS', 'true').lower() == 'true',
-            retry_on_timeouts=os.getenv('ENDPOINT_CHECK_RETRY_TIMEOUTS', 'true').lower() == 'true',
+            timeout=float(os.getenv("ENDPOINT_CHECK_TIMEOUT", "30.0")),
+            max_retries=int(os.getenv("ENDPOINT_CHECK_MAX_RETRIES", "3")),
+            retry_delay=float(os.getenv("ENDPOINT_CHECK_RETRY_DELAY", "1.0")),
+            api_format_cache_size=int(os.getenv("ENDPOINT_CHECK_CACHE_SIZE", "512")),
+            enable_batch_recording=os.getenv("ENDPOINT_CHECK_BATCH_RECORDING", "true").lower()
+            == "true",
+            batch_size=int(os.getenv("ENDPOINT_CHECK_BATCH_SIZE", "10")),
+            batch_flush_interval=float(os.getenv("ENDPOINT_CHECK_BATCH_INTERVAL", "2.0")),
+            enable_detailed_logging=os.getenv("ENDPOINT_CHECK_DETAILED_LOGGING", "false").lower()
+            == "true",
+            enable_structured_logging=os.getenv("ENDPOINT_CHECK_STRUCTURED_LOGGING", "true").lower()
+            == "true",
+            enable_usage_calculation=os.getenv("ENDPOINT_CHECK_USAGE_CALCULATION", "true").lower()
+            == "true",
+            enable_fallback_token_counting=os.getenv(
+                "ENDPOINT_CHECK_FALLBACK_COUNTING", "true"
+            ).lower()
+            == "true",
+            enable_error_classification=os.getenv(
+                "ENDPOINT_CHECK_ERROR_CLASSIFICATION", "true"
+            ).lower()
+            == "true",
+            retry_on_server_errors=os.getenv("ENDPOINT_CHECK_RETRY_SERVER_ERRORS", "true").lower()
+            == "true",
+            retry_on_timeouts=os.getenv("ENDPOINT_CHECK_RETRY_TIMEOUTS", "true").lower() == "true",
         )
 
     @classmethod
@@ -1016,8 +1120,7 @@ class ConfigurableEndpointChecker:
         self.executor = HttpRequestExecutor(timeout=self.config.timeout)
         self.usage_calculator = UsageCalculator()
         self.orchestrator = EndpointCheckOrchestrator(
-            executor=self.executor,
-            usage_calculator=self.usage_calculator
+            executor=self.executor, usage_calculator=self.usage_calculator
         )
 
         # 应用配置到缓存大小
@@ -1027,7 +1130,9 @@ class ConfigurableEndpointChecker:
         """应用缓存配置"""
         # 简化缓存配置 - 移除了有问题的缓存实现
         # 未来如果需要缓存，可以重新设计缓存策略
-        logger.info(f"[ConfigurableEndpointChecker] Cache config applied: api_format_cache_size={self.config.api_format_cache_size}")
+        logger.info(
+            f"[ConfigurableEndpointChecker] Cache config applied: api_format_cache_size={self.config.api_format_cache_size}"
+        )
         pass
 
     async def check_endpoint(self, request: EndpointCheckRequest) -> EndpointCheckResult:
@@ -1063,19 +1168,24 @@ class ConfigurableEndpointChecker:
         # 根据配置和错误类型判断是否重试
         if error_type == "timeout" and self.config.retry_on_timeouts:
             return True
-        elif error_type in ["server_error", "network_error", "connection_failed"] and self.config.retry_on_server_errors:
+        elif (
+            error_type in ["server_error", "network_error", "connection_failed"]
+            and self.config.retry_on_server_errors
+        ):
             return retryable
 
         return False
 
-    async def _retry_check(self, request: EndpointCheckRequest, last_result: EndpointCheckResult) -> EndpointCheckResult:
+    async def _retry_check(
+        self, request: EndpointCheckRequest, last_result: EndpointCheckResult
+    ) -> EndpointCheckResult:
         """重试端点检查"""
         for attempt in range(self.config.max_retries):
             if self.config.enable_structured_logging:
                 self._log_structured_retry(request, attempt + 1, last_result)
 
             # 等待重试延迟
-            await asyncio.sleep(self.config.retry_delay * (2 ** attempt))  # 指数退避
+            await asyncio.sleep(self.config.retry_delay * (2**attempt))  # 指数退避
 
             # 执行重试
             result = await self.orchestrator.execute_check(request)
@@ -1105,11 +1215,13 @@ class ConfigurableEndpointChecker:
                 "max_retries": self.config.max_retries,
                 "enable_batch_recording": self.config.enable_batch_recording,
                 "enable_usage_calculation": self.config.enable_usage_calculation,
-            }
+            },
         }
         logger.info(f"[{request.api_format}] {json.dumps(log_entry)}")
 
-    def _log_structured_result(self, request: EndpointCheckRequest, result: EndpointCheckResult) -> None:
+    def _log_structured_result(
+        self, request: EndpointCheckRequest, result: EndpointCheckResult
+    ) -> None:
         """记录结构化结果日志"""
         log_entry = {
             "event": "endpoint_check_complete",
@@ -1129,7 +1241,9 @@ class ConfigurableEndpointChecker:
 
         logger.info(f"[{request.api_format}] {json.dumps(log_entry)}")
 
-    def _log_structured_retry(self, request: EndpointCheckRequest, attempt: int, last_result: EndpointCheckResult) -> None:
+    def _log_structured_retry(
+        self, request: EndpointCheckRequest, attempt: int, last_result: EndpointCheckResult
+    ) -> None:
         """记录重试日志"""
         log_entry = {
             "event": "endpoint_check_retry",
@@ -1172,28 +1286,36 @@ class ConfigurableEndpointChecker:
 # 全局配置检查器实例
 _global_configured_checker: ConfigurableEndpointChecker | None = None
 
-def get_configured_checker(config: EndpointCheckConfig | None = None) -> ConfigurableEndpointChecker:
+
+def get_configured_checker(
+    config: EndpointCheckConfig | None = None,
+) -> ConfigurableEndpointChecker:
     """获取全局配置检查器实例"""
     global _global_configured_checker
     if _global_configured_checker is None or config is not None:
-        _global_configured_checker = ConfigurableEndpointChecker(config or EndpointCheckConfig.from_env())
+        _global_configured_checker = ConfigurableEndpointChecker(
+            config or EndpointCheckConfig.from_env()
+        )
     return _global_configured_checker
-
-
 
 
 class EndpointCheckOrchestrator:
     """端点检查协调器 - 协调整个流程"""
 
-    def __init__(self, executor: HttpRequestExecutor | None = None,
-                 usage_calculator: UsageCalculator | None = None):
+    def __init__(
+        self,
+        executor: HttpRequestExecutor | None = None,
+        usage_calculator: UsageCalculator | None = None,
+    ):
         self.executor = executor or HttpRequestExecutor()
         self.usage_calculator = usage_calculator or UsageCalculator()
 
     async def execute_check(self, request: EndpointCheckRequest) -> EndpointCheckResult:
         """执行端点检查的完整流程"""
-        logger.info(f"[{request.api_format}] Starting endpoint check | "
-                   f"provider={request.provider_name}, model={request.model_name}")
+        logger.info(
+            f"[{request.api_format}] Starting endpoint check | "
+            f"provider={request.provider_name}, model={request.model_name}"
+        )
 
         # 1. 执行HTTP请求
         result = await self.executor.execute(request)
@@ -1201,8 +1323,12 @@ class EndpointCheckOrchestrator:
         # 2. 计算用量
         if request.db and request.user:  # 只在有数据库连接和用户信息时才计算用量
             try:
-                input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens = \
-                    self.usage_calculator.calculate_tokens(request, result)
+                (
+                    input_tokens,
+                    output_tokens,
+                    cache_creation_input_tokens,
+                    cache_read_input_tokens,
+                ) = self.usage_calculator.calculate_tokens(request, result)
 
                 # 检测API格式
                 api_format = request.api_format
@@ -1229,10 +1355,15 @@ class EndpointCheckOrchestrator:
                     api_format=api_format,
                 )
 
-                logger.info(f"[{request.api_format}] Usage calculated successfully: {result.usage_data}")
+                logger.info(
+                    f"[{request.api_format}] Usage calculated successfully: {result.usage_data}"
+                )
             except Exception as e:
                 logger.error(f"[{request.api_format}] Failed to calculate usage: {e}")
                 import traceback
-                logger.error(f"[{request.api_format}] Usage calculation traceback: {traceback.format_exc()}")
+
+                logger.error(
+                    f"[{request.api_format}] Usage calculation traceback: {traceback.format_exc()}"
+                )
 
         return result

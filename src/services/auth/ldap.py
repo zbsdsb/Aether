@@ -172,7 +172,9 @@ class LDAPService:
         }
 
     @staticmethod
-    def authenticate_with_config(config: dict[str, Any], username: str, password: str) -> dict | None:
+    def authenticate_with_config(
+        config: dict[str, Any], username: str, password: str
+    ) -> dict | None:
         """
         LDAP bind 验证
 
@@ -186,7 +188,7 @@ class LDAPService:
         """
         try:
             import ldap3
-            from ldap3 import Server, Connection, SUBTREE
+            from ldap3 import SUBTREE, Connection, Server
             from ldap3.core.exceptions import LDAPBindError, LDAPSocketOpenError
         except ImportError:
             logger.error("ldap3 库未安装")
@@ -272,9 +274,7 @@ class LDAPService:
 
             # 提取用户属性（优先用 LDAP 提供的值，不合法则回退默认）
             ldap_username = _get_attr_value(user_entry, config["username_attr"], username)
-            email = _get_attr_value(
-                user_entry, config["email_attr"], f"{username}@ldap.local"
-            )
+            email = _get_attr_value(user_entry, config["email_attr"], f"{username}@ldap.local")
             display_name = _get_attr_value(user_entry, config["display_name_attr"], username)
 
             logger.info(f"LDAP 认证成功: {username}")
@@ -315,7 +315,7 @@ class LDAPService:
         """
         try:
             import ldap3
-            from ldap3 import Server, Connection
+            from ldap3 import Connection, Server
         except ImportError:
             return False, "ldap3 库未安装"
 

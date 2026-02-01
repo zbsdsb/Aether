@@ -80,7 +80,16 @@ class ProviderOpsService:
     """
 
     # 凭据中需要加密的字段
-    SENSITIVE_FIELDS = {"api_key", "password", "session_token", "session_cookie", "token_cookie", "auth_cookie", "cookie_string", "cookie"}
+    SENSITIVE_FIELDS = {
+        "api_key",
+        "password",
+        "session_token",
+        "session_cookie",
+        "token_cookie",
+        "auth_cookie",
+        "cookie_string",
+        "cookie",
+    }
 
     def __init__(self, db: Session):
         self.db = db
@@ -385,9 +394,7 @@ class ProviderOpsService:
         Returns:
             操作结果
         """
-        result = await self.execute_action(
-            provider_id, ProviderActionType.QUERY_BALANCE, config
-        )
+        result = await self.execute_action(provider_id, ProviderActionType.QUERY_BALANCE, config)
 
         # 成功或 auth_expired 时缓存（auth_expired 带有 cookie_expired 信息供前端显示警告）
         if result.status in (ActionStatus.SUCCESS, ActionStatus.AUTH_EXPIRED) and result.data:
@@ -485,7 +492,9 @@ class ProviderOpsService:
             "response_time_ms": result.response_time_ms,
         }
         await CacheService.set(cache_key, cache_data, AUTH_FAILED_CACHE_TTL)
-        logger.info(f"余额缓存已写入（认证失败）: provider_id={provider_id}, message={result.message}")
+        logger.info(
+            f"余额缓存已写入（认证失败）: provider_id={provider_id}, message={result.message}"
+        )
 
     async def _cache_balance(self, provider_id: str, result: ActionResult) -> None:
         """缓存余额结果"""
@@ -504,7 +513,9 @@ class ProviderOpsService:
         }
 
         await CacheService.set(cache_key, cache_data, BALANCE_CACHE_TTL)
-        logger.debug(f"余额缓存已写入: provider_id={provider_id}, extra={data.get('extra') if data else None}")
+        logger.debug(
+            f"余额缓存已写入: provider_id={provider_id}, extra={data.get('extra') if data else None}"
+        )
 
     async def _cache_balance_from_verify(
         self,
@@ -633,7 +644,9 @@ class ProviderOpsService:
             if key in self.SENSITIVE_FIELDS and isinstance(value, str):
                 if value:  # 只加密非空值
                     encrypted[key] = self.crypto.encrypt(value)
-                    logger.debug(f"加密字段 {key}: 原始长度={len(value)}, 加密后长度={len(encrypted[key])}")
+                    logger.debug(
+                        f"加密字段 {key}: 原始长度={len(value)}, 加密后长度={len(encrypted[key])}"
+                    )
                 else:
                     logger.warning(f"跳过空值字段 {key}")
                     encrypted[key] = value
@@ -705,8 +718,14 @@ class ProviderOpsService:
         if saved_config:
             saved_credentials = self._decrypt_credentials(saved_config.connector_credentials)
             sensitive_fields = [
-                "api_key", "password", "session_token", "cookie_string", "cookie",
-                "token_cookie", "auth_cookie", "session_cookie",  # Cookie 认证字段
+                "api_key",
+                "password",
+                "session_token",
+                "cookie_string",
+                "cookie",
+                "token_cookie",
+                "auth_cookie",
+                "session_cookie",  # Cookie 认证字段
             ]
 
             for field in sensitive_fields:
@@ -738,11 +757,7 @@ class ProviderOpsService:
         if provider_ids is None:
             # 查询所有已配置的 Provider
             providers = self.db.query(Provider).filter(Provider.is_active.is_(True)).all()
-            provider_ids = [
-                p.id
-                for p in providers
-                if p.config and p.config.get("provider_ops")
-            ]
+            provider_ids = [p.id for p in providers if p.config and p.config.get("provider_ops")]
 
         if not provider_ids:
             return {}

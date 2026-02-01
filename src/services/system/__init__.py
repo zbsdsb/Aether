@@ -6,12 +6,12 @@
 
 from src.services.system.announcement import AnnouncementService
 from src.services.system.audit import AuditService
+from src.services.system.config import SystemConfigService
+from src.services.system.maintenance_scheduler import CleanupScheduler  # 兼容旧名称
 from src.services.system.maintenance_scheduler import (
-    CleanupScheduler,  # 兼容旧名称
     MaintenanceScheduler,
     get_maintenance_scheduler,
 )
-from src.services.system.config import SystemConfigService
 from src.services.system.scheduler import APP_TIMEZONE, TaskScheduler, get_scheduler
 from src.services.system.sync_stats import SyncStatsService
 

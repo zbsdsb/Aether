@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func
@@ -12,15 +12,23 @@ from sqlalchemy.orm import Session
 
 from src.api.base.adapter import ApiAdapter, ApiMode
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.config.constants import CacheTTL
 from src.core.enums import UserRole
 from src.database import get_db
-from src.models.database import ApiKey, Provider, RequestCandidate, StatsDaily, StatsDailyModel, StatsDailyProvider, Usage
+from src.models.database import (
+    ApiKey,
+    Provider,
+    RequestCandidate,
+    StatsDaily,
+    StatsDailyModel,
+    StatsDailyProvider,
+    Usage,
+)
 from src.models.database import User as DBUser
 from src.services.system.stats_aggregator import StatsAggregatorService
 from src.utils.cache_decorator import cache_result
-from src.api.base.context import ApiRequestContext
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 pipeline = ApiRequestPipeline()
@@ -181,10 +189,13 @@ class DashboardStatsAdapter(DashboardAdapter):
 
 
 class AdminDashboardStatsAdapter(AdminApiAdapter):
-    @cache_result(key_prefix="dashboard:admin:stats", ttl=CacheTTL.DASHBOARD_STATS, user_specific=False)
+    @cache_result(
+        key_prefix="dashboard:admin:stats", ttl=CacheTTL.DASHBOARD_STATS, user_specific=False
+    )
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         """管理员仪表盘统计 - 使用预聚合数据优化性能"""
         from zoneinfo import ZoneInfo
+
         from src.services.system.stats_aggregator import APP_TIMEZONE
 
         db = context.db
@@ -218,7 +229,9 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
         active_users = combined_stats.get("active_users") or (
             db.query(func.count(DBUser.id)).filter(DBUser.is_active.is_(True)).scalar()
         )
-        total_api_keys = combined_stats.get("total_api_keys") or db.query(func.count(ApiKey.id)).scalar()
+        total_api_keys = (
+            combined_stats.get("total_api_keys") or db.query(func.count(ApiKey.id)).scalar()
+        )
         active_api_keys = combined_stats.get("active_api_keys") or (
             db.query(func.count(ApiKey.id)).filter(ApiKey.is_active.is_(True)).scalar()
         )
@@ -250,12 +263,14 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
             requests_yesterday = (
                 db.query(func.count(Usage.id))
                 .filter(Usage.created_at >= yesterday, Usage.created_at < today)
-                .scalar() or 0
+                .scalar()
+                or 0
             )
             cost_yesterday = (
                 db.query(func.sum(Usage.total_cost_usd))
                 .filter(Usage.created_at >= yesterday, Usage.created_at < today)
-                .scalar() or 0
+                .scalar()
+                or 0
             )
             yesterday_token_stats = (
                 db.query(
@@ -267,10 +282,20 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
                 .filter(Usage.created_at >= yesterday, Usage.created_at < today)
                 .first()
             )
-            input_tokens_yesterday = int(yesterday_token_stats.input_tokens or 0) if yesterday_token_stats else 0
-            output_tokens_yesterday = int(yesterday_token_stats.output_tokens or 0) if yesterday_token_stats else 0
-            cache_creation_yesterday = int(yesterday_token_stats.cache_creation_tokens or 0) if yesterday_token_stats else 0
-            cache_read_yesterday = int(yesterday_token_stats.cache_read_tokens or 0) if yesterday_token_stats else 0
+            input_tokens_yesterday = (
+                int(yesterday_token_stats.input_tokens or 0) if yesterday_token_stats else 0
+            )
+            output_tokens_yesterday = (
+                int(yesterday_token_stats.output_tokens or 0) if yesterday_token_stats else 0
+            )
+            cache_creation_yesterday = (
+                int(yesterday_token_stats.cache_creation_tokens or 0)
+                if yesterday_token_stats
+                else 0
+            )
+            cache_read_yesterday = (
+                int(yesterday_token_stats.cache_read_tokens or 0) if yesterday_token_stats else 0
+            )
 
         # ==================== 本月统计（从预聚合表聚合）====================
         monthly_stats = (
@@ -279,8 +304,12 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
                 func.sum(StatsDaily.error_requests).label("error_requests"),
                 func.sum(StatsDaily.total_cost).label("total_cost"),
                 func.sum(StatsDaily.actual_total_cost).label("actual_total_cost"),
-                func.sum(StatsDaily.input_tokens + StatsDaily.output_tokens +
-                         StatsDaily.cache_creation_tokens + StatsDaily.cache_read_tokens).label("total_tokens"),
+                func.sum(
+                    StatsDaily.input_tokens
+                    + StatsDaily.output_tokens
+                    + StatsDaily.cache_creation_tokens
+                    + StatsDaily.cache_read_tokens
+                ).label("total_tokens"),
                 func.sum(StatsDaily.cache_creation_tokens).label("cache_creation_tokens"),
                 func.sum(StatsDaily.cache_read_tokens).label("cache_read_tokens"),
                 func.sum(StatsDaily.cache_creation_cost).label("cache_creation_cost"),
@@ -298,7 +327,9 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
             total_cost = float(monthly_stats.total_cost or 0) + cost_today
             total_actual_cost = float(monthly_stats.actual_total_cost or 0) + actual_cost_today
             total_tokens = int(monthly_stats.total_tokens or 0) + tokens_today
-            cache_creation_tokens = int(monthly_stats.cache_creation_tokens or 0) + cache_creation_today
+            cache_creation_tokens = (
+                int(monthly_stats.cache_creation_tokens or 0) + cache_creation_today
+            )
             cache_read_tokens = int(monthly_stats.cache_read_tokens or 0) + cache_read_today
             cache_creation_cost = float(monthly_stats.cache_creation_cost or 0)
             cache_read_cost = float(monthly_stats.cache_read_cost or 0)
@@ -309,21 +340,31 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
                 db.query(func.count(Usage.id)).filter(Usage.created_at >= month_start).scalar() or 0
             )
             total_cost = (
-                db.query(func.sum(Usage.total_cost_usd)).filter(Usage.created_at >= month_start).scalar() or 0
+                db.query(func.sum(Usage.total_cost_usd))
+                .filter(Usage.created_at >= month_start)
+                .scalar()
+                or 0
             )
             total_actual_cost = (
                 db.query(func.sum(Usage.actual_total_cost_usd))
-                .filter(Usage.created_at >= month_start).scalar() or 0
+                .filter(Usage.created_at >= month_start)
+                .scalar()
+                or 0
             )
             error_requests = (
                 db.query(func.count(Usage.id))
                 .filter(
                     Usage.created_at >= month_start,
                     (Usage.status_code >= 400) | (Usage.error_message.isnot(None)),
-                ).scalar() or 0
+                )
+                .scalar()
+                or 0
             )
             total_tokens = (
-                db.query(func.sum(Usage.total_tokens)).filter(Usage.created_at >= month_start).scalar() or 0
+                db.query(func.sum(Usage.total_tokens))
+                .filter(Usage.created_at >= month_start)
+                .scalar()
+                or 0
             )
             cache_stats = (
                 db.query(
@@ -335,7 +376,9 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
                 .filter(Usage.created_at >= month_start)
                 .first()
             )
-            cache_creation_tokens = int(cache_stats.cache_creation_tokens or 0) if cache_stats else 0
+            cache_creation_tokens = (
+                int(cache_stats.cache_creation_tokens or 0) if cache_stats else 0
+            )
             cache_read_tokens = int(cache_stats.cache_read_tokens or 0) if cache_stats else 0
             cache_creation_cost = float(cache_stats.cache_creation_cost or 0) if cache_stats else 0
             cache_read_cost = float(cache_stats.cache_read_cost or 0) if cache_stats else 0
@@ -343,7 +386,8 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
             # Fallback 统计
             fallback_subquery = (
                 db.query(
-                    RequestCandidate.request_id, func.count(RequestCandidate.id).label("executed_count")
+                    RequestCandidate.request_id,
+                    func.count(RequestCandidate.id).label("executed_count"),
                 )
                 .filter(
                     RequestCandidate.created_at >= month_start,
@@ -356,7 +400,8 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
                 db.query(func.count())
                 .select_from(fallback_subquery)
                 .filter(fallback_subquery.c.executed_count > 1)
-                .scalar() or 0
+                .scalar()
+                or 0
             )
 
         # ==================== 系统健康指标 ====================
@@ -370,7 +415,8 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
                 Usage.status_code == 200,
                 Usage.response_time_ms.isnot(None),
             )
-            .scalar() or 0
+            .scalar()
+            or 0
         )
         avg_response_time_seconds = float(avg_response_time) / 1000.0
 
@@ -427,18 +473,53 @@ class AdminDashboardStatsAdapter(AdminApiAdapter):
                     "subValue": f"输入 {format_tokens(all_time_input_tokens)} / 输出 {format_tokens(all_time_output_tokens)}",
                     "change": (
                         f"+{format_tokens(input_tokens_today + output_tokens_today + cache_creation_today + cache_read_today)}"
-                        if (input_tokens_today + output_tokens_today + cache_creation_today + cache_read_today)
-                        > (input_tokens_yesterday + output_tokens_yesterday + cache_creation_yesterday + cache_read_yesterday)
-                        else format_tokens(input_tokens_today + output_tokens_today + cache_creation_today + cache_read_today)
+                        if (
+                            input_tokens_today
+                            + output_tokens_today
+                            + cache_creation_today
+                            + cache_read_today
+                        )
+                        > (
+                            input_tokens_yesterday
+                            + output_tokens_yesterday
+                            + cache_creation_yesterday
+                            + cache_read_yesterday
+                        )
+                        else format_tokens(
+                            input_tokens_today
+                            + output_tokens_today
+                            + cache_creation_today
+                            + cache_read_today
+                        )
                     ),
                     "changeType": (
                         "increase"
-                        if (input_tokens_today + output_tokens_today + cache_creation_today + cache_read_today)
-                        > (input_tokens_yesterday + output_tokens_yesterday + cache_creation_yesterday + cache_read_yesterday)
+                        if (
+                            input_tokens_today
+                            + output_tokens_today
+                            + cache_creation_today
+                            + cache_read_today
+                        )
+                        > (
+                            input_tokens_yesterday
+                            + output_tokens_yesterday
+                            + cache_creation_yesterday
+                            + cache_read_yesterday
+                        )
                         else (
                             "decrease"
-                            if (input_tokens_today + output_tokens_today + cache_creation_today + cache_read_today)
-                            < (input_tokens_yesterday + output_tokens_yesterday + cache_creation_yesterday + cache_read_yesterday)
+                            if (
+                                input_tokens_today
+                                + output_tokens_today
+                                + cache_creation_today
+                                + cache_read_today
+                            )
+                            < (
+                                input_tokens_yesterday
+                                + output_tokens_yesterday
+                                + cache_creation_yesterday
+                                + cache_read_yesterday
+                            )
                             else "neutral"
                         )
                     ),
@@ -515,6 +596,7 @@ class UserDashboardStatsAdapter(DashboardAdapter):
     @cache_result(key_prefix="dashboard:user:stats", ttl=30, user_specific=True)
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         from zoneinfo import ZoneInfo
+
         from src.services.system.stats_aggregator import APP_TIMEZONE
 
         db = context.db
@@ -790,9 +872,12 @@ class DashboardProviderStatusAdapter(DashboardAdapter):
 class DashboardDailyStatsAdapter(DashboardAdapter):
     days: int
 
-    @cache_result(key_prefix="dashboard:daily:stats", ttl=CacheTTL.DASHBOARD_DAILY, user_specific=True)
+    @cache_result(
+        key_prefix="dashboard:daily:stats", ttl=CacheTTL.DASHBOARD_DAILY, user_specific=True
+    )
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         from zoneinfo import ZoneInfo
+
         from src.services.system.stats_aggregator import APP_TIMEZONE
 
         db = context.db
@@ -807,7 +892,7 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
         today = today_local.astimezone(timezone.utc)
         end_date_local = now_local.replace(hour=23, minute=59, second=59, microsecond=999999)
         end_date = end_date_local.astimezone(timezone.utc)
-        start_date_local = (today_local - timedelta(days=self.days - 1))
+        start_date_local = today_local - timedelta(days=self.days - 1)
         start_date = start_date_local.astimezone(timezone.utc)
 
         # ==================== 使用预聚合数据优化 ====================
@@ -819,6 +904,7 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                 .order_by(StatsDaily.date.asc())
                 .all()
             )
+
             # stats_daily.date 存储的是业务日期对应的 UTC 开始时间
             # 需要转回业务时区再取日期，才能与日期序列匹配
             def _to_business_date_str(value: datetime) -> str:
@@ -831,11 +917,16 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
             stats_map = {
                 _to_business_date_str(stat.date): {
                     "requests": stat.total_requests,
-                    "tokens": stat.input_tokens + stat.output_tokens + stat.cache_creation_tokens + stat.cache_read_tokens,
+                    "tokens": stat.input_tokens
+                    + stat.output_tokens
+                    + stat.cache_creation_tokens
+                    + stat.cache_read_tokens,
                     "cost": stat.total_cost,
-                    "avg_response_time": stat.avg_response_time_ms / 1000.0 if stat.avg_response_time_ms else 0,
-                    "unique_models": getattr(stat, 'unique_models', 0) or 0,
-                    "unique_providers": getattr(stat, 'unique_providers', 0) or 0,
+                    "avg_response_time": (
+                        stat.avg_response_time_ms / 1000.0 if stat.avg_response_time_ms else 0
+                    ),
+                    "unique_models": getattr(stat, "unique_models", 0) or 0,
+                    "unique_providers": getattr(stat, "unique_providers", 0) or 0,
                     "fallback_count": stat.fallback_count or 0,
                 }
                 for stat in daily_stats
@@ -849,18 +940,21 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                 today_avg_rt = (
                     db.query(func.avg(Usage.response_time_ms))
                     .filter(Usage.created_at >= today, Usage.response_time_ms.isnot(None))
-                    .scalar() or 0
+                    .scalar()
+                    or 0
                 )
                 # 今日 unique_models 和 unique_providers
                 today_unique_models = (
                     db.query(func.count(func.distinct(Usage.model)))
                     .filter(Usage.created_at >= today)
-                    .scalar() or 0
+                    .scalar()
+                    or 0
                 )
                 today_unique_providers = (
                     db.query(func.count(func.distinct(Usage.provider_name)))
                     .filter(Usage.created_at >= today)
-                    .scalar() or 0
+                    .scalar()
+                    or 0
                 )
                 # 今日 fallback_count
                 today_fallback_count = (
@@ -875,12 +969,17 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                         .having(func.count(RequestCandidate.id) > 1)
                         .subquery()
                     )
-                    .scalar() or 0
+                    .scalar()
+                    or 0
                 )
                 stats_map[today_str] = {
                     "requests": today_stats["total_requests"],
-                    "tokens": (today_stats["input_tokens"] + today_stats["output_tokens"] +
-                              today_stats["cache_creation_tokens"] + today_stats["cache_read_tokens"]),
+                    "tokens": (
+                        today_stats["input_tokens"]
+                        + today_stats["output_tokens"]
+                        + today_stats["cache_creation_tokens"]
+                        + today_stats["cache_read_tokens"]
+                    ),
                     "cost": today_stats["total_cost"],
                     "avg_response_time": float(today_avg_rt) / 1000.0 if today_avg_rt else 0,
                     "unique_models": today_unique_models,
@@ -912,9 +1011,11 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                             + computed["cache_read_tokens"]
                         ),
                         "cost": computed["total_cost"],
-                        "avg_response_time": computed["avg_response_time_ms"] / 1000.0
-                        if computed["avg_response_time_ms"]
-                        else 0,
+                        "avg_response_time": (
+                            computed["avg_response_time_ms"] / 1000.0
+                            if computed["avg_response_time_ms"]
+                            else 0
+                        ),
                         "unique_models": computed["unique_models"],
                         "unique_providers": computed["unique_providers"],
                         "fallback_count": computed["fallback_count"],
@@ -947,7 +1048,9 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                     "requests": stat.requests or 0,
                     "tokens": int(stat.tokens or 0),
                     "cost": float(stat.cost or 0),
-                    "avg_response_time": float(stat.avg_response_time or 0) / 1000.0 if stat.avg_response_time else 0,
+                    "avg_response_time": (
+                        float(stat.avg_response_time or 0) / 1000.0 if stat.avg_response_time else 0
+                    ),
                 }
                 for stat in user_daily_stats
             }
@@ -1007,16 +1110,25 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                 model = stat.model
                 if model not in model_agg:
                     model_agg[model] = {
-                        "requests": 0, "tokens": 0, "cost": 0.0,
-                        "total_response_time": 0.0, "response_count": 0
+                        "requests": 0,
+                        "tokens": 0,
+                        "cost": 0.0,
+                        "total_response_time": 0.0,
+                        "response_count": 0,
                     }
                 model_agg[model]["requests"] += stat.total_requests
-                tokens = (stat.input_tokens + stat.output_tokens +
-                          stat.cache_creation_tokens + stat.cache_read_tokens)
+                tokens = (
+                    stat.input_tokens
+                    + stat.output_tokens
+                    + stat.cache_creation_tokens
+                    + stat.cache_read_tokens
+                )
                 model_agg[model]["tokens"] += tokens
                 model_agg[model]["cost"] += stat.total_cost
                 if stat.avg_response_time_ms is not None:
-                    model_agg[model]["total_response_time"] += stat.avg_response_time_ms * stat.total_requests
+                    model_agg[model]["total_response_time"] += (
+                        stat.avg_response_time_ms * stat.total_requests
+                    )
                     model_agg[model]["response_count"] += stat.total_requests
 
                 # 按日期分组
@@ -1026,12 +1138,14 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                     date_utc = stat.date.astimezone(timezone.utc)
                 date_str = date_utc.astimezone(app_tz).date().isoformat()
 
-                daily_breakdown.setdefault(date_str, []).append({
-                    "model": model,
-                    "requests": stat.total_requests,
-                    "tokens": tokens,
-                    "cost": stat.total_cost,
-                })
+                daily_breakdown.setdefault(date_str, []).append(
+                    {
+                        "model": model,
+                        "requests": stat.total_requests,
+                        "tokens": tokens,
+                        "cost": stat.total_cost,
+                    }
+                )
 
             # 今日实时模型统计
             today_model_stats = (
@@ -1052,38 +1166,50 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                 model = stat.model
                 if model not in model_agg:
                     model_agg[model] = {
-                        "requests": 0, "tokens": 0, "cost": 0.0,
-                        "total_response_time": 0.0, "response_count": 0
+                        "requests": 0,
+                        "tokens": 0,
+                        "cost": 0.0,
+                        "total_response_time": 0.0,
+                        "response_count": 0,
                     }
                 model_agg[model]["requests"] += stat.requests or 0
                 model_agg[model]["tokens"] += int(stat.tokens or 0)
                 model_agg[model]["cost"] += float(stat.cost or 0)
                 if stat.avg_response_time is not None:
-                    model_agg[model]["total_response_time"] += float(stat.avg_response_time) * (stat.requests or 0)
+                    model_agg[model]["total_response_time"] += float(stat.avg_response_time) * (
+                        stat.requests or 0
+                    )
                     model_agg[model]["response_count"] += stat.requests or 0
 
                 # 今日 breakdown
-                daily_breakdown.setdefault(today_str, []).append({
-                    "model": model,
-                    "requests": stat.requests or 0,
-                    "tokens": int(stat.tokens or 0),
-                    "cost": float(stat.cost or 0),
-                })
+                daily_breakdown.setdefault(today_str, []).append(
+                    {
+                        "model": model,
+                        "requests": stat.requests or 0,
+                        "tokens": int(stat.tokens or 0),
+                        "cost": float(stat.cost or 0),
+                    }
+                )
 
             # 构建 model_summary
             model_summary = []
             for model, agg in model_agg.items():
-                avg_rt = (agg["total_response_time"] / agg["response_count"] / 1000.0
-                          if agg["response_count"] > 0 else 0)
-                model_summary.append({
-                    "model": model,
-                    "requests": agg["requests"],
-                    "tokens": agg["tokens"],
-                    "cost": agg["cost"],
-                    "avg_response_time": avg_rt,
-                    "cost_per_request": agg["cost"] / max(agg["requests"], 1),
-                    "tokens_per_request": agg["tokens"] / max(agg["requests"], 1),
-                })
+                avg_rt = (
+                    agg["total_response_time"] / agg["response_count"] / 1000.0
+                    if agg["response_count"] > 0
+                    else 0
+                )
+                model_summary.append(
+                    {
+                        "model": model,
+                        "requests": agg["requests"],
+                        "tokens": agg["tokens"],
+                        "cost": agg["cost"],
+                        "avg_response_time": avg_rt,
+                        "cost_per_request": agg["cost"] / max(agg["requests"], 1),
+                        "tokens_per_request": agg["tokens"] / max(agg["requests"], 1),
+                    }
+                )
             model_summary.sort(key=lambda x: x["cost"], reverse=True)
 
             # 填充 model_breakdown
@@ -1096,7 +1222,7 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                 and_(
                     Usage.user_id == user.id,
                     Usage.created_at >= start_date,
-                    Usage.created_at <= end_date
+                    Usage.created_at <= end_date,
                 )
             )
 
@@ -1166,7 +1292,9 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
             # 历史数据从 stats_daily_provider 获取
             historical_provider_stats = (
                 db.query(StatsDailyProvider)
-                .filter(and_(StatsDailyProvider.date >= start_date, StatsDailyProvider.date < today))
+                .filter(
+                    and_(StatsDailyProvider.date >= start_date, StatsDailyProvider.date < today)
+                )
                 .all()
             )
 
@@ -1177,8 +1305,12 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                 if provider not in provider_agg:
                     provider_agg[provider] = {"requests": 0, "tokens": 0, "cost": 0.0}
                 provider_agg[provider]["requests"] += stat.total_requests
-                tokens = (stat.input_tokens + stat.output_tokens +
-                          stat.cache_creation_tokens + stat.cache_read_tokens)
+                tokens = (
+                    stat.input_tokens
+                    + stat.output_tokens
+                    + stat.cache_creation_tokens
+                    + stat.cache_read_tokens
+                )
                 provider_agg[provider]["tokens"] += tokens
                 provider_agg[provider]["cost"] += stat.total_cost
 

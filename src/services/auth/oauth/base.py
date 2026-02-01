@@ -98,7 +98,9 @@ class OAuthProviderBase(ABC):
         timeout_seconds: float = 5.0,
         headers: dict[str, str] | None = None,
     ) -> httpx.Response:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds), verify=get_ssl_context()) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_seconds), verify=get_ssl_context()
+        ) as client:
             return await client.post(url, data=data, headers=headers)
 
     async def _http_get(
@@ -108,5 +110,7 @@ class OAuthProviderBase(ABC):
         timeout_seconds: float = 5.0,
         headers: dict[str, str] | None = None,
     ) -> httpx.Response:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds), verify=get_ssl_context()) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_seconds), verify=get_ssl_context()
+        ) as client:
             return await client.get(url, headers=headers)

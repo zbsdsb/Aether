@@ -147,14 +147,12 @@ class RateLimitDetector:
             and retry_after <= 30
         ):
             is_likely_concurrent = True
-            concurrent_reason = f"remaining={requests_remaining} > 0, retry_after={retry_after}s <= 30s"
+            concurrent_reason = (
+                f"remaining={requests_remaining} > 0, retry_after={retry_after}s <= 30s"
+            )
 
         # 条件 B：无 remaining 头但 retry_after 很短（<= 5 秒）
-        elif (
-            requests_remaining is None
-            and retry_after is not None
-            and retry_after <= 5
-        ):
+        elif requests_remaining is None and retry_after is not None and retry_after <= 5:
             is_likely_concurrent = True
             concurrent_reason = f"no remaining header, retry_after={retry_after}s <= 5s"
 
@@ -245,12 +243,10 @@ class RateLimitDetector:
             and retry_after <= 30
         ):
             is_likely_concurrent = True
-            concurrent_reason = f"remaining={requests_remaining} > 0, retry_after={retry_after}s <= 30s"
-        elif (
-            requests_remaining is None
-            and retry_after is not None
-            and retry_after <= 5
-        ):
+            concurrent_reason = (
+                f"remaining={requests_remaining} > 0, retry_after={retry_after}s <= 30s"
+            )
+        elif requests_remaining is None and retry_after is not None and retry_after <= 5:
             is_likely_concurrent = True
             concurrent_reason = f"no remaining header, retry_after={retry_after}s <= 5s"
 
@@ -330,11 +326,7 @@ class RateLimitDetector:
         ):
             is_likely_concurrent = True
             concurrent_reason = f"remaining={remaining} > 0, retry_after={retry_after}s <= 30s"
-        elif (
-            remaining is None
-            and retry_after is not None
-            and retry_after <= 5
-        ):
+        elif remaining is None and retry_after is not None and retry_after <= 5:
             is_likely_concurrent = True
             concurrent_reason = f"no remaining header, retry_after={retry_after}s <= 5s"
 

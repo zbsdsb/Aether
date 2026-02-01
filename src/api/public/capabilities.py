@@ -5,6 +5,7 @@
 """
 
 from typing import Any
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -132,13 +133,15 @@ async def get_model_supported_capabilities(
     for cap_name in supported_caps:
         if cap_name in all_caps:
             cap = all_caps[cap_name]
-            capability_details.append({
-                "name": cap.name,
-                "display_name": cap.display_name,
-                "description": cap.description,
-                "match_mode": cap.match_mode.value,
-                "config_mode": cap.config_mode.value,
-            })
+            capability_details.append(
+                {
+                    "name": cap.name,
+                    "display_name": cap.display_name,
+                    "description": cap.description,
+                    "match_mode": cap.match_mode.value,
+                    "config_mode": cap.config_mode.value,
+                }
+            )
 
     return {
         "model": model_name,

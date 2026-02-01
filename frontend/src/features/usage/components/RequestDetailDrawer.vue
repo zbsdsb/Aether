@@ -525,6 +525,7 @@ import Tabs from '@/components/ui/tabs.vue'
 import TabsContent from '@/components/ui/tabs-content.vue'
 import { Copy, Check, Maximize2, Minimize2, Columns2, RefreshCw, X, Monitor, Server, MessageSquareText, Code2 } from 'lucide-vue-next'
 import { dashboardApi, type RequestDetail } from '@/api/dashboard'
+import { API_FORMAT_LABELS } from '@/api/endpoints/types'
 import { log } from '@/utils/logger'
 
 // 子组件
@@ -818,15 +819,13 @@ function formatDateTime(dateStr: string | null | undefined): string {
 
 function formatApiFormat(format: string | null | undefined): string {
   if (!format) return '-'
-  const formatMap: Record<string, string> = {
-    'CLAUDE': 'Claude',
-    'CLAUDE_CLI': 'Claude CLI',
-    'OPENAI': 'OpenAI',
-    'OPENAI_CLI': 'OpenAI CLI',
-    'GEMINI': 'Gemini',
-    'GEMINI_CLI': 'Gemini CLI',
-  }
-  return formatMap[format.toUpperCase()] || format
+  const raw = (format || '').trim()
+  return (
+    API_FORMAT_LABELS[raw] ||
+    API_FORMAT_LABELS[raw.toLowerCase()] ||
+    API_FORMAT_LABELS[raw.toUpperCase()] ||
+    raw
+  )
 }
 
 function formatNumber(num: number): string {

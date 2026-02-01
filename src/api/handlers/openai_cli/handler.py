@@ -11,6 +11,7 @@ from src.api.handlers.base.cli_handler_base import (
     CliMessageHandlerBase,
     StreamContext,
 )
+from src.core.api_format import ApiFamily, EndpointKind
 
 
 class OpenAICliMessageHandler(CliMessageHandlerBase):
@@ -28,7 +29,9 @@ class OpenAICliMessageHandler(CliMessageHandlerBase):
     模型字段：请求体顶级 model 字段
     """
 
-    FORMAT_ID = "OPENAI_CLI"
+    FORMAT_ID = "openai:cli"
+    API_FAMILY = ApiFamily.OPENAI
+    ENDPOINT_KIND = EndpointKind.CLI
 
     def extract_model_from_request(
         self,
@@ -203,9 +206,10 @@ class OpenAICliMessageHandler(CliMessageHandlerBase):
             if "object" in ctx.final_response:
                 ctx.response_metadata["object"] = ctx.final_response["object"]
             if "system_fingerprint" in ctx.final_response:
-                ctx.response_metadata["system_fingerprint"] = ctx.final_response["system_fingerprint"]
+                ctx.response_metadata["system_fingerprint"] = ctx.final_response[
+                    "system_fingerprint"
+                ]
 
         # 如果没有从响应中获取到 model，使用上下文中的
         if "model" not in ctx.response_metadata and ctx.model:
             ctx.response_metadata["model"] = ctx.model
-

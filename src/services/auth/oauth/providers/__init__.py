@@ -3,4 +3,3 @@
 from .linuxdo import LinuxDoOAuthProvider
 
 __all__ = ["LinuxDoOAuthProvider"]
-

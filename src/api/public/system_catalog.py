@@ -264,7 +264,7 @@ async def test_connection(
     }
 
     # 确定 API 格式
-    format_value = api_format or "CLAUDE"
+    format_value = api_format or "claude:chat"
 
     # 创建 FallbackOrchestrator
     redis_client = get_redis_client_sync()
@@ -279,7 +279,11 @@ async def test_connection(
 
         request_builder = PassthroughRequestBuilder()
         provider_payload, provider_headers = request_builder.build(
-            payload, {}, endpoint, key, is_stream=False,
+            payload,
+            {},
+            endpoint,
+            key,
+            is_stream=False,
             pre_computed_auth=auth_info.as_tuple() if auth_info else None,
         )
 

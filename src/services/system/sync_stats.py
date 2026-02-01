@@ -3,7 +3,6 @@ API密钥统计同步服务
 定期同步API密钥的统计数据，确保与实际使用记录一致
 """
 
-
 from __future__ import annotations
 
 from sqlalchemy import func
@@ -11,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from src.core.logger import logger
 from src.models.database import ApiKey, Usage
-
 
 
 class SyncStatsService:
@@ -75,12 +73,16 @@ class SyncStatsService:
                     # 检查是否需要更新
                     needs_update = False
                     if api_key.total_requests != actual_requests:
-                        logger.info(f"API密钥 {api_key.id} 请求数不一致: {api_key.total_requests} -> {actual_requests}")
+                        logger.info(
+                            f"API密钥 {api_key.id} 请求数不一致: {api_key.total_requests} -> {actual_requests}"
+                        )
                         api_key.total_requests = actual_requests
                         needs_update = True
 
                     if abs(api_key.total_cost_usd - actual_cost) > 0.0001:
-                        logger.info(f"API密钥 {api_key.id} 费用不一致: {api_key.total_cost_usd} -> {actual_cost}")
+                        logger.info(
+                            f"API密钥 {api_key.id} 费用不一致: {api_key.total_cost_usd} -> {actual_cost}"
+                        )
                         api_key.total_cost_usd = actual_cost
                         needs_update = True
 
@@ -104,7 +106,9 @@ class SyncStatsService:
 
             # 提交所有更改
             db.commit()
-            logger.info(f"同步完成: 处理 {result['synced']} 个密钥, 更新 {result['updated']} 个, 错误 {result['errors']} 个")
+            logger.info(
+                f"同步完成: 处理 {result['synced']} 个密钥, 更新 {result['updated']} 个, 错误 {result['errors']} 个"
+            )
 
         except Exception as e:
             logger.error(f"同步统计数据时出错: {e}")

@@ -5,15 +5,16 @@
 
 from __future__ import annotations
 
-from typing import Any
 import os
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.logger import logger
@@ -21,8 +22,6 @@ from src.database import get_db
 from src.models.api import CreateApiKeyRequest
 from src.models.database import ApiKey
 from src.services.user.apikey import ApiKeyService
-from src.api.base.context import ApiRequestContext
-
 
 # 应用时区配置，默认为 Asia/Shanghai
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Shanghai"))
@@ -432,7 +431,9 @@ class AdminCreateStandaloneKeyAdapter(AdminApiAdapter):
             auto_delete_on_expiry=self.key_data.auto_delete_on_expiry,
         )
 
-        logger.info(f"管理员创建独立余额Key: ID {api_key.id}, 初始余额 ${self.key_data.initial_balance_usd}")
+        logger.info(
+            f"管理员创建独立余额Key: ID {api_key.id}, 初始余额 ${self.key_data.initial_balance_usd}"
+        )
 
         context.add_audit_metadata(
             action="create_standalone_api_key",
@@ -548,7 +549,9 @@ class AdminToggleApiKeyAdapter(AdminApiAdapter):
         db.commit()
         db.refresh(api_key)
 
-        logger.info(f"管理员切换API密钥状态: Key ID {self.key_id}, 新状态 {'启用' if api_key.is_active else '禁用'}")
+        logger.info(
+            f"管理员切换API密钥状态: Key ID {self.key_id}, 新状态 {'启用' if api_key.is_active else '禁用'}"
+        )
 
         context.add_audit_metadata(
             action="toggle_api_key",
@@ -581,7 +584,9 @@ class AdminToggleLockApiKeyAdapter(AdminApiAdapter):
         db.commit()
         db.refresh(api_key)
 
-        logger.info(f"管理员切换API密钥锁定状态: Key ID {self.key_id}, 新状态 {'锁定' if api_key.is_locked else '解锁'}")
+        logger.info(
+            f"管理员切换API密钥锁定状态: Key ID {self.key_id}, 新状态 {'锁定' if api_key.is_locked else '解锁'}"
+        )
 
         context.add_audit_metadata(
             action="toggle_lock_api_key",
@@ -611,7 +616,9 @@ class AdminDeleteApiKeyAdapter(AdminApiAdapter):
         db.delete(api_key)
         db.commit()
 
-        logger.info(f"管理员删除API密钥: Key ID {self.key_id}, 用户 {user.email if user else '未知'}")
+        logger.info(
+            f"管理员删除API密钥: Key ID {self.key_id}, 用户 {user.email if user else '未知'}"
+        )
 
         context.add_audit_metadata(
             action="delete_api_key",

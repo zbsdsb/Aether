@@ -7,13 +7,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from functools import wraps
 from typing import Any, TypeVar
 
-from collections.abc import Callable
-
 from src.core.logger import logger
-
 
 T = TypeVar("T")
 

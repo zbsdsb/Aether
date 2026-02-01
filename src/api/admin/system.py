@@ -1,17 +1,17 @@
 """系统设置API端点。"""
 
-
 from __future__ import annotations
 
-from typing import Any
 import copy
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import InvalidRequestException, NotFoundException, translate_pydantic_error
 from src.core.logger import logger
@@ -20,7 +20,6 @@ from src.models.api import SystemSettingsRequest, SystemSettingsResponse
 from src.models.database import ApiKey, Provider, Usage, User
 from src.services.email.email_template import EmailTemplate
 from src.services.system.config import SystemConfigService
-from src.api.base.context import ApiRequestContext
 
 router = APIRouter(prefix="/api/admin/system", tags=["Admin - System"])
 
@@ -179,7 +178,9 @@ async def check_update() -> Any:
             tag_commit_sha = latest_tag_info.get("commit", {}).get("sha")
             if tag_commit_sha:
                 # 尝试获取 annotated tag 的信息
-                tag_ref_url = f"https://api.github.com/repos/{github_repo}/git/refs/tags/{latest_tag_name}"
+                tag_ref_url = (
+                    f"https://api.github.com/repos/{github_repo}/git/refs/tags/{latest_tag_name}"
+                )
                 ref_response = await client.get(
                     tag_ref_url,
                     headers={
@@ -210,7 +211,9 @@ async def check_update() -> Any:
 
                 # 如果没有获取到时间，从 commit 获取
                 if not published_at:
-                    commit_url = f"https://api.github.com/repos/{github_repo}/commits/{tag_commit_sha}"
+                    commit_url = (
+                        f"https://api.github.com/repos/{github_repo}/commits/{tag_commit_sha}"
+                    )
                     commit_response = await client.get(
                         commit_url,
                         headers={
@@ -220,7 +223,9 @@ async def check_update() -> Any:
                     )
                     if commit_response.status_code == 200:
                         commit_data = commit_response.json()
-                        published_at = commit_data.get("commit", {}).get("committer", {}).get("date")
+                        published_at = (
+                            commit_data.get("commit", {}).get("committer", {}).get("date")
+                        )
 
             return {
                 "current_version": current_version,
@@ -599,6 +604,7 @@ class AdminSetSystemConfigAdapter(AdminApiAdapter):
         # 对敏感配置进行加密
         if self.key in self.ENCRYPTED_KEYS and value:
             from src.core.crypto import crypto_service
+
             value = crypto_service.encrypt(value)
 
         config = SystemConfigService.set_config(
@@ -652,7 +658,6 @@ class AdminTriggerCleanupAdapter(AdminApiAdapter):
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         """手动触发清理任务"""
         from datetime import datetime, timezone
-
 
         from src.services.system.maintenance_scheduler import get_maintenance_scheduler
 
@@ -714,21 +719,41 @@ class AdminTriggerCleanupAdapter(AdminApiAdapter):
 class AdminGetApiFormatsAdapter(AdminApiAdapter):
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         """获取所有可用的API格式"""
-        from src.core.api_format import API_FORMAT_DEFINITIONS, APIFormat
+        from src.core.api_format import list_endpoint_definitions
 
         _ = context  # 参数保留以符合接口规范
 
-        formats = []
-        for api_format in APIFormat:
-            definition = API_FORMAT_DEFINITIONS.get(api_format)
-            formats.append(
-                {
-                    "value": api_format.value,
-                    "label": api_format.value,
-                    "default_path": definition.default_path if definition else "/",
-                    "aliases": list(definition.aliases) if definition else [],
-                }
-            )
+        def _label_for(sig: str) -> str:
+            fam, kind = (sig.split(":", 1) + [""])[:2]
+            fam_title = {"claude": "Claude", "openai": "OpenAI", "gemini": "Gemini"}.get(fam, fam)
+            if kind == "chat":
+                return fam_title
+            kind_title = {"cli": "CLI", "video": "Video", "image": "Image"}.get(kind, kind)
+            return f"{fam_title} {kind_title}".strip()
+
+        endpoint_defs = list_endpoint_definitions()
+        preferred_order = [
+            "openai:chat",
+            "openai:cli",
+            "openai:video",
+            "claude:chat",
+            "claude:cli",
+            "gemini:chat",
+            "gemini:cli",
+            "gemini:video",
+        ]
+        order_map = {key: i for i, key in enumerate(preferred_order)}
+        endpoint_defs.sort(key=lambda d: order_map.get(d.signature_key, 999))
+
+        formats = [
+            {
+                "value": d.signature_key,
+                "label": _label_for(d.signature_key),
+                "default_path": d.default_path,
+                "aliases": list(d.aliases or []),
+            }
+            for d in endpoint_defs
+        ]
 
         return {"formats": formats}
 
@@ -738,8 +763,14 @@ class AdminExportConfigAdapter(AdminApiAdapter):
 
     # Provider Ops 中需要解密的敏感字段
     SENSITIVE_CREDENTIALS = {
-        "api_key", "password", "session_token", "session_cookie",
-        "token_cookie", "auth_cookie", "cookie_string", "cookie"
+        "api_key",
+        "password",
+        "session_token",
+        "session_cookie",
+        "token_cookie",
+        "auth_cookie",
+        "cookie_string",
+        "cookie",
     }
 
     def _decrypt_provider_config(self, config: dict, crypto_service: Any) -> dict:
@@ -797,9 +828,7 @@ class AdminExportConfigAdapter(AdminApiAdapter):
         for provider in providers:
             # 导出 Endpoints
             endpoints = (
-                db.query(ProviderEndpoint)
-                .filter(ProviderEndpoint.provider_id == provider.id)
-                .all()
+                db.query(ProviderEndpoint).filter(ProviderEndpoint.provider_id == provider.id).all()
             )
             endpoints_data = []
             for ep in endpoints:
@@ -903,6 +932,7 @@ class AdminExportConfigAdapter(AdminApiAdapter):
 
         # 导出 LDAP 配置
         from src.models.database import LDAPConfig
+
         ldap_config = db.query(LDAPConfig).first()
         ldap_data = None
         if ldap_config:
@@ -931,6 +961,7 @@ class AdminExportConfigAdapter(AdminApiAdapter):
 
         # 导出 OAuth Providers 配置
         from src.models.database import OAuthProvider
+
         oauth_providers = db.query(OAuthProvider).all()
         oauth_data = []
         for oauth in oauth_providers:
@@ -942,21 +973,23 @@ class AdminExportConfigAdapter(AdminApiAdapter):
                 except Exception as e:
                     logger.debug(f"解密 OAuth '{oauth.provider_type}' client_secret 失败: {e}")
 
-            oauth_data.append({
-                "provider_type": oauth.provider_type,
-                "display_name": oauth.display_name,
-                "client_id": oauth.client_id,
-                "client_secret": client_secret,
-                "authorization_url_override": oauth.authorization_url_override,
-                "token_url_override": oauth.token_url_override,
-                "userinfo_url_override": oauth.userinfo_url_override,
-                "scopes": oauth.scopes,
-                "redirect_uri": oauth.redirect_uri,
-                "frontend_callback_url": oauth.frontend_callback_url,
-                "attribute_mapping": oauth.attribute_mapping,
-                "extra_config": oauth.extra_config,
-                "is_enabled": oauth.is_enabled,
-            })
+            oauth_data.append(
+                {
+                    "provider_type": oauth.provider_type,
+                    "display_name": oauth.display_name,
+                    "client_id": oauth.client_id,
+                    "client_secret": client_secret,
+                    "authorization_url_override": oauth.authorization_url_override,
+                    "token_url_override": oauth.token_url_override,
+                    "userinfo_url_override": oauth.userinfo_url_override,
+                    "scopes": oauth.scopes,
+                    "redirect_uri": oauth.redirect_uri,
+                    "frontend_callback_url": oauth.frontend_callback_url,
+                    "attribute_mapping": oauth.attribute_mapping,
+                    "extra_config": oauth.extra_config,
+                    "is_enabled": oauth.is_enabled,
+                }
+            )
 
         return {
             "version": "2.1",
@@ -976,8 +1009,14 @@ class AdminImportConfigAdapter(AdminApiAdapter):
 
     # Provider Ops 中需要加密的敏感字段
     SENSITIVE_CREDENTIALS = {
-        "api_key", "password", "session_token", "session_cookie",
-        "token_cookie", "auth_cookie", "cookie_string", "cookie"
+        "api_key",
+        "password",
+        "session_token",
+        "session_cookie",
+        "token_cookie",
+        "auth_cookie",
+        "cookie_string",
+        "cookie",
     }
 
     def _encrypt_provider_config(self, config: dict, crypto_service: Any) -> dict:
@@ -1045,9 +1084,7 @@ class AdminImportConfigAdapter(AdminApiAdapter):
             # 导入 GlobalModels
             global_model_map = {}  # name -> id 映射
             for gm_data in global_models_data:
-                existing = (
-                    db.query(GlobalModel).filter(GlobalModel.name == gm_data["name"]).first()
-                )
+                existing = db.query(GlobalModel).filter(GlobalModel.name == gm_data["name"]).first()
 
                 if existing:
                     global_model_map[gm_data["name"]] = existing.id
@@ -1055,23 +1092,17 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         stats["global_models"]["skipped"] += 1
                         continue
                     elif merge_mode == "error":
-                        raise InvalidRequestException(
-                            f"GlobalModel '{gm_data['name']}' 已存在"
-                        )
+                        raise InvalidRequestException(f"GlobalModel '{gm_data['name']}' 已存在")
                     elif merge_mode == "overwrite":
                         # 更新现有记录
-                        existing.display_name = gm_data.get(
-                            "display_name", existing.display_name
-                        )
+                        existing.display_name = gm_data.get("display_name", existing.display_name)
                         existing.default_price_per_request = gm_data.get(
                             "default_price_per_request"
                         )
                         existing.default_tiered_pricing = gm_data.get(
                             "default_tiered_pricing", existing.default_tiered_pricing
                         )
-                        existing.supported_capabilities = gm_data.get(
-                            "supported_capabilities"
-                        )
+                        existing.supported_capabilities = gm_data.get("supported_capabilities")
                         existing.config = gm_data.get("config")
                         existing.is_active = gm_data.get("is_active", True)
                         existing.updated_at = datetime.now(timezone.utc)
@@ -1085,7 +1116,15 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         default_price_per_request=gm_data.get("default_price_per_request"),
                         default_tiered_pricing=gm_data.get(
                             "default_tiered_pricing",
-                            {"tiers": [{"up_to": None, "input_price_per_1m": 0, "output_price_per_1m": 0}]},
+                            {
+                                "tiers": [
+                                    {
+                                        "up_to": None,
+                                        "input_price_per_1m": 0,
+                                        "output_price_per_1m": 0,
+                                    }
+                                ]
+                            },
                         ),
                         supported_capabilities=gm_data.get("supported_capabilities"),
                         config=gm_data.get("config"),
@@ -1108,33 +1147,23 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         stats["providers"]["skipped"] += 1
                         # 仍然需要处理 endpoints 和 models（如果存在）
                     elif merge_mode == "error":
-                        raise InvalidRequestException(
-                            f"Provider '{prov_data['name']}' 已存在"
-                        )
+                        raise InvalidRequestException(f"Provider '{prov_data['name']}' 已存在")
                     elif merge_mode == "overwrite":
                         # 更新现有记录
-                        existing_provider.name = prov_data.get(
-                            "name", existing_provider.name
-                        )
+                        existing_provider.name = prov_data.get("name", existing_provider.name)
                         existing_provider.description = prov_data.get("description")
                         existing_provider.website = prov_data.get("website")
                         if prov_data.get("billing_type"):
                             existing_provider.billing_type = ProviderBillingType(
                                 prov_data["billing_type"]
                             )
-                        existing_provider.monthly_quota_usd = prov_data.get(
-                            "monthly_quota_usd"
-                        )
-                        existing_provider.quota_reset_day = prov_data.get(
-                            "quota_reset_day", 30
-                        )
+                        existing_provider.monthly_quota_usd = prov_data.get("monthly_quota_usd")
+                        existing_provider.quota_reset_day = prov_data.get("quota_reset_day", 30)
                         existing_provider.provider_priority = prov_data.get(
                             "provider_priority", 100
                         )
                         existing_provider.is_active = prov_data.get("is_active", True)
-                        existing_provider.concurrent_limit = prov_data.get(
-                            "concurrent_limit"
-                        )
+                        existing_provider.concurrent_limit = prov_data.get("concurrent_limit")
                         existing_provider.max_retries = prov_data.get(
                             "max_retries", existing_provider.max_retries
                         )
@@ -1178,11 +1207,17 @@ class AdminImportConfigAdapter(AdminApiAdapter):
 
                 # 导入 Endpoints
                 for ep_data in prov_data.get("endpoints", []):
+                    from src.core.api_format.signature import (
+                        normalize_signature_key,
+                        parse_signature_key,
+                    )
+
+                    ep_format = normalize_signature_key(ep_data["api_format"])
                     existing_ep = (
                         db.query(ProviderEndpoint)
                         .filter(
                             ProviderEndpoint.provider_id == provider_id,
-                            ProviderEndpoint.api_format == ep_data["api_format"],
+                            ProviderEndpoint.api_format == ep_format,
                         )
                         .first()
                     )
@@ -1192,25 +1227,32 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                             stats["endpoints"]["skipped"] += 1
                         elif merge_mode == "error":
                             raise InvalidRequestException(
-                                f"Endpoint '{ep_data['api_format']}' 已存在于 Provider '{prov_data['name']}'"
+                                f"Endpoint '{ep_format}' 已存在于 Provider '{prov_data['name']}'"
                             )
                         elif merge_mode == "overwrite":
-                            existing_ep.base_url = ep_data.get(
-                                "base_url", existing_ep.base_url
-                            )
+                            existing_ep.base_url = ep_data.get("base_url", existing_ep.base_url)
                             existing_ep.header_rules = ep_data.get("header_rules")
                             existing_ep.max_retries = ep_data.get("max_retries", 2)
                             existing_ep.is_active = ep_data.get("is_active", True)
                             existing_ep.custom_path = ep_data.get("custom_path")
                             existing_ep.config = ep_data.get("config")
                             existing_ep.proxy = ep_data.get("proxy")
+                            sig = parse_signature_key(ep_format)
+                            existing_ep.api_format = sig.key  # 使用归一化后的格式
+                            existing_ep.api_family = sig.api_family.value
+                            existing_ep.endpoint_kind = sig.endpoint_kind.value
                             existing_ep.updated_at = datetime.now(timezone.utc)
                             stats["endpoints"]["updated"] += 1
                     else:
+                        sig = parse_signature_key(ep_format)
+                        api_family = sig.api_family.value
+                        endpoint_kind = sig.endpoint_kind.value
                         new_ep = ProviderEndpoint(
                             id=str(uuid.uuid4()),
                             provider_id=provider_id,
-                            api_format=ep_data["api_format"],
+                            api_format=sig.key,  # 使用归一化后的格式
+                            api_family=api_family,
+                            endpoint_kind=endpoint_kind,
                             base_url=ep_data["base_url"],
                             header_rules=ep_data.get("header_rules"),
                             max_retries=ep_data.get("max_retries", 2),
@@ -1232,11 +1274,11 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                 endpoint_formats: set[str] = set()
                 for (api_format,) in endpoint_format_rows:
                     fmt = api_format.value if hasattr(api_format, "value") else str(api_format)
-                    endpoint_formats.add(fmt.strip().upper())
+                    from src.core.api_format.signature import normalize_signature_key
+
+                    endpoint_formats.add(normalize_signature_key(fmt))
                 existing_keys = (
-                    db.query(ProviderAPIKey)
-                    .filter(ProviderAPIKey.provider_id == provider_id)
-                    .all()
+                    db.query(ProviderAPIKey).filter(ProviderAPIKey.provider_id == provider_id).all()
                 )
                 existing_key_values = set()
                 for ek in existing_keys:
@@ -1248,9 +1290,7 @@ class AdminImportConfigAdapter(AdminApiAdapter):
 
                 for key_data in prov_data.get("api_keys", []):
                     if not key_data.get("api_key"):
-                        stats["errors"].append(
-                            f"跳过空 API Key (Provider: {prov_data['name']})"
-                        )
+                        stats["errors"].append(f"跳过空 API Key (Provider: {prov_data['name']})")
                         continue
 
                     plaintext_key = key_data["api_key"]
@@ -1368,21 +1408,13 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                             existing_model.provider_model_mappings = model_data.get(
                                 "provider_model_mappings"
                             )
-                            existing_model.price_per_request = model_data.get(
-                                "price_per_request"
-                            )
-                            existing_model.tiered_pricing = model_data.get(
-                                "tiered_pricing"
-                            )
-                            existing_model.supports_vision = model_data.get(
-                                "supports_vision"
-                            )
+                            existing_model.price_per_request = model_data.get("price_per_request")
+                            existing_model.tiered_pricing = model_data.get("tiered_pricing")
+                            existing_model.supports_vision = model_data.get("supports_vision")
                             existing_model.supports_function_calling = model_data.get(
                                 "supports_function_calling"
                             )
-                            existing_model.supports_streaming = model_data.get(
-                                "supports_streaming"
-                            )
+                            existing_model.supports_streaming = model_data.get("supports_streaming")
                             existing_model.supports_extended_thinking = model_data.get(
                                 "supports_extended_thinking"
                             )
@@ -1399,22 +1431,14 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                             provider_id=provider_id,
                             global_model_id=global_model_id,
                             provider_model_name=model_data["provider_model_name"],
-                            provider_model_mappings=model_data.get(
-                                "provider_model_mappings"
-                            ),
+                            provider_model_mappings=model_data.get("provider_model_mappings"),
                             price_per_request=model_data.get("price_per_request"),
                             tiered_pricing=model_data.get("tiered_pricing"),
                             supports_vision=model_data.get("supports_vision"),
-                            supports_function_calling=model_data.get(
-                                "supports_function_calling"
-                            ),
+                            supports_function_calling=model_data.get("supports_function_calling"),
                             supports_streaming=model_data.get("supports_streaming"),
-                            supports_extended_thinking=model_data.get(
-                                "supports_extended_thinking"
-                            ),
-                            supports_image_generation=model_data.get(
-                                "supports_image_generation"
-                            ),
+                            supports_extended_thinking=model_data.get("supports_extended_thinking"),
+                            supports_image_generation=model_data.get("supports_image_generation"),
                             is_active=model_data.get("is_active", True),
                             config=model_data.get("config"),
                         )
@@ -1439,7 +1463,9 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                     elif merge_mode == "error":
                         raise InvalidRequestException("LDAP 配置已存在")
                     elif merge_mode == "overwrite":
-                        existing_ldap.server_url = ldap_data.get("server_url", existing_ldap.server_url)
+                        existing_ldap.server_url = ldap_data.get(
+                            "server_url", existing_ldap.server_url
+                        )
                         existing_ldap.bind_dn = ldap_data.get("bind_dn", existing_ldap.bind_dn)
                         # 加密绑定密码
                         if ldap_data.get("bind_password"):
@@ -1453,11 +1479,15 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         existing_ldap.username_attr = ldap_data.get(
                             "username_attr", existing_ldap.username_attr
                         )
-                        existing_ldap.email_attr = ldap_data.get("email_attr", existing_ldap.email_attr)
+                        existing_ldap.email_attr = ldap_data.get(
+                            "email_attr", existing_ldap.email_attr
+                        )
                         existing_ldap.display_name_attr = ldap_data.get(
                             "display_name_attr", existing_ldap.display_name_attr
                         )
-                        existing_ldap.is_enabled = ldap_data.get("is_enabled", existing_ldap.is_enabled)
+                        existing_ldap.is_enabled = ldap_data.get(
+                            "is_enabled", existing_ldap.is_enabled
+                        )
                         existing_ldap.is_exclusive = ldap_data.get(
                             "is_exclusive", existing_ldap.is_exclusive
                         )
@@ -1476,7 +1506,8 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         bind_dn=ldap_data["bind_dn"],
                         bind_password_encrypted=(
                             crypto_service.encrypt(ldap_data["bind_password"])
-                            if ldap_data.get("bind_password") else None
+                            if ldap_data.get("bind_password")
+                            else None
                         ),
                         base_dn=ldap_data["base_dn"],
                         user_search_filter=ldap_data.get("user_search_filter", "(uid={username})"),
@@ -1494,6 +1525,7 @@ class AdminImportConfigAdapter(AdminApiAdapter):
             # 导入 OAuth Providers（2.1 新增）
             if oauth_data:
                 from src.models.database import OAuthProvider
+
                 for oauth_item in oauth_data:
                     provider_type = oauth_item.get("provider_type")
                     if not provider_type:
@@ -1548,7 +1580,11 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                             stats["oauth"]["updated"] += 1
                     else:
                         # 创建新的 OAuth Provider - 校验必填字段
-                        required_oauth_fields = ["client_id", "redirect_uri", "frontend_callback_url"]
+                        required_oauth_fields = [
+                            "client_id",
+                            "redirect_uri",
+                            "frontend_callback_url",
+                        ]
                         missing = [f for f in required_oauth_fields if not oauth_item.get(f)]
                         if missing:
                             stats["errors"].append(
@@ -1562,7 +1598,8 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                             client_id=oauth_item["client_id"],
                             client_secret_encrypted=(
                                 crypto_service.encrypt(oauth_item["client_secret"])
-                                if oauth_item.get("client_secret") else None
+                                if oauth_item.get("client_secret")
+                                else None
                             ),
                             authorization_url_override=oauth_item.get("authorization_url_override"),
                             token_url_override=oauth_item.get("token_url_override"),
@@ -1588,10 +1625,14 @@ class AdminImportConfigAdapter(AdminApiAdapter):
             # 触发开启了 auto_fetch_models 的 Key 的模型获取
             keys_to_fetch = stats.get("keys_to_fetch", [])
             if keys_to_fetch:
-                logger.info(f"[AUTO_FETCH] 导入了 {len(keys_to_fetch)} 个开启自动获取模型的 Key，触发模型获取")
+                logger.info(
+                    f"[AUTO_FETCH] 导入了 {len(keys_to_fetch)} 个开启自动获取模型的 Key，触发模型获取"
+                )
                 try:
-                    from src.services.model.fetch_scheduler import get_model_fetch_scheduler
                     import asyncio
+
+                    from src.services.model.fetch_scheduler import get_model_fetch_scheduler
+
                     scheduler = get_model_fetch_scheduler()
                     for key_id in keys_to_fetch:
                         asyncio.create_task(scheduler._fetch_models_for_key_by_id(key_id))
@@ -1649,18 +1690,18 @@ class AdminExportUsersAdapter(AdminApiAdapter):
             return data
 
         # 导出 Users（排除管理员）
-        users = db.query(User).filter(
-            User.is_deleted.is_(False),
-            User.role != UserRole.ADMIN
-        ).all()
+        users = db.query(User).filter(User.is_deleted.is_(False), User.role != UserRole.ADMIN).all()
         users_data = []
         for user in users:
             # 导出用户的 API Keys（排除独立余额Key，独立Key单独导出）
-            api_keys = db.query(ApiKey).filter(
-                ApiKey.user_id == user.id,
-                ApiKey.is_standalone.is_(False)
-            ).all()
-            api_keys_data = [_serialize_api_key(key, include_is_standalone=True) for key in api_keys]
+            api_keys = (
+                db.query(ApiKey)
+                .filter(ApiKey.user_id == user.id, ApiKey.is_standalone.is_(False))
+                .all()
+            )
+            api_keys_data = [
+                _serialize_api_key(key, include_is_standalone=True) for key in api_keys
+            ]
 
             users_data.append(
                 {
@@ -1751,27 +1792,30 @@ class AdminImportUsersAdapter(AdminApiAdapter):
                         f"API Key '{key_data.get('name', key_hash[:8])}' 的 expires_at 格式无效"
                     )
 
-            return ApiKey(
-                id=str(uuid.uuid4()),
-                user_id=owner_id,
-                key_hash=key_hash,
-                key_encrypted=key_data.get("key_encrypted"),
-                name=key_data.get("name"),
-                is_standalone=is_standalone or key_data.get("is_standalone", False),
-                balance_used_usd=key_data.get("balance_used_usd", 0.0),
-                current_balance_usd=key_data.get("current_balance_usd"),
-                allowed_providers=key_data.get("allowed_providers"),
-                allowed_api_formats=key_data.get("allowed_api_formats"),
-                allowed_models=key_data.get("allowed_models"),
-                rate_limit=key_data.get("rate_limit"),
-                concurrent_limit=key_data.get("concurrent_limit", 5),
-                force_capabilities=key_data.get("force_capabilities"),
-                is_active=key_data.get("is_active", True),
-                expires_at=expires_at,
-                auto_delete_on_expiry=key_data.get("auto_delete_on_expiry", False),
-                total_requests=key_data.get("total_requests", 0),
-                total_cost_usd=key_data.get("total_cost_usd", 0.0),
-            ), "created"
+            return (
+                ApiKey(
+                    id=str(uuid.uuid4()),
+                    user_id=owner_id,
+                    key_hash=key_hash,
+                    key_encrypted=key_data.get("key_encrypted"),
+                    name=key_data.get("name"),
+                    is_standalone=is_standalone or key_data.get("is_standalone", False),
+                    balance_used_usd=key_data.get("balance_used_usd", 0.0),
+                    current_balance_usd=key_data.get("current_balance_usd"),
+                    allowed_providers=key_data.get("allowed_providers"),
+                    allowed_api_formats=key_data.get("allowed_api_formats"),
+                    allowed_models=key_data.get("allowed_models"),
+                    rate_limit=key_data.get("rate_limit"),
+                    concurrent_limit=key_data.get("concurrent_limit", 5),
+                    force_capabilities=key_data.get("force_capabilities"),
+                    is_active=key_data.get("is_active", True),
+                    expires_at=expires_at,
+                    auto_delete_on_expiry=key_data.get("auto_delete_on_expiry", False),
+                    total_requests=key_data.get("total_requests", 0),
+                    total_cost_usd=key_data.get("total_cost_usd", 0.0),
+                ),
+                "created",
+            )
 
         try:
             for user_data in users_data:
@@ -1785,29 +1829,21 @@ class AdminImportUsersAdapter(AdminApiAdapter):
                 # 导入必须有邮箱（email 是导入的主键）
                 import_email = user_data.get("email")
                 if not import_email:
-                    stats["errors"].append(
-                        f"跳过无邮箱用户: {user_data.get('username', '未知')}"
-                    )
+                    stats["errors"].append(f"跳过无邮箱用户: {user_data.get('username', '未知')}")
                     stats["users"]["skipped"] += 1
                     continue
 
-                existing_user = (
-                    db.query(User).filter(User.email == import_email).first()
-                )
+                existing_user = db.query(User).filter(User.email == import_email).first()
 
                 if existing_user:
                     user_id = existing_user.id
                     if merge_mode == "skip":
                         stats["users"]["skipped"] += 1
                     elif merge_mode == "error":
-                        raise InvalidRequestException(
-                            f"用户 '{import_email}' 已存在"
-                        )
+                        raise InvalidRequestException(f"用户 '{import_email}' 已存在")
                     elif merge_mode == "overwrite":
                         # 更新现有用户
-                        existing_user.username = user_data.get(
-                            "username", existing_user.username
-                        )
+                        existing_user.username = user_data.get("username", existing_user.username)
                         if user_data.get("password_hash"):
                             existing_user.password_hash = user_data["password_hash"]
                         if user_data.get("role"):
@@ -1898,8 +1934,8 @@ class AdminTestSmtpAdapter(AdminApiAdapter):
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         """测试 SMTP 连接"""
         from src.core.crypto import crypto_service
-        from src.services.system.config import SystemConfigService
         from src.services.email.email_sender import EmailSenderService
+        from src.services.system.config import SystemConfigService
 
         db = context.db
         payload = context.ensure_json_body() or {}
@@ -1917,16 +1953,23 @@ class AdminTestSmtpAdapter(AdminApiAdapter):
 
         # 前端可传入未保存的配置，优先使用前端值，否则回退数据库
         config = {
-            "smtp_host": payload.get("smtp_host") or SystemConfigService.get_config(db, "smtp_host"),
-            "smtp_port": payload.get("smtp_port") or SystemConfigService.get_config(db, "smtp_port", default=587),
-            "smtp_user": payload.get("smtp_user") or SystemConfigService.get_config(db, "smtp_user"),
+            "smtp_host": payload.get("smtp_host")
+            or SystemConfigService.get_config(db, "smtp_host"),
+            "smtp_port": payload.get("smtp_port")
+            or SystemConfigService.get_config(db, "smtp_port", default=587),
+            "smtp_user": payload.get("smtp_user")
+            or SystemConfigService.get_config(db, "smtp_user"),
             "smtp_password": smtp_password,
-            "smtp_use_tls": payload.get("smtp_use_tls")
-            if payload.get("smtp_use_tls") is not None
-            else SystemConfigService.get_config(db, "smtp_use_tls", default=True),
-            "smtp_use_ssl": payload.get("smtp_use_ssl")
-            if payload.get("smtp_use_ssl") is not None
-            else SystemConfigService.get_config(db, "smtp_use_ssl", default=False),
+            "smtp_use_tls": (
+                payload.get("smtp_use_tls")
+                if payload.get("smtp_use_tls") is not None
+                else SystemConfigService.get_config(db, "smtp_use_tls", default=True)
+            ),
+            "smtp_use_ssl": (
+                payload.get("smtp_use_ssl")
+                if payload.get("smtp_use_ssl") is not None
+                else SystemConfigService.get_config(db, "smtp_use_ssl", default=False)
+            ),
             "smtp_from_email": payload.get("smtp_from_email")
             or SystemConfigService.get_config(db, "smtp_from_email"),
             "smtp_from_name": payload.get("smtp_from_name")
@@ -1935,12 +1978,14 @@ class AdminTestSmtpAdapter(AdminApiAdapter):
 
         # 验证必要配置
         missing_fields = [
-            field for field in ["smtp_host", "smtp_user", "smtp_password", "smtp_from_email"] if not config.get(field)
+            field
+            for field in ["smtp_host", "smtp_user", "smtp_password", "smtp_from_email"]
+            if not config.get(field)
         ]
         if missing_fields:
             return {
                 "success": False,
-                "message": f"SMTP 配置不完整，请检查 {', '.join(missing_fields)}"
+                "message": f"SMTP 配置不完整，请检查 {', '.join(missing_fields)}",
             }
 
         # 测试连接
@@ -1950,20 +1995,11 @@ class AdminTestSmtpAdapter(AdminApiAdapter):
             )
 
             if success:
-                return {
-                    "success": True,
-                    "message": "SMTP 连接测试成功"
-                }
+                return {"success": True, "message": "SMTP 连接测试成功"}
             else:
-                return {
-                    "success": False,
-                    "message": error_msg
-                }
+                return {"success": False, "message": error_msg}
         except Exception as e:
-            return {
-                "success": False,
-                "message": str(e)
-            }
+            return {"success": False, "message": str(e)}
 
 
 # -------- 邮件模板适配器 --------

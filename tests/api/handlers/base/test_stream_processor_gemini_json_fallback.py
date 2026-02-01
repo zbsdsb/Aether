@@ -28,9 +28,9 @@ async def _iter_bytes(chunks: list[bytes]) -> AsyncIterator[bytes]:
 async def test_stream_processor_converts_gemini_json_lines_without_data_prefix() -> None:
     register_default_normalizers()
 
-    ctx = StreamContext(model="gemini-test", api_format="OPENAI")
-    ctx.provider_api_format = "GEMINI"
-    ctx.client_api_format = "OPENAI"
+    ctx = StreamContext(model="gemini-test", api_format="openai:chat")
+    ctx.provider_api_format = "gemini:chat"
+    ctx.client_api_format = "openai:chat"
     ctx.needs_conversion = True
     ctx.request_id = "req_test"
     ctx.mapped_model = "gemini-test"
@@ -62,7 +62,7 @@ async def test_stream_processor_converts_gemini_json_lines_without_data_prefix()
 
     processor = StreamProcessor(
         request_id="req_test",
-        default_parser=get_parser_for_format("OPENAI"),
+        default_parser=get_parser_for_format("openai:chat"),
     )
 
     out = b""

@@ -25,7 +25,6 @@ from src.plugins.rate_limit.base import RateLimitStrategy
 from src.plugins.token.base import TokenCounterPlugin
 
 
-
 class PluginManager:
     """
     统一的插件管理器
@@ -140,9 +139,11 @@ class PluginManager:
                     # 检查 API 版本兼容性
                     plugin_api_version = getattr(plugin_instance.metadata, "api_version", "1.0")
                     if not self._is_api_version_compatible(plugin_api_version):
-                        logger.warning(f"Plugin {plugin_instance.name} has incompatible API version "
+                        logger.warning(
+                            f"Plugin {plugin_instance.name} has incompatible API version "
                             f"{plugin_api_version} (supported: {self.SUPPORTED_API_VERSION}), "
-                            f"plugin will be disabled")
+                            f"plugin will be disabled"
+                        )
                         plugin_instance.enabled = False
                         self._incompatible_plugins.append(plugin_instance.name)
 
@@ -378,12 +379,16 @@ class PluginManager:
                 else:
                     # 初始化失败，禁用插件
                     plugin.enabled = False
-                    logger.error(f"Failed to initialize plugin: {plugin.name}, plugin has been disabled")
+                    logger.error(
+                        f"Failed to initialize plugin: {plugin.name}, plugin has been disabled"
+                    )
             except Exception as e:
                 results[f"{plugin.name}"] = False
                 # 初始化异常，禁用插件
                 plugin.enabled = False
-                logger.error(f"Error initializing plugin {plugin.name}: {e}, plugin has been disabled")
+                logger.error(
+                    f"Error initializing plugin {plugin.name}: {e}, plugin has been disabled"
+                )
 
         return results
 
@@ -458,8 +463,10 @@ class PluginManager:
         if len(result) != len(plugins):
             remaining = [p for p in plugins if p not in result]
             circular_names = [p.name for p in remaining]
-            logger.error(f"Circular dependency detected among plugins: {circular_names}. "
-                f"These plugins will be disabled.")
+            logger.error(
+                f"Circular dependency detected among plugins: {circular_names}. "
+                f"These plugins will be disabled."
+            )
             # 禁用存在循环依赖的插件，而不是继续加载
             for plugin in remaining:
                 plugin.enabled = False

@@ -1,6 +1,7 @@
 """模块管理 API 端点"""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,10 +10,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.modules import ModuleStatus, get_module_registry
-from src.api.base.context import ApiRequestContext
 from src.database import get_db
 
 router = APIRouter(prefix="/api/admin/modules", tags=["Admin - Modules"])

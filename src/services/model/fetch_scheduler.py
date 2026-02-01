@@ -110,9 +110,7 @@ def _get_upstream_models_cache_key(provider_id: str, api_key_id: str) -> str:
     return f"upstream_models:{provider_id}:{api_key_id}"
 
 
-async def get_upstream_models_from_cache(
-    provider_id: str, api_key_id: str
-) -> list[dict] | None:
+async def get_upstream_models_from_cache(provider_id: str, api_key_id: str) -> list[dict] | None:
     """从缓存获取上游模型列表"""
     cache_key = _get_upstream_models_cache_key(provider_id, api_key_id)
     cached = await CacheService.get(cache_key)

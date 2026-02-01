@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session, joinedload
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.models_service import invalidate_models_list_cache
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import InvalidRequestException, NotFoundException
@@ -21,23 +22,22 @@ from src.models.api import (
     ModelResponse,
     ModelUpdate,
 )
-from src.models.pydantic_models import (
-    BatchAssignModelsToProviderRequest,
-    BatchAssignModelsToProviderResponse,
-    ImportFromUpstreamRequest,
-    ImportFromUpstreamResponse,
-    ImportFromUpstreamSuccessItem,
-    ImportFromUpstreamErrorItem,
-    ProviderAvailableSourceModel,
-    ProviderAvailableSourceModelsResponse,
-)
 from src.models.database import (
     GlobalModel,
     Model,
     Provider,
 )
+from src.models.pydantic_models import (
+    BatchAssignModelsToProviderRequest,
+    BatchAssignModelsToProviderResponse,
+    ImportFromUpstreamErrorItem,
+    ImportFromUpstreamRequest,
+    ImportFromUpstreamResponse,
+    ImportFromUpstreamSuccessItem,
+    ProviderAvailableSourceModel,
+    ProviderAvailableSourceModelsResponse,
+)
 from src.services.model.service import ModelService
-from src.api.base.context import ApiRequestContext
 
 router = APIRouter(tags=["Model Management"])
 pipeline = ApiRequestPipeline()
@@ -322,9 +322,7 @@ async def batch_assign_global_models_to_provider(
       - `global_model_name`: 全局模型名称（如果可用）
       - `error`: 错误信息
     """
-    adapter = AdminBatchAssignModelsToProviderAdapter(
-        provider_id=provider_id, payload=payload
-    )
+    adapter = AdminBatchAssignModelsToProviderAdapter(provider_id=provider_id, payload=payload)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -407,7 +405,9 @@ class AdminCreateProviderModelAdapter(AdminApiAdapter):
 
         try:
             model = ModelService.create_model(db, self.provider_id, self.model_data)
-            logger.info(f"Model created: {model.provider_model_name} for provider {provider.name} by {context.user.username}")
+            logger.info(
+                f"Model created: {model.provider_model_name} for provider {provider.name} by {context.user.username}"
+            )
             # 缓存失效已在 ModelService.create_model 中处理
             return ModelService.convert_to_response(model)
         except Exception as exc:
@@ -450,7 +450,9 @@ class AdminUpdateProviderModelAdapter(AdminApiAdapter):
 
         try:
             updated_model = ModelService.update_model(db, self.model_id, self.model_data)
-            logger.info(f"Model updated: {updated_model.provider_model_name} by {context.user.username}")
+            logger.info(
+                f"Model updated: {updated_model.provider_model_name} by {context.user.username}"
+            )
             # 缓存失效已在 ModelService.update_model 中处理
             return ModelService.convert_to_response(updated_model)
         except Exception as exc:
@@ -495,7 +497,9 @@ class AdminBatchCreateModelsAdapter(AdminApiAdapter):
 
         try:
             models = ModelService.batch_create_models(db, self.provider_id, self.models_data)
-            logger.info(f"Batch created {len(models)} models for provider {provider.name} by {context.user.username}")
+            logger.info(
+                f"Batch created {len(models)} models for provider {provider.name} by {context.user.username}"
+            )
             # 缓存失效已在 ModelService.batch_create_models 中处理
             return [ModelService.convert_to_response(model) for model in models]
         except Exception as exc:
@@ -642,6 +646,7 @@ class AdminBatchAssignModelsToProviderAdapter(AdminApiAdapter):
         if success:
             # Provider 新增模型实现后，清除同进程的 ModelMapper 缓存，避免 TTL 内仍返回 None
             from src.services.cache.invalidation import get_cache_invalidation_service
+
             cache_service = get_cache_invalidation_service()
             cache_service.on_model_changed(self.provider_id, success[0].get("global_model_id", ""))
 
@@ -669,9 +674,12 @@ class AdminImportFromUpstreamAdapter(AdminApiAdapter):
         # 获取价格覆盖配置
         tiered_pricing = None
         price_per_request = None
-        if hasattr(self.payload, 'tiered_pricing') and self.payload.tiered_pricing:
+        if hasattr(self.payload, "tiered_pricing") and self.payload.tiered_pricing:
             tiered_pricing = self.payload.tiered_pricing
-        if hasattr(self.payload, 'price_per_request') and self.payload.price_per_request is not None:
+        if (
+            hasattr(self.payload, "price_per_request")
+            and self.payload.price_per_request is not None
+        ):
             price_per_request = self.payload.price_per_request
 
         for model_id in self.payload.model_ids:
@@ -679,7 +687,11 @@ class AdminImportFromUpstreamAdapter(AdminApiAdapter):
             if not model_id or len(model_id) > 100:
                 errors.append(
                     ImportFromUpstreamErrorItem(
-                        model_id=model_id[:50] + "..." if model_id and len(model_id) > 50 else model_id or "<empty>",
+                        model_id=(
+                            model_id[:50] + "..."
+                            if model_id and len(model_id) > 50
+                            else model_id or "<empty>"
+                        ),
                         error="Invalid model_id: must be 1-100 characters",
                     )
                 )
@@ -705,7 +717,9 @@ class AdminImportFromUpstreamAdapter(AdminApiAdapter):
                             ImportFromUpstreamSuccessItem(
                                 model_id=model_id,
                                 global_model_id=existing.global_model_id or "",
-                                global_model_name=existing.global_model.name if existing.global_model else "",
+                                global_model_name=(
+                                    existing.global_model.name if existing.global_model else ""
+                                ),
                                 provider_model_id=existing.id,
                                 created_global_model=False,
                             )

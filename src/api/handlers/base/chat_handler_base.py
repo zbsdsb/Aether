@@ -413,17 +413,18 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             mapped_model: 映射后的模型名
             fallback_model: 兜底模型名（无映射时使用）
         """
-        from src.core.api_format import APIFormat
-        from src.core.api_format.metadata import API_FORMAT_DEFINITIONS
+        from src.core.api_format.metadata import resolve_endpoint_definition
 
-        try:
-            target_format = APIFormat(provider_api_format.upper())
-            target_meta = API_FORMAT_DEFINITIONS.get(target_format)
-            if target_meta and target_meta.model_in_body:
-                request_body["model"] = mapped_model or fallback_model
-        except (ValueError, KeyError):
-            # 未知格式，默认设置 model 字段
+        target_meta = resolve_endpoint_definition(provider_api_format)
+        if target_meta is None:
+            # 未知格式，保守处理：默认设置 model
             request_body["model"] = mapped_model or fallback_model
+            return
+
+        if target_meta.model_in_body:
+            request_body["model"] = mapped_model or fallback_model
+        else:
+            request_body.pop("model", None)
 
     def _set_stream_after_conversion(
         self,
@@ -444,26 +445,26 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             provider_api_format: Provider 侧 API 格式
             is_stream: 是否为流式请求
         """
-        from src.core.api_format import APIFormat
-        from src.core.api_format.metadata import API_FORMAT_DEFINITIONS
+        from src.core.api_format.metadata import resolve_endpoint_definition
 
-        try:
-            client_format = APIFormat(client_api_format.upper())
-            provider_format = APIFormat(provider_api_format.upper())
+        client_meta = resolve_endpoint_definition(client_api_format)
+        provider_meta = resolve_endpoint_definition(provider_api_format)
 
-            client_meta = API_FORMAT_DEFINITIONS.get(client_format)
-            provider_meta = API_FORMAT_DEFINITIONS.get(provider_format)
+        # 默认：stream_in_body=True（如 OpenAI/Claude）
+        client_uses_stream = client_meta.stream_in_body if client_meta else True
+        provider_uses_stream = provider_meta.stream_in_body if provider_meta else True
 
-            # 如果客户端格式不使用 stream 字段，但 Provider 格式需要
-            client_uses_stream = client_meta.stream_in_body if client_meta else True
-            provider_uses_stream = provider_meta.stream_in_body if provider_meta else True
+        # Provider 不使用 stream 字段（如 Gemini）：确保移除
+        if not provider_uses_stream:
+            request_body.pop("stream", None)
+            return
 
-            if not client_uses_stream and provider_uses_stream:
-                request_body["stream"] = is_stream
-        except (ValueError, KeyError):
-            # 未知格式，保守处理：如果请求体中没有 stream 字段则设置
-            if "stream" not in request_body:
-                request_body["stream"] = is_stream
+        # 如果客户端格式不使用 stream 字段，但 Provider 格式需要：补齐
+        if not client_uses_stream and provider_uses_stream:
+            request_body["stream"] = is_stream
+        elif "stream" not in request_body:
+            # 保守兜底：目标需要 stream 且当前缺失时写入
+            request_body["stream"] = is_stream
 
     async def _get_mapped_model(
         self,

@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.exceptions import InvalidRequestException, NotFoundException, translate_pydantic_error
 from src.core.logger import logger
@@ -20,8 +21,6 @@ from src.models.database import ApiKey, User, UserRole
 from src.services.system.config import SystemConfigService
 from src.services.user.apikey import ApiKeyService
 from src.services.user.service import UserService
-from src.api.base.context import ApiRequestContext
-
 
 router = APIRouter(prefix="/api/admin/users", tags=["Admin - Users"])
 pipeline = ApiRequestPipeline()

@@ -2,7 +2,6 @@
 用户偏好设置服务
 """
 
-
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -10,7 +9,6 @@ from sqlalchemy.orm import Session
 from src.core.exceptions import NotFoundException
 from src.core.logger import logger
 from src.models.database import Provider, User, UserPreference
-
 
 
 class PreferenceService:

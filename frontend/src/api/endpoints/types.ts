@@ -1,11 +1,14 @@
 // API 格式常量
 export const API_FORMATS = {
-  CLAUDE: 'CLAUDE',
-  CLAUDE_CLI: 'CLAUDE_CLI',
-  OPENAI: 'OPENAI',
-  OPENAI_CLI: 'OPENAI_CLI',
-  GEMINI: 'GEMINI',
-  GEMINI_CLI: 'GEMINI_CLI',
+  // 新模式：endpoint signature key（family:kind，全小写）
+  CLAUDE: 'claude:chat',
+  CLAUDE_CLI: 'claude:cli',
+  OPENAI: 'openai:chat',
+  OPENAI_CLI: 'openai:cli',
+  OPENAI_VIDEO: 'openai:video',
+  GEMINI: 'gemini:chat',
+  GEMINI_CLI: 'gemini:cli',
+  GEMINI_VIDEO: 'gemini:video',
 } as const
 
 export type APIFormat = typeof API_FORMATS[keyof typeof API_FORMATS]
@@ -16,28 +19,52 @@ export const API_FORMAT_LABELS: Record<string, string> = {
   [API_FORMATS.CLAUDE_CLI]: 'Claude CLI',
   [API_FORMATS.OPENAI]: 'OpenAI',
   [API_FORMATS.OPENAI_CLI]: 'OpenAI CLI',
+  [API_FORMATS.OPENAI_VIDEO]: 'OpenAI Video',
   [API_FORMATS.GEMINI]: 'Gemini',
   [API_FORMATS.GEMINI_CLI]: 'Gemini CLI',
+  [API_FORMATS.GEMINI_VIDEO]: 'Gemini Video',
+  // legacy 兼容（仅用于展示历史数据）
+  CLAUDE: 'Claude',
+  CLAUDE_CLI: 'Claude CLI',
+  OPENAI: 'OpenAI',
+  OPENAI_CLI: 'OpenAI CLI',
+  OPENAI_VIDEO: 'OpenAI Video',
+  GEMINI: 'Gemini',
+  GEMINI_CLI: 'Gemini CLI',
+  GEMINI_VIDEO: 'Gemini Video',
 }
 
 // API 格式缩写映射（用于空间紧凑的显示场景）
 export const API_FORMAT_SHORT: Record<string, string> = {
   [API_FORMATS.OPENAI]: 'O',
   [API_FORMATS.OPENAI_CLI]: 'OC',
+  [API_FORMATS.OPENAI_VIDEO]: 'OV',
   [API_FORMATS.CLAUDE]: 'C',
   [API_FORMATS.CLAUDE_CLI]: 'CC',
   [API_FORMATS.GEMINI]: 'G',
   [API_FORMATS.GEMINI_CLI]: 'GC',
+  [API_FORMATS.GEMINI_VIDEO]: 'GV',
+  // legacy 兼容（仅用于展示历史数据）
+  OPENAI: 'O',
+  OPENAI_CLI: 'OC',
+  OPENAI_VIDEO: 'OV',
+  CLAUDE: 'C',
+  CLAUDE_CLI: 'CC',
+  GEMINI: 'G',
+  GEMINI_CLI: 'GC',
+  GEMINI_VIDEO: 'GV',
 }
 
 // API 格式排序顺序（统一的显示顺序）
 export const API_FORMAT_ORDER: string[] = [
   API_FORMATS.OPENAI,
   API_FORMATS.OPENAI_CLI,
+  API_FORMATS.OPENAI_VIDEO,
   API_FORMATS.CLAUDE,
   API_FORMATS.CLAUDE_CLI,
   API_FORMATS.GEMINI,
   API_FORMATS.GEMINI_CLI,
+  API_FORMATS.GEMINI_VIDEO,
 ]
 
 // 工具函数：按标准顺序排序 API 格式数组
@@ -135,21 +162,21 @@ export function isAllowedModelsList(value: AllowedModels): value is string[] {
 export interface EndpointAPIKey {
   id: string
   provider_id: string
-  api_formats: string[]  // 支持的 API 格式列表
+  api_formats: string[]  // 支持的 endpoint signature 列表（如 "openai:chat"）
   api_key_masked: string
   api_key_plain?: string | null
   auth_type: 'api_key' | 'vertex_ai'  // 认证类型（必返回）
   name: string  // 密钥名称（必填，用于识别）
-  rate_multipliers?: Record<string, number> | null  // 按 API 格式的成本倍率，如 {"CLAUDE_CLI": 1.0, "OPENAI_CLI": 0.8}
+  rate_multipliers?: Record<string, number> | null  // 按 endpoint signature 的成本倍率
   internal_priority: number  // Key 内部优先级
-  global_priority_by_format?: Record<string, number> | null  // 按 API 格式的全局优先级
+  global_priority_by_format?: Record<string, number> | null  // 按 endpoint signature 的全局优先级
   rpm_limit?: number | null  // RPM 速率限制 (1-10000)，null 表示自适应模式
   allowed_models?: AllowedModels  // 允许使用的模型列表（null=不限制）
   capabilities?: Record<string, boolean> | null  // 能力标签配置（如 cache_1h, context_1m）
   // 缓存与熔断配置
   cache_ttl_minutes: number  // 缓存 TTL（分钟），0=禁用
   max_probe_interval_minutes: number  // 熔断探测间隔（分钟）
-  // 按格式的健康度数据
+  // 按 endpoint signature 的健康度数据
   health_by_format?: Record<string, FormatHealthData>
   circuit_breaker_by_format?: Record<string, FormatCircuitBreakerData>
   // 聚合字段（从 health_by_format 计算，用于列表显示）

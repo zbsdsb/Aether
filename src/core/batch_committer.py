@@ -7,11 +7,12 @@
 - 关键数据（计费）仍然立即 commit
 """
 
-from typing import Any
 import asyncio
+from typing import Any
+
+from sqlalchemy.orm import Session
 
 from src.core.logger import logger
-from sqlalchemy.orm import Session
 
 
 class BatchCommitter:

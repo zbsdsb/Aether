@@ -68,18 +68,20 @@ class ModelMapperMiddleware:
             original_model = request.model
             request.model = mapping.model.select_provider_model_name()
 
-            logger.debug(f"Applied model mapping for provider {provider.name}: "
-                f"{original_model} -> {request.model}")
+            logger.debug(
+                f"Applied model mapping for provider {provider.name}: "
+                f"{original_model} -> {request.model}"
+            )
         else:
             # 没有找到映射，使用原始模型名
-            logger.debug(f"No model mapping found for {source_model} with provider {provider.name}, "
-                f"forwarding with original model name")
+            logger.debug(
+                f"No model mapping found for {source_model} with provider {provider.name}, "
+                f"forwarding with original model name"
+            )
 
         return request
 
-    async def get_mapping(
-        self, source_model: str, provider_id: str
-    ) -> object | None:
+    async def get_mapping(self, source_model: str, provider_id: str) -> object | None:
         """
         获取模型映射
 
@@ -129,8 +131,10 @@ class ModelMapperMiddleware:
                 },
             )()
 
-            logger.debug(f"Found model mapping: {source_model} -> {model.provider_model_name} "
-                f"(provider={provider_id[:8]}...)")
+            logger.debug(
+                f"Found model mapping: {source_model} -> {model.provider_model_name} "
+                f"(provider={provider_id[:8]}...)"
+            )
 
         # 缓存结果
         self._cache[cache_key] = mapping
@@ -275,6 +279,15 @@ class ModelRoutingMiddleware:
             选中的提供商，如果没有找到返回None
         """
         request_prefix = f"ID:{request_id} | " if request_id else ""
+        allowed_norm: set[str] | None = None
+        if allowed_api_formats:
+            from src.services.provider.format import normalize_endpoint_signature
+
+            allowed_norm = {
+                normalize_endpoint_signature(str(fmt))
+                for fmt in allowed_api_formats
+                if isinstance(fmt, str) and fmt
+            }
 
         # 1. 如果指定了提供商，直接使用
         if preferred_provider:
@@ -286,18 +299,26 @@ class ModelRoutingMiddleware:
 
             if provider:
                 # 检查API格式 - 从 endpoints 中检查
-                if allowed_api_formats:
+                if allowed_norm:
                     has_matching_endpoint = any(
-                        ep.is_active and ep.api_format and ep.api_format in allowed_api_formats
+                        ep.is_active
+                        and ep.api_format
+                        and str(ep.api_format).strip().lower() in allowed_norm
                         for ep in provider.endpoints
                     )
                     if not has_matching_endpoint:
-                        logger.warning(f"Specified provider {provider.name} has no active endpoints with allowed API formats ({allowed_api_formats})")
+                        logger.warning(
+                            f"Specified provider {provider.name} has no active endpoints with allowed API formats ({allowed_api_formats})"
+                        )
                     else:
-                        logger.debug(f"  └─ {request_prefix}使用指定提供商: {provider.name} | 模型:{model_name}")
+                        logger.debug(
+                            f"  └─ {request_prefix}使用指定提供商: {provider.name} | 模型:{model_name}"
+                        )
                         return provider
                 else:
-                    logger.debug(f"  └─ {request_prefix}使用指定提供商: {provider.name} | 模型:{model_name}")
+                    logger.debug(
+                        f"  └─ {request_prefix}使用指定提供商: {provider.name} | 模型:{model_name}"
+                    )
                     return provider
             else:
                 logger.warning(f"Specified provider {preferred_provider} not found or inactive")
@@ -305,12 +326,12 @@ class ModelRoutingMiddleware:
         # 2. 查找优先级最高的活动提供商
         query = self.db.query(Provider).filter(Provider.is_active == True)
 
-        if allowed_api_formats:
+        if allowed_norm:
             query = (
                 query.join(ProviderEndpoint)
                 .filter(
                     ProviderEndpoint.is_active == True,
-                    ProviderEndpoint.api_format.in_(allowed_api_formats),
+                    ProviderEndpoint.api_format.in_(sorted(allowed_norm)),
                 )
                 .distinct()
             )
@@ -318,11 +339,15 @@ class ModelRoutingMiddleware:
         best_provider = query.order_by(Provider.provider_priority.asc(), Provider.id.asc()).first()
 
         if best_provider:
-            logger.debug(f"  └─ {request_prefix}使用优先级最高提供商: {best_provider.name} (priority:{best_provider.provider_priority}) | 模型:{model_name}")
+            logger.debug(
+                f"  └─ {request_prefix}使用优先级最高提供商: {best_provider.name} (priority:{best_provider.provider_priority}) | 模型:{model_name}"
+            )
             return best_provider
 
         if allowed_api_formats:
-            logger.error(f"No active providers found with allowed API formats {allowed_api_formats}.")
+            logger.error(
+                f"No active providers found with allowed API formats {allowed_api_formats}."
+            )
         else:
             logger.error("No active providers found.")
         return None
@@ -392,13 +417,15 @@ class ModelRoutingMiddleware:
         # 按总价格排序
         cheapest = min(
             models_with_providers,
-            key=lambda x: x[1].get_effective_input_price() + x[1].get_effective_output_price()
+            key=lambda x: x[1].get_effective_input_price() + x[1].get_effective_output_price(),
         )
 
         provider = cheapest[0]
         model = cheapest[1]
 
-        logger.debug(f"Selected cheapest provider {provider.name} for model {model_name} "
-            f"(input: ${model.get_effective_input_price()}/M, output: ${model.get_effective_output_price()}/M)")
+        logger.debug(
+            f"Selected cheapest provider {provider.name} for model {model_name} "
+            f"(input: ${model.get_effective_input_price()}/M, output: ${model.get_effective_output_price()}/M)"
+        )
 
         return provider

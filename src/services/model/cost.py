@@ -17,13 +17,13 @@ from sqlalchemy.orm import Session
 from src.core.logger import logger
 from src.models.database import GlobalModel, Model, Provider
 
-
 ProviderRef = str | Provider | None
 
 
 @dataclass
 class TieredPriceResult:
     """阶梯计费价格查询结果"""
+
     input_price_per_1m: float
     output_price_per_1m: float
     cache_creation_price_per_1m: float | None = None
@@ -34,6 +34,7 @@ class TieredPriceResult:
 @dataclass
 class CostBreakdown:
     """成本明细"""
+
     input_cost: float
     output_cost: float
     cache_creation_cost: float
@@ -58,10 +59,7 @@ class ModelCostService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def get_tier_for_tokens(
-        tiered_pricing: dict,
-        total_input_tokens: int
-    ) -> dict | None:
+    def get_tier_for_tokens(tiered_pricing: dict, total_input_tokens: int) -> dict | None:
         """
         根据总输入 token 数确定价格阶梯。
 
@@ -89,8 +87,7 @@ class ModelCostService:
 
     @staticmethod
     def get_cache_read_price_for_ttl(
-        tier: dict,
-        cache_ttl_minutes: int | None = None
+        tier: dict, cache_ttl_minutes: int | None = None
     ) -> float | None:
         """
         根据缓存 TTL 获取缓存读取价格。
@@ -121,9 +118,7 @@ class ModelCostService:
         # 使用默认的缓存读取价格
         return tier.get("cache_read_price_per_1m")
 
-    async def get_tiered_pricing_async(
-        self, provider: ProviderRef, model: str
-    ) -> dict | None:
+    async def get_tiered_pricing_async(self, provider: ProviderRef, model: str) -> dict | None:
         """
         异步获取模型的阶梯计费配置。
 
@@ -186,21 +181,18 @@ class ModelCostService:
                 if model_obj:
                     # 判断定价来源
                     if model_obj.tiered_pricing is not None:
-                        result = {
-                            "pricing": model_obj.tiered_pricing,
-                            "source": "provider"
-                        }
+                        result = {"pricing": model_obj.tiered_pricing, "source": "provider"}
                     elif global_model.default_tiered_pricing is not None:
                         result = {
                             "pricing": global_model.default_tiered_pricing,
-                            "source": "global"
+                            "source": "global",
                         }
                 else:
                     # Provider 没有实现该模型，直接使用 GlobalModel 的默认阶梯配置
                     if global_model.default_tiered_pricing is not None:
                         result = {
                             "pricing": global_model.default_tiered_pricing,
-                            "source": "global"
+                            "source": "global",
                         }
 
         self._tiered_pricing_cache[cache_key] = result
@@ -250,10 +242,16 @@ class ModelCostService:
                     if model_obj.tiered_pricing is not None:
                         result = {"pricing": model_obj.tiered_pricing, "source": "provider"}
                     elif global_model.default_tiered_pricing is not None:
-                        result = {"pricing": global_model.default_tiered_pricing, "source": "global"}
+                        result = {
+                            "pricing": global_model.default_tiered_pricing,
+                            "source": "global",
+                        }
                 else:
                     if global_model.default_tiered_pricing is not None:
-                        result = {"pricing": global_model.default_tiered_pricing, "source": "global"}
+                        result = {
+                            "pricing": global_model.default_tiered_pricing,
+                            "source": "global",
+                        }
 
         self._tiered_pricing_cache[cache_key] = result
         return result.get("pricing") if result else None
@@ -322,8 +320,10 @@ class ModelCostService:
                     else:
                         input_price = model_obj.get_effective_input_price()
                         output_price = model_obj.get_effective_output_price()
-                    logger.debug(f"找到模型价格配置: {provider_name}/{model} "
-                        f"(输入: ${input_price}/M, 输出: ${output_price}/M)")
+                    logger.debug(
+                        f"找到模型价格配置: {provider_name}/{model} "
+                        f"(输入: ${input_price}/M, 输出: ${output_price}/M)"
+                    )
                 else:
                     # Provider 没有实现该模型，直接使用 GlobalModel 的默认价格
                     tiered = global_model.default_tiered_pricing
@@ -334,8 +334,10 @@ class ModelCostService:
                     else:
                         input_price = 0.0
                         output_price = 0.0
-                    logger.debug(f"使用 GlobalModel 默认价格: {provider_name}/{model} "
-                        f"(输入: ${input_price}/M, 输出: ${output_price}/M)")
+                    logger.debug(
+                        f"使用 GlobalModel 默认价格: {provider_name}/{model} "
+                        f"(输入: ${input_price}/M, 输出: ${output_price}/M)"
+                    )
 
         # 如果没有找到价格配置，使用 0.0 并记录警告
         if input_price is None:
@@ -348,7 +350,9 @@ class ModelCostService:
             # 异步检查按次计费价格
             price_per_request = await self.get_request_price_async(provider, model)
             if price_per_request is None or price_per_request == 0.0:
-                logger.warning(f"未找到模型价格配置: {provider_name}/{model}，请在 GlobalModel 中配置价格")
+                logger.warning(
+                    f"未找到模型价格配置: {provider_name}/{model}，请在 GlobalModel 中配置价格"
+                )
 
         self._price_cache[cache_key] = {"input": input_price, "output": output_price}
         return input_price, output_price

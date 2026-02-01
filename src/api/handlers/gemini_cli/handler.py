@@ -10,6 +10,7 @@ from src.api.handlers.base.cli_handler_base import (
     CliMessageHandlerBase,
     StreamContext,
 )
+from src.core.api_format import ApiFamily, EndpointKind
 
 
 class GeminiCliMessageHandler(CliMessageHandlerBase):
@@ -30,7 +31,9 @@ class GeminiCliMessageHandler(CliMessageHandlerBase):
     - 请求体中的 model 字段用于内部路由，不发送给 API
     """
 
-    FORMAT_ID = "GEMINI_CLI"
+    FORMAT_ID = "gemini:cli"
+    API_FAMILY = ApiFamily.GEMINI
+    ENDPOINT_KIND = EndpointKind.CLI
 
     def extract_model_from_request(
         self,

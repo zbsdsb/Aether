@@ -351,7 +351,9 @@ class RequestCandidateService:
             候选自身的 TTFB（毫秒），如果计算失败则返回 global_first_byte_time_ms
         """
         try:
-            candidate = db.query(RequestCandidate).filter(RequestCandidate.id == candidate_id).first()
+            candidate = (
+                db.query(RequestCandidate).filter(RequestCandidate.id == candidate_id).first()
+            )
             if candidate and candidate.started_at:
                 started_at = candidate.started_at
                 if started_at.tzinfo is None:

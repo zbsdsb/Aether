@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -222,9 +222,7 @@ class AdminGetManagementTokenAdapter(AdminManagementTokenApiAdapter):
     token_id: str = ""
 
     async def handle(self, context: ApiRequestContext) -> Any:
-        token = ManagementTokenService.get_token_by_id(
-            db=context.db, token_id=self.token_id
-        )
+        token = ManagementTokenService.get_token_by_id(db=context.db, token_id=self.token_id)
 
         if not token:
             raise NotFoundException("Management Token 不存在")
@@ -245,9 +243,7 @@ class AdminDeleteManagementTokenAdapter(AdminManagementTokenApiAdapter):
 
     async def handle(self, context: ApiRequestContext) -> Any:
         # 先获取 token 信息用于审计
-        token = ManagementTokenService.get_token_by_id(
-            db=context.db, token_id=self.token_id
-        )
+        token = ManagementTokenService.get_token_by_id(db=context.db, token_id=self.token_id)
 
         if not token:
             raise NotFoundException("Management Token 不存在")
@@ -258,9 +254,7 @@ class AdminDeleteManagementTokenAdapter(AdminManagementTokenApiAdapter):
             owner_user_id=token.user_id,
         )
 
-        success = ManagementTokenService.delete_token(
-            db=context.db, token_id=self.token_id
-        )
+        success = ManagementTokenService.delete_token(db=context.db, token_id=self.token_id)
 
         if not success:
             raise NotFoundException("Management Token 不存在")
@@ -277,9 +271,7 @@ class AdminToggleManagementTokenAdapter(AdminManagementTokenApiAdapter):
     audit_success_event = AuditEventType.MANAGEMENT_TOKEN_UPDATED
 
     async def handle(self, context: ApiRequestContext) -> Any:
-        token = ManagementTokenService.toggle_status(
-            db=context.db, token_id=self.token_id
-        )
+        token = ManagementTokenService.toggle_status(db=context.db, token_id=self.token_id)
 
         if not token:
             raise NotFoundException("Management Token 不存在")

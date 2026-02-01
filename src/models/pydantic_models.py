@@ -3,11 +3,11 @@ Pydantic 数据模型（阶段一统一模型管理）
 """
 
 from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 
 # ========== 阶梯计费相关模型 ==========
 
@@ -16,25 +16,23 @@ class CacheTTLPricing(BaseModel):
     """缓存时长定价配置"""
 
     ttl_minutes: int = Field(..., ge=1, description="缓存时长（分钟）")
-    cache_creation_price_per_1m: float = Field(..., ge=0, description="该时长的缓存创建价格/M tokens")
+    cache_creation_price_per_1m: float = Field(
+        ..., ge=0, description="该时长的缓存创建价格/M tokens"
+    )
 
 
 class PricingTier(BaseModel):
     """单个价格阶梯配置"""
 
     up_to: int | None = Field(
-        None,
-        ge=1,
-        description="阶梯上限（tokens），null 表示无上限（最后一个阶梯）"
+        None, ge=1, description="阶梯上限（tokens），null 表示无上限（最后一个阶梯）"
     )
     input_price_per_1m: float = Field(..., ge=0, description="输入价格/M tokens")
     output_price_per_1m: float = Field(..., ge=0, description="输出价格/M tokens")
     cache_creation_price_per_1m: float | None = Field(
         None, ge=0, description="缓存创建价格/M tokens"
     )
-    cache_read_price_per_1m: float | None = Field(
-        None, ge=0, description="缓存读取价格/M tokens"
-    )
+    cache_read_price_per_1m: float | None = Field(None, ge=0, description="缓存读取价格/M tokens")
     cache_ttl_pricing: list[CacheTTLPricing] | None = Field(
         None, description="按缓存时长分价格（可选）"
     )
@@ -44,9 +42,7 @@ class TieredPricingConfig(BaseModel):
     """阶梯计费配置"""
 
     tiers: list[PricingTier] = Field(
-        ...,
-        min_length=1,
-        description="价格阶梯列表，按 up_to 升序排列"
+        ..., min_length=1, description="价格阶梯列表，按 up_to 升序排列"
     )
 
     @model_validator(mode="after")
@@ -78,9 +74,7 @@ class TieredPricingConfig(BaseModel):
                 prev_ttl = 0
                 for ttl_pricing in tier.cache_ttl_pricing:
                     if ttl_pricing.ttl_minutes <= prev_ttl:
-                        raise ValueError(
-                            f"cache_ttl_pricing 必须按 ttl_minutes 升序排列"
-                        )
+                        raise ValueError(f"cache_ttl_pricing 必须按 ttl_minutes 升序排列")
                     prev_ttl = ttl_pricing.ttl_minutes
 
         # 最后一个阶梯必须是无上限的
@@ -195,13 +189,10 @@ class GlobalModelCreate(BaseModel):
         ..., description="阶梯计费配置（固定价格用单阶梯表示）"
     )
     # Key 能力配置 - 模型支持的能力列表（如 ["cache_1h", "context_1m"]）
-    supported_capabilities: list[str] | None = Field(
-        None, description="支持的 Key 能力列表"
-    )
+    supported_capabilities: list[str] | None = Field(None, description="支持的 Key 能力列表")
     # 模型配置（JSON格式）- 包含能力、规格、元信息等
     config: dict[str, Any] | None = Field(
-        None,
-        description="模型配置（streaming, vision, context_limit, description 等）"
+        None, description="模型配置（streaming, vision, context_limit, description 等）"
     )
     is_active: bool | None = Field(True, description="是否激活")
 
@@ -214,17 +205,12 @@ class GlobalModelUpdate(BaseModel):
     # 按次计费配置
     default_price_per_request: float | None = Field(None, ge=0, description="每次请求固定费用")
     # 阶梯计费配置
-    default_tiered_pricing: TieredPricingConfig | None = Field(
-        None, description="阶梯计费配置"
-    )
+    default_tiered_pricing: TieredPricingConfig | None = Field(None, description="阶梯计费配置")
     # Key 能力配置 - 模型支持的能力列表（如 ["cache_1h", "context_1m"]）
-    supported_capabilities: list[str] | None = Field(
-        None, description="支持的 Key 能力列表"
-    )
+    supported_capabilities: list[str] | None = Field(None, description="支持的 Key 能力列表")
     # 模型配置（JSON格式）- 包含能力、规格、元信息等
     config: dict[str, Any] | None = Field(
-        None,
-        description="模型配置（streaming, vision, context_limit, description 等）"
+        None, description="模型配置（streaming, vision, context_limit, description 等）"
     )
 
 
@@ -247,8 +233,7 @@ class GlobalModelResponse(BaseModel):
     )
     # 模型配置（JSON格式）
     config: dict[str, Any] | None = Field(
-        default=None,
-        description="模型配置（streaming, vision, context_limit, description 等）"
+        default=None, description="模型配置（streaming, vision, context_limit, description 等）"
     )
     # 统计数据（可选）
     provider_count: int | None = Field(default=0, description="支持的 Provider 数量")
@@ -315,12 +300,10 @@ class ImportFromUpstreamRequest(BaseModel):
     # 价格覆盖配置（应用于所有导入的模型）
     tiered_pricing: dict | None = Field(
         None,
-        description="阶梯计费配置（可选），格式: {tiers: [{up_to, input_price_per_1m, output_price_per_1m, ...}]}"
+        description="阶梯计费配置（可选），格式: {tiers: [{up_to, input_price_per_1m, output_price_per_1m, ...}]}",
     )
     price_per_request: float | None = Field(
-        None,
-        ge=0,
-        description="按次计费价格（可选，单位：美元）"
+        None, ge=0, description="按次计费价格（可选，单位：美元）"
     )
 
 
@@ -331,7 +314,9 @@ class ImportFromUpstreamSuccessItem(BaseModel):
     provider_model_id: str = Field(..., description="Provider Model ID")
     global_model_id: str | None = Field("", description="GlobalModel ID（如果已关联）")
     global_model_name: str | None = Field("", description="GlobalModel 名称（如果已关联）")
-    created_global_model: bool = Field(False, description="是否新创建了 GlobalModel（始终为 false）")
+    created_global_model: bool = Field(
+        False, description="是否新创建了 GlobalModel（始终为 false）"
+    )
 
 
 class ImportFromUpstreamErrorItem(BaseModel):

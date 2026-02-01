@@ -1,7 +1,7 @@
 """公开模块状态 API（供登录页等使用）"""
 
-
 from typing import Any
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session

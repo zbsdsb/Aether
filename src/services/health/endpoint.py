@@ -21,7 +21,6 @@ from sqlalchemy.orm import Session
 from src.core.logger import logger
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint, RequestCandidate
 
-
 # 缓存配置
 CACHE_TTL_SECONDS = 30  # 缓存 30 秒
 CACHE_KEY_PREFIX = "health:endpoint:"
@@ -31,6 +30,7 @@ def _get_redis_client() -> Any:
     """获取 Redis 客户端，失败返回 None"""
     try:
         from src.clients.redis_client import redis_client
+
         return redis_client
     except Exception:
         return None
@@ -77,15 +77,19 @@ class EndpointHealthService:
 
         # 批量查询所有密钥（通过 provider_id 关联）
         all_keys = (
-            db.query(ProviderAPIKey)
-            .filter(ProviderAPIKey.provider_id.in_(all_provider_ids))
-            .all()
-        ) if all_provider_ids else []
+            (
+                db.query(ProviderAPIKey)
+                .filter(ProviderAPIKey.provider_id.in_(all_provider_ids))
+                .all()
+            )
+            if all_provider_ids
+            else []
+        )
 
         # 按 api_format 分组密钥（通过 api_formats 字段）
         keys_by_format: dict[str, list[ProviderAPIKey]] = defaultdict(list)
         for key in all_keys:
-            for fmt in (key.api_formats or []):
+            for fmt in key.api_formats or []:
                 keys_by_format[fmt].append(key)
 
         # 按 API 格式聚合
@@ -157,11 +161,14 @@ class EndpointHealthService:
         result = []
 
         for api_format, stats in format_stats.items():
-            timeline_data = timeline_data_map.get(api_format, {
-                "timeline": ["unknown"] * 100,
-                "time_range_start": None,
-                "time_range_end": None,
-            })
+            timeline_data = timeline_data_map.get(
+                api_format,
+                {
+                    "timeline": ["unknown"] * 100,
+                    "time_range_start": None,
+                    "time_range_end": None,
+                },
+            )
             timeline = timeline_data["timeline"]
             time_range_start = timeline_data.get("time_range_start")
             time_range_end = timeline_data.get("time_range_end")
@@ -271,28 +278,22 @@ class EndpointHealthService:
         final_statuses = ["success", "failed", "skipped"]
 
         segment_expr = func.floor(
-            func.extract('epoch', RequestCandidate.created_at - start_time) / segment_seconds
-        ).label('segment_idx')
+            func.extract("epoch", RequestCandidate.created_at - start_time) / segment_seconds
+        ).label("segment_idx")
 
         candidate_stats = (
             db.query(
                 RequestCandidate.key_id,
                 segment_expr,
-                func.count(RequestCandidate.id).label('total_count'),
-                func.sum(
-                    case(
-                        (RequestCandidate.status == "success", 1),
-                        else_=0
-                    )
-                ).label('success_count'),
-                func.sum(
-                    case(
-                        (RequestCandidate.status == "failed", 1),
-                        else_=0
-                    )
-                ).label('failed_count'),
-                func.min(RequestCandidate.created_at).label('min_time'),
-                func.max(RequestCandidate.created_at).label('max_time'),
+                func.count(RequestCandidate.id).label("total_count"),
+                func.sum(case((RequestCandidate.status == "success", 1), else_=0)).label(
+                    "success_count"
+                ),
+                func.sum(case((RequestCandidate.status == "failed", 1), else_=0)).label(
+                    "failed_count"
+                ),
+                func.min(RequestCandidate.created_at).label("min_time"),
+                func.max(RequestCandidate.created_at).label("max_time"),
             )
             .filter(
                 RequestCandidate.key_id.in_(all_key_ids),
@@ -311,13 +312,17 @@ class EndpointHealthService:
                 key_to_format[key_id] = api_format
 
         # 按 api_format 和 segment 聚合数据
-        format_segment_data: dict[str, dict[int, dict]] = defaultdict(lambda: defaultdict(lambda: {
-            "total": 0,
-            "success": 0,
-            "failed": 0,
-            "min_time": None,
-            "max_time": None,
-        }))
+        format_segment_data: dict[str, dict[int, dict]] = defaultdict(
+            lambda: defaultdict(
+                lambda: {
+                    "total": 0,
+                    "success": 0,
+                    "failed": 0,
+                    "min_time": None,
+                    "max_time": None,
+                }
+            )
+        )
 
         for row in candidate_stats:
             key_id = row.key_id
@@ -454,24 +459,34 @@ class EndpointHealthService:
             db, format_key_mapping, now, lookback_hours, segments
         )
 
-        return result.get("_single", {
-            "timeline": ["unknown"] * 100,
-            "time_range_start": None,
-            "time_range_end": None,
-        })
+        return result.get(
+            "_single",
+            {
+                "timeline": ["unknown"] * 100,
+                "time_range_start": None,
+                "time_range_end": None,
+            },
+        )
 
     @staticmethod
     def _format_display_name(api_format: str) -> str:
         """格式化 API 格式的显示名称"""
-        format_names = {
-            "CLAUDE": "Claude API",
-            "CLAUDE_CLI": "Claude CLI",
-            "CLAUDE_COMPATIBLE": "Claude 兼容",
-            "OPENAI": "OpenAI API",
-            "OPENAI_CLI": "OpenAI CLI",
-            "OPENAI_COMPATIBLE": "OpenAI 兼容",
-        }
-        return format_names.get(api_format, api_format)
+        raw = str(api_format or "").strip()
+        normalized = raw.lower()
+        if ":" not in normalized:
+            return raw or api_format
+
+        fam, kind = normalized.split(":", 1)
+        fam_label = {"claude": "Claude", "openai": "OpenAI", "gemini": "Gemini"}.get(fam, fam)
+        kind_label = {
+            "chat": "",
+            "cli": "CLI",
+            "video": "Video",
+            "image": "Image",
+        }.get(kind, kind)
+        if not kind_label:
+            return fam_label
+        return f"{fam_label} {kind_label}"
 
     @staticmethod
     def _get_from_cache(key: str) -> list[dict[str, Any]] | None:

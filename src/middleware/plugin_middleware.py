@@ -131,34 +131,38 @@ class PluginMiddleware:
         if not exception_occurred and response_status_code > 0:
             await self._call_post_request_plugins(request, response_status_code, start_time)
 
-    async def _send_rate_limit_response(
-        self, send: Send, result: RateLimitResult
-    ) -> None:
+    async def _send_rate_limit_response(self, send: Send, result: RateLimitResult) -> None:
         """发送 429 限流响应"""
         import json
 
-        body = json.dumps({
-            "type": "error",
-            "error": {
-                "type": "rate_limit_error",
-                "message": result.message or "Rate limit exceeded",
-            },
-        }).encode("utf-8")
+        body = json.dumps(
+            {
+                "type": "error",
+                "error": {
+                    "type": "rate_limit_error",
+                    "message": result.message or "Rate limit exceeded",
+                },
+            }
+        ).encode("utf-8")
 
         headers = [(b"content-type", b"application/json")]
         if result.headers:
             for key, value in result.headers.items():
                 headers.append((key.lower().encode(), str(value).encode()))
 
-        await send({
-            "type": "http.response.start",
-            "status": 429,
-            "headers": headers,
-        })
-        await send({
-            "type": "http.response.body",
-            "body": body,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 429,
+                "headers": headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body,
+            }
+        )
 
     def _finalize_db_session(
         self,
@@ -197,9 +201,7 @@ class PluginMiddleware:
             except Exception as close_error:
                 logger.debug(f"{log_prefix}关闭数据库连接时出错（可忽略）: {close_error}")
 
-    async def _cleanup_db_session(
-        self, request: Request, exception: Exception | None
-    ) -> None:
+    async def _cleanup_db_session(self, request: Request, exception: Exception | None) -> None:
         """清理数据库会话
 
         事务策略：
@@ -226,9 +228,7 @@ class PluginMiddleware:
             should_rollback=exception is not None,
         )
 
-    async def _maybe_release_streaming_db_session(
-        self, request: Request, message: Message
-    ) -> None:
+    async def _maybe_release_streaming_db_session(self, request: Request, message: Message) -> None:
         """在 SSE 响应开始时提前释放请求级 DB session。"""
         if getattr(request.state, "db_released_early", False):
             return
@@ -401,7 +401,7 @@ class PluginMiddleware:
                     allowed=False,
                     remaining=0,
                     retry_after=30,
-                    message="Rate limit service unavailable"
+                    message="Rate limit service unavailable",
                 )
         except TimeoutError as e:
             # 超时错误：可能是负载过高，根据配置决定
@@ -410,10 +410,7 @@ class PluginMiddleware:
                 return None
             else:
                 return RateLimitResult(
-                    allowed=False,
-                    remaining=0,
-                    retry_after=30,
-                    message="Rate limit service timeout"
+                    allowed=False, remaining=0, retry_after=30, message="Rate limit service timeout"
                 )
         except Exception as e:
             logger.error(f"Rate limit error: {type(e).__name__}: {e}")
@@ -424,10 +421,7 @@ class PluginMiddleware:
             else:
                 # fail-close: 异常时拒绝请求（优先安全性）
                 return RateLimitResult(
-                    allowed=False,
-                    remaining=0,
-                    retry_after=60,
-                    message="Rate limit service error"
+                    allowed=False, remaining=0, retry_after=60, message="Rate limit service error"
                 )
 
     async def _call_pre_request_plugins(self, request: Request) -> None:

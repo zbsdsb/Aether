@@ -63,7 +63,7 @@ def _extract_file_name_from_uri(file_uri: str) -> str | None:
     # 完整 URL 格式
     if "/files/" in file_uri:
         idx = file_uri.rfind("/files/")
-        return file_uri[idx + 1:]  # 提取 files/xxx 部分
+        return file_uri[idx + 1 :]  # 提取 files/xxx 部分
     # 短格式
     if file_uri.startswith("files/"):
         return file_uri

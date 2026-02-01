@@ -4,12 +4,11 @@ Handler 基础工具函数
 
 from __future__ import annotations
 
-
 import json
 from typing import TYPE_CHECKING, Any
 
-from src.core.exceptions import EmbeddedErrorException, ProviderNotAvailableException
 from src.core.api_format import filter_response_headers
+from src.core.exceptions import EmbeddedErrorException, ProviderNotAvailableException
 from src.core.logger import logger
 
 if TYPE_CHECKING:
@@ -72,15 +71,12 @@ def extract_cache_creation_tokens(usage: dict[str, Any]) -> int:
         cache_1h = int(cache_creation.get("ephemeral_1h_input_tokens", 0))
         total = cache_5m + cache_1h
 
-        logger.debug(
-            f"Using nested cache_creation: 5m={cache_5m}, 1h={cache_1h}, total={total}"
-        )
+        logger.debug(f"Using nested cache_creation: 5m={cache_5m}, 1h={cache_1h}, total={total}")
         return total
 
     # 2. 检查扁平新格式
     has_flat_format = (
-        "claude_cache_creation_5_m_tokens" in usage
-        or "claude_cache_creation_1_h_tokens" in usage
+        "claude_cache_creation_5_m_tokens" in usage or "claude_cache_creation_1_h_tokens" in usage
     )
 
     if has_flat_format:
@@ -88,9 +84,7 @@ def extract_cache_creation_tokens(usage: dict[str, Any]) -> int:
         cache_1h = int(usage.get("claude_cache_creation_1_h_tokens", 0))
         total = cache_5m + cache_1h
 
-        logger.debug(
-            f"Using flat new format: 5m={cache_5m}, 1h={cache_1h}, total={total}"
-        )
+        logger.debug(f"Using flat new format: 5m={cache_5m}, 1h={cache_1h}, total={total}")
         return total
 
     # 3. 回退到旧格式

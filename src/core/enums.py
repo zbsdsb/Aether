@@ -2,7 +2,7 @@
 统一的枚举定义
 避免重复定义造成的不一致
 
-注意：APIFormat 已移至 src/core/api_format/enums.py
+注意：APIFormat 架构已移除，统一使用 endpoint signature（family:kind）。
 """
 
 from enum import Enum

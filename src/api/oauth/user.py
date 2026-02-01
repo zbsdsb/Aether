@@ -1,6 +1,5 @@
 """OAuth 用户端点（需登录）。"""
 
-
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status

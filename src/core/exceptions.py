@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-from starlette.requests import Request
 import asyncio
 import re
 import traceback
@@ -19,6 +18,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
+from starlette.requests import Request
 
 from src.core.logger import logger
 
@@ -280,9 +280,7 @@ class RateLimitException(ProxyException):
 class ConcurrencyLimitError(ProxyException):
     """并发限制异常"""
 
-    def __init__(
-        self, message: str, endpoint_id: str | None = None, key_id: str | None = None
-    ):
+    def __init__(self, message: str, endpoint_id: str | None = None, key_id: str | None = None):
         details = {}
         if endpoint_id:
             details["endpoint_id"] = endpoint_id

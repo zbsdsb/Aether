@@ -4,19 +4,16 @@
 负责执行单个候选请求
 """
 
-from typing import Any
-
 from collections.abc import Callable
+from typing import Any
 
 from sqlalchemy.orm import Session
 
-from src.core.api_format import APIFormat
 from src.core.logger import logger
 from src.models.database import ApiKey
 from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
 from src.services.request.candidate import RequestCandidateService
 from src.services.request.executor import RequestExecutor
-
 
 
 class RequestDispatcher:
@@ -56,7 +53,7 @@ class RequestDispatcher:
         user_api_key: ApiKey,
         request_func: Callable[..., Any],
         request_id: str | None,
-        api_format: APIFormat,
+        api_format: str,
         model_name: str,
         affinity_key: str,
         global_model_id: str,
@@ -133,15 +130,12 @@ class RequestDispatcher:
         # 设置缓存亲和性
         if provider_supports_caching and self.cache_scheduler is not None:
             try:
-                api_format_str = (
-                    api_format.value if isinstance(api_format, APIFormat) else api_format
-                )
                 await self.cache_scheduler.set_cache_affinity(
                     affinity_key=affinity_key,
                     provider_id=provider_id,
                     endpoint_id=endpoint_id,
                     key_id=key_id,
-                    api_format=api_format_str,
+                    api_format=api_format,
                     global_model_id=global_model_id,
                     ttl=provider_cache_ttl_seconds,
                 )

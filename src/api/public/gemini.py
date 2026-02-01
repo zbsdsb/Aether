@@ -11,19 +11,16 @@ Gemini API 专属端点
 """
 
 from typing import Any
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from src.api.base.pipeline import ApiRequestPipeline
 from src.api.handlers.gemini import build_gemini_adapter
 from src.api.handlers.gemini_cli import build_gemini_cli_adapter
-from src.core.api_format import APIFormat, get_api_format_definition
 from src.database import get_db
 
-# 从配置获取路径前缀
-_gemini_def = get_api_format_definition(APIFormat.GEMINI)
-
-router = APIRouter(tags=["Gemini API"], prefix=_gemini_def.path_prefix)
+router = APIRouter(tags=["Gemini API"])
 pipeline = ApiRequestPipeline()
 
 

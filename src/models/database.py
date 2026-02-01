@@ -707,7 +707,11 @@ class ProviderEndpoint(Base):
     provider_id = Column(String(36), ForeignKey("providers.id", ondelete="CASCADE"), nullable=False)
 
     # API 格式和配置
-    api_format = Column(String(50), nullable=False)  # 存储 APIFormat 枚举值的字符串
+    # 新模式：存储 endpoint signature key（family:kind），如 "openai:chat"
+    api_format = Column(String(50), nullable=False)
+    # 新架构字段（Phase 1/3）：用于将 api_format 拆分为结构化维度
+    api_family = Column(String(50), nullable=True)  # openai/claude/gemini
+    endpoint_kind = Column(String(50), nullable=True)  # chat/cli/video/...
     base_url = Column(String(500), nullable=False)
 
     # 请求配置
@@ -754,6 +758,7 @@ class ProviderEndpoint(Base):
     __table_args__ = (
         UniqueConstraint("provider_id", "api_format", name="uq_provider_api_format"),
         Index("idx_endpoint_format_active", "api_format", "is_active"),
+        Index("idx_provider_family_kind", "provider_id", "api_family", "endpoint_kind"),
     )
 
 
@@ -1021,7 +1026,7 @@ class Model(Base):
 
         Args:
             affinity_key: 用于哈希分散的亲和键（如用户 API Key 哈希），确保同一用户稳定选择同一映射
-            api_format: 当前请求的 API 格式（如 CLAUDE、OPENAI 等），用于过滤适用的映射
+            api_format: 当前请求的 endpoint signature（如 "openai:chat"），用于过滤适用的映射
         """
         import hashlib
 
@@ -1044,8 +1049,11 @@ class Model(Base):
             mapping_api_formats = raw.get("api_formats")
             if api_format and mapping_api_formats:
                 # 如果配置了作用域，只有匹配时才生效
-                if isinstance(mapping_api_formats, list) and api_format not in mapping_api_formats:
-                    continue
+                if isinstance(mapping_api_formats, list):
+                    target = str(api_format).strip().lower()
+                    allowed = {str(fmt).strip().lower() for fmt in mapping_api_formats if fmt}
+                    if target not in allowed:
+                        continue
 
             raw_priority = raw.get("priority", 1)
             try:
@@ -1228,7 +1236,7 @@ class ProviderAPIKey(Base):
 
     # API 格式支持列表（核心字段）
     # None 表示支持所有格式（兼容历史数据），空列表 [] 表示不支持任何格式
-    api_formats = Column(JSON, nullable=True, default=list)  # ["CLAUDE", "CLAUDE_CLI"]
+    api_formats = Column(JSON, nullable=True, default=list)  # ["claude:chat", "claude:cli"]
 
     # 认证类型
     # - "api_key": 标准 API Key 认证（默认）
@@ -1252,7 +1260,7 @@ class ProviderAPIKey(Base):
     # 成本计算
     rate_multipliers = Column(
         JSON, nullable=True
-    )  # 按 API 格式的成本倍率 {"CLAUDE_CLI": 1.0, "OPENAI_CLI": 0.8}
+    )  # 按 endpoint signature 的成本倍率 {"claude:cli": 1.0, "openai:cli": 0.8}
 
     # 优先级配置 (数字越小越优先)
     internal_priority = Column(
@@ -1260,7 +1268,7 @@ class ProviderAPIKey(Base):
     )  # Endpoint 内部优先级（用于提供商优先模式，同 Endpoint 内 Keys 的排序，同优先级参与负载均衡）
     global_priority_by_format = Column(
         JSON, nullable=True
-    )  # 按 API 格式的全局优先级 {"CLAUDE": 1, "CLAUDE_CLI": 2}
+    )  # 按 endpoint signature 的全局优先级 {"claude:chat": 1, "claude:cli": 2}
 
     # RPM 限制配置（自适应学习）
     # rpm_limit 决定 RPM 控制模式：
@@ -1289,8 +1297,8 @@ class ProviderAPIKey(Base):
     )  # 利用率采样窗口 [{"ts": timestamp, "util": 0.8}, ...]
     last_probe_increase_at = Column(DateTime(timezone=True), nullable=True)  # 上次探测性扩容时间
 
-    # 健康度追踪（按 API 格式存储）
-    # 结构: {"CLAUDE": {"health_score": 1.0, "consecutive_failures": 0, "last_failure_at": null, "request_results_window": []}, ...}
+    # 健康度追踪（按 endpoint signature 存储）
+    # 结构: {"claude:chat": {"health_score": 1.0, "consecutive_failures": 0, ...}, ...}
     health_by_format = Column(JSON, nullable=True, default=dict)
 
     # 缓存与熔断配置
@@ -1301,8 +1309,8 @@ class ProviderAPIKey(Base):
         Integer, default=32, nullable=False
     )  # 最大探测间隔(分钟)，默认32分钟（硬上限）
 
-    # 熔断器状态（按 API 格式存储）
-    # 结构: {"CLAUDE": {"open": false, "open_at": null, "next_probe_at": null, "half_open_until": null, "half_open_successes": 0, "half_open_failures": 0}, ...}
+    # 熔断器状态（按 endpoint signature 存储）
+    # 结构: {"claude:chat": {"open": false, "open_at": null, ...}, ...}
     circuit_breaker_by_format = Column(JSON, nullable=True, default=dict)
 
     # 使用统计

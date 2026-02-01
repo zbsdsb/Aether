@@ -8,6 +8,7 @@ Claude API 端点
 """
 
 from typing import Any
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
@@ -16,11 +17,9 @@ from src.api.handlers.claude import (
     ClaudeTokenCountAdapter,
     build_claude_adapter,
 )
-from src.core.api_format import APIFormat, get_api_format_definition
 from src.database import get_db
 
-_claude_def = get_api_format_definition(APIFormat.CLAUDE)
-router = APIRouter(tags=["Claude API"], prefix=_claude_def.path_prefix)
+router = APIRouter(tags=["Claude API"])
 pipeline = ApiRequestPipeline()
 
 

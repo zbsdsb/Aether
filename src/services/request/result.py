@@ -14,10 +14,11 @@
 """
 
 from __future__ import annotations
+
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-from collections.abc import AsyncIterator
 
 
 class RequestStatus(Enum):
@@ -276,7 +277,9 @@ class RequestResult:
                 provider_id=get_meta_value(existing_metadata, "provider_id"),
                 provider_endpoint_id=get_meta_value(existing_metadata, "provider_endpoint_id"),
                 provider_api_key_id=get_meta_value(existing_metadata, "provider_api_key_id"),
-                provider_request_headers=get_meta_value(existing_metadata, "provider_request_headers", {}),
+                provider_request_headers=get_meta_value(
+                    existing_metadata, "provider_request_headers", {}
+                ),
                 provider_response_headers=get_meta_value(
                     existing_metadata, "provider_response_headers", {}
                 ),

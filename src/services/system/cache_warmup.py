@@ -61,7 +61,9 @@ class CacheWarmupService:
         elapsed = time.time() - start_time
 
         if error_count > 0:
-            logger.warning(f"缓存预热完成: {success_count}/3 成功, {error_count} 失败, 耗时 {elapsed:.2f}s")
+            logger.warning(
+                f"缓存预热完成: {success_count}/3 成功, {error_count} 失败, 耗时 {elapsed:.2f}s"
+            )
         else:
             logger.info(f"缓存预热完成: {success_count}/3 成功, 耗时 {elapsed:.2f}s")
 

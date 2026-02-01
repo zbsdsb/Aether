@@ -30,7 +30,6 @@ from src.core.logger import logger
 from .base import LoadBalancerStrategy, ProviderCandidate, SelectionResult
 
 
-
 class StickyPriorityStrategy(LoadBalancerStrategy):
     """
     粘性优先级策略
@@ -154,14 +153,18 @@ class StickyPriorityStrategy(LoadBalancerStrategy):
             )
 
         # 粘性提供商不健康，选择备用提供商
-        logger.warning(f"Sticky provider {sticky_candidate.provider.name} is unhealthy, selecting backup")
+        logger.warning(
+            f"Sticky provider {sticky_candidate.provider.name} is unhealthy, selecting backup"
+        )
 
         # 从同一优先级组中选择健康的备用提供商
         backup_candidate = self._select_backup_provider(highest_group)
 
         if not backup_candidate:
             # 如果没有健康的备用，降级使用不健康的粘性提供商
-            logger.warning("No healthy backup provider available, falling back to unhealthy sticky provider")
+            logger.warning(
+                "No healthy backup provider available, falling back to unhealthy sticky provider"
+            )
             backup_candidate = sticky_candidate
 
         self._record_selection(backup_candidate.provider, is_sticky=False)

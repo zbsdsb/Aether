@@ -5,7 +5,6 @@ Provider 缓存服务 - 减少 Provider 和 ProviderAPIKey 查询
 这些数据在 UsageService.record_usage() 中被频繁查询但变化不频繁。
 """
 
-
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -44,9 +43,9 @@ class ProviderCacheService:
             计算后的 rate_multiplier
         """
         if api_format and rate_multipliers:
-            format_upper = api_format.upper()
-            if format_upper in rate_multipliers:
-                return float(rate_multipliers[format_upper])
+            format_key = str(api_format).strip().lower()
+            if format_key in rate_multipliers:
+                return float(rate_multipliers[format_key])
         return 1.0
 
     @staticmethod
@@ -67,13 +66,15 @@ class ProviderCacheService:
             rate_multiplier 或 None（如果找不到）
         """
         # 缓存键包含 api_format
-        format_suffix = api_format.upper() if api_format else "default"
+        format_suffix = str(api_format).strip().lower() if api_format else "default"
         cache_key = f"provider_api_key:rate_multiplier:{provider_api_key_id}:{format_suffix}"
 
         # 1. 尝试从缓存获取
         cached_data = await CacheService.get(cache_key)
         if cached_data is not None:
-            logger.debug(f"ProviderAPIKey rate_multiplier 缓存命中: {provider_api_key_id[:8]}... format={format_suffix}")
+            logger.debug(
+                f"ProviderAPIKey rate_multiplier 缓存命中: {provider_api_key_id[:8]}... format={format_suffix}"
+            )
             # 缓存的 "NOT_FOUND" 表示数据库中不存在
             if cached_data == "NOT_FOUND":
                 return None
@@ -95,7 +96,9 @@ class ProviderCacheService:
             await CacheService.set(
                 cache_key, rate_multiplier, ttl_seconds=ProviderCacheService.CACHE_TTL
             )
-            logger.debug(f"ProviderAPIKey rate_multiplier 已缓存: {provider_api_key_id[:8]}... format={format_suffix} value={rate_multiplier}")
+            logger.debug(
+                f"ProviderAPIKey rate_multiplier 已缓存: {provider_api_key_id[:8]}... format={format_suffix} value={rate_multiplier}"
+            )
             return rate_multiplier
         else:
             # 缓存负结果
@@ -133,9 +136,7 @@ class ProviderCacheService:
                 await CacheService.delete(cache_key)
 
         # 2. 缓存未命中，查询数据库
-        provider = (
-            db.query(Provider.billing_type).filter(Provider.id == provider_id).first()
-        )
+        provider = db.query(Provider.billing_type).filter(Provider.id == provider_id).first()
 
         # 3. 写入缓存
         if provider:
@@ -196,7 +197,9 @@ class ProviderCacheService:
     async def invalidate_provider_api_key_cache(provider_api_key_id: str) -> None:
         """清除 ProviderAPIKey 缓存（包括所有 API 格式的缓存）"""
         # 使用模式匹配删除所有格式的缓存
-        await CacheService.delete_pattern(f"provider_api_key:rate_multiplier:{provider_api_key_id}:*")
+        await CacheService.delete_pattern(
+            f"provider_api_key:rate_multiplier:{provider_api_key_id}:*"
+        )
         logger.debug(f"ProviderAPIKey 缓存已清除: {provider_api_key_id[:8]}...")
 
     @staticmethod

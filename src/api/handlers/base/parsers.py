@@ -134,8 +134,8 @@ class OpenAIResponseParser(ResponseParser):
         from src.api.handlers.openai.stream_parser import OpenAIStreamParser
 
         self._parser = OpenAIStreamParser()
-        self.name = "OPENAI"
-        self.api_format = "OPENAI"
+        self.name = "openai:chat"
+        self.api_format = "openai:chat"
 
     def parse_sse_line(self, line: str, stats: StreamStats) -> ParsedChunk | None:
         if not line or not line.strip():
@@ -245,8 +245,8 @@ class OpenAICliResponseParser(OpenAIResponseParser):
 
     def __init__(self) -> None:
         super().__init__()
-        self.name = "OPENAI_CLI"
-        self.api_format = "OPENAI_CLI"
+        self.name = "openai:cli"
+        self.api_format = "openai:cli"
 
 
 class ClaudeResponseParser(ResponseParser):
@@ -256,8 +256,8 @@ class ClaudeResponseParser(ResponseParser):
         from src.api.handlers.claude.stream_parser import ClaudeStreamParser
 
         self._parser = ClaudeStreamParser()
-        self.name = "CLAUDE"
-        self.api_format = "CLAUDE"
+        self.name = "claude:chat"
+        self.api_format = "claude:chat"
 
     def parse_sse_line(self, line: str, stats: StreamStats) -> ParsedChunk | None:
         if not line or not line.strip():
@@ -392,8 +392,8 @@ class ClaudeCliResponseParser(ClaudeResponseParser):
 
     def __init__(self) -> None:
         super().__init__()
-        self.name = "CLAUDE_CLI"
-        self.api_format = "CLAUDE_CLI"
+        self.name = "claude:cli"
+        self.api_format = "claude:cli"
 
 
 class GeminiResponseParser(ResponseParser):
@@ -403,8 +403,8 @@ class GeminiResponseParser(ResponseParser):
         from src.api.handlers.gemini.stream_parser import GeminiStreamParser
 
         self._parser = GeminiStreamParser()
-        self.name = "GEMINI"
-        self.api_format = "GEMINI"
+        self.name = "gemini:chat"
+        self.api_format = "gemini:chat"
 
     def parse_sse_line(self, line: str, stats: StreamStats) -> ParsedChunk | None:
         """
@@ -557,18 +557,18 @@ class GeminiCliResponseParser(GeminiResponseParser):
 
     def __init__(self) -> None:
         super().__init__()
-        self.name = "GEMINI_CLI"
-        self.api_format = "GEMINI_CLI"
+        self.name = "gemini:cli"
+        self.api_format = "gemini:cli"
 
 
 # 解析器注册表
 _PARSERS: dict[str, type[ResponseParser]] = {
-    "CLAUDE": ClaudeResponseParser,
-    "CLAUDE_CLI": ClaudeCliResponseParser,
-    "OPENAI": OpenAIResponseParser,
-    "OPENAI_CLI": OpenAICliResponseParser,
-    "GEMINI": GeminiResponseParser,
-    "GEMINI_CLI": GeminiCliResponseParser,
+    "claude:chat": ClaudeResponseParser,
+    "claude:cli": ClaudeCliResponseParser,
+    "openai:chat": OpenAIResponseParser,
+    "openai:cli": OpenAICliResponseParser,
+    "gemini:chat": GeminiResponseParser,
+    "gemini:cli": GeminiCliResponseParser,
 }
 
 
@@ -577,7 +577,7 @@ def get_parser_for_format(format_id: str) -> ResponseParser:
     根据格式 ID 获取 ResponseParser
 
     Args:
-        format_id: 格式 ID，如 "CLAUDE", "OPENAI", "CLAUDE_CLI", "OPENAI_CLI"
+        format_id: endpoint signature，如 "claude:chat", "openai:cli"
 
     Returns:
         ResponseParser 实例
@@ -585,10 +585,12 @@ def get_parser_for_format(format_id: str) -> ResponseParser:
     Raises:
         KeyError: 格式不存在
     """
-    format_id = format_id.upper()
-    if format_id not in _PARSERS:
-        raise KeyError(f"Unknown format: {format_id}")
-    return _PARSERS[format_id]()
+    from src.core.api_format.signature import normalize_signature_key
+
+    normalized = normalize_signature_key(format_id)
+    if normalized not in _PARSERS:
+        raise KeyError(f"Unknown format: {normalized}")
+    return _PARSERS[normalized]()
 
 
 __all__ = [

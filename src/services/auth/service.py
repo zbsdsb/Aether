@@ -20,19 +20,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from src.config import config
-from src.core.logger import logger
 from src.core.enums import AuthSource
 from src.core.exceptions import ForbiddenException
+from src.core.logger import logger
 from src.services.system.config import SystemConfigService
 
 if TYPE_CHECKING:
     from src.models.database import ManagementToken
+
 from src.models.database import ApiKey, User, UserRole
 from src.services.auth.jwt_blacklist import JWTBlacklistService
 from src.services.auth.ldap import LDAPService
 from src.services.cache.user_cache import UserCacheService
 from src.services.user.apikey import ApiKeyService
-
 
 # API Key last_used_at 更新节流配置
 # 同一个 API Key 在此时间间隔内只会更新一次 last_used_at
@@ -243,9 +243,8 @@ class AuthService:
         # 登录校验必须读取密码哈希，不能使用不包含 password_hash 的缓存对象
         # 支持邮箱或用户名登录
         from sqlalchemy import or_
-        user = db.query(User).filter(
-            or_(User.email == email, User.username == email)
-        ).first()
+
+        user = db.query(User).filter(or_(User.email == email, User.username == email)).first()
 
         if not user:
             logger.warning(f"登录失败 - 用户不存在: {email}")
@@ -295,7 +294,9 @@ class AuthService:
         注意：使用 with_for_update() 防止并发首次登录创建重复用户
         """
         ldap_dn = (ldap_user.get("ldap_dn") or "").strip() or None
-        ldap_username = (ldap_user.get("ldap_username") or ldap_user.get("username") or "").strip() or None
+        ldap_username = (
+            ldap_user.get("ldap_username") or ldap_user.get("username") or ""
+        ).strip() or None
         email = ldap_user["email"]
 
         # 优先用稳定标识查找，避免邮箱变更/用户名冲突导致重复建号
@@ -333,11 +334,7 @@ class AuthService:
 
             # 同步邮箱（LDAP 侧邮箱变更时更新；若新邮箱已被占用则拒绝）
             if user.email != email:
-                email_taken = (
-                    db.query(User)
-                    .filter(User.email == email, User.id != user.id)
-                    .first()
-                )
+                email_taken = db.query(User).filter(User.email == email, User.id != user.id).first()
                 if email_taken:
                     logger.warning(f"LDAP 登录拒绝 - 新邮箱已被占用: {email}")
                     return None
@@ -370,7 +367,9 @@ class AuthService:
                 logger.info(f"LDAP 用户名冲突，使用新用户名: {ldap_user['username']} -> {username}")
 
             # 读取系统配置的默认配额
-            default_quota = SystemConfigService.get_config(db, "default_user_quota_usd", default=10.0)
+            default_quota = SystemConfigService.get_config(
+                db, "default_user_quota_usd", default=10.0
+            )
 
             # 创建新用户
             user = User(
@@ -408,7 +407,9 @@ class AuthService:
                         logger.error(f"LDAP 用户创建失败（用户名冲突重试耗尽）: {username}")
                         return None
                     username = f"{base_username}_ldap_{int(time.time())}{uuid.uuid4().hex[:4]}"
-                    logger.warning(f"LDAP 用户创建用户名冲突，重试 ({attempt + 1}/{max_retries}): {username}")
+                    logger.warning(
+                        f"LDAP 用户创建用户名冲突，重试 ({attempt + 1}/{max_retries}): {username}"
+                    )
                 else:
                     # 其他约束冲突，不重试
                     logger.error(f"LDAP 用户创建失败 - 未知数据库约束冲突: {e}")
@@ -458,8 +459,10 @@ class AuthService:
         if not is_balance_ok:
             # 获取剩余余额用于日志
             remaining_balance = ApiKeyService.get_remaining_balance(key_record)
-            logger.warning(f"API认证失败 - 余额不足 "
-                f"(已用: ${key_record.balance_used_usd:.4f}, 剩余: ${remaining_balance:.4f})")
+            logger.warning(
+                f"API认证失败 - 余额不足 "
+                f"(已用: ${key_record.balance_used_usd:.4f}, 剩余: ${remaining_balance:.4f})"
+            )
             return None
 
         # 获取用户
@@ -492,7 +495,9 @@ class AuthService:
 
         # 检查美元配额
         if user.used_usd + estimated_cost > user.quota_usd:
-            logger.warning(f"用户配额不足: {user.email} (已用: ${user.used_usd:.2f}, 配额: ${user.quota_usd:.2f})")
+            logger.warning(
+                f"用户配额不足: {user.email} (已用: ${user.used_usd:.2f}, 配额: ${user.quota_usd:.2f})"
+            )
             return False
 
         return True
@@ -509,7 +514,9 @@ class AuthService:
         if role_rank.get(user.role, -1) >= role_rank.get(required_role, 999):
             return True
 
-        logger.warning(f"权限不足: 用户 {user.email} 角色 {user.role.value} < 需要 {required_role.value}")
+        logger.warning(
+            f"权限不足: 用户 {user.email} 角色 {user.role.value} < 需要 {required_role.value}"
+        )
         return False
 
     @staticmethod
@@ -668,9 +675,7 @@ class AuthService:
 
         # 检查 IP 白名单
         if not token_record.is_ip_allowed(client_ip):
-            logger.warning(
-                f"Management Token IP 限制 - Token: {token_record.id}, IP: {client_ip}"
-            )
+            logger.warning(f"Management Token IP 限制 - Token: {token_record.id}, IP: {client_ip}")
             AuditService.log_event(
                 db=db,
                 event_type=AuditEventType.MANAGEMENT_TOKEN_IP_BLOCKED,

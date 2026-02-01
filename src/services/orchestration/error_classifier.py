@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 from sqlalchemy.orm import Session
 
-from src.core.api_format import APIFormat
+from src.core.api_format.signature import make_signature_key
 from src.core.exceptions import (
     ConcurrencyLimitError,
     ProviderAuthException,
@@ -28,7 +28,7 @@ from src.core.logger import logger
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
 from src.services.cache.aware_scheduler import CacheAwareScheduler
 from src.services.health.monitor import health_monitor
-from src.services.provider.format import normalize_api_format
+from src.services.provider.format import normalize_endpoint_signature
 from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
 from src.services.rate_limit.detector import RateLimitType, detect_rate_limit_type
 
@@ -561,7 +561,7 @@ class ErrorClassifier:
         endpoint: ProviderEndpoint,
         key: ProviderAPIKey,
         affinity_key: str,
-        api_format: str | APIFormat,
+        api_format: str,
         global_model_id: str,
         request_id: str | None,
         captured_key_concurrent: int | None,
@@ -618,18 +618,11 @@ class ErrorClassifier:
             extra_data["error_response"] = error_response_text
 
         # client_format：用于缓存亲和性/缓存失效（用户视角）
-        client_format_str = (
-            normalize_api_format(api_format).value
-            if isinstance(api_format, (str, APIFormat))
-            else str(api_format)
-        )
+        client_format_str = normalize_endpoint_signature(api_format)
         # provider_format：用于健康度/熔断 bucket（Provider 真实端点格式）
-        provider_api_format = getattr(endpoint, "api_format", None)
-        provider_format_str = (
-            provider_api_format.value
-            if isinstance(provider_api_format, APIFormat)
-            else str(provider_api_format or client_format_str)
-        ).upper()
+        fam = str(getattr(endpoint, "api_family", "")).strip().lower()
+        kind = str(getattr(endpoint, "endpoint_kind", "")).strip().lower()
+        provider_format_str = make_signature_key(fam, kind) if fam and kind else client_format_str
 
         # 处理客户端请求错误（不应重试，不失效缓存，不记录健康失败）
         if isinstance(converted_error, UpstreamClientException):
@@ -704,7 +697,7 @@ class ErrorClassifier:
         endpoint: ProviderEndpoint,
         key: ProviderAPIKey,
         affinity_key: str,
-        api_format: str | APIFormat,
+        api_format: str,
         global_model_id: str,
         captured_key_concurrent: int | None,
         elapsed_ms: int | None,
@@ -737,18 +730,11 @@ class ErrorClassifier:
         )
 
         # client_format：用于缓存亲和性/缓存失效（用户视角）
-        client_format_str = (
-            normalize_api_format(api_format).value
-            if isinstance(api_format, (str, APIFormat))
-            else str(api_format)
-        )
+        client_format_str = normalize_endpoint_signature(api_format)
         # provider_format：用于健康度/熔断 bucket（Provider 真实端点格式）
-        provider_api_format = getattr(endpoint, "api_format", None)
-        provider_format_str = (
-            provider_api_format.value
-            if isinstance(provider_api_format, APIFormat)
-            else str(provider_api_format or client_format_str)
-        ).upper()
+        fam = str(getattr(endpoint, "api_family", "")).strip().lower()
+        kind = str(getattr(endpoint, "endpoint_kind", "")).strip().lower()
+        provider_format_str = make_signature_key(fam, kind) if fam and kind else client_format_str
 
         # 处理限流错误
         if isinstance(error, ProviderRateLimitException) and key:

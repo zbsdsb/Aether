@@ -4,13 +4,10 @@
 提供在异步上下文中安全执行同步函数的工具，避免阻塞事件循环。
 """
 
-
 import asyncio
+from collections.abc import Callable, Coroutine
 from functools import partial, wraps
 from typing import Any, TypeVar
-
-from collections.abc import Callable
-from collections.abc import Coroutine
 
 T = TypeVar("T")
 
@@ -43,4 +40,3 @@ def async_wrap_sync(func: Callable[..., T]) -> Callable[..., Coroutine[Any, Any,
         return await run_in_executor(func, *args, **kwargs)
 
     return wrapper
-

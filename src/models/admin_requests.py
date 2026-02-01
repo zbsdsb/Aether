@@ -12,7 +12,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from src.core.api_format import APIFormat
 from src.core.enums import ProviderBillingType
 
 
@@ -71,8 +70,20 @@ class CreateProviderRequest(BaseModel):
 
         # 检查 SQL 注入关键字（不区分大小写）
         sql_keywords = [
-            "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE",
-            "ALTER", "TRUNCATE", "UNION", "EXEC", "EXECUTE", "--", "/*", "*/"
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "DROP",
+            "CREATE",
+            "ALTER",
+            "TRUNCATE",
+            "UNION",
+            "EXEC",
+            "EXECUTE",
+            "--",
+            "/*",
+            "*/",
         ]
         v_upper = v.upper()
         for keyword in sql_keywords:
@@ -80,6 +91,7 @@ class CreateProviderRequest(BaseModel):
                 raise ValueError(f"名称包含非法关键字: {keyword}")
 
         return v
+
     billing_type: str | None = Field(
         ProviderBillingType.PAY_AS_YOU_GO.value, description="计费类型"
     )
@@ -87,15 +99,21 @@ class CreateProviderRequest(BaseModel):
     quota_reset_day: int | None = Field(30, ge=1, le=365, description="配额重置周期（天数）")
     quota_last_reset_at: datetime | None = Field(None, description="当前周期开始时间")
     quota_expires_at: datetime | None = Field(None, description="配额过期时间")
-    provider_priority: int | None = Field(100, ge=0, le=1000, description="提供商优先级（数字越小越优先）")
+    provider_priority: int | None = Field(
+        100, ge=0, le=1000, description="提供商优先级（数字越小越优先）"
+    )
     is_active: bool | None = Field(True, description="是否启用")
     concurrent_limit: int | None = Field(None, ge=0, description="并发限制")
     # 请求配置（从 Endpoint 迁移）
     max_retries: int | None = Field(2, ge=0, le=10, description="最大重试次数")
     proxy: ProxyConfig | None = Field(None, description="代理配置")
     # 超时配置（秒），为空时使用全局配置
-    stream_first_byte_timeout: float | None = Field(None, ge=1, le=300, description="流式请求首字节超时（秒）")
-    request_timeout: float | None = Field(None, ge=1, le=600, description="非流式请求整体超时（秒）")
+    stream_first_byte_timeout: float | None = Field(
+        None, ge=1, le=300, description="流式请求首字节超时（秒）"
+    )
+    request_timeout: float | None = Field(
+        None, ge=1, le=600, description="非流式请求整体超时（秒）"
+    )
     config: dict[str, Any] | None = Field(None, description="其他配置")
 
     @field_validator("name", "description")
@@ -167,8 +185,12 @@ class UpdateProviderRequest(BaseModel):
     max_retries: int | None = Field(None, ge=0, le=10, description="最大重试次数")
     proxy: ProxyConfig | None = Field(None, description="代理配置")
     # 超时配置（秒），为空时使用全局配置
-    stream_first_byte_timeout: float | None = Field(None, ge=1, le=300, description="流式请求首字节超时（秒）")
-    request_timeout: float | None = Field(None, ge=1, le=600, description="非流式请求整体超时（秒）")
+    stream_first_byte_timeout: float | None = Field(
+        None, ge=1, le=300, description="流式请求首字节超时（秒）"
+    )
+    request_timeout: float | None = Field(
+        None, ge=1, le=600, description="非流式请求整体超时（秒）"
+    )
     config: dict[str, Any] | None = None
 
     # 复用相同的验证器
@@ -187,7 +209,9 @@ class CreateEndpointRequest(BaseModel):
     provider_id: str = Field(..., description="Provider ID")
     name: str = Field(..., min_length=1, max_length=100, description="Endpoint 名称")
     base_url: str = Field(..., min_length=1, max_length=500, description="API 基础 URL")
-    api_format: str = Field(..., description="API 格式（CLAUDE 或 OPENAI）")
+    api_format: str = Field(
+        ..., description="Endpoint signature（如 openai:chat, claude:cli, gemini:video）"
+    )
     custom_path: str | None = Field(None, max_length=200, description="自定义路径")
     priority: int | None = Field(100, ge=0, le=1000, description="优先级")
     is_active: bool | None = Field(True, description="是否启用")
@@ -216,12 +240,14 @@ class CreateEndpointRequest(BaseModel):
     @classmethod
     def validate_api_format(cls, v: str) -> str:
         """验证 API 格式"""
-        try:
-            APIFormat(v)
-            return v
-        except ValueError:
-            valid_formats = [f.value for f in APIFormat]
-            raise ValueError(f"无效的 API 格式，有效值为: {', '.join(valid_formats)}")
+        from src.core.api_format import list_endpoint_definitions, resolve_endpoint_definition
+        from src.core.api_format.signature import normalize_signature_key
+
+        normalized = normalize_signature_key(v)
+        if resolve_endpoint_definition(normalized) is None:
+            valid_formats = [d.signature_key for d in list_endpoint_definitions()]
+            raise ValueError(f"无效的 api_format，有效值为: {', '.join(valid_formats)}")
+        return normalized
 
     @field_validator("custom_path")
     @classmethod
@@ -307,7 +333,9 @@ class UpdateUserRequest(BaseModel):
 
     username: str | None = Field(None, min_length=1, max_length=50)
     email: str | None = Field(None, max_length=100)
-    password: str | None = Field(None, min_length=6, max_length=128, description="新密码（留空保持不变）")
+    password: str | None = Field(
+        None, min_length=6, max_length=128, description="新密码（留空保持不变）"
+    )
     quota_usd: float | None = Field(None, ge=0)
     is_active: bool | None = None
     role: str | None = None

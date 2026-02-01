@@ -2,15 +2,16 @@
 Provider 摘要与健康监控 API
 """
 
-from typing import Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.enums import ProviderBillingType
 from src.core.exceptions import NotFoundException
@@ -23,7 +24,6 @@ from src.models.database import (
     ProviderEndpoint,
     RequestCandidate,
 )
-from src.api.base.context import ApiRequestContext
 from src.models.endpoint_models import (
     EndpointHealthEvent,
     EndpointHealthMonitor,
@@ -229,10 +229,14 @@ def _build_provider_summary(db: Session, provider: Provider) -> ProviderWithEndp
     active_keys = int(key_stats.active or 0)
 
     # Model 统计（合并为单个查询）
-    model_stats = db.query(
-        func.count(Model.id).label("total"),
-        func.sum(case((Model.is_active == True, 1), else_=0)).label("active"),
-    ).filter(Model.provider_id == provider.id).first()
+    model_stats = (
+        db.query(
+            func.count(Model.id).label("total"),
+            func.sum(case((Model.is_active == True, 1), else_=0)).label("active"),
+        )
+        .filter(Model.provider_id == provider.id)
+        .first()
+    )
     total_models = model_stats.total or 0
     active_models = int(model_stats.active or 0)
 
@@ -294,7 +298,9 @@ def _build_provider_summary(db: Session, provider: Provider) -> ProviderWithEndp
     # 检查是否配置了 Provider Ops（余额监控等）
     provider_ops_config = (provider.config or {}).get("provider_ops")
     ops_configured = bool(provider_ops_config)
-    ops_architecture_id = provider_ops_config.get("architecture_id") if provider_ops_config else None
+    ops_architecture_id = (
+        provider_ops_config.get("architecture_id") if provider_ops_config else None
+    )
 
     return ProviderWithEndpointsSummary(
         id=provider.id,

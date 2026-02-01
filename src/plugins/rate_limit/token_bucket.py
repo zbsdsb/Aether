@@ -8,10 +8,10 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ...clients.redis_client import get_redis_client_sync
 from src.core.logger import logger
-from .base import RateLimitResult, RateLimitStrategy
 
+from ...clients.redis_client import get_redis_client_sync
+from .base import RateLimitResult, RateLimitStrategy
 
 
 class TokenBucket:

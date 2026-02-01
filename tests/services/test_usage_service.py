@@ -7,8 +7,9 @@ UsageService 测试
 - 用量统计查询
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 
 from src.services.usage.service import UsageService
 
@@ -26,7 +27,15 @@ class TestCostCalculation:
             output_price_per_1m=15.0,
         )
 
-        input_cost, output_cost, cache_creation_cost, cache_read_cost, cache_cost, request_cost, total_cost = result
+        (
+            input_cost,
+            output_cost,
+            cache_creation_cost,
+            cache_read_cost,
+            cache_cost,
+            request_cost,
+            total_cost,
+        ) = result
 
         # 1000 tokens * $3 / 1M = $0.003
         assert abs(input_cost - 0.003) < 0.0001
@@ -268,7 +277,7 @@ class TestHelperMethods:
     async def test_get_rate_multiplier_from_provider_api_key(self) -> None:
         """测试从 ProviderAPIKey 获取费率倍数"""
         mock_provider_api_key = MagicMock()
-        mock_provider_api_key.rate_multipliers = {"CLAUDE": 0.8}
+        mock_provider_api_key.rate_multipliers = {"claude:chat": 0.8}
 
         mock_endpoint = MagicMock()
         mock_endpoint.provider_id = "provider-123"
@@ -285,7 +294,7 @@ class TestHelperMethods:
         ]
 
         rate_multiplier, is_free_tier = await UsageService._get_rate_multiplier_and_free_tier(
-            mock_db, provider_api_key_id="pak-123", provider_id=None, api_format="CLAUDE"
+            mock_db, provider_api_key_id="pak-123", provider_id=None, api_format="claude:chat"
         )
 
         assert rate_multiplier == 0.8

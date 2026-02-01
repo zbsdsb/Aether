@@ -14,6 +14,7 @@ from src.api.handlers.base.cli_adapter_base import CliAdapterBase, register_cli_
 from src.api.handlers.base.cli_handler_base import CliMessageHandlerBase
 from src.api.handlers.claude.adapter import ClaudeCapabilityDetector, ClaudeChatAdapter
 from src.config.settings import config
+from src.core.api_format import ApiFamily
 
 
 @register_cli_adapter
@@ -24,7 +25,8 @@ class ClaudeCliAdapter(CliAdapterBase):
     处理 Claude CLI 格式的请求（/v1/messages 端点，使用 Bearer 认证）。
     """
 
-    FORMAT_ID = "CLAUDE_CLI"
+    FORMAT_ID = "claude:cli"
+    API_FAMILY = ApiFamily.CLAUDE
     BILLING_TEMPLATE = "claude"  # 使用 Claude 计费模板
     name = "claude.cli"
 
@@ -36,7 +38,7 @@ class ClaudeCliAdapter(CliAdapterBase):
         return ClaudeCliMessageHandler
 
     def __init__(self, allowed_api_formats: list[str] | None = None):
-        super().__init__(allowed_api_formats or ["CLAUDE_CLI"])
+        super().__init__(allowed_api_formats)
 
     def detect_capability_requirements(
         self,
@@ -113,16 +115,16 @@ class ClaudeCliAdapter(CliAdapterBase):
         cli_headers = {"User-Agent": config.internal_user_agent_claude_cli}
         if extra_headers:
             cli_headers.update(extra_headers)
-        models, error = await ClaudeChatAdapter.fetch_models(
-            client, base_url, api_key, cli_headers
-        )
+        models, error = await ClaudeChatAdapter.fetch_models(client, base_url, api_key, cli_headers)
         # 更新 api_format 为 CLI 格式
         for m in models:
             m["api_format"] = cls.FORMAT_ID
         return models, error
 
     @classmethod
-    def build_endpoint_url(cls, base_url: str, request_data: dict[str, Any], model_name: str | None = None) -> str:
+    def build_endpoint_url(
+        cls, base_url: str, request_data: dict[str, Any], model_name: str | None = None
+    ) -> str:
         """构建Claude CLI API端点URL"""
         base_url = base_url.rstrip("/")
         if base_url.endswith("/v1"):

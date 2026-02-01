@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.api_format import APIFormat
 from src.services.orchestration.error_classifier import ErrorClassifier
 from src.services.request.executor import RequestExecutor
 
@@ -30,7 +29,9 @@ async def test_executor_records_health_by_provider_format() -> None:
 
     endpoint = MagicMock()
     endpoint.id = "e1"
-    endpoint.api_format = "OPENAI"
+    endpoint.api_format = "openai:chat"
+    endpoint.api_family = "openai"
+    endpoint.endpoint_kind = "chat"
 
     key = MagicMock()
     key.id = "k1"
@@ -48,16 +49,19 @@ async def test_executor_records_health_by_provider_format() -> None:
     async def request_func(_provider, _endpoint, _key, _candidate):  # noqa: ANN001
         return {"ok": True}
 
-    with patch("src.services.request.executor.RequestCandidateService.mark_candidate_started"), patch(
-        "src.services.request.executor.RequestCandidateService.mark_candidate_success"
-    ), patch("src.services.request.executor.get_adaptive_reservation_manager") as mock_res_mgr, patch(
-        "src.services.request.executor.health_monitor.record_success"
-    ) as record_success:
+    with (
+        patch("src.services.request.executor.RequestCandidateService.mark_candidate_started"),
+        patch("src.services.request.executor.RequestCandidateService.mark_candidate_success"),
+        patch("src.services.request.executor.get_adaptive_reservation_manager") as mock_res_mgr,
+        patch("src.services.request.executor.health_monitor.record_success") as record_success,
+    ):
         mock_res_mgr.return_value.calculate_reservation.return_value = MagicMock(
             ratio=0.0, phase="stable", confidence=1.0
         )
 
-        executor = RequestExecutor(db=db, concurrency_manager=concurrency_manager, adaptive_manager=adaptive_manager)
+        executor = RequestExecutor(
+            db=db, concurrency_manager=concurrency_manager, adaptive_manager=adaptive_manager
+        )
         await executor.execute(
             candidate=candidate,
             candidate_id="c1",
@@ -65,13 +69,13 @@ async def test_executor_records_health_by_provider_format() -> None:
             user_api_key=MagicMock(user_id="u1", id="ak1"),
             request_func=request_func,
             request_id="r1",
-            api_format=APIFormat.CLAUDE,  # client_format
+            api_format="claude:chat",  # client_format
             model_name="m",
             is_stream=False,
         )
 
         record_success.assert_called()
-        assert record_success.call_args.kwargs["api_format"] == "OPENAI"
+        assert record_success.call_args.kwargs["api_format"] == "openai:chat"
 
 
 @pytest.mark.asyncio
@@ -84,19 +88,23 @@ async def test_error_classifier_records_failure_by_provider_format() -> None:
 
     endpoint = MagicMock()
     endpoint.id = "e1"
-    endpoint.api_format = "OPENAI"
+    endpoint.api_format = "openai:chat"
+    endpoint.api_family = "openai"
+    endpoint.endpoint_kind = "chat"
 
     key = MagicMock()
     key.id = "k1"
 
-    with patch("src.services.orchestration.error_classifier.health_monitor.record_failure") as record_failure:
+    with patch(
+        "src.services.orchestration.error_classifier.health_monitor.record_failure"
+    ) as record_failure:
         await classifier.handle_retriable_error(
             error=RuntimeError("boom"),
             provider=provider,
             endpoint=endpoint,
             key=key,
             affinity_key="aff",
-            api_format=APIFormat.CLAUDE,  # client_format
+            api_format="claude:chat",  # client_format
             global_model_id="gm1",
             captured_key_concurrent=None,
             elapsed_ms=None,
@@ -106,5 +114,4 @@ async def test_error_classifier_records_failure_by_provider_format() -> None:
         )
 
         record_failure.assert_called()
-        assert record_failure.call_args.kwargs["api_format"] == "OPENAI"
-
+        assert record_failure.call_args.kwargs["api_format"] == "openai:chat"

@@ -6,13 +6,14 @@ GlobalModel Admin API
 
 from __future__ import annotations
 
-from typing import Any
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.models_service import invalidate_models_list_cache
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.logger import logger
@@ -29,7 +30,6 @@ from src.models.pydantic_models import (
     ModelCatalogProviderDetail,
 )
 from src.services.model.global_model import GlobalModelService
-from src.api.base.context import ApiRequestContext
 
 router = APIRouter(prefix="/global", tags=["Admin - Global Models"])
 pipeline = ApiRequestPipeline()

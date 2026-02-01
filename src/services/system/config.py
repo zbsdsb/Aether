@@ -227,7 +227,9 @@ class SystemConfigService:
         return result
 
     @staticmethod
-    def set_config(db: Session, key: str, value: Any, description: str | None = None) -> SystemConfig:
+    def set_config(
+        db: Session, key: str, value: Any, description: str | None = None
+    ) -> SystemConfig:
         """设置系统配置值"""
         config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
 

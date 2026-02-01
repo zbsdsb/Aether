@@ -10,14 +10,13 @@ from sqlalchemy import and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from src.api.base.models_service import invalidate_models_list_cache
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.logger import logger
 from src.models.api import ModelCreate, ModelResponse, ModelUpdate
 from src.models.database import Model, Provider
-from src.api.base.models_service import invalidate_models_list_cache
 from src.services.cache.invalidation import get_cache_invalidation_service
 from src.services.cache.model_cache import ModelCacheService
-
 
 
 class ModelService:
@@ -76,7 +75,9 @@ class ModelService:
                     .first()
                 )
 
-            logger.info(f"创建模型成功: provider={provider.name}, model={model.provider_model_name}, global_model_id={model.global_model_id}")
+            logger.info(
+                f"创建模型成功: provider={provider.name}, model={model.provider_model_name}, global_model_id={model.global_model_id}"
+            )
 
             # 清除 Redis 缓存（异步执行，不阻塞返回）
             # 重要：新增模型可能需要清除 resolver 的 NOT_FOUND 负缓存（global_model:resolve:*），
@@ -182,12 +183,16 @@ class ModelService:
 
         # 添加调试日志
         logger.debug(f"更新模型 {model_id} 收到的数据: {update_data}")
-        logger.debug(f"更新前的 supports_vision: {model.supports_vision}, supports_function_calling: {model.supports_function_calling}, supports_extended_thinking: {model.supports_extended_thinking}")
+        logger.debug(
+            f"更新前的 supports_vision: {model.supports_vision}, supports_function_calling: {model.supports_function_calling}, supports_extended_thinking: {model.supports_extended_thinking}"
+        )
 
         for field, value in update_data.items():
             setattr(model, field, value)
 
-        logger.debug(f"更新后的 supports_vision: {model.supports_vision}, supports_function_calling: {model.supports_function_calling}, supports_extended_thinking: {model.supports_extended_thinking}")
+        logger.debug(
+            f"更新后的 supports_vision: {model.supports_vision}, supports_function_calling: {model.supports_function_calling}, supports_extended_thinking: {model.supports_extended_thinking}"
+        )
 
         try:
             db.commit()
@@ -228,7 +233,9 @@ class ModelService:
             # 清除 /v1/models 列表缓存
             asyncio.create_task(invalidate_models_list_cache())
 
-            logger.info(f"更新模型成功: id={model_id}, 最终 supports_vision: {model.supports_vision}, supports_function_calling: {model.supports_function_calling}, supports_extended_thinking: {model.supports_extended_thinking}")
+            logger.info(
+                f"更新模型成功: id={model_id}, 最终 supports_vision: {model.supports_vision}, supports_function_calling: {model.supports_function_calling}, supports_extended_thinking: {model.supports_extended_thinking}"
+            )
             return model
         except IntegrityError as e:
             db.rollback()
@@ -260,8 +267,10 @@ class ModelService:
             )
 
             if other_implementations == 0:
-                logger.warning(f"警告：删除模型 {model_id}（Provider: {model.provider_id[:8]}...）后，"
-                    f"GlobalModel '{model.global_model_id}' 将没有任何活跃的关联提供商")
+                logger.warning(
+                    f"警告：删除模型 {model_id}（Provider: {model.provider_id[:8]}...）后，"
+                    f"GlobalModel '{model.global_model_id}' 将没有任何活跃的关联提供商"
+                )
 
         # 保存缓存清除所需的信息（删除后无法访问）
         cache_info = {
@@ -290,13 +299,17 @@ class ModelService:
             # 清除内存缓存
             if cache_info["provider_id"] and cache_info["global_model_id"]:
                 cache_service = get_cache_invalidation_service()
-                cache_service.on_model_changed(cache_info["provider_id"], cache_info["global_model_id"])
+                cache_service.on_model_changed(
+                    cache_info["provider_id"], cache_info["global_model_id"]
+                )
 
             # 清除 /v1/models 列表缓存
             asyncio.create_task(invalidate_models_list_cache())
 
-            logger.info(f"删除模型成功: id={model_id}, provider_model_name={cache_info['provider_model_name']}, "
-                f"global_model_id={cache_info['global_model_id'][:8] if cache_info['global_model_id'] else 'None'}...")
+            logger.info(
+                f"删除模型成功: id={model_id}, provider_model_name={cache_info['provider_model_name']}, "
+                f"global_model_id={cache_info['global_model_id'][:8] if cache_info['global_model_id'] else 'None'}..."
+            )
         except Exception as e:
             db.rollback()
             logger.error(f"删除模型失败: {str(e)}")

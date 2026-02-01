@@ -493,9 +493,7 @@ class ModelCacheService:
                     model_mapping_conflict_total.inc()
 
                 # 按名称排序确保确定性
-                result_global_model = sorted(
-                    mapping_matches, key=lambda gm: gm.name or ""
-                )[0]
+                result_global_model = sorted(mapping_matches, key=lambda gm: gm.name or "")[0]
                 global_model_dict = ModelCacheService._global_model_to_dict(result_global_model)
                 await CacheService.set(
                     cache_key, global_model_dict, ttl_seconds=ModelCacheService.CACHE_TTL
@@ -509,9 +507,7 @@ class ModelCacheService:
             # 6. 完全未找到
             resolution_method = "not_found"
             # 未找到匹配，缓存负结果
-            await CacheService.set(
-                cache_key, "NOT_FOUND", ttl_seconds=ModelCacheService.CACHE_TTL
-            )
+            await CacheService.set(cache_key, "NOT_FOUND", ttl_seconds=ModelCacheService.CACHE_TTL)
             logger.debug(f"GlobalModel 未找到(映射解析): {normalized_name}")
             return None
 

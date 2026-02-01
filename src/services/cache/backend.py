@@ -20,7 +20,6 @@ from collections import OrderedDict
 from typing import Any
 
 import redis.asyncio as aioredis
-from src.core.logger import logger
 
 from src.clients.redis_client import get_redis_client_sync
 from src.core.logger import logger

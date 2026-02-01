@@ -36,7 +36,9 @@ class _FakeSession:
 
         # 如果 direct match 命中，不应再走 provider_model_name 分支
         if entities == (Model, GlobalModel):
-            raise AssertionError("provider_model_name query should not run when direct match exists")
+            raise AssertionError(
+                "provider_model_name query should not run when direct match exists"
+            )
 
         raise AssertionError(f"Unexpected query entities: {entities}")
 
@@ -64,6 +66,7 @@ async def test_resolve_global_model_prefers_direct_match(monkeypatch) -> None:
     )
     db = _FakeSession(direct_match=global_model)
 
-    resolved = await ModelCacheService.resolve_global_model_by_name_or_mapping(db, global_model.name)
+    resolved = await ModelCacheService.resolve_global_model_by_name_or_mapping(
+        db, global_model.name
+    )
     assert resolved is global_model
-

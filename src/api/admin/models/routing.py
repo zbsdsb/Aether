@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, selectinload
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.crypto import CryptoService
 from src.core.model_permissions import (
@@ -32,7 +33,6 @@ from src.models.database import (
     ProviderEndpoint,
 )
 from src.services.cache.aware_scheduler import CacheAwareScheduler
-from src.api.base.context import ApiRequestContext
 from src.services.system.config import SystemConfigService
 
 router = APIRouter(prefix="/global", tags=["Admin - Global Models"])
@@ -49,7 +49,9 @@ class RoutingKeyInfo(BaseModel):
     name: str
     masked_key: str = Field("", description="脱敏的 API Key")
     internal_priority: int = Field(..., description="Key 内部优先级")
-    global_priority_by_format: dict[str, int] | None = Field(None, description="按 API 格式的全局优先级")
+    global_priority_by_format: dict[str, int] | None = Field(
+        None, description="按 API 格式的全局优先级"
+    )
     rpm_limit: int | None = Field(None, description="RPM 限制，null 表示自适应")
     is_adaptive: bool = Field(False, description="是否为自适应 RPM 模式")
     effective_rpm: int | None = Field(None, description="有效 RPM 限制")
@@ -320,11 +322,13 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
 
                 # 按优先级排序（使用当前格式的全局优先级）
                 api_format = ep.api_format or ""
+
                 def get_key_priority(k: ProviderAPIKey) -> tuple[int, int]:
                     format_priority = 999
                     if k.global_priority_by_format and api_format in k.global_priority_by_format:
                         format_priority = k.global_priority_by_format[api_format]
                     return (format_priority, k.internal_priority or 0)
+
                 ep_keys.sort(key=get_key_priority)
 
                 key_infos = []
@@ -414,11 +418,21 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
                     )
                 )
 
-            # 按 APIFormat 枚举定义的顺序排序 Endpoints
-            from src.core.api_format import APIFormat
-
-            format_order = {fmt.value: i for i, fmt in enumerate(APIFormat)}
-            endpoint_infos.sort(key=lambda e: format_order.get(e.api_format, 999))
+            # 按 endpoint signature 的推荐顺序排序 Endpoints（与前端展示保持一致）
+            preferred_order = [
+                "openai:chat",
+                "openai:cli",
+                "openai:video",
+                "claude:chat",
+                "claude:cli",
+                "gemini:chat",
+                "gemini:cli",
+                "gemini:video",
+            ]
+            order_map = {key: i for i, key in enumerate(preferred_order)}
+            endpoint_infos.sort(
+                key=lambda e: order_map.get(str(e.api_format or "").strip().lower(), 999)
+            )
 
             active_endpoints = sum(1 for e in endpoint_infos if e.is_active)
             provider_infos.append(

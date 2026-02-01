@@ -17,13 +17,13 @@ from src.core.logger import logger
 from src.core.modules import get_module_registry
 from src.models.database import OAuthProvider, User, UserOAuthLink
 from src.services.auth.ldap import LDAPService
+from src.services.auth.oauth.base import OAuthProviderBase
 from src.services.auth.oauth.models import OAuthFlowError, OAuthUserInfo
 from src.services.auth.oauth.registry import get_oauth_provider_registry
 from src.services.auth.oauth.state import consume_oauth_state, create_oauth_state
 from src.services.auth.service import AuthService
 from src.services.cache.user_cache import UserCacheService
 from src.services.system.config import SystemConfigService
-from src.services.auth.oauth.base import OAuthProviderBase
 from src.utils.ssl_utils import get_ssl_context
 
 
@@ -34,7 +34,9 @@ class OAuthService:
     def _require_module_active(db: Session) -> None:
         registry = get_module_registry()
         if not registry.is_active("oauth", db):
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="OAuth 模块未启用")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="OAuth 模块未启用"
+            )
 
     @staticmethod
     def _get_provider_impl(provider_type: str) -> OAuthProviderBase | None:
@@ -138,7 +140,9 @@ class OAuthService:
         if redis is None:
             raise HTTPException(status_code=503, detail="Redis 不可用")
 
-        state = await create_oauth_state(redis, provider_type=provider_type, action="login", user_id=None)
+        state = await create_oauth_state(
+            redis, provider_type=provider_type, action="login", user_id=None
+        )
         return provider.get_authorization_url(config, state)
 
     @staticmethod
@@ -163,7 +167,9 @@ class OAuthService:
         if redis is None:
             raise HTTPException(status_code=503, detail="Redis 不可用")
 
-        state = await create_oauth_state(redis, provider_type=provider_type, action="bind", user_id=user.id)
+        state = await create_oauth_state(
+            redis, provider_type=provider_type, action="bind", user_id=user.id
+        )
         return provider.get_authorization_url(config, state)
 
     @staticmethod
@@ -319,7 +325,9 @@ class OAuthService:
 
         if state_data.action == "bind":
             try:
-                await OAuthService._handle_bind(db, user_id=state_data.user_id or "", config=config, oauth_user=oauth_user)
+                await OAuthService._handle_bind(
+                    db, user_id=state_data.user_id or "", config=config, oauth_user=oauth_user
+                )
             except OAuthFlowError as exc:
                 return OAuthService._build_frontend_error_redirect(
                     frontend_callback_url, error_code=exc.error_code, error_detail=exc.detail
@@ -348,7 +356,10 @@ class OAuthService:
             }
         )
         refresh_token = AuthService.create_refresh_token(
-            data={"user_id": user.id, "created_at": user.created_at.isoformat() if user.created_at else None}
+            data={
+                "user_id": user.id,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+            }
         )
 
         return OAuthService._build_frontend_login_success_redirect(
@@ -356,7 +367,9 @@ class OAuthService:
         )
 
     @staticmethod
-    async def _handle_login(db: Session, *, config: OAuthProvider, oauth_user: OAuthUserInfo) -> User:
+    async def _handle_login(
+        db: Session, *, config: OAuthProvider, oauth_user: OAuthUserInfo
+    ) -> User:
         now = datetime.now(timezone.utc)
 
         # 1) 已绑定账号：直接登录
@@ -381,7 +394,9 @@ class OAuthService:
             return linked_user
 
         # 2) 未绑定账号：可能需要新建用户（受注册开关控制）
-        enable_registration = SystemConfigService.get_config(db, "enable_registration", default=False)
+        enable_registration = SystemConfigService.get_config(
+            db, "enable_registration", default=False
+        )
         if not enable_registration:
             raise OAuthFlowError("registration_disabled")
 
@@ -399,7 +414,11 @@ class OAuthService:
                     raise OAuthFlowError("email_is_ldap")
                 raise OAuthFlowError("email_is_oauth")
 
-        base_username = oauth_user.username or (email.split("@", 1)[0] if email else None) or f"user_{uuid.uuid4().hex[:8]}"
+        base_username = (
+            oauth_user.username
+            or (email.split("@", 1)[0] if email else None)
+            or f"user_{uuid.uuid4().hex[:8]}"
+        )
         default_quota = SystemConfigService.get_config(db, "default_user_quota_usd", default=10.0)
 
         # 生成唯一用户名 + 创建用户（简单重试）
@@ -469,7 +488,9 @@ class OAuthService:
                         existing_link.last_login_at = now
                         db.commit()
                         assert existing_user.id is not None
-                        await UserCacheService.invalidate_user_cache(existing_user.id, existing_user.email)
+                        await UserCacheService.invalidate_user_cache(
+                            existing_user.id, existing_user.email
+                        )
                         return existing_user
                 raise OAuthFlowError("oauth_already_bound")
             raise OAuthFlowError("provider_error", "link_create_failed")
@@ -724,7 +745,11 @@ class OAuthService:
         OAuthService._validate_redirect_uri(data.redirect_uri)
 
         # 覆盖端点：必须 https 且 hostname 命中 provider 白名单
-        for field_name in ("authorization_url_override", "token_url_override", "userinfo_url_override"):
+        for field_name in (
+            "authorization_url_override",
+            "token_url_override",
+            "userinfo_url_override",
+        ):
             value = getattr(data, field_name)
             if value:
                 OAuthService._validate_url_override(provider, value)
@@ -784,7 +809,9 @@ class OAuthService:
 
         async def _reachable(url: str) -> bool:
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), follow_redirects=False, verify=get_ssl_context()) as client:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(5.0), follow_redirects=False, verify=get_ssl_context()
+                ) as client:
                     await client.get(url)
                 return True
             except Exception:
@@ -799,7 +826,9 @@ class OAuthService:
         if cfg.client_secret_encrypted:
             # 使用无效 code 做一次 token 请求（仅做粗略判定）
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), verify=get_ssl_context()) as client:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(5.0), verify=get_ssl_context()
+                ) as client:
                     resp = await client.post(
                         token_url,
                         data={
@@ -859,7 +888,9 @@ class OAuthService:
 
         async def _reachable(url: str) -> bool:
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), follow_redirects=False, verify=get_ssl_context()) as client:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(5.0), follow_redirects=False, verify=get_ssl_context()
+                ) as client:
                     await client.get(url)
                 return True
             except Exception:
@@ -874,7 +905,9 @@ class OAuthService:
         if client_secret:
             # 使用无效 code 做一次 token 请求（仅做粗略判定）
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), verify=get_ssl_context()) as client:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(5.0), verify=get_ssl_context()
+                ) as client:
                     resp = await client.post(
                         token_url,
                         data={
@@ -926,7 +959,10 @@ class OAuthService:
         if not link:
             raise InvalidRequestException("未绑定该 Provider")
 
-        total_links = db.query(func.count(UserOAuthLink.id)).filter(UserOAuthLink.user_id == user.id).scalar() or 0
+        total_links = (
+            db.query(func.count(UserOAuthLink.id)).filter(UserOAuthLink.user_id == user.id).scalar()
+            or 0
+        )
 
         if user.auth_source == AuthSource.OAUTH and total_links <= 1:
             raise InvalidRequestException("OAUTH 用户必须至少保留一个 OAuth 绑定")
@@ -935,7 +971,11 @@ class OAuthService:
         if user.auth_source == AuthSource.LOCAL and not user.password_hash and total_links <= 1:
             raise InvalidRequestException("请先设置密码后再解绑")
 
-        if LDAPService.is_ldap_exclusive(db) and user.auth_source == AuthSource.LOCAL and user.role != UserRole.ADMIN:
+        if (
+            LDAPService.is_ldap_exclusive(db)
+            and user.auth_source == AuthSource.LOCAL
+            and user.role != UserRole.ADMIN
+        ):
             # ldap_exclusive=true 时，普通本地用户解绑最后一个 OAuth 会锁死（密码登录被禁用）
             if total_links <= 1:
                 raise InvalidRequestException("当前处于 LDAP 专属模式，解绑后将无法登录")

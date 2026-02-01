@@ -3,23 +3,22 @@ Provider 架构抽象基类
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from collections.abc import AsyncIterator
 
 import httpx
 
 from src.services.provider_ops.actions.base import ProviderAction
-from src.utils.ssl_utils import get_ssl_context
 from src.services.provider_ops.types import (
     ConnectorAuthType,
     ConnectorState,
     ConnectorStatus,
     ProviderActionType,
 )
-
+from src.utils.ssl_utils import get_ssl_context
 
 # ==================== 连接器基类 ====================
 
@@ -488,8 +487,6 @@ class ProviderArchitecture(ABC):
                 for a in self.supported_actions
             ],
             "default_connector": (
-                self.supported_connectors[0].auth_type.value
-                if self.supported_connectors
-                else None
+                self.supported_connectors[0].auth_type.value if self.supported_connectors else None
             ),
         }

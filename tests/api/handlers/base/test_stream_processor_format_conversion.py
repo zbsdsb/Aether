@@ -33,9 +33,9 @@ async def _empty_async_iter():
 async def test_create_response_stream_converts_claude_to_openai() -> None:
     register_default_normalizers()
 
-    ctx = StreamContext(model="test-model", api_format="OPENAI")
-    ctx.client_api_format = "OPENAI"
-    ctx.provider_api_format = "CLAUDE"
+    ctx = StreamContext(model="test-model", api_format="openai:chat")
+    ctx.client_api_format = "openai:chat"
+    ctx.provider_api_format = "claude:chat"
     ctx.needs_conversion = True
 
     processor = StreamProcessor(request_id="test-request", default_parser=DummyParser())

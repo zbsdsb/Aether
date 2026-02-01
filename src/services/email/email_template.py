@@ -419,9 +419,7 @@ class EmailTemplate:
         return EmailTemplate.html_to_text(html)
 
     @staticmethod
-    def get_subject(
-        template_type: str = "verification", db: Session | None = None
-    ) -> str:
+    def get_subject(template_type: str = "verification", db: Session | None = None) -> str:
         """
         获取邮件主题
 

@@ -163,7 +163,9 @@ class VertexAuthService:
 
         except httpx.HTTPStatusError as e:
             error_body = e.response.text[:500] if e.response.text else "(empty)"
-            raise VertexAuthError(f"Failed to get access token: HTTP {e.response.status_code}: {error_body}")
+            raise VertexAuthError(
+                f"Failed to get access token: HTTP {e.response.status_code}: {error_body}"
+            )
         except Exception as e:
             raise VertexAuthError(f"Failed to get access token: {e}")
 

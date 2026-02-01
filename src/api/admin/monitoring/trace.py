@@ -4,21 +4,21 @@
 
 from __future__ import annotations
 
-from typing import Any
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
-from src.api.base.pipeline import ApiRequestPipeline
-from src.database import get_db
-from src.models.database import Provider, ProviderEndpoint, ProviderAPIKey
-from src.core.crypto import crypto_service
-from src.services.request.candidate import RequestCandidateService
 from src.api.base.context import ApiRequestContext
+from src.api.base.pipeline import ApiRequestPipeline
+from src.core.crypto import crypto_service
+from src.database import get_db
+from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
+from src.services.request.candidate import RequestCandidateService
 
 router = APIRouter(prefix="/api/admin/monitoring/trace", tags=["Admin - Monitoring: Trace"])
 pipeline = ApiRequestPipeline()
@@ -184,8 +184,7 @@ class AdminGetRequestTraceAdapter(AdminApiAdapter):
         # 4. status="pending" 表示请求尚未开始执行
         # 5. status="cancelled" 表示客户端主动断开连接（不算失败）
         has_success = any(
-            c.status == "success"
-            or (c.status_code is not None and 200 <= c.status_code < 300)
+            c.status == "success" or (c.status_code is not None and 200 <= c.status_code < 300)
             for c in candidates
         )
         has_streaming = any(c.status == "streaming" for c in candidates)
@@ -221,7 +220,9 @@ class AdminGetRequestTraceAdapter(AdminApiAdapter):
         endpoint_ids = {c.endpoint_id for c in candidates if c.endpoint_id}
         endpoint_map = {}
         if endpoint_ids:
-            endpoints = db.query(ProviderEndpoint).filter(ProviderEndpoint.id.in_(endpoint_ids)).all()
+            endpoints = (
+                db.query(ProviderEndpoint).filter(ProviderEndpoint.id.in_(endpoint_ids)).all()
+            )
             endpoint_map = {e.id: e.api_format for e in endpoints}
 
         # 批量加载 key 信息
@@ -245,7 +246,9 @@ class AdminGetRequestTraceAdapter(AdminApiAdapter):
                                 prefix_end = len(prefix)
                                 break
                         if prefix_end > 0:
-                            key_preview_map[k.id] = f"{decrypted_key[:prefix_end]}***{decrypted_key[-4:]}"
+                            key_preview_map[k.id] = (
+                                f"{decrypted_key[:prefix_end]}***{decrypted_key[-4:]}"
+                            )
                         else:
                             key_preview_map[k.id] = f"{decrypted_key[:4]}***{decrypted_key[-4:]}"
                     elif len(decrypted_key) > 4:
@@ -267,12 +270,8 @@ class AdminGetRequestTraceAdapter(AdminApiAdapter):
             endpoint_name = (
                 endpoint_map.get(candidate.endpoint_id) if candidate.endpoint_id else None
             )
-            key_name = (
-                key_map.get(candidate.key_id) if candidate.key_id else None
-            )
-            key_preview = (
-                key_preview_map.get(candidate.key_id) if candidate.key_id else None
-            )
+            key_name = key_map.get(candidate.key_id) if candidate.key_id else None
+            key_preview = key_preview_map.get(candidate.key_id) if candidate.key_id else None
             key_capabilities = (
                 key_capabilities_map.get(candidate.key_id) if candidate.key_id else None
             )

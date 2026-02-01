@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from typing import Any
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -13,13 +13,13 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.enums import ProviderBillingType
 from src.core.exceptions import InvalidRequestException, translate_pydantic_error
 from src.core.logger import logger
 from src.database import get_db
 from src.models.database import Provider
-from src.api.base.context import ApiRequestContext
 from src.models.database_extensions import ProviderUsageTracking
 
 router = APIRouter(prefix="/api/admin/provider-strategy", tags=["Provider Strategy"])
@@ -187,7 +187,9 @@ class AdminProviderBillingAdapter(AdminApiAdapter):
                 .scalar()
             )
             provider.monthly_used_usd = float(period_usage or 0)
-            logger.info(f"Synced usage for provider {provider.name}: ${period_usage:.4f} since {new_reset_at}")
+            logger.info(
+                f"Synced usage for provider {provider.name}: ${period_usage:.4f} since {new_reset_at}"
+            )
 
         if config.quota_expires_at:
             expires_at = datetime.fromisoformat(config.quota_expires_at)

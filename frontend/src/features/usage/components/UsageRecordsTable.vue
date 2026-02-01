@@ -543,6 +543,7 @@ import { RefreshCcw, Search } from 'lucide-vue-next'
 import { formatTokens, formatCurrency } from '@/utils/format'
 import { formatDateTime } from '../composables'
 import { useRowClick } from '@/composables/useRowClick'
+import { API_FORMAT_LABELS } from '@/api/endpoints/types'
 import type { UsageRecord } from '../types'
 
 export interface UserOption {
@@ -689,15 +690,13 @@ onUnmounted(() => {
 
 // 格式化 API 格式显示名称
 function formatApiFormat(format: string): string {
-  const formatMap: Record<string, string> = {
-    'CLAUDE': 'Claude',
-    'CLAUDE_CLI': 'Claude CLI',
-    'OPENAI': 'OpenAI',
-    'OPENAI_CLI': 'OpenAI CLI',
-    'GEMINI': 'Gemini',
-    'GEMINI_CLI': 'Gemini CLI',
-  }
-  return formatMap[format.toUpperCase()] || format
+  const raw = (format || '').trim()
+  return (
+    API_FORMAT_LABELS[raw] ||
+    API_FORMAT_LABELS[raw.toLowerCase()] ||
+    API_FORMAT_LABELS[raw.toUpperCase()] ||
+    raw
+  )
 }
 
 // 判断是否应该显示格式转换信息
@@ -711,7 +710,7 @@ function shouldShowFormatConversion(record: UsageRecord): boolean {
     return true
   }
   // 同族格式差异（精确字符串比较，不区分大小写）
-  return record.api_format.toUpperCase() !== record.endpoint_api_format.toUpperCase()
+  return record.api_format.trim().toLowerCase() !== record.endpoint_api_format.trim().toLowerCase()
 }
 
 // 获取 API 格式的 tooltip（包含转换信息）

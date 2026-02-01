@@ -2,12 +2,12 @@
 Provider 架构模块
 """
 
+from src.services.provider_ops.architectures.anyrouter import AnyrouterArchitecture
 from src.services.provider_ops.architectures.base import (
     ProviderArchitecture,
     ProviderConnector,
     VerifyResult,
 )
-from src.services.provider_ops.architectures.anyrouter import AnyrouterArchitecture
 from src.services.provider_ops.architectures.cubence import CubenceArchitecture
 from src.services.provider_ops.architectures.generic_api import GenericApiArchitecture
 from src.services.provider_ops.architectures.nekocode import NekoCodeArchitecture

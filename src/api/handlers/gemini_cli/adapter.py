@@ -15,7 +15,7 @@ from src.api.handlers.base.cli_adapter_base import CliAdapterBase, register_cli_
 from src.api.handlers.base.cli_handler_base import CliMessageHandlerBase
 from src.api.handlers.gemini.adapter import GeminiChatAdapter
 from src.config.settings import config
-from src.core.api_format import get_auth_handler
+from src.core.api_format import ApiFamily, get_auth_handler
 from src.core.api_format.enums import AuthMethod
 
 
@@ -27,7 +27,8 @@ class GeminiCliAdapter(CliAdapterBase):
     处理 Gemini CLI 格式的请求（透传模式，最小验证）。
     """
 
-    FORMAT_ID = "GEMINI_CLI"
+    FORMAT_ID = "gemini:cli"
+    API_FAMILY = ApiFamily.GEMINI
     BILLING_TEMPLATE = "gemini"  # 使用 Gemini 计费模板
     name = "gemini.cli"
 
@@ -39,7 +40,7 @@ class GeminiCliAdapter(CliAdapterBase):
         return GeminiCliMessageHandler
 
     def __init__(self, allowed_api_formats: list[str] | None = None):
-        super().__init__(allowed_api_formats or ["GEMINI_CLI"])
+        super().__init__(allowed_api_formats)
 
     def extract_api_key(self, request: Request) -> str | None:
         """

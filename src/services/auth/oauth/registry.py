@@ -93,4 +93,3 @@ def get_oauth_provider_registry() -> OAuthProviderRegistry:
     if _registry is None:
         _registry = OAuthProviderRegistry()
     return _registry
-

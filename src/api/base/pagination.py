@@ -1,6 +1,6 @@
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import Any, TypeVar
-from collections.abc import Sequence
 
 from sqlalchemy.orm import Query
 

@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from src.api.base.admin_adapter import AdminApiAdapter
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.database import get_db
 from src.models.database import (
@@ -24,7 +25,6 @@ from src.models.database import (
     User,
 )
 from src.services.usage.service import UsageService
-from src.api.base.context import ApiRequestContext
 
 router = APIRouter(prefix="/api/admin/usage", tags=["Admin - Usage"])
 pipeline = ApiRequestPipeline()
@@ -36,7 +36,9 @@ pipeline = ApiRequestPipeline()
 @router.get("/aggregation/stats")
 async def get_usage_aggregation(
     request: Request,
-    group_by: str = Query(..., description="Aggregation dimension: model, user, provider, or api_format"),
+    group_by: str = Query(
+        ..., description="Aggregation dimension: model, user, provider, or api_format"
+    ),
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     limit: int = Query(20, ge=1, le=100),
@@ -66,11 +68,13 @@ async def get_usage_aggregation(
     elif group_by == "provider":
         adapter = AdminUsageByProviderAdapter(start_date=start_date, end_date=end_date, limit=limit)
     elif group_by == "api_format":
-        adapter = AdminUsageByApiFormatAdapter(start_date=start_date, end_date=end_date, limit=limit)
+        adapter = AdminUsageByApiFormatAdapter(
+            start_date=start_date, end_date=end_date, limit=limit
+        )
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid group_by value: {group_by}. Must be one of: model, user, provider, api_format"
+            detail=f"Invalid group_by value: {group_by}. Must be one of: model, user, provider, api_format",
         )
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
@@ -454,12 +458,10 @@ class AdminUsageByProviderAdapter(AdminApiAdapter):
         attempt_query = db.query(
             RequestCandidate.provider_id,
             func.count(RequestCandidate.id).label("attempt_count"),
-            func.sum(
-                case((RequestCandidate.status == "success", 1), else_=0)
-            ).label("success_count"),
-            func.sum(
-                case((RequestCandidate.status == "failed", 1), else_=0)
-            ).label("failed_count"),
+            func.sum(case((RequestCandidate.status == "success", 1), else_=0)).label(
+                "success_count"
+            ),
+            func.sum(case((RequestCandidate.status == "failed", 1), else_=0)).label("failed_count"),
             func.avg(RequestCandidate.latency_ms).label("avg_latency_ms"),
         ).filter(
             RequestCandidate.provider_id.isnot(None),
@@ -537,17 +539,19 @@ class AdminUsageByProviderAdapter(AdminApiAdapter):
             # 从 usage_map 获取 token 和费用信息
             usage_stat = usage_map.get(provider_id_str)
 
-            result.append({
-                "provider_id": provider_id_str,
-                "provider": provider_map.get(provider_id_str, "Unknown"),
-                "request_count": attempt_count,  # 尝试次数
-                "total_tokens": int(usage_stat.total_tokens or 0) if usage_stat else 0,
-                "total_cost": float(usage_stat.total_cost or 0) if usage_stat else 0,
-                "actual_cost": float(usage_stat.actual_cost or 0) if usage_stat else 0,
-                "avg_response_time_ms": float(stat.avg_latency_ms or 0),
-                "success_rate": round(success_rate, 2),
-                "error_count": failed_count,
-            })
+            result.append(
+                {
+                    "provider_id": provider_id_str,
+                    "provider": provider_map.get(provider_id_str, "Unknown"),
+                    "request_count": attempt_count,  # 尝试次数
+                    "total_tokens": int(usage_stat.total_tokens or 0) if usage_stat else 0,
+                    "total_cost": float(usage_stat.total_cost or 0) if usage_stat else 0,
+                    "actual_cost": float(usage_stat.actual_cost or 0) if usage_stat else 0,
+                    "avg_response_time_ms": float(stat.avg_latency_ms or 0),
+                    "success_rate": round(success_rate, 2),
+                    "error_count": failed_count,
+                }
+            )
 
         return result
 
@@ -581,9 +585,7 @@ class AdminUsageByApiFormatAdapter(AdminApiAdapter):
             query = query.filter(Usage.created_at <= self.end_date)
 
         query = (
-            query.group_by(Usage.api_format)
-            .order_by(func.count(Usage.id).desc())
-            .limit(self.limit)
+            query.group_by(Usage.api_format).order_by(func.count(Usage.id).desc()).limit(self.limit)
         )
         stats = query.all()
 
@@ -691,9 +693,7 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
             elif self.status == "standard":
                 query = query.filter(Usage.is_stream == False)  # noqa: E712
             elif self.status == "error":
-                query = query.filter(
-                    (Usage.status_code >= 400) | (Usage.error_message.isnot(None))
-                )
+                query = query.filter((Usage.status_code >= 400) | (Usage.error_message.isnot(None)))
             elif self.status in ("pending", "streaming", "completed"):
                 # 新的状态筛选：直接按 status 字段过滤
                 query = query.filter(Usage.status == self.status)
@@ -702,9 +702,9 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
                 # 1. 新方式：status = "failed"
                 # 2. 旧方式：status_code >= 400 或 error_message 不为空
                 query = query.filter(
-                    (Usage.status == "failed") |
-                    (Usage.status_code >= 400) |
-                    (Usage.error_message.isnot(None))
+                    (Usage.status == "failed")
+                    | (Usage.status_code >= 400)
+                    | (Usage.error_message.isnot(None))
                 )
             elif self.status == "active":
                 # 活跃请求：pending 或 streaming 状态
@@ -761,9 +761,7 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
                 retry_map[req_id] = has_retry
 
                 # 检查是否有整流：任意候选的 extra_data 中有 rectified=True
-                rectified_map[req_id] = any(
-                    c[2].get("rectified", False) for c in candidates
-                )
+                rectified_map[req_id] = any(c[2].get("rectified", False) for c in candidates)
 
         context.add_audit_metadata(
             action="usage_records",

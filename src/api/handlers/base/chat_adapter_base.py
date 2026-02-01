@@ -21,7 +21,7 @@ from __future__ import annotations
 import time
 import traceback
 from abc import abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 from fastapi import HTTPException, Request
@@ -32,12 +32,13 @@ from src.api.base.adapter import ApiAdapter, ApiMode
 from src.api.base.context import ApiRequestContext
 from src.api.handlers.base.chat_handler_base import ChatHandlerBase
 from src.core.api_format import (
-    APIFormat,
-    build_adapter_base_headers,
-    build_adapter_headers,
-    get_adapter_protected_keys,
+    ApiFamily,
+    EndpointKind,
+    build_adapter_base_headers_for_endpoint,
+    build_adapter_headers_for_endpoint,
+    get_adapter_protected_keys_for_endpoint,
     get_auth_handler,
-    get_default_auth_method,
+    get_default_auth_method_for_endpoint,
 )
 from src.core.exceptions import (
     InvalidRequestException,
@@ -70,20 +71,16 @@ class ChatAdapterBase(ApiAdapter):
     FORMAT_ID: str = "UNKNOWN"
     HANDLER_CLASS: type[ChatHandlerBase]
 
+    # 新架构：结构化标识（逐步替代直接依赖 FORMAT_ID 的语义）
+    API_FAMILY: ClassVar[ApiFamily | None] = None
+    ENDPOINT_KIND: ClassVar[EndpointKind] = EndpointKind.CHAT
+
     # 适配器配置
     name: str = "chat.base"
     mode = ApiMode.STANDARD
 
     # 计费模板配置（子类可覆盖，如 "claude", "openai", "gemini"）
     BILLING_TEMPLATE: str = "claude"
-
-    @classmethod
-    def _get_api_format(cls) -> APIFormat:
-        """获取 API 格式枚举，用于调用 headers.py 的统一函数"""
-        try:
-            return APIFormat[cls.FORMAT_ID]
-        except KeyError:
-            return APIFormat.OPENAI  # 默认回退
 
     # 子类可以配置的特殊方法（用于check_endpoint）
     @classmethod
@@ -95,19 +92,19 @@ class ChatAdapterBase(ApiAdapter):
     @classmethod
     def build_base_headers(cls, api_key: str) -> dict[str, str]:
         """构建基础请求头，使用统一的 headers.py 实现"""
-        return build_adapter_base_headers(cls._get_api_format(), api_key)
+        return build_adapter_base_headers_for_endpoint(cls.FORMAT_ID, api_key)
 
     @classmethod
     def get_protected_header_keys(cls) -> tuple:
         """返回不应被extra_headers覆盖的头部key，使用统一的 headers.py 实现"""
-        return get_adapter_protected_keys(cls._get_api_format())
+        return get_adapter_protected_keys_for_endpoint(cls.FORMAT_ID)
 
     @classmethod
     def build_headers_with_extra(
         cls, api_key: str, extra_headers: dict[str, str] | None = None
     ) -> dict[str, str]:
         """构建完整请求头（包含 extra_headers），使用统一的 headers.py 实现"""
-        return build_adapter_headers(cls._get_api_format(), api_key, extra_headers)
+        return build_adapter_headers_for_endpoint(cls.FORMAT_ID, api_key, extra_headers)
 
     @classmethod
     def build_request_body(cls, request_data: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -125,7 +122,7 @@ class ChatAdapterBase(ApiAdapter):
 
     def extract_api_key(self, request: Request) -> str | None:
         """从请求中提取 API 密钥，使用 AuthHandler 新流程"""
-        auth_method = get_default_auth_method(self._get_api_format())
+        auth_method = get_default_auth_method_for_endpoint(self.FORMAT_ID)
         handler = get_auth_handler(auth_method)
         return handler.extract_credentials(request)
 
@@ -742,7 +739,7 @@ def get_adapter_class(api_format: str) -> type[ChatAdapterBase] | None:
     根据 API format 获取 Adapter 类
 
     Args:
-        api_format: API 格式标识（如 "CLAUDE", "OPENAI", "GEMINI"）
+        api_format: API 格式标识（如 "openai:chat", "claude:chat", "gemini:chat"）
 
     Returns:
         对应的 Adapter 类，如果未找到返回 None

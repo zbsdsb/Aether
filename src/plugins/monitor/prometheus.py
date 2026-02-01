@@ -17,9 +17,9 @@ except ImportError:
     PROMETHEUS_AVAILABLE = False
     Counter = Gauge = Histogram = Summary = REGISTRY = generate_latest = None
 
-from .base import Metric, MetricType, MonitorPlugin
-
 from src.core.logger import logger
+
+from .base import Metric, MetricType, MonitorPlugin
 
 
 class PrometheusPlugin(MonitorPlugin):
@@ -138,7 +138,9 @@ class PrometheusPlugin(MonitorPlugin):
             # 如果没有运行的事件循环，任务将在后续创建
             logger.warning("No event loop available for Prometheus flush task")
 
-    def _get_or_create_metric(self, name: str, metric_type: MetricType, labels: list[str] | None = None) -> Any:
+    def _get_or_create_metric(
+        self, name: str, metric_type: MetricType, labels: list[str] | None = None
+    ) -> Any:
         """获取或创建指标"""
         if name not in self._metrics:
             labels = labels or []
@@ -171,7 +173,9 @@ class PrometheusPlugin(MonitorPlugin):
             if len(self._buffer) >= self.batch_size:
                 await self.flush()
 
-    async def increment(self, name: str, value: float = 1, labels: dict[str, str] | None = None) -> Any:
+    async def increment(
+        self, name: str, value: float = 1, labels: dict[str, str] | None = None
+    ) -> Any:
         """增加计数器"""
         try:
             if name in self._metrics:

@@ -64,7 +64,9 @@ class EmailSenderService:
             "smtp_use_tls": SystemConfigService.get_config(db, "smtp_use_tls", default=True),
             "smtp_use_ssl": SystemConfigService.get_config(db, "smtp_use_ssl", default=False),
             "smtp_from_email": SystemConfigService.get_config(db, "smtp_from_email"),
-            "smtp_from_name": SystemConfigService.get_config(db, "smtp_from_name", default="Aether"),
+            "smtp_from_name": SystemConfigService.get_config(
+                db, "smtp_from_name", default="Aether"
+            ),
         }
         return config
 
@@ -143,7 +145,11 @@ class EmailSenderService:
 
         # 发送邮件
         return await EmailSenderService._send_email(
-            config=config, to_email=to_email, subject=subject, html_body=html_body, text_body=text_body
+            config=config,
+            to_email=to_email,
+            subject=subject,
+            html_body=html_body,
+            text_body=text_body,
         )
 
     @staticmethod

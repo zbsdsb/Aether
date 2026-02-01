@@ -5,16 +5,17 @@
 
 from __future__ import annotations
 
-from typing import Any
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 from src.api.base.adapter import ApiAdapter, ApiMode
+from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.core.logger import logger
 from src.database import get_db
@@ -38,7 +39,6 @@ from src.models.endpoint_models import (
     PublicHealthEvent,
 )
 from src.services.health.endpoint import EndpointHealthService
-from src.api.base.context import ApiRequestContext
 
 router = APIRouter(prefix="/api/public", tags=["System Catalog"])
 pipeline = ApiRequestPipeline()
@@ -376,9 +376,17 @@ class PublicModelsAdapter(PublicApiAdapter):
                 provider_name=provider.name,
                 name=unified_name,
                 display_name=display_name,
-                description=global_model.config.get("description") if global_model and global_model.config else None,
+                description=(
+                    global_model.config.get("description")
+                    if global_model and global_model.config
+                    else None
+                ),
                 tags=None,
-                icon_url=global_model.config.get("icon_url") if global_model and global_model.config else None,
+                icon_url=(
+                    global_model.config.get("icon_url")
+                    if global_model and global_model.config
+                    else None
+                ),
                 input_price_per_1m=model.get_effective_input_price(),
                 output_price_per_1m=model.get_effective_output_price(),
                 cache_creation_price_per_1m=model.get_effective_cache_creation_price(),
@@ -469,9 +477,17 @@ class PublicSearchModelsAdapter(PublicApiAdapter):
                 provider_name=provider.name,
                 name=unified_name,
                 display_name=display_name,
-                description=global_model.config.get("description") if global_model and global_model.config else None,
+                description=(
+                    global_model.config.get("description")
+                    if global_model and global_model.config
+                    else None
+                ),
                 tags=None,
-                icon_url=global_model.config.get("icon_url") if global_model and global_model.config else None,
+                icon_url=(
+                    global_model.config.get("icon_url")
+                    if global_model and global_model.config
+                    else None
+                ),
                 input_price_per_1m=model.get_effective_input_price(),
                 output_price_per_1m=model.get_effective_output_price(),
                 cache_creation_price_per_1m=model.get_effective_cache_creation_price(),
@@ -612,13 +628,9 @@ class PublicApiFormatHealthMonitorAdapter(PublicApiAdapter):
             )
 
             # 获取本站入口路径
-            from src.core.api_format import APIFormat, get_local_path
+            from src.core.api_format import get_local_path_for_endpoint
 
-            try:
-                api_format_enum = APIFormat(api_format)
-                local_path = get_local_path(api_format_enum)
-            except ValueError:
-                local_path = "/"
+            local_path = get_local_path_for_endpoint(api_format)
 
             monitors.append(
                 PublicApiFormatHealthMonitor(

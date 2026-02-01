@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from src.api.handlers.base.chat_adapter_base import ChatAdapterBase, register_adapter
 from src.api.handlers.base.chat_handler_base import ChatHandlerBase
+from src.core.api_format import ApiFamily
 from src.core.logger import logger
 from src.models.openai import OpenAIRequest
 
@@ -25,7 +26,8 @@ class OpenAIChatAdapter(ChatAdapterBase):
     处理 OpenAI Chat 格式的请求（/v1/chat/completions 端点）。
     """
 
-    FORMAT_ID = "OPENAI"
+    FORMAT_ID = "openai:chat"
+    API_FAMILY = ApiFamily.OPENAI
     BILLING_TEMPLATE = "openai"  # 使用 OpenAI 计费模板
     name = "openai.chat"
 
@@ -37,9 +39,11 @@ class OpenAIChatAdapter(ChatAdapterBase):
         return OpenAIChatHandler
 
     def __init__(self, allowed_api_formats: list[str] | None = None):
-        super().__init__(allowed_api_formats or ["OPENAI"])
+        super().__init__(allowed_api_formats)
 
-    def _validate_request_body(self, original_request_body: dict, path_params: dict | None = None) -> None:
+    def _validate_request_body(
+        self, original_request_body: dict, path_params: dict | None = None
+    ) -> None:
         """验证请求体"""
         if not isinstance(original_request_body, dict):
             return self._error_response(
