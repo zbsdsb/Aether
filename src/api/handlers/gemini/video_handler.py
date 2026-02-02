@@ -111,7 +111,7 @@ class GeminiVeoHandler(VideoHandlerBase):
             )
         except Exception as exc:
             logger.warning(
-                "Failed to create pending usage for video request_id=%s: %s",
+                "Failed to create pending usage for video request_id={}: {}",
                 self.request_id,
                 sanitize_error_message(str(exc)),
             )
@@ -171,7 +171,7 @@ class GeminiVeoHandler(VideoHandlerBase):
             if "name" in payload:
                 value = payload.get("name")
                 logger.debug(
-                    "[GeminiVeoHandler] Upstream response name=%s, keys=%s",
+                    "[GeminiVeoHandler] Upstream response name={}, keys={}",
                     value,
                     list(payload.keys()) if isinstance(payload, dict) else type(payload),
                 )
@@ -222,7 +222,7 @@ class GeminiVeoHandler(VideoHandlerBase):
                 )
             except Exception as e:
                 logger.warning(
-                    "[GeminiVeoHandler] Failed to record converted request: %s",
+                    "[GeminiVeoHandler] Failed to record converted request: {}",
                     sanitize_error_message(str(e)),
                 )
 
@@ -243,7 +243,7 @@ class GeminiVeoHandler(VideoHandlerBase):
             self.db.commit()
             self.db.refresh(task)
             logger.debug(
-                "[GeminiVeoHandler] Task created: id=%s, external_task_id=%s",
+                "[GeminiVeoHandler] Task created: id={}, external_task_id={}",
                 task.id,
                 task.external_task_id,
             )
@@ -292,7 +292,7 @@ class GeminiVeoHandler(VideoHandlerBase):
             self.db.commit()
         except Exception as exc:
             logger.warning(
-                "Failed to finalize submitted usage for video request_id=%s: %s",
+                "Failed to finalize submitted usage for video request_id={}: {}",
                 self.request_id,
                 sanitize_error_message(str(exc)),
             )
@@ -345,51 +345,16 @@ class GeminiVeoHandler(VideoHandlerBase):
         query_params: dict[str, str] | None = None,
         path_params: dict[str, Any] | None = None,
     ) -> JSONResponse:
-        task = self._get_task_by_external_id(task_id)
-        if not task.external_task_id:
-            raise HTTPException(status_code=500, detail="Task missing external_task_id")
-        endpoint, key = self._get_endpoint_and_key(task)
-        if not key.api_key:
-            raise HTTPException(status_code=500, detail="Provider key not configured")
-        upstream_key = crypto_service.decrypt(key.api_key)
+        from src.services.task.service import TaskService
 
-        operation_name = task.external_task_id
-        if not operation_name.startswith("operations/"):
-            operation_name = f"operations/{operation_name}"
-        upstream_url = self._build_cancel_url(endpoint.base_url, operation_name)
-        auth_info = await get_provider_auth(endpoint, key)
-        headers = self._build_upstream_headers(original_headers, upstream_key, endpoint, auth_info)
-
-        client = await HTTPClientPool.get_default_client_async()
-        response = await client.post(upstream_url, headers=headers, json={})
-        if response.status_code >= 400:
-            return self._build_error_response(response)
-
-        task.status = VideoStatus.CANCELLED.value
-        task.updated_at = datetime.now(timezone.utc)
-
-        # 将 Usage 作废（不收费）
-        # 尝试 finalize_void（处理 pending）和 void_settled（处理已 settled）
-        try:
-            voided = UsageService.finalize_void(
-                self.db,
-                request_id=task.request_id,
-                reason="cancelled_by_user",
-            )
-            if not voided:
-                # pending 状态未找到，尝试处理已 settled 的记录
-                UsageService.void_settled(
-                    self.db,
-                    request_id=task.request_id,
-                    reason="cancelled_by_user",
-                )
-        except Exception as exc:
-            logger.warning(
-                "Failed to void usage for cancelled task=%s: %s",
-                task.id,
-                sanitize_error_message(str(exc)),
-            )
-        self.db.commit()
+        _ = (http_request, query_params, path_params)  # reserved for future extensions
+        err_resp = await TaskService(self.db).cancel(
+            task_id,
+            user_id=str(self.user.id),
+            original_headers=original_headers,
+        )
+        if err_resp is not None:
+            return self._build_error_response(err_resp)
         return JSONResponse({})
 
     async def handle_download_content(
@@ -446,7 +411,7 @@ class GeminiVeoHandler(VideoHandlerBase):
                     download_headers[auth_info.auth_header] = auth_info.auth_value
             except Exception as exc:
                 logger.warning(
-                    "[VideoDownload] Failed to get auth for download task=%s: %s",
+                    "[VideoDownload] Failed to get auth for download task={}: {}",
                     task.id,
                     sanitize_error_message(str(exc)),
                 )
@@ -464,7 +429,7 @@ class GeminiVeoHandler(VideoHandlerBase):
                 response = await client.get(task.video_url, headers=download_headers)
         except Exception as exc:
             logger.error(
-                "[VideoDownload] Upstream fetch failed user=%s task=%s: %s",
+                "[VideoDownload] Upstream fetch failed user={} task={}: {}",
                 self.user.id,
                 task.id,
                 sanitize_error_message(str(exc)),
@@ -496,7 +461,7 @@ class GeminiVeoHandler(VideoHandlerBase):
             upstream_key = crypto_service.decrypt(candidate.key.api_key)
         except Exception as exc:
             logger.error(
-                "Failed to decrypt provider key id=%s: %s",
+                "Failed to decrypt provider key id={}: {}",
                 candidate.key.id,
                 sanitize_error_message(str(exc)),
             )
@@ -684,7 +649,7 @@ class GeminiVeoHandler(VideoHandlerBase):
             .first()
         )
         if not task:
-            logger.debug("[GeminiVeoHandler] Task not found: short_id=%s", short_id)
+            logger.debug("[GeminiVeoHandler] Task not found: short_id={}", short_id)
             raise HTTPException(status_code=404, detail="Video task not found")
         return task
 

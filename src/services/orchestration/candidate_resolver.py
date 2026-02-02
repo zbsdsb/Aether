@@ -77,7 +77,7 @@ class CandidateResolver:
         global_model_id: str | None = None
 
         logger.debug(
-            "[CandidateResolver] fetch_candidates starting: model=%s, api_format=%s",
+            "[CandidateResolver] fetch_candidates starting: model={}, api_format={}",
             model_name,
             api_format,
         )
@@ -96,7 +96,7 @@ class CandidateResolver:
             )
 
             logger.debug(
-                "[CandidateResolver] list_all_candidates batch: offset=%d, returned=%d candidates",
+                "[CandidateResolver] list_all_candidates batch: offset={}, returned={} candidates",
                 provider_offset,
                 len(candidates),
             )
@@ -111,7 +111,7 @@ class CandidateResolver:
             provider_offset += provider_batch_size
 
             logger.debug(
-                "[CandidateResolver] fetch_candidates completed: total=%d candidates",
+                "[CandidateResolver] fetch_candidates completed: total={} candidates",
                 len(all_candidates),
             )
 

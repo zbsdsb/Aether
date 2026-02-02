@@ -28,7 +28,9 @@ def _mock_endpoint(api_format: str, config: dict | None = None) -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_build_candidates_blocks_cross_format_when_global_switch_off() -> None:
+async def test_build_candidates_allows_cross_format_when_endpoint_accepts_and_overrides_off() -> (
+    None
+):
     register_default_normalizers()
 
     scheduler = CacheAwareScheduler()
@@ -37,6 +39,41 @@ async def test_build_candidates_blocks_cross_format_when_global_switch_off() -> 
 
     provider = MagicMock()
     provider.name = "p1"
+    provider.enable_format_conversion = False
+    provider.endpoints = [
+        _mock_endpoint(
+            "openai:chat",
+            {"enabled": True, "accept_formats": ["claude:chat"], "stream_conversion": True},
+        )
+    ]
+    provider.api_keys = [_mock_key("k1", ["openai:chat"])]
+
+    candidates = await scheduler._build_candidates(
+        db=MagicMock(),
+        providers=[provider],
+        client_format="claude:chat",
+        model_name="dummy-model",
+        affinity_key=None,
+        global_conversion_enabled=False,  # DB 全局覆盖关闭
+        master_conversion_enabled=True,  # ENV 总闸开启（默认）
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].needs_conversion is True
+    assert candidates[0].provider_api_format == "openai:chat"
+
+
+@pytest.mark.asyncio
+async def test_build_candidates_blocks_cross_format_when_master_switch_off() -> None:
+    register_default_normalizers()
+
+    scheduler = CacheAwareScheduler()
+    scheduler._check_model_support = AsyncMock(return_value=(True, None, None, {"m"}))  # type: ignore[attr-defined]
+    scheduler._check_key_availability = MagicMock(return_value=(True, None, None))  # type: ignore[attr-defined]
+
+    provider = MagicMock()
+    provider.name = "p1"
+    provider.enable_format_conversion = False
     provider.endpoints = [
         _mock_endpoint(
             "openai:chat",
@@ -52,6 +89,7 @@ async def test_build_candidates_blocks_cross_format_when_global_switch_off() -> 
         model_name="dummy-model",
         affinity_key=None,
         global_conversion_enabled=False,
+        master_conversion_enabled=False,
     )
 
     assert candidates == []
@@ -67,11 +105,10 @@ async def test_build_candidates_includes_cross_format_when_enabled() -> None:
 
     provider = MagicMock()
     provider.name = "p1"
+    provider.enable_format_conversion = False
     provider.endpoints = [
-        _mock_endpoint(
-            "openai:chat",
-            {"enabled": True, "accept_formats": ["claude:chat"], "stream_conversion": True},
-        )
+        # 端点未配置/未启用格式接受策略，但 DB 全局覆盖开启应强制允许
+        _mock_endpoint("openai:chat", None)
     ]
     provider.api_keys = [_mock_key("k1", ["openai:chat"])]
 
@@ -81,7 +118,8 @@ async def test_build_candidates_includes_cross_format_when_enabled() -> None:
         client_format="claude:chat",
         model_name="dummy-model",
         affinity_key=None,
-        global_conversion_enabled=True,
+        global_conversion_enabled=True,  # DB 全局覆盖开启：跳过端点检查
+        master_conversion_enabled=True,
     )
 
     assert len(candidates) == 1
@@ -99,6 +137,7 @@ async def test_exact_matches_rank_before_convertible() -> None:
 
     provider = MagicMock()
     provider.name = "p1"
+    provider.enable_format_conversion = False
     # 故意把 OPENAI 放在 endpoints[0]，验证排序仍然是 CLAUDE（exact）在前
     provider.endpoints = [
         _mock_endpoint(
@@ -118,7 +157,8 @@ async def test_exact_matches_rank_before_convertible() -> None:
         client_format="claude:chat",
         model_name="dummy-model",
         affinity_key=None,
-        global_conversion_enabled=True,
+        global_conversion_enabled=False,
+        master_conversion_enabled=True,
     )
 
     assert len(candidates) == 2

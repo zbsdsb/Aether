@@ -111,7 +111,7 @@ class GeminiChatHandler(ChatHandlerBase):
         将请求转换为 Gemini 格式的 Pydantic 对象
 
         注意：此方法只做类型转换（dict → Pydantic），不做跨格式转换。
-        跨格式转换由 FallbackOrchestrator 在选中候选后、发送请求前执行，
+        跨格式转换由调度/执行层（TaskService + RequestDispatcher）在选中候选后、发送请求前执行，
         并受全局开关和端点配置控制。
 
         Args:

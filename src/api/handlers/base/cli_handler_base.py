@@ -406,6 +406,15 @@ class CliMessageHandlerBase(BaseMessageHandler):
         else:
             request_body.pop("stream", None)
 
+        # OpenAI Chat Completions: request usage in streaming mode.
+        provider_fmt = str(provider_api_format or "").strip().lower()
+        if is_stream and provider_fmt == "openai:chat":
+            stream_options = request_body.get("stream_options")
+            if not isinstance(stream_options, dict):
+                stream_options = {}
+            stream_options["include_usage"] = True
+            request_body["stream_options"] = stream_options
+
     def _convert_request_for_cross_format(
         self,
         request_body: dict[str, Any],
@@ -506,7 +515,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
         通用流程：
         1. 创建流上下文
-        2. 定义请求函数（供 FallbackOrchestrator 调用）
+        2. 定义请求函数（供 TaskService/FailoverEngine 调用）
         3. 执行请求并返回 StreamingResponse
         4. 后台任务记录统计信息
 
@@ -519,7 +528,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
         """
         logger.debug(f"开始流式响应处理 ({self.FORMAT_ID})")
 
-        # 可变请求体容器：允许 orchestrator 在遇到 Thinking 签名错误时整流请求体后重试
+        # 可变请求体容器：允许 TaskService 在遇到 Thinking 签名错误时整流请求体后重试
         # 结构: {"body": 实际请求体, "_rectified": 是否已整流, "_rectified_this_turn": 本轮是否整流}
         request_body_ref: dict[str, Any] = {"body": original_request_body}
 
@@ -567,15 +576,13 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 request_body=original_request_body,
             )
 
-            # 执行请求（通过 FallbackOrchestrator）
-            (
-                stream_generator,
-                provider_name,
-                attempt_id,
-                provider_id,
-                endpoint_id,
-                key_id,
-            ) = await self.orchestrator.execute_with_fallback(
+            # 统一入口：总是通过 TaskService
+            from src.services.task import TaskService
+            from src.services.task.context import TaskMode
+
+            exec_result = await TaskService(self.db, self.redis).execute(
+                task_type="cli",
+                task_mode=TaskMode.SYNC,
                 api_format=ctx.api_format,
                 model_name=ctx.model,
                 user_api_key=self.api_key,
@@ -584,8 +591,14 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 is_stream=True,
                 capability_requirements=capability_requirements or None,
                 preferred_key_ids=preferred_key_ids or None,
-                request_body_ref=request_body_ref,  # 传递容器引用
+                request_body_ref=request_body_ref,
             )
+            stream_generator = exec_result.response
+            provider_name = exec_result.provider_name or "unknown"
+            attempt_id = exec_result.request_candidate_id
+            provider_id = exec_result.provider_id
+            endpoint_id = exec_result.endpoint_id
+            key_id = exec_result.key_id
 
             # 更新上下文（确保 provider 信息已设置，用于 streaming 状态更新）
             ctx.attempt_id = attempt_id
@@ -628,7 +641,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             )
 
         except ThinkingSignatureException as e:
-            # Thinking 签名错误：orchestrator 层已处理整流重试但仍失败
+            # Thinking 签名错误：TaskService 层已处理整流重试但仍失败
             # 记录 original_request_body（客户端原始请求），便于排查问题根因
             self._log_request_error("流式请求失败（签名错误）", e)
             await self._record_stream_failure(ctx, e, original_headers, original_request_body)
@@ -1803,19 +1816,50 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     yield chunk
 
         except asyncio.CancelledError:
-            # 计算距离上次收到 chunk 的时间
+            # 注意：CancelledError 不等于“用户手动取消”，它既可能是客户端断连触发，
+            # 也可能是服务端（重载/关停/内部取消）导致的协程取消。
+            # 这里尽量做一次“断连归因”：仅当能确认客户端已断开时才记为 499 cancelled。
             time_since_last_chunk = time_module.time() - last_chunk_time
-            # 如果响应已完成，不标记为失败
+
+            is_client_disconnected = False
+            if http_request is not None:
+                try:
+                    # shield + timeout: 避免在取消态下二次被 CancelledError 打断，尽力取到断连状态
+                    # 限时 0.5s 防止极端情况下的阻塞
+                    is_client_disconnected = await asyncio.wait_for(
+                        asyncio.shield(http_request.is_disconnected()),
+                        timeout=0.5,
+                    )
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    # 无法在取消态/超时下完成断连检查，保守视为未知（不强行归因为客户端）
+                    is_client_disconnected = False
+                except Exception as e:
+                    logger.debug(f"ID:{ctx.request_id} | cancel 断连检测失败: {e}")
+                    is_client_disconnected = False
+
+            # 如果响应已完成，不标记为失败/取消
             if not ctx.has_completion:
-                ctx.status_code = 499
-                ctx.error_message = "Client disconnected"
-                logger.warning(
-                    f"ID:{ctx.request_id} | Stream cancelled: "
-                    f"chunks={chunk_count}, "
-                    f"has_completion={ctx.has_completion}, "
-                    f"time_since_last_chunk={time_since_last_chunk:.2f}s, "
-                    f"output_tokens={ctx.output_tokens}"
-                )
+                if is_client_disconnected:
+                    ctx.status_code = 499
+                    ctx.error_message = "client_disconnected"
+                    logger.warning(
+                        f"ID:{ctx.request_id} | Stream cancelled by client: "
+                        f"chunks={chunk_count}, "
+                        f"has_completion={ctx.has_completion}, "
+                        f"time_since_last_chunk={time_since_last_chunk:.2f}s, "
+                        f"output_tokens={ctx.output_tokens}"
+                    )
+                else:
+                    # 服务端中断（例如重载/关停/内部取消）— 不应伪装成客户端取消
+                    ctx.status_code = 503
+                    ctx.error_message = "server_cancelled"
+                    logger.error(
+                        f"ID:{ctx.request_id} | Stream interrupted by server: "
+                        f"chunks={chunk_count}, "
+                        f"has_completion={ctx.has_completion}, "
+                        f"time_since_last_chunk={time_since_last_chunk:.2f}s, "
+                        f"output_tokens={ctx.output_tokens}"
+                    )
             raise
         except httpx.TimeoutException as e:
             ctx.status_code = 504
@@ -1883,45 +1927,73 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 actual_request_body = ctx.provider_request_body or original_request_body
 
                 # 根据状态码决定记录成功还是失败
-                # 499 = 客户端断开连接，503 = 服务不可用（如流中断）
+                # 499 = 客户端取消（不算系统失败）；其他 4xx/5xx 视为失败
                 if ctx.status_code and ctx.status_code >= 400:
-                    # 记录失败的 Usage，但使用已收到的预估 token 信息（来自 message_start）
-                    # 这样即使请求中断，也能记录预估成本
-                    # 失败时返回给客户端的是 JSON 错误响应，如果没有设置则使用默认值
                     client_response_headers = ctx.client_response_headers or {
                         "content-type": "application/json"
                     }
-                    await bg_telemetry.record_failure(
-                        provider=ctx.provider_name or "unknown",
-                        model=ctx.model,
-                        response_time_ms=response_time_ms,
-                        status_code=ctx.status_code,
-                        error_message=ctx.error_message or f"HTTP {ctx.status_code}",
-                        request_headers=original_headers,
-                        request_body=actual_request_body,
-                        is_stream=True,
-                        api_format=ctx.api_format,
-                        provider_request_headers=ctx.provider_request_headers,
-                        # 预估 token 信息（来自 message_start 事件）
-                        input_tokens=actual_input_tokens,
-                        output_tokens=ctx.output_tokens,
-                        cache_creation_tokens=ctx.cache_creation_tokens,
-                        cache_read_tokens=ctx.cached_tokens,
-                        response_body=response_body,
-                        response_headers=ctx.response_headers,
-                        client_response_headers=client_response_headers,
-                        # 格式转换追踪
-                        endpoint_api_format=ctx.provider_api_format or None,
-                        has_format_conversion=ctx.needs_conversion,
-                        # 模型映射信息
-                        target_model=ctx.mapped_model,
-                    )
-                    logger.debug(f"{self.FORMAT_ID} 流式响应中断")
-                    # 简洁的请求失败摘要（包含预估 token 信息）
-                    logger.info(
-                        f"[FAIL] {self.request_id[:8]} | {ctx.model} | {ctx.provider_name} | {response_time_ms}ms | "
-                        f"{ctx.status_code} | in:{actual_input_tokens} out:{ctx.output_tokens} cache:{ctx.cached_tokens}"
-                    )
+
+                    if ctx.is_client_disconnected():
+                        # 客户端取消：记录为 cancelled（不算系统失败）
+                        await bg_telemetry.record_cancelled(
+                            provider=ctx.provider_name or "unknown",
+                            model=ctx.model,
+                            response_time_ms=response_time_ms,
+                            first_byte_time_ms=ctx.first_byte_time_ms,
+                            status_code=ctx.status_code,
+                            request_headers=original_headers,
+                            request_body=actual_request_body,
+                            is_stream=True,
+                            api_format=ctx.api_format,
+                            provider_request_headers=ctx.provider_request_headers,
+                            input_tokens=actual_input_tokens,
+                            output_tokens=ctx.output_tokens,
+                            cache_creation_tokens=ctx.cache_creation_tokens,
+                            cache_read_tokens=ctx.cached_tokens,
+                            response_body=response_body,
+                            response_headers=ctx.response_headers,
+                            client_response_headers=client_response_headers,
+                            endpoint_api_format=ctx.provider_api_format or None,
+                            has_format_conversion=ctx.needs_conversion,
+                            target_model=ctx.mapped_model,
+                        )
+                        logger.debug(f"{self.FORMAT_ID} 流式响应被客户端取消")
+                        logger.info(
+                            f"[CANCEL] {self.request_id[:8]} | {ctx.model} | {ctx.provider_name} | {response_time_ms}ms | "
+                            f"{ctx.status_code} | in:{actual_input_tokens} out:{ctx.output_tokens} cache:{ctx.cached_tokens}"
+                        )
+                    else:
+                        # 服务端/上游异常：记录为失败
+                        await bg_telemetry.record_failure(
+                            provider=ctx.provider_name or "unknown",
+                            model=ctx.model,
+                            response_time_ms=response_time_ms,
+                            status_code=ctx.status_code,
+                            error_message=ctx.error_message or f"HTTP {ctx.status_code}",
+                            request_headers=original_headers,
+                            request_body=actual_request_body,
+                            is_stream=True,
+                            api_format=ctx.api_format,
+                            provider_request_headers=ctx.provider_request_headers,
+                            # 预估 token 信息（来自 message_start 事件）
+                            input_tokens=actual_input_tokens,
+                            output_tokens=ctx.output_tokens,
+                            cache_creation_tokens=ctx.cache_creation_tokens,
+                            cache_read_tokens=ctx.cached_tokens,
+                            response_body=response_body,
+                            response_headers=ctx.response_headers,
+                            client_response_headers=client_response_headers,
+                            # 格式转换追踪
+                            endpoint_api_format=ctx.provider_api_format or None,
+                            has_format_conversion=ctx.needs_conversion,
+                            # 模型映射信息
+                            target_model=ctx.mapped_model,
+                        )
+                        logger.debug(f"{self.FORMAT_ID} 流式响应中断")
+                        logger.info(
+                            f"[FAIL] {self.request_id[:8]} | {ctx.model} | {ctx.provider_name} | {response_time_ms}ms | "
+                            f"{ctx.status_code} | in:{actual_input_tokens} out:{ctx.output_tokens} cache:{ctx.cached_tokens}"
+                        )
                 else:
                     # 在记录统计前，允许子类从 parsed_chunks 中提取额外的元数据
                     self._finalize_stream_metadata(ctx)
@@ -2016,17 +2088,24 @@ class CliMessageHandlerBase(BaseMessageHandler):
                         }
                         if candidate_first_byte_time_ms is not None:
                             extra_data["first_byte_time_ms"] = candidate_first_byte_time_ms
-                        RequestCandidateService.mark_candidate_failed(
-                            db=bg_db,
-                            candidate_id=ctx.attempt_id,
-                            error_type=(
-                                "client_disconnected" if ctx.status_code == 499 else "stream_error"
-                            ),
-                            error_message=trace_error_message,
-                            status_code=ctx.status_code,
-                            latency_ms=response_time_ms,
-                            extra_data=extra_data,
-                        )
+                        if ctx.is_client_disconnected():
+                            RequestCandidateService.mark_candidate_cancelled(
+                                db=bg_db,
+                                candidate_id=ctx.attempt_id,
+                                status_code=ctx.status_code,
+                                latency_ms=response_time_ms,
+                                extra_data=extra_data,
+                            )
+                        else:
+                            RequestCandidateService.mark_candidate_failed(
+                                db=bg_db,
+                                candidate_id=ctx.attempt_id,
+                                error_type="stream_error",
+                                error_message=trace_error_message,
+                                status_code=ctx.status_code,
+                                latency_ms=response_time_ms,
+                                extra_data=extra_data,
+                            )
                     else:
                         extra_data = {
                             "stream_completed": True,
@@ -2115,7 +2194,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
         通用流程：
         1. 构建请求
-        2. 通过 FallbackOrchestrator 执行
+        2. 通过 TaskService/FailoverEngine 执行
         3. 解析响应并记录统计
         """
         logger.debug(f"开始非流式响应处理 ({self.FORMAT_ID})")
@@ -2139,7 +2218,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
         response_metadata_result: dict[str, Any] = {}  # Provider 响应元数据
         needs_conversion = False  # 是否需要格式转换（由 candidate 决定）
 
-        # 可变请求体容器：允许 orchestrator 在遇到 Thinking 签名错误时整流请求体后重试
+        # 可变请求体容器：允许 TaskService 在遇到 Thinking 签名错误时整流请求体后重试
         # 结构: {"body": 实际请求体, "_rectified": 是否已整流, "_rectified_this_turn": 本轮是否整流}
         request_body_ref: dict[str, Any] = {"body": original_request_body}
 
@@ -2333,23 +2412,29 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 request_body=original_request_body,
             )
 
-            (
-                result,
-                actual_provider_name,
-                attempt_id,
-                provider_id,
-                endpoint_id,
-                key_id,
-            ) = await self.orchestrator.execute_with_fallback(
+            # 统一入口：总是通过 TaskService
+            from src.services.task import TaskService
+            from src.services.task.context import TaskMode
+
+            exec_result = await TaskService(self.db, self.redis).execute(
+                task_type="cli",
+                task_mode=TaskMode.SYNC,
                 api_format=api_format,
                 model_name=model,
                 user_api_key=self.api_key,
                 request_func=sync_request_func,
                 request_id=self.request_id,
+                is_stream=False,
                 capability_requirements=capability_requirements or None,
                 preferred_key_ids=preferred_key_ids or None,
-                request_body_ref=request_body_ref,  # 传递容器引用
+                request_body_ref=request_body_ref,
             )
+            result = exec_result.response
+            actual_provider_name = exec_result.provider_name or "unknown"
+            attempt_id = exec_result.request_candidate_id
+            provider_id = exec_result.provider_id
+            endpoint_id = exec_result.endpoint_id
+            key_id = exec_result.key_id
 
             provider_name = actual_provider_name
             response_time_ms = int((time.time() - sync_start_time) * 1000)
@@ -2434,7 +2519,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             )
 
         except ThinkingSignatureException as e:
-            # Thinking 签名错误：orchestrator 层已处理整流重试但仍失败
+            # Thinking 签名错误：TaskService 层已处理整流重试但仍失败
             # 记录实际发送给 Provider 的请求体，便于排查问题根因
             response_time_ms = int((time.time() - sync_start_time) * 1000)
             actual_request_body = provider_request_body or original_request_body

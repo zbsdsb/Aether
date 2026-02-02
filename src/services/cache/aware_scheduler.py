@@ -621,7 +621,7 @@ class CacheAwareScheduler:
         target_format = normalize_endpoint_signature(api_format)
 
         logger.debug(
-            "[Scheduler] list_all_candidates: model=%s, api_format=%s",
+            "[Scheduler] list_all_candidates: model={}, api_format={}",
             model_name,
             target_format,
         )
@@ -636,7 +636,7 @@ class CacheAwareScheduler:
             raise ModelNotSupportedException(model=model_name)
 
         logger.debug(
-            "[Scheduler] GlobalModel resolved: id=%s, name=%s",
+            "[Scheduler] GlobalModel resolved: id={}, name={}",
             global_model.id,
             global_model.name,
         )
@@ -691,12 +691,12 @@ class CacheAwareScheduler:
         self._release_db_connection_before_await(db)
 
         logger.debug(
-            "[Scheduler] Found %d active providers",
+            "[Scheduler] Found {} active providers",
             len(providers),
         )
         for p in providers:
             logger.debug(
-                "[Scheduler] Provider: id=%s, name=%s, is_active=%s, endpoints=%d, models=%d",
+                "[Scheduler] Provider: id={}, name={}, is_active={}, endpoints={}, models={}",
                 p.id[:8] if p.id else "N/A",
                 p.name,
                 p.is_active,
@@ -724,10 +724,14 @@ class CacheAwareScheduler:
         from src.config.settings import config
         from src.services.system.config import SystemConfigService
 
-        # 全局格式转换开关：优先使用数据库配置，回退到环境变量
+        # 格式转换总开关（环境变量）：关闭时禁止任何跨格式候选进入队列
+        master_conversion_enabled = bool(config.format_conversion_enabled)
+
+        # 全局覆盖开关（数据库）：开启时强制允许所有提供商的格式转换（跳过端点格式接受策略）
         global_conversion_enabled = SystemConfigService.is_format_conversion_enabled(db)
-        # 如果环境变量明确禁用，则禁用（环境变量可作为强制禁用开关）
-        if not config.format_conversion_enabled:
+
+        # 如果环境变量明确禁用，则全局覆盖也视为关闭（并最终禁止跨格式转换）
+        if not master_conversion_enabled:
             global_conversion_enabled = False
         candidates = await self._build_candidates(
             db=db,
@@ -740,6 +744,7 @@ class CacheAwareScheduler:
             is_stream=is_stream,
             capability_requirements=capability_requirements,
             global_conversion_enabled=global_conversion_enabled,
+            master_conversion_enabled=master_conversion_enabled,
         )
 
         # 3. 应用优先级模式排序
@@ -1064,6 +1069,7 @@ class CacheAwareScheduler:
         is_stream: bool = False,
         capability_requirements: dict[str, bool] | None = None,
         global_conversion_enabled: bool = False,
+        master_conversion_enabled: bool = True,
     ) -> list[ProviderCandidate]:
         """
         构建候选列表
@@ -1080,7 +1086,8 @@ class CacheAwareScheduler:
             max_candidates: 最大候选数
             is_stream: 是否是流式请求，如果为 True 则过滤不支持流式的 Provider
             capability_requirements: 能力需求（可选）
-            global_conversion_enabled: 全局格式转换开关
+            global_conversion_enabled: 全局覆盖开关（DB），开启时跳过端点格式接受策略检查
+            master_conversion_enabled: 总开关（ENV），关闭时禁止任何跨格式转换
 
         Returns:
             候选列表
@@ -1099,7 +1106,7 @@ class CacheAwareScheduler:
 
         for provider in providers:
             logger.debug(
-                "[Scheduler] Checking provider: %s, endpoints=%d",
+                "[Scheduler] Checking provider: {}, endpoints={}",
                 provider.name,
                 len(provider.endpoints) if provider.endpoints else 0,
             )
@@ -1155,7 +1162,7 @@ class CacheAwareScheduler:
 
             for endpoint in endpoints:
                 logger.debug(
-                    "[Scheduler] Checking endpoint: family=%s, kind=%s, is_active=%s, base_url=%s",
+                    "[Scheduler] Checking endpoint: family={}, kind={}, is_active={}, base_url={}",
                     getattr(endpoint, "api_family", None),
                     getattr(endpoint, "endpoint_kind", None),
                     getattr(endpoint, "is_active", None),
@@ -1170,15 +1177,14 @@ class CacheAwareScheduler:
                     str(getattr(endpoint, "endpoint_kind", "")).strip().lower(),
                 )
 
-                # 计算格式转换的有效开关状态（三层优先级）
-                # 全局 ON → 强制允许（跳过端点检查）
-                # 全局 OFF → 提供商 ON → 强制允许（跳过端点检查）
-                # 全局 OFF → 提供商 OFF → 看端点配置
+                # 计算格式转换开关状态（三层优先级）
+                #
+                # 1) 总开关（ENV）关闭 -> 禁止任何跨格式转换
+                # 2) 全局覆盖（DB）开启 -> 强制允许（跳过端点检查）
+                # 3) 提供商覆盖（Provider.enable_format_conversion）开启 -> 强制允许（跳过端点检查）
+                # 4) 否则 -> 由端点配置 format_acceptance_config 决定是否允许
                 provider_allows_conversion = getattr(provider, "enable_format_conversion", True)
-                effective_conversion_enabled = (
-                    global_conversion_enabled or provider_allows_conversion
-                )
-                # 如果全局或提供商开关为 ON，跳过端点配置检查
+                effective_conversion_enabled = bool(master_conversion_enabled)
                 skip_endpoint_check = global_conversion_enabled or provider_allows_conversion
 
                 is_compatible, needs_conversion, _compat_reason = is_format_compatible(
@@ -1190,11 +1196,12 @@ class CacheAwareScheduler:
                     skip_endpoint_check=skip_endpoint_check,
                 )
                 logger.debug(
-                    "[Scheduler] Format compatibility: client=%s, endpoint=%s, compatible=%s, "
-                    "global=%s, provider=%s, skip_endpoint=%s, reason=%s",
+                    "[Scheduler] Format compatibility: client={}, endpoint={}, compatible={}, "
+                    "master={}, global={}, provider={}, skip_endpoint={}, reason={}",
                     client_format_str,
                     endpoint_format_str,
                     is_compatible,
+                    master_conversion_enabled,
                     global_conversion_enabled,
                     provider_allows_conversion,
                     skip_endpoint_check,
@@ -1217,7 +1224,7 @@ class CacheAwareScheduler:
                     model_support_cache[endpoint_format_str]
                 )
                 logger.debug(
-                    "[Scheduler] Model support: provider=%s, model=%s, supports=%s, reason=%s",
+                    "[Scheduler] Model support: provider={}, model={}, supports={}, reason={}",
                     provider.name,
                     model_name,
                     supports_model,

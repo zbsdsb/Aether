@@ -213,7 +213,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
     Chat Handler 基类
 
     主要职责：
-    - 通过 FallbackOrchestrator 选择 Provider/Endpoint/Key
+    - 通过 TaskService/FailoverEngine 选择 Provider/Endpoint/Key
     - 发送请求并处理响应
     - 记录日志、审计、统计
     - 错误处理
@@ -466,6 +466,17 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             # 保守兜底：目标需要 stream 且当前缺失时写入
             request_body["stream"] = is_stream
 
+        # OpenAI Chat Completions: request usage in streaming mode.
+        # When the client format doesn't carry a `stream` field (e.g. Gemini streaming endpoint),
+        # the normalizer won't see internal.stream=True, so we need to add this here.
+        provider_fmt = str(provider_api_format or "").strip().lower()
+        if is_stream and provider_fmt == "openai:chat":
+            stream_options = request_body.get("stream_options")
+            if not isinstance(stream_options, dict):
+                stream_options = {}
+            stream_options["include_usage"] = True
+            request_body["stream_options"] = stream_options
+
     async def _get_mapped_model(
         self,
         source_model: str,
@@ -520,7 +531,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         model = getattr(converted_request, "model", original_request_body.get("model", "unknown"))
         api_format = self.allowed_api_formats[0]
 
-        # 可变请求体容器：允许 orchestrator 在遇到 Thinking 签名错误时整流请求体后重试
+        # 可变请求体容器：允许 TaskService 在遇到 Thinking 签名错误时整流请求体后重试
         # 结构: {"body": 实际请求体, "_rectified": 是否已整流, "_rectified_this_turn": 本轮是否整流}
         request_body_ref: dict[str, Any] = {"body": original_request_body}
 
@@ -574,15 +585,13 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 request_body=original_request_body,
             )
 
-            # 执行请求（通过 FallbackOrchestrator）
-            (
-                stream_generator,
-                provider_name,
-                attempt_id,
-                provider_id,
-                endpoint_id,
-                key_id,
-            ) = await self.orchestrator.execute_with_fallback(
+            # 统一入口：总是通过 TaskService
+            from src.services.task import TaskService
+            from src.services.task.context import TaskMode
+
+            exec_result = await TaskService(self.db, self.redis).execute(
+                task_type="chat",
+                task_mode=TaskMode.SYNC,
                 api_format=api_format,
                 model_name=model,
                 user_api_key=self.api_key,
@@ -591,8 +600,14 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 is_stream=True,
                 capability_requirements=capability_requirements or None,
                 preferred_key_ids=preferred_key_ids or None,
-                request_body_ref=request_body_ref,  # 传递容器引用
+                request_body_ref=request_body_ref,
             )
+            stream_generator = exec_result.response
+            provider_name = exec_result.provider_name or "unknown"
+            attempt_id = exec_result.request_candidate_id
+            provider_id = exec_result.provider_id
+            endpoint_id = exec_result.endpoint_id
+            key_id = exec_result.key_id
 
             # 更新上下文
             ctx.attempt_id = attempt_id
@@ -644,7 +659,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             )
 
         except (ThinkingSignatureException, UpstreamClientException) as e:
-            # ThinkingSignatureException: orchestrator 层已处理整流重试但仍失败
+            # ThinkingSignatureException: TaskService 层已处理整流重试但仍失败
             # UpstreamClientException: 上游客户端错误（HTTP 4xx），不重试，直接返回给客户端
             error_type = (
                 "签名错误" if isinstance(e, ThinkingSignatureException) else "上游客户端错误"
@@ -977,7 +992,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         model = getattr(converted_request, "model", original_request_body.get("model", "unknown"))
         api_format = self.allowed_api_formats[0]
 
-        # 可变请求体容器：允许 orchestrator 在遇到 Thinking 签名错误时整流请求体后重试
+        # 可变请求体容器：允许 TaskService 在遇到 Thinking 签名错误时整流请求体后重试
         # 结构: {"body": 实际请求体, "_rectified": 是否已整流, "_rectified_this_turn": 本轮是否整流}
         request_body_ref: dict[str, Any] = {"body": original_request_body}
 
@@ -1121,7 +1136,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             status_code = resp.status_code
             response_headers = dict(resp.headers)
 
-            # 统一使用 HTTPStatusError，让 orchestrator/error_classifier 负责分类（客户端错误/兼容性错误/限流等）
+            # 统一使用 HTTPStatusError，让 TaskService/error_classifier 负责分类（客户端错误/兼容性错误/限流等）
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError as e:
@@ -1205,23 +1220,29 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 request_body=original_request_body,
             )
 
-            (
-                result,
-                actual_provider_name,
-                attempt_id,
-                provider_id,
-                endpoint_id,
-                key_id,
-            ) = await self.orchestrator.execute_with_fallback(
+            # 统一入口：总是通过 TaskService
+            from src.services.task import TaskService
+            from src.services.task.context import TaskMode
+
+            exec_result = await TaskService(self.db, self.redis).execute(
+                task_type="chat",
+                task_mode=TaskMode.SYNC,
                 api_format=api_format,
                 model_name=model,
                 user_api_key=self.api_key,
                 request_func=sync_request_func,
                 request_id=self.request_id,
+                is_stream=False,
                 capability_requirements=capability_requirements or None,
                 preferred_key_ids=preferred_key_ids or None,
-                request_body_ref=request_body_ref,  # 传递容器引用
+                request_body_ref=request_body_ref,
             )
+            result = exec_result.response
+            actual_provider_name = exec_result.provider_name or "unknown"
+            attempt_id = exec_result.request_candidate_id
+            provider_id = exec_result.provider_id
+            endpoint_id = exec_result.endpoint_id
+            key_id = exec_result.key_id
 
             provider_name = actual_provider_name
             response_time_ms = self.elapsed_ms()
@@ -1290,7 +1311,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             )
 
         except ThinkingSignatureException as e:
-            # Thinking 签名错误：orchestrator 层已处理整流重试但仍失败
+            # Thinking 签名错误：TaskService 层已处理整流重试但仍失败
             # 记录实际发送给 Provider 的请求体，便于排查问题根因
             response_time_ms = self.elapsed_ms()
             actual_request_body = provider_request_body or original_request_body

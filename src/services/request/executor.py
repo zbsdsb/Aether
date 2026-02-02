@@ -95,8 +95,7 @@ class RequestExecutor:
             # 获取当前 RPM 计数用于计算负载
             # 注意：key 侧返回的是 RPM 计数（不会在请求结束时减少，靠 TTL 过期）
             try:
-                _, current_key_rpm = await self.concurrency_manager.get_current_concurrency(
-                    endpoint_id=endpoint.id,
+                current_key_rpm = await self.concurrency_manager.get_key_rpm_count(
                     key_id=key.id,
                 )
             except Exception as e:

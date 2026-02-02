@@ -552,7 +552,7 @@ class StreamUsageTracker:
                 logger.error(f"ID:{self.request_id} | {error_msg}")
                 # 设置错误状态，避免被记录为成功
                 self.set_error_status(502, error_msg)
-                # 抛出异常让 FallbackOrchestrator 捕获并触发故障转移
+                # 抛出异常让 TaskService/FailoverEngine 捕获并触发故障转移
                 raise EmptyStreamException(
                     provider_name=self.provider,
                     chunk_count=chunk_count,
@@ -797,7 +797,7 @@ class StreamUsageTracker:
             )
 
             # 记录提供商结果用于动态权重调整
-            # 记录提供商结果的健康监控已由 FallbackOrchestrator 自动处理
+            # 健康监控/自适应调整已由 RequestExecutor/ErrorClassifier 处理
             # 这里不再需要手动记录
         except Exception as e:
             logger.exception(f"Failed to record stream usage: {e}")
@@ -1032,7 +1032,7 @@ class EnhancedStreamUsageTracker(StreamUsageTracker):
                 logger.error(f"ID:{self.request_id} | {error_msg}")
                 # 设置错误状态，避免被记录为成功
                 self.set_error_status(502, error_msg)
-                # 抛出异常让 FallbackOrchestrator 捕获并触发故障转移
+                # 抛出异常让 TaskService/FailoverEngine 捕获并触发故障转移
                 raise EmptyStreamException(
                     provider_name=self.provider,
                     chunk_count=chunk_count,

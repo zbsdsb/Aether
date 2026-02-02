@@ -315,7 +315,7 @@ class VideoHandlerBase(ABC):
             )
         except Exception as exc:
             logger.warning(
-                "Failed to finalize usage on submit failure: request_id=%s, error=%s",
+                "Failed to finalize usage on submit failure: request_id={}, error={}",
                 self.request_id,
                 sanitize_error_message(str(exc)),
             )
@@ -367,16 +367,20 @@ class VideoHandlerBase(ABC):
         - 无可用候选 / 全部失败：抛 HTTPException(503)
         """
         # 延迟导入，避免 handler 基类层引入过多依赖导致循环
-        from src.services.candidate.service import CandidateService
         from src.services.candidate.submit import (
             AllCandidatesFailedError,
             SubmitOutcome,
             UpstreamClientRequestError,
         )
 
-        candidate_service = CandidateService(self.db)
+        # 统一入口：总是通过 TaskService（内部可继续委托 CandidateService，便于逐步内核统一）
+        from src.services.task import TaskService
+
+        submitter: Any = TaskService(self.db)
+        submit_call = submitter.submit_with_failover
+
         try:
-            return await candidate_service.submit_with_failover(
+            return await submit_call(
                 api_format=api_format,
                 model_name=model_name,
                 affinity_key=str(self.api_key.id),
@@ -402,7 +406,7 @@ class VideoHandlerBase(ABC):
                 detail = "No available provider with billing rule for video generation"
             # 记录候选信息到日志
             logger.warning(
-                "[VideoHandler] All candidates failed: reason=%s, candidate_keys=%s",
+                "[VideoHandler] All candidates failed: reason={}, candidate_keys={}",
                 exc.reason,
                 exc.candidate_keys,
             )

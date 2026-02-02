@@ -310,7 +310,7 @@ async def _resolve_upstream_context(
     try:
         upstream_key = crypto_service.decrypt(candidate.key.api_key)
     except Exception as exc:
-        logger.error("Failed to decrypt provider key for Gemini Files API: %s", exc)
+        logger.error("Failed to decrypt provider key for Gemini Files API: {}", exc)
         raise HTTPException(
             status_code=500,
             detail={
@@ -451,12 +451,12 @@ async def _proxy_request(
                                 mapped_count += 1
                         if mapped_count > 0:
                             logger.debug(
-                                "Gemini list_files 批量映射已存储: %d 个文件 → key_id=%s",
+                                "Gemini list_files 批量映射已存储: {} 个文件 → key_id={}",
                                 mapped_count,
                                 file_key_id,
                             )
             except (ValueError, KeyError) as e:
-                logger.debug("Failed to store Gemini file mapping: %s", e)
+                logger.debug("Failed to store Gemini file mapping: {}", e)
 
         return Response(
             content=response.content,
@@ -467,7 +467,7 @@ async def _proxy_request(
 
     except Exception as e:
         sanitized_error = redact_url_for_log(str(e))
-        logger.error("Gemini Files API proxy error: %s", sanitized_error)
+        logger.error("Gemini Files API proxy error: {}", sanitized_error)
         return JSONResponse(
             status_code=502,
             content={
@@ -533,7 +533,7 @@ async def upload_file(
 
     headers = _build_upstream_headers(dict(request.headers), ctx.upstream_key)
 
-    logger.debug("Gemini Files upload proxy: POST %s", redact_url_for_log(upstream_url))
+    logger.debug("Gemini Files upload proxy: POST {}", redact_url_for_log(upstream_url))
 
     return await _proxy_request(
         "POST",
@@ -603,7 +603,7 @@ async def list_files(
     upstream_url = _build_upstream_url(ctx.base_url, "/v1beta/files", query_params)
     headers = _build_upstream_headers(dict(request.headers), ctx.upstream_key)
 
-    logger.debug("Gemini Files list proxy: GET %s", redact_url_for_log(upstream_url))
+    logger.debug("Gemini Files list proxy: GET {}", redact_url_for_log(upstream_url))
 
     return await _proxy_request(
         "GET", upstream_url, headers, file_key_id=ctx.file_key_id, user_id=ctx.user_id
@@ -633,7 +633,7 @@ async def _find_video_task_by_id(
     from src.models.database import ProviderAPIKey, VideoTask
 
     logger.debug(
-        "[Files Download] Searching video task: short_id=%s, user_id=%s", short_id, user_id
+        "[Files Download] Searching video task: short_id={}, user_id={}", short_id, user_id
     )
 
     # 通过 short_id 查找，同时验证用户权限
@@ -644,29 +644,29 @@ async def _find_video_task_by_id(
     )
 
     if not task:
-        logger.debug("[Files Download] No video task found: short_id=%s", short_id)
+        logger.debug("[Files Download] No video task found: short_id={}", short_id)
         return None, None
 
     if not task.video_url:
-        logger.debug("[Files Download] Task found but no video_url: short_id=%s", short_id)
+        logger.debug("[Files Download] Task found but no video_url: short_id={}", short_id)
         return None, None
 
     if not task.key_id:
-        logger.debug("[Files Download] Task found but no key_id: short_id=%s", short_id)
+        logger.debug("[Files Download] Task found but no key_id: short_id={}", short_id)
         return None, task.video_url
 
     # 获取 provider key
     provider_key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == task.key_id).first()
     if not provider_key or not provider_key.api_key:
-        logger.debug("[Files Download] Provider key not found: key_id=%s", task.key_id)
+        logger.debug("[Files Download] Provider key not found: key_id={}", task.key_id)
         return None, task.video_url
 
     try:
         upstream_key = crypto_service.decrypt(provider_key.api_key)
-        logger.debug("[Files Download] Found key for task: short_id=%s", short_id)
+        logger.debug("[Files Download] Found key for task: short_id={}", short_id)
         return upstream_key, task.video_url
     except Exception as e:
-        logger.error("[Files Download] Failed to decrypt key: %s", e)
+        logger.error("[Files Download] Failed to decrypt key: {}", e)
         return None, task.video_url
 
 
@@ -733,7 +733,7 @@ async def download_file(
         if file_id.startswith("aev_"):
             # 视频任务下载：使用短 ID 查找
             short_id = file_id[4:]  # 去掉 "aev_" 前缀
-            logger.debug("[Files Download] Video task: short_id=%s, user_id=%s", short_id, user.id)
+            logger.debug("[Files Download] Video task: short_id={}, user_id={}", short_id, user.id)
             upstream_key, video_url = await _find_video_task_by_id(db, short_id, user.id)
             if not upstream_key or not video_url:
                 raise HTTPException(
@@ -774,14 +774,14 @@ async def download_file(
     # ========== 阶段 2：HTTP 下载（不持有数据库连接）==========
     headers = _build_upstream_headers(dict(request.headers), upstream_key)
 
-    logger.debug("Gemini Files download proxy: GET %s", redact_url_for_log(upstream_url))
+    logger.debug("Gemini Files download proxy: GET {}", redact_url_for_log(upstream_url))
 
     # 使用 follow_redirects=True 跟随重定向（Gemini 文件下载会重定向）
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(300.0)) as client:
             response = await client.get(upstream_url, headers=headers)
     except Exception as exc:
-        logger.error("Gemini Files download failed: %s", exc)
+        logger.error("Gemini Files download failed: {}", exc)
         raise HTTPException(status_code=502, detail="Failed to download file")
 
     if response.status_code >= 400:
@@ -861,7 +861,7 @@ async def get_file(
     )
     headers = _build_upstream_headers(dict(request.headers), ctx.upstream_key)
 
-    logger.debug("Gemini Files get proxy: GET %s", redact_url_for_log(upstream_url))
+    logger.debug("Gemini Files get proxy: GET {}", redact_url_for_log(upstream_url))
 
     return await _proxy_request(
         "GET", upstream_url, headers, file_key_id=ctx.file_key_id, user_id=ctx.user_id
@@ -908,13 +908,13 @@ async def delete_file(
     )
     headers = _build_upstream_headers(dict(request.headers), ctx.upstream_key)
 
-    logger.debug("Gemini Files delete proxy: DELETE %s", redact_url_for_log(upstream_url))
+    logger.debug("Gemini Files delete proxy: DELETE {}", redact_url_for_log(upstream_url))
 
     response = await _proxy_request("DELETE", upstream_url, headers)
     if response.status_code < 300:
         await delete_file_key_mapping(file_name)
     else:
         logger.debug(
-            "Gemini Files delete failed, skip mapping cleanup: status=%s", response.status_code
+            "Gemini Files delete failed, skip mapping cleanup: status={}", response.status_code
         )
     return response

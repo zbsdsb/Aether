@@ -493,14 +493,18 @@ class UsageQueueConsumer:
             return
         self._last_metrics_log = now
         try:
-            stream_len = await redis_client.xlen(self._stream_key)
-            pending = await redis_client.xpending(self._stream_key, self._stream_group)
+            # 使用 XINFO GROUPS 获取更准确的 lag（未处理消息数）
+            groups_info = await redis_client.xinfo_groups(self._stream_key)
+            lag = 0
             pending_count = 0
-            if isinstance(pending, dict):
-                pending_count = int(pending.get("pending", 0))
-            elif isinstance(pending, (list, tuple)) and pending:
-                pending_count = int(pending[0])
-            logger.info(f"[usage-queue] backlog={stream_len} pending={pending_count}")
+            for group in groups_info:
+                if isinstance(group, dict) and group.get("name") == self._stream_group:
+                    lag = group.get("lag", 0) or 0
+                    pending_count = group.get("pending", 0) or 0
+                    break
+            # lag=未读消息数, pending=已读但未ACK的消息数
+            if lag > 0 or pending_count > 0:
+                logger.info(f"[usage-queue] lag={lag} pending={pending_count}")
         except Exception as exc:
             logger.debug(f"[usage-queue] metrics log failed: {exc}")
 

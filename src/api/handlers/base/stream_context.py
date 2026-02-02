@@ -256,7 +256,12 @@ class StreamContext:
         用于请求完成/失败时的日志输出。
         包含首字时间 (TTFB) 和总响应时间,分两行显示。
         """
-        status = "OK" if self.is_success() else "FAIL"
+        if self.is_success():
+            status = "OK"
+        elif self.is_client_disconnected():
+            status = "CANCEL"
+        else:
+            status = "FAIL"
 
         # 第一行:基本信息 + 首字时间
         line1 = (

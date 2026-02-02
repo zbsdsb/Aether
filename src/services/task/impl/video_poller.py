@@ -35,7 +35,7 @@ from src.core.crypto import crypto_service
 from src.core.logger import logger
 from src.database import create_session
 from src.models.database import ProviderAPIKey, ProviderEndpoint, VideoTask
-from src.services.task.application import TaskApplicationService
+from src.services.task.service import TaskService
 
 
 @dataclass(slots=True)
@@ -164,7 +164,7 @@ class VideoTaskPollerAdapter:
         try:
             upstream_key = crypto_service.decrypt(key.api_key)
         except Exception:
-            logger.warning("Failed to decrypt provider key for task %s", task.id)
+            logger.warning("Failed to decrypt provider key for task {}", task.id)
             return InternalVideoPollResult(
                 status=VideoStatus.FAILED,
                 error_code="decryption_error",
@@ -241,7 +241,7 @@ class VideoTaskPollerAdapter:
         with create_session() as db:
             task = db.get(VideoTask, task_id)
             if not task:
-                logger.warning("Task %s disappeared during poll update", task_id)
+                logger.warning("Task {} disappeared during poll update", task_id)
                 return
 
             if error_exception is not None and ctx is not None:
@@ -284,12 +284,10 @@ class VideoTaskPollerAdapter:
             # 终态结算
             if task.status in (VideoStatus.COMPLETED.value, VideoStatus.FAILED.value):
                 try:
-                    await TaskApplicationService(db, redis_client=redis_client).finalize_video_task(
-                        task
-                    )
+                    await TaskService(db, redis_client=redis_client).finalize_video_task(task)
                 except Exception as exc:
                     logger.exception(
-                        "Failed to record video usage for task=%s: %s",
+                        "Failed to record video usage for task={}: {}",
                         task.id,
                         sanitize_error_message(str(exc)),
                     )
@@ -300,7 +298,7 @@ class VideoTaskPollerAdapter:
         """处理轮询错误"""
         task.poll_count += 1
         error_msg = sanitize_error_message(str(exc))
-        logger.warning("Poll error for task %s: %s", task.id, error_msg)
+        logger.warning("Poll error for task {}: {}", task.id, error_msg)
         task.progress_message = f"Poll error: {error_msg}"
 
         status_code = exc.status_code if isinstance(exc, PollHTTPError) else None
@@ -337,7 +335,7 @@ class VideoTaskPollerAdapter:
         url = self._build_gemini_url(ctx.base_url, operation_name)
 
         logger.debug(
-            "[VideoPoller] Gemini poll: task=%s external_id=%s url=%s",
+            "[VideoPoller] Gemini poll: task={} external_id={} url={}",
             ctx.task_id,
             ctx.external_task_id,
             url,
@@ -347,7 +345,7 @@ class VideoTaskPollerAdapter:
         response = await client.get(url, headers=ctx.headers)
         if response.status_code >= 400:
             logger.warning(
-                "[VideoPoller] Gemini poll failed: task=%s status=%s response=%s",
+                "[VideoPoller] Gemini poll failed: task={} status={} response={}",
                 ctx.task_id,
                 response.status_code,
                 response.text[:500] if response.text else "(empty)",
@@ -394,7 +392,7 @@ class VideoTaskPollerAdapter:
         except Exception as exc:
             task.poll_count += 1
             error_msg = sanitize_error_message(str(exc))
-            logger.warning("Poll error for task %s: %s", task.id, error_msg)
+            logger.warning("Poll error for task {}: {}", task.id, error_msg)
             task.progress_message = f"Poll error: {error_msg}"
 
             status_code = exc.status_code if isinstance(exc, PollHTTPError) else None
@@ -427,12 +425,10 @@ class VideoTaskPollerAdapter:
         # 终态结算
         if task.status in (VideoStatus.COMPLETED.value, VideoStatus.FAILED.value):
             try:
-                await TaskApplicationService(db, redis_client=redis_client).finalize_video_task(
-                    task
-                )
+                await TaskService(db, redis_client=redis_client).finalize_video_task(task)
             except Exception as exc:
                 logger.exception(
-                    "Failed to record video usage for task=%s: %s",
+                    "Failed to record video usage for task={}: {}",
                     task.id,
                     sanitize_error_message(str(exc)),
                 )
@@ -470,7 +466,7 @@ class VideoTaskPollerAdapter:
         try:
             upstream_key = crypto_service.decrypt(key.api_key)
         except Exception:
-            logger.warning("Failed to decrypt provider key for task %s", task.id)
+            logger.warning("Failed to decrypt provider key for task {}", task.id)
             return InternalVideoPollResult(
                 status=VideoStatus.FAILED,
                 error_code="decryption_error",
@@ -539,7 +535,7 @@ class VideoTaskPollerAdapter:
         headers = self._build_headers(endpoint_sig, upstream_key, endpoint, auth_info)
 
         logger.debug(
-            "[VideoPoller] Gemini poll: task=%s external_id=%s url=%s",
+            "[VideoPoller] Gemini poll: task={} external_id={} url={}",
             task.id,
             task.external_task_id,
             url,
@@ -549,7 +545,7 @@ class VideoTaskPollerAdapter:
         response = await client.get(url, headers=headers)
         if response.status_code >= 400:
             logger.warning(
-                "[VideoPoller] Gemini poll failed: task=%s status=%s response=%s",
+                "[VideoPoller] Gemini poll failed: task={} status={} response={}",
                 task.id,
                 response.status_code,
                 response.text[:500] if response.text else "(empty)",

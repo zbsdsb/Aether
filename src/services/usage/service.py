@@ -1325,7 +1325,7 @@ class UsageService:
             # 避免重复记账：若已结算/作废，直接返回（防止并发重复加计数）
             if getattr(existing_usage, "billing_status", None) in ("settled", "void"):
                 logger.debug(
-                    "record_usage_with_custom_cost: request_id=%s already finalized (billing_status=%s), skip",
+                    "record_usage_with_custom_cost: request_id={} already finalized (billing_status={}), skip",
                     request_id,
                     getattr(existing_usage, "billing_status", None),
                 )
@@ -1599,7 +1599,7 @@ class UsageService:
                         update_params_list.append((record, request_id, params))
                     except Exception as e:
                         skipped_count += 1
-                        logger.warning("批量记录中参数构建失败: %s, request_id=%s", e, request_id)
+                        logger.warning("批量记录中参数构建失败: {}, request_id={}", e, request_id)
 
         insert_params_list: list[tuple[dict[str, Any], str, UsageRecordParams]] = []
         for record in records_to_insert:
@@ -1609,7 +1609,7 @@ class UsageService:
                 insert_params_list.append((record, request_id, params))
             except Exception as e:
                 skipped_count += 1
-                logger.warning("批量记录中参数构建失败: %s, request_id=%s", e, request_id)
+                logger.warning("批量记录中参数构建失败: {}, request_id={}", e, request_id)
 
         # 并行准备所有记录（性能优化）
         all_params = [p for _, _, p in update_params_list] + [p for _, _, p in insert_params_list]
@@ -1659,7 +1659,7 @@ class UsageService:
 
             except Exception as e:
                 skipped_count += 1
-                logger.warning("批量记录中更新失败: %s, request_id=%s", e, request_id)
+                logger.warning("批量记录中更新失败: {}, request_id={}", e, request_id)
                 continue
 
         # 2. 处理需要新建的记录
@@ -1699,7 +1699,7 @@ class UsageService:
 
             except Exception as e:
                 skipped_count += 1
-                logger.warning("批量记录中跳过无效记录: %s, request_id=%s", e, request_id)
+                logger.warning("批量记录中跳过无效记录: {}, request_id={}", e, request_id)
                 continue
 
         # 统计跳过的记录，失败率超过 10% 时提升日志级别
@@ -1707,13 +1707,13 @@ class UsageService:
             skip_ratio = skipped_count / total_count if total_count > 0 else 0
             if skip_ratio > 0.1:
                 logger.error(
-                    "批量记录失败率过高: %d/%d (%.1f%%) 条记录被跳过",
+                    "批量记录失败率过高: {}/{} ({:.1f}%) 条记录被跳过",
                     skipped_count,
                     total_count,
                     skip_ratio * 100,
                 )
             else:
-                logger.warning("批量记录部分失败: %d/%d 条记录被跳过", skipped_count, total_count)
+                logger.warning("批量记录部分失败: {}/{} 条记录被跳过", skipped_count, total_count)
 
         # 批量更新 GlobalModel 使用计数
         for model_name, count in model_counts.items():

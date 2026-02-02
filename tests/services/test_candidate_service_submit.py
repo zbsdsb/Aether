@@ -6,8 +6,8 @@ import httpx
 import pytest
 
 from src.config.settings import config
-from src.services.candidate.service import CandidateService
 from src.services.candidate.submit import AllCandidatesFailedError, UpstreamClientRequestError
+from src.services.task.service import TaskService
 
 
 def _make_candidate(
@@ -43,11 +43,19 @@ async def test_submit_with_failover_skips_http_500_then_succeeds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = MagicMock()
-    svc = CandidateService(db)
+    svc = TaskService(db)
 
-    # bypass init
-    svc._resolver = SimpleNamespace(
-        fetch_candidates=AsyncMock(
+    monkeypatch.setattr(
+        "src.services.system.config.SystemConfigService.get_config",
+        lambda *_args, **_kwargs: "provider",
+    )
+    monkeypatch.setattr(
+        "src.services.cache.aware_scheduler.get_cache_aware_scheduler",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "src.services.candidate.resolver.CandidateResolver.fetch_candidates",
+        AsyncMock(
             return_value=(
                 [
                     _make_candidate(provider_id="p1", endpoint_id="e1", key_id="k1"),
@@ -55,10 +63,12 @@ async def test_submit_with_failover_skips_http_500_then_succeeds(
                 ],
                 "gm1",
             )
-        )
+        ),
     )
-    svc._error_classifier = SimpleNamespace(is_client_error=lambda _text: False)
-    svc._ensure_initialized = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "src.services.orchestration.error_classifier.ErrorClassifier.is_client_error",
+        lambda _self, _text: False,
+    )
 
     responses = [
         httpx.Response(500, text='{"error": {"message": "server"}}'),
@@ -89,13 +99,24 @@ async def test_submit_with_failover_skips_http_500_then_succeeds(
 @pytest.mark.asyncio
 async def test_submit_with_failover_stops_on_client_error(monkeypatch: pytest.MonkeyPatch) -> None:
     db = MagicMock()
-    svc = CandidateService(db)
+    svc = TaskService(db)
 
-    svc._resolver = SimpleNamespace(
-        fetch_candidates=AsyncMock(return_value=([_make_candidate()], "gm1"))
+    monkeypatch.setattr(
+        "src.services.system.config.SystemConfigService.get_config",
+        lambda *_args, **_kwargs: "provider",
     )
-    svc._error_classifier = SimpleNamespace(is_client_error=lambda _text: True)
-    svc._ensure_initialized = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "src.services.cache.aware_scheduler.get_cache_aware_scheduler",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "src.services.candidate.resolver.CandidateResolver.fetch_candidates",
+        AsyncMock(return_value=([_make_candidate()], "gm1")),
+    )
+    monkeypatch.setattr(
+        "src.services.orchestration.error_classifier.ErrorClassifier.is_client_error",
+        lambda _self, _text: True,
+    )
 
     response = httpx.Response(
         400,
@@ -124,13 +145,24 @@ async def test_submit_with_failover_no_eligible_candidates_due_to_auth_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = MagicMock()
-    svc = CandidateService(db)
+    svc = TaskService(db)
 
-    svc._resolver = SimpleNamespace(
-        fetch_candidates=AsyncMock(return_value=([_make_candidate(auth_type="vertex_ai")], "gm1"))
+    monkeypatch.setattr(
+        "src.services.system.config.SystemConfigService.get_config",
+        lambda *_args, **_kwargs: "provider",
     )
-    svc._error_classifier = SimpleNamespace(is_client_error=lambda _text: False)
-    svc._ensure_initialized = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "src.services.cache.aware_scheduler.get_cache_aware_scheduler",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "src.services.candidate.resolver.CandidateResolver.fetch_candidates",
+        AsyncMock(return_value=([_make_candidate(auth_type="vertex_ai")], "gm1")),
+    )
+    monkeypatch.setattr(
+        "src.services.orchestration.error_classifier.ErrorClassifier.is_client_error",
+        lambda _self, _text: False,
+    )
 
     with pytest.raises(AllCandidatesFailedError) as excinfo:
         await svc.submit_with_failover(
@@ -155,10 +187,19 @@ async def test_submit_with_failover_filters_missing_billing_rule(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = MagicMock()
-    svc = CandidateService(db)
+    svc = TaskService(db)
 
-    svc._resolver = SimpleNamespace(
-        fetch_candidates=AsyncMock(
+    monkeypatch.setattr(
+        "src.services.system.config.SystemConfigService.get_config",
+        lambda *_args, **_kwargs: "provider",
+    )
+    monkeypatch.setattr(
+        "src.services.cache.aware_scheduler.get_cache_aware_scheduler",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "src.services.candidate.resolver.CandidateResolver.fetch_candidates",
+        AsyncMock(
             return_value=(
                 [
                     _make_candidate(provider_id="p1", endpoint_id="e1", key_id="k1"),
@@ -166,10 +207,12 @@ async def test_submit_with_failover_filters_missing_billing_rule(
                 ],
                 "gm1",
             )
-        )
+        ),
     )
-    svc._error_classifier = SimpleNamespace(is_client_error=lambda _text: False)
-    svc._ensure_initialized = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "src.services.orchestration.error_classifier.ErrorClassifier.is_client_error",
+        lambda _self, _text: False,
+    )
 
     # enable require_rule
     old = config.billing_require_rule
@@ -182,7 +225,7 @@ async def test_submit_with_failover_filters_missing_billing_rule(
             return None if provider_id == "p1" else object()
 
         monkeypatch.setattr(
-            "src.services.candidate.service.BillingRuleService.find_rule", _find_rule
+            "src.services.billing.rule_service.BillingRuleService.find_rule", _find_rule
         )
 
         submit = AsyncMock(return_value=httpx.Response(200, json={"id": "task-999"}))

@@ -44,7 +44,6 @@ from sqlalchemy.orm import Session
 
 from src.clients.redis_client import get_redis_client_sync
 from src.core.logger import logger
-from src.services.orchestration.fallback_orchestrator import FallbackOrchestrator
 from src.services.provider.format import normalize_endpoint_signature
 from src.services.system.audit import audit_service
 from src.services.usage.service import UsageService
@@ -397,7 +396,7 @@ class BaseMessageHandler:
         self.adapter_detector = adapter_detector
 
         redis_client = get_redis_client_sync()
-        self.orchestrator = FallbackOrchestrator(db, redis_client)  # type: ignore[arg-type]
+        self.redis = redis_client
         self.telemetry = MessageTelemetry(db, user, api_key, request_id, client_ip)
 
     def elapsed_ms(self) -> int:

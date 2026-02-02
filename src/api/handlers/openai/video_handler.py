@@ -110,7 +110,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
             )
         except Exception as exc:
             logger.warning(
-                "Failed to create pending usage for video request_id=%s: %s",
+                "Failed to create pending usage for video request_id={}: {}",
                 self.request_id,
                 sanitize_error_message(str(exc)),
             )
@@ -245,7 +245,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
                 )
             except Exception as e:
                 logger.warning(
-                    "[OpenAIVideoHandler] Failed to record converted request: %s",
+                    "[OpenAIVideoHandler] Failed to record converted request: {}",
                     sanitize_error_message(str(e)),
                 )
 
@@ -309,7 +309,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
             self.db.commit()
         except Exception as exc:
             logger.warning(
-                "Failed to finalize submitted usage for video request_id=%s: %s",
+                "Failed to finalize submitted usage for video request_id={}: {}",
                 self.request_id,
                 sanitize_error_message(str(exc)),
             )
@@ -401,47 +401,16 @@ class OpenAIVideoHandler(VideoHandlerBase):
         query_params: dict[str, str] | None = None,
         path_params: dict[str, Any] | None = None,
     ) -> JSONResponse:
-        task = self._get_task(task_id)
-        if not task.external_task_id:
-            raise HTTPException(status_code=500, detail="Task missing external_task_id")
-        endpoint, key = self._get_endpoint_and_key(task)
-        if not key.api_key:
-            raise HTTPException(status_code=500, detail="Provider key not configured")
-        upstream_key = crypto_service.decrypt(key.api_key)
+        from src.services.task.service import TaskService
 
-        upstream_url = self._build_upstream_url(endpoint.base_url, task.external_task_id)
-        headers = self._build_upstream_headers(original_headers, upstream_key, endpoint)
-
-        client = await HTTPClientPool.get_default_client_async()
-        response = await client.delete(upstream_url, headers=headers)
-        if response.status_code >= 400:
-            return self._build_error_response(response)
-
-        task.status = VideoStatus.CANCELLED.value
-        task.updated_at = datetime.now(timezone.utc)
-
-        # 将 Usage 作废（不收费）
-        # 尝试 finalize_void（处理 pending）和 void_settled（处理已 settled）
-        try:
-            voided = UsageService.finalize_void(
-                self.db,
-                request_id=task.request_id,
-                reason="cancelled_by_user",
-            )
-            if not voided:
-                # pending 状态未找到，尝试处理已 settled 的记录
-                UsageService.void_settled(
-                    self.db,
-                    request_id=task.request_id,
-                    reason="cancelled_by_user",
-                )
-        except Exception as exc:
-            logger.warning(
-                "Failed to void usage for cancelled task=%s: %s",
-                task.id,
-                sanitize_error_message(str(exc)),
-            )
-        self.db.commit()
+        _ = (http_request, query_params, path_params)  # reserved for future extensions
+        err_resp = await TaskService(self.db).cancel(
+            task_id,
+            user_id=str(self.user.id),
+            original_headers=original_headers,
+        )
+        if err_resp is not None:
+            return self._build_error_response(err_resp)
         return JSONResponse({})
 
     async def handle_delete_task(
@@ -481,7 +450,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
                         return self._build_error_response(response)
             except Exception as exc:
                 logger.warning(
-                    "Failed to delete video from upstream task=%s: %s",
+                    "Failed to delete video from upstream task={}: {}",
                     task.id,
                     sanitize_error_message(str(exc)),
                 )
@@ -646,7 +615,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
         # 保持流式代理而非重定向，确保客户端行为与官方 OpenAI 一致
         if variant == "video" and task.video_url and task.video_url.startswith("http"):
             logger.debug(
-                "[VideoDownload] Proxying direct URL task=%s url=%s",
+                "[VideoDownload] Proxying direct URL task={} url={}",
                 task_id,
                 task.video_url,
             )
@@ -673,7 +642,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
 
         client = await HTTPClientPool.get_default_client_async()
         logger.debug(
-            "[VideoDownload] Requesting upstream url=%s task=%s external_task_id=%s",
+            "[VideoDownload] Requesting upstream url={} task={} external_task_id={}",
             upstream_url,
             task_id,
             task.external_task_id,
@@ -685,7 +654,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
             response = await client.send(request, stream=True, timeout=300.0)
         except Exception as exc:
             logger.warning(
-                "[VideoDownload] Upstream connection failed task=%s url=%s: %s",
+                "[VideoDownload] Upstream connection failed task={} url={}: {}",
                 task_id,
                 upstream_url,
                 sanitize_error_message(str(exc)),
@@ -743,7 +712,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
             upstream_key = crypto_service.decrypt(candidate.key.api_key)
         except Exception as exc:
             logger.error(
-                "Failed to decrypt provider key id=%s: %s",
+                "Failed to decrypt provider key id={}: {}",
                 candidate.key.id,
                 sanitize_error_message(str(exc)),
             )
@@ -758,7 +727,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
             response = await client.send(request, stream=True, timeout=300.0)
         except Exception as exc:
             logger.warning(
-                "[VideoDownload] Direct URL connection failed task=%s url=%s: %s",
+                "[VideoDownload] Direct URL connection failed task={} url={}: {}",
                 task_id,
                 url,
                 sanitize_error_message(str(exc)),
@@ -1016,7 +985,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
                 target_model=None,
             )
         except Exception as exc:
-            logger.warning("Failed to record failed usage: %s", sanitize_error_message(str(exc)))
+            logger.warning("Failed to record failed usage: {}", sanitize_error_message(str(exc)))
 
     async def _create_failed_task_and_usage(
         self,
@@ -1089,7 +1058,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
         except Exception as exc:
             self.db.rollback()
             logger.warning(
-                "Failed to create failed task record: %s", sanitize_error_message(str(exc))
+                "Failed to create failed task record: {}", sanitize_error_message(str(exc))
             )
             # 即使任务记录失败，仍然尝试记录使用记录
             task = None
@@ -1136,7 +1105,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
                 target_model=None,
             )
         except Exception as exc:
-            logger.warning("Failed to record failed usage: %s", sanitize_error_message(str(exc)))
+            logger.warning("Failed to record failed usage: {}", sanitize_error_message(str(exc)))
 
 
 __all__ = ["OpenAIVideoHandler"]

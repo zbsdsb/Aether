@@ -188,7 +188,7 @@ class DimensionCollectorRuntime:
             except (ValueError, UnsafeExpressionError, ExpressionEvaluationError, Exception) as exc:
                 # 注意：这里选择“不中断，尝试下一优先级”
                 logger.debug(
-                    "Dimension collector failed (dim=%s, id=%s): %s",
+                    "Dimension collector failed (dim={}, id={}): {}",
                     dim_name,
                     getattr(c, "id", None),
                     str(exc),
@@ -261,7 +261,7 @@ class DimensionCollectorRuntime:
                 except UnsafeExpressionError:
                     # 配置错误：按无依赖处理，避免阻塞
                     logger.error(
-                        "Invalid computed transform_expression (dim=%s, id=%s)",
+                        "Invalid computed transform_expression (dim={}, id={})",
                         dim_name,
                         getattr(c, "id", None),
                     )
@@ -293,7 +293,7 @@ class DimensionCollectorRuntime:
         if len(ordered) != len(computed_only):
             # 有环依赖：保护性降级（按名称补齐），避免阻塞整条计费链路
             remaining = sorted(list(computed_only - set(ordered)))
-            logger.error("Computed dimension cycle detected: %s", remaining)
+            logger.error("Computed dimension cycle detected: {}", remaining)
             ordered.extend(remaining)
 
         return ordered

@@ -170,7 +170,7 @@ class ModelAvailabilityQuery:
                 key_formats_norm = set(endpoint_formats)
             elif not isinstance(key_formats, list):
                 logger.warning(
-                    "[ModelAvailability] Key api_formats 类型异常, provider_id=%s, type=%s",
+                    "[ModelAvailability] Key api_formats 类型异常, provider_id={}, type={}",
                     provider_id,
                     type(key_formats).__name__,
                 )
@@ -237,7 +237,7 @@ class ModelAvailabilityQuery:
                 key_formats_norm = set(endpoint_formats)
             elif not isinstance(key_formats, list):
                 logger.warning(
-                    "[ModelAvailability] Key api_formats 类型异常, key_id=%s, type=%s",
+                    "[ModelAvailability] Key api_formats 类型异常, key_id={}, type={}",
                     key_id,
                     type(key_formats).__name__,
                 )

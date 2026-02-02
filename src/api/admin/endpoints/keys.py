@@ -270,7 +270,7 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
             update_data["rpm_limit"] = self.key_data.rpm_limit
             if self.key_data.rpm_limit is None:
                 update_data["learned_rpm_limit"] = None
-                logger.info("Key %s 切换为自适应 RPM 模式", self.key_id)
+                logger.info("Key {} 切换为自适应 RPM 模式", self.key_id)
 
         # 统一处理 allowed_models：空列表 -> None（表示不限制）
         if "allowed_models" in update_data:
@@ -305,7 +305,7 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
         # 处理 auto_fetch_models 的开启和关闭
         if not auto_fetch_enabled_before and auto_fetch_enabled_after:
             # 刚刚开启了 auto_fetch_models，同步执行模型获取
-            logger.info("[AUTO_FETCH] Key %s 开启自动获取模型，同步执行模型获取", self.key_id)
+            logger.info("[AUTO_FETCH] Key {} 开启自动获取模型，同步执行模型获取", self.key_id)
             try:
                 from src.services.model.fetch_scheduler import get_model_fetch_scheduler
 
@@ -321,14 +321,14 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
             if locked:
                 key.allowed_models = locked
                 logger.info(
-                    "[AUTO_FETCH] Key %s 关闭自动获取模型，保留 %d 个锁定模型",
+                    "[AUTO_FETCH] Key {} 关闭自动获取模型，保留 {} 个锁定模型",
                     self.key_id,
                     len(locked),
                 )
             else:
                 key.allowed_models = None
                 logger.info(
-                    "[AUTO_FETCH] Key %s 关闭自动获取模型，无锁定模型，清空 allowed_models",
+                    "[AUTO_FETCH] Key {} 关闭自动获取模型，无锁定模型，清空 allowed_models",
                     self.key_id,
                 )
             db.commit()
@@ -344,7 +344,7 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
             if patterns_changed:
                 # 过滤规则变更，重新应用过滤（使用缓存的上游模型数据）
                 logger.info(
-                    "[AUTO_FETCH] Key %s 过滤规则变更，重新应用过滤",
+                    "[AUTO_FETCH] Key {} 过滤规则变更，重新应用过滤",
                     self.key_id,
                 )
                 try:
@@ -373,7 +373,7 @@ class AdminUpdateEndpointKeyAdapter(AdminApiAdapter):
             # allowed_models 未变化时，仍需清除 /v1/models 缓存（is_active、api_formats 变更会影响模型可用性）
             await invalidate_models_list_cache()
 
-        logger.info("[OK] 更新 Key: ID=%s, Updates=%s", self.key_id, list(update_data.keys()))
+        logger.info("[OK] 更新 Key: ID={}, Updates={}", self.key_id, list(update_data.keys()))
 
         return _build_key_response(key)
 
@@ -794,7 +794,7 @@ class AdminCreateProviderKeyAdapter(AdminApiAdapter):
 
         # 如果开启了 auto_fetch_models，同步执行模型获取
         if self.key_data.auto_fetch_models:
-            logger.info("[AUTO_FETCH] 新 Key %s 开启自动获取模型，同步执行模型获取", new_key.id)
+            logger.info("[AUTO_FETCH] 新 Key {} 开启自动获取模型，同步执行模型获取", new_key.id)
             try:
                 from src.services.model.fetch_scheduler import get_model_fetch_scheduler
 

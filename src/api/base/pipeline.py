@@ -58,9 +58,9 @@ class ApiRequestPipeline:
         # 高频轮询端点抑制 debug 日志
         is_quiet = http_request.url.path in QUIET_POLLING_PATHS
         if not is_quiet:
-            logger.debug("[Pipeline] START | path=%s", http_request.url.path)
+            logger.debug("[Pipeline] START | path={}", http_request.url.path)
             logger.debug(
-                "[Pipeline] Running with mode=%s, adapter=%s, adapter.mode=%s, path=%s",
+                "[Pipeline] Running with mode={}, adapter={}, adapter.mode={}, path={}",
                 mode,
                 adapter.__class__.__name__,
                 adapter.mode,
@@ -85,7 +85,7 @@ class ApiRequestPipeline:
             user, api_key = self._authenticate_client(http_request, db, adapter, quiet=is_quiet)
             management_token = None
             if not is_quiet:
-                logger.debug("[Pipeline] 认证完成 | user=%s", user.username if user else None)
+                logger.debug("[Pipeline] 认证完成 | user={}", user.username if user else None)
 
         raw_body = None
         if http_request.method in {"POST", "PUT", "PATCH"}:
@@ -98,7 +98,7 @@ class ApiRequestPipeline:
                 )
                 if not is_quiet:
                     logger.debug(
-                        "[Pipeline] Raw body读取完成 | size=%d bytes",
+                        "[Pipeline] Raw body读取完成 | size={} bytes",
                         len(raw_body) if raw_body is not None else 0,
                     )
             except TimeoutError:
@@ -110,7 +110,7 @@ class ApiRequestPipeline:
                 )
         else:
             if not is_quiet:
-                logger.debug("[Pipeline] 非写请求跳过读取Body | method=%s", http_request.method)
+                logger.debug("[Pipeline] 非写请求跳过读取Body | method={}", http_request.method)
 
         context = ApiRequestContext.build(
             request=http_request,
@@ -129,7 +129,7 @@ class ApiRequestPipeline:
         context.quiet_logging = is_quiet
         if not is_quiet:
             logger.debug(
-                "[Pipeline] Context构建完成 | adapter=%s | request_id=%s",
+                "[Pipeline] Context构建完成 | adapter={} | request_id={}",
                 adapter.name,
                 context.request_id,
             )
@@ -138,9 +138,9 @@ class ApiRequestPipeline:
             context.quota_remaining = self._calculate_quota_remaining(user)
 
         if not is_quiet:
-            logger.debug("[Pipeline] Adapter=%s | RequestID=%s", adapter.name, context.request_id)
+            logger.debug("[Pipeline] Adapter={} | RequestID={}", adapter.name, context.request_id)
             logger.debug(
-                "[Pipeline] Calling authorize on %s, user=%s",
+                "[Pipeline] Calling authorize on {}, user={}",
                 adapter.__class__.__name__,
                 context.user,
             )
@@ -187,7 +187,7 @@ class ApiRequestPipeline:
         client_api_key = adapter.extract_api_key(request)
         if not quiet:
             logger.debug(
-                "[Pipeline._authenticate_client] 提取API密钥完成 | key_prefix=%s...",
+                "[Pipeline._authenticate_client] 提取API密钥完成 | key_prefix={}...",
                 client_api_key[:8] if client_api_key else None,
             )
         if not client_api_key:
@@ -197,7 +197,7 @@ class ApiRequestPipeline:
             logger.debug("[Pipeline._authenticate_client] 调用 auth_service.authenticate_api_key")
         auth_result = self.auth_service.authenticate_api_key(db, client_api_key)
         if not quiet:
-            logger.debug("[Pipeline._authenticate_client] 认证结果 | result=%s", bool(auth_result))
+            logger.debug("[Pipeline._authenticate_client] 认证结果 | result={}", bool(auth_result))
         if not auth_result:
             raise HTTPException(status_code=401, detail="无效的API密钥")
 

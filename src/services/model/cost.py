@@ -430,7 +430,7 @@ class ModelCostService:
             price_per_request = self.get_request_price(provider, model)
             if price_per_request is None or price_per_request == 0.0:
                 logger.warning(
-                    "未找到模型价格配置: %s/%s，请在 GlobalModel 中配置价格",
+                    "未找到模型价格配置: {}/{}，请在 GlobalModel 中配置价格",
                     provider_name,
                     model,
                 )

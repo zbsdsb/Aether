@@ -57,13 +57,11 @@ class VideoAdapterBase(ApiAdapter):
         path = http_request.url.path.lower()
         task_id = path_params.get("task_id")
 
-        if method in {"POST", "PUT", "PATCH"}:
-            original_request_body = context.ensure_json_body()
-        else:
-            original_request_body = {}
+        # Note: not every POST endpoint requires a body (e.g. cancel).
+        original_request_body: dict[str, Any] = {}
 
         logger.debug(
-            "[VideoAdapter] dispatch method=%s path=%s task_id=%s",
+            "[VideoAdapter] dispatch method={} path={} task_id={}",
             method,
             path,
             task_id,
@@ -105,6 +103,7 @@ class VideoAdapterBase(ApiAdapter):
 
         # Remix task
         if method == "POST" and path.endswith("/remix") and task_id:
+            original_request_body = context.ensure_json_body()
             return await handler.handle_remix_task(
                 task_id=task_id,
                 http_request=http_request,
@@ -134,6 +133,8 @@ class VideoAdapterBase(ApiAdapter):
             )
 
         # Create task (default)
+        if method in {"POST", "PUT", "PATCH"}:
+            original_request_body = context.ensure_json_body()
         return await handler.handle_create_task(
             http_request=http_request,
             original_headers=context.original_headers,

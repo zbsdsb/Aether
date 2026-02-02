@@ -7,7 +7,7 @@ import pytest
 from src.config.settings import config
 from src.core.api_format.conversion.internal_video import VideoStatus
 from src.services.billing.formula_engine import BillingIncompleteError
-from src.services.task.application import TaskApplicationService
+from src.services.task.service import TaskService
 
 
 def _make_task(**overrides: Any) -> SimpleNamespace:
@@ -81,18 +81,18 @@ async def test_video_finalize_failed_records_cost_zero(monkeypatch: pytest.Monke
         lambda _self, **_kwargs: {"duration_seconds": 4},
     )
     monkeypatch.setattr(
-        "src.services.task.application.BillingRuleService.find_rule",
+        "src.services.billing.rule_service.BillingRuleService.find_rule",
         lambda *_args, **_kwargs: None,
     )
     # Mock update_settled_billing (used by finalize_video_task)
     update_settled = MagicMock(return_value=True)
     monkeypatch.setattr(
-        "src.services.task.application.UsageService.update_settled_billing",
+        "src.services.usage.service.UsageService.update_settled_billing",
         update_settled,
     )
 
-    app = TaskApplicationService(db)
-    await app.finalize_video_task(task)
+    svc = TaskService(db)
+    await svc.finalize_video_task(task)
 
     # billing_snapshot should be written back to task.request_metadata
     assert task.request_metadata["billing_snapshot"]["cost"] == 0.0
@@ -113,18 +113,18 @@ async def test_video_finalize_completed_no_rule(monkeypatch: pytest.MonkeyPatch)
         lambda _self, **_kwargs: {"duration_seconds": 4},
     )
     monkeypatch.setattr(
-        "src.services.task.application.BillingRuleService.find_rule",
+        "src.services.billing.rule_service.BillingRuleService.find_rule",
         lambda *_args, **_kwargs: None,
     )
     # Mock update_settled_billing (used by finalize_video_task)
     update_settled = MagicMock(return_value=True)
     monkeypatch.setattr(
-        "src.services.task.application.UsageService.update_settled_billing",
+        "src.services.usage.service.UsageService.update_settled_billing",
         update_settled,
     )
 
-    app = TaskApplicationService(db)
-    await app.finalize_video_task(task)
+    svc = TaskService(db)
+    await svc.finalize_video_task(task)
 
     assert task.request_metadata["billing_snapshot"]["status"] == "no_rule"
 
@@ -161,7 +161,7 @@ async def test_video_finalize_strict_mode_missing_required_marks_failed(
     # Mock update_settled_billing (used by finalize_video_task)
     update_settled = MagicMock(return_value=True)
     monkeypatch.setattr(
-        "src.services.task.application.UsageService.update_settled_billing",
+        "src.services.usage.service.UsageService.update_settled_billing",
         update_settled,
     )
 
@@ -169,15 +169,15 @@ async def test_video_finalize_strict_mode_missing_required_marks_failed(
     try:
         config.billing_strict_mode = True
         monkeypatch.setattr(
-            "src.services.task.application.FormulaEngine.evaluate",
+            "src.services.billing.formula_engine.FormulaEngine.evaluate",
             MagicMock(
                 side_effect=BillingIncompleteError(
                     "Missing required dimensions", missing_required=["duration_seconds"]
                 )
             ),
         )
-        app = TaskApplicationService(db)
-        await app.finalize_video_task(task)
+        svc = TaskService(db)
+        await svc.finalize_video_task(task)
     finally:
         config.billing_strict_mode = old
 

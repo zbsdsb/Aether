@@ -133,7 +133,7 @@ class TaskPollerService:
                                 task_obj = self.adapter.get_task(task_db, task_id)
                                 if not task_obj:
                                     logger.warning(
-                                        "[%s] Task %s disappeared during poll",
+                                        "[{}] Task {} disappeared during poll",
                                         self.adapter.task_type,
                                         task_id,
                                     )
@@ -181,7 +181,7 @@ class TaskPollerService:
                             poll_results.append(True)
                         except Exception as exc:
                             logger.exception(
-                                "[%s] Unexpected error polling task %s: %s",
+                                "[{}] Unexpected error polling task {}: {}",
                                 self.adapter.task_type,
                                 task_id,
                                 self.adapter.sanitize_error_message(str(exc)),
@@ -200,7 +200,7 @@ class TaskPollerService:
                         >= self.adapter.consecutive_failure_alert_threshold
                     ):
                         logger.error(
-                            "[ALERT] %s poller: %d consecutive batches failed.",
+                            "[ALERT] {} poller: {} consecutive batches failed.",
                             self.adapter.task_type,
                             self._consecutive_failures,
                         )

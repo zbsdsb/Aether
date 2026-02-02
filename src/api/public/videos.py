@@ -33,6 +33,22 @@ async def create_video_sora(http_request: Request, db: Session = Depends(get_db)
     )
 
 
+@router.post("/v1/videos/{task_id}/cancel")
+async def cancel_video_sora(
+    task_id: str, http_request: Request, db: Session = Depends(get_db)
+) -> Any:
+    """Cancel video task (OpenAI Sora style)."""
+    adapter = OpenAIVideoAdapter()
+    return await pipeline.run(
+        adapter=adapter,
+        http_request=http_request,
+        db=db,
+        mode=adapter.mode,
+        api_format_hint=adapter.allowed_api_formats[0],
+        path_params={"task_id": task_id, "action": "cancel"},
+    )
+
+
 @router.get("/v1/videos/{task_id}")
 async def get_video_task_sora(
     task_id: str, http_request: Request, db: Session = Depends(get_db)

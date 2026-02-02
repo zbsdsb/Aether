@@ -12,6 +12,14 @@ class RetryMode(str, Enum):
     DISABLED = "disabled"  # no retry
 
 
+class FailoverAction(str, Enum):
+    """Failover decision after an attempt error."""
+
+    STOP = "stop"  # stop failover (client error / non-retriable)
+    CONTINUE = "continue"  # continue with next candidate
+    RETRY = "retry"  # retry current candidate
+
+
 @dataclass(frozen=True)
 class RetryPolicy:
     """Unified retry policy."""

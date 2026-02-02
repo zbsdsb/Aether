@@ -254,7 +254,7 @@ def get_vertex_ai_effective_format(
             return normalize_endpoint_signature(user_format_mapping[model])
         except Exception:
             logger.warning(
-                "Invalid vertex_ai model_format_mapping value for model '%s': %r",
+                "Invalid vertex_ai model_format_mapping value for model '{}': {!r}",
                 model,
                 user_format_mapping[model],
             )
@@ -266,7 +266,7 @@ def get_vertex_ai_effective_format(
                 return normalize_endpoint_signature(api_format)
             except Exception:
                 logger.warning(
-                    "Invalid vertex_ai model_format_mapping value for prefix '%s': %r",
+                    "Invalid vertex_ai model_format_mapping value for prefix '{}': {!r}",
                     prefix,
                     api_format,
                 )
@@ -282,7 +282,7 @@ def get_vertex_ai_effective_format(
         try:
             return normalize_endpoint_signature(user_default_format)
         except Exception:
-            logger.warning("Invalid vertex_ai default_format: %r", user_default_format)
+            logger.warning("Invalid vertex_ai default_format: {!r}", user_default_format)
 
     # 5. 内置默认格式
     return VERTEX_AI_DEFAULT_FORMAT

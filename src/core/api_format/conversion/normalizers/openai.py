@@ -393,6 +393,14 @@ class OpenAINormalizer(FormatNormalizer):
 
         choices = chunk.get("choices") or []
         if not choices or not isinstance(choices, list):
+            # OpenAI streaming may send a final "usage-only" chunk when
+            # stream_options.include_usage=true, where `choices` is empty but `usage` exists.
+            usage_info = self._openai_usage_to_internal(chunk.get("usage"))
+            if usage_info is not None and (usage_info.total_tokens or usage_info.input_tokens or usage_info.output_tokens):
+                # For cross-format targets (e.g. Gemini), emitting usage as a late MessageStopEvent
+                # allows the target normalizer to surface usage metadata even if the stop chunk
+                # didn't carry it.
+                events.append(MessageStopEvent(stop_reason=None, usage=usage_info))
             return events
 
         c0 = choices[0] if choices else {}
@@ -1136,6 +1144,12 @@ class OpenAINormalizer(FormatNormalizer):
         total_tokens = usage.get("total_tokens")
         if total_tokens is None:
             total_tokens = input_tokens + output_tokens
+        total_tokens_int = int(total_tokens)
+
+        # Some OpenAI-compatible providers may include a placeholder `usage` object with 0s
+        # (or omit fields); treat it as "missing usage" to avoid emitting misleading usageMetadata.
+        if input_tokens == 0 and output_tokens == 0 and total_tokens_int == 0:
+            return None
 
         extra = self._extract_extra(
             usage,
@@ -1144,7 +1158,7 @@ class OpenAINormalizer(FormatNormalizer):
         return UsageInfo(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            total_tokens=int(total_tokens),
+            total_tokens=total_tokens_int,
             extra={"openai": extra} if extra else {},
         )
 

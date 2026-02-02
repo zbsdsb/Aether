@@ -125,7 +125,7 @@ class BillingService:
             return CostResult(cost=cost, status="legacy", snapshot=snapshot)
 
         logger.warning(
-            "No billing rule for task (task_type=%s, model=%s, provider_id=%s)",
+            "No billing rule for task (task_type={}, model={}, provider_id={})",
             task_type,
             model,
             provider_id,

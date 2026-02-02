@@ -15,12 +15,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from src.api.handlers.base.request_builder import PassthroughRequestBuilder
-from src.clients.redis_client import get_redis_client, get_redis_client_sync
+from src.api.handlers.base.request_builder import build_test_request_body, get_provider_auth
+from src.clients.redis_client import get_redis_client
 from src.core.logger import logger
 from src.database import get_db
 from src.database.database import get_pool_status
-from src.models.database import Model, Provider
-from src.services.orchestration.fallback_orchestrator import FallbackOrchestrator
+from src.models.database import Model, Provider, ProviderAPIKey, ProviderEndpoint
 from src.services.provider.transport import build_provider_url
 from src.utils.ssl_utils import get_ssl_context
 
@@ -256,24 +256,58 @@ async def test_connection(
     if not selected_provider:
         raise HTTPException(status_code=503, detail="No active provider available")
 
-    # 构建测试请求体
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": "Health check"}],
-        "max_tokens": 5,
-    }
+    # Determine endpoint format: prefer explicit api_format; otherwise use the provider's first active endpoint.
+    active_endpoints: list[ProviderEndpoint] = [
+        ep for ep in (selected_provider.endpoints or []) if getattr(ep, "is_active", False)
+    ]
+    if not active_endpoints:
+        raise HTTPException(status_code=503, detail="Provider has no active endpoints")
 
-    # 确定 API 格式
-    format_value = api_format or "claude:chat"
+    if api_format:
+        endpoint = next(
+            (ep for ep in active_endpoints if (ep.api_format or "") == api_format),
+            None,
+        )
+        if not endpoint:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Provider has no active endpoint for api_format={api_format}",
+            )
+        format_value = api_format
+    else:
+        endpoint = active_endpoints[0]
+        format_value = endpoint.api_format or "claude:chat"
 
-    # 创建 FallbackOrchestrator
-    redis_client = get_redis_client_sync()
-    orchestrator = FallbackOrchestrator(db, redis_client)
+    # Pick an active ProviderAPIKey that supports this format (best-effort).
+    active_keys: list[ProviderAPIKey] = [
+        k for k in (selected_provider.api_keys or []) if getattr(k, "is_active", False)
+    ]
+    if not active_keys:
+        raise HTTPException(status_code=503, detail="Provider has no active api keys")
 
-    # 定义请求函数
-    async def test_request_func(_prov: Any, endpoint: Any, key: str, _candidate: Any) -> Any:
-        from src.api.handlers.base.request_builder import get_provider_auth
+    def _key_supports_format(k: ProviderAPIKey) -> bool:
+        formats = getattr(k, "api_formats", None)
+        # None => supports all formats; [] => supports none
+        if formats is None:
+            return True
+        if isinstance(formats, list):
+            return str(format_value) in {str(x) for x in formats}
+        # unexpected type: be permissive
+        return True
 
+    key = next((k for k in active_keys if _key_supports_format(k)), active_keys[0])
+
+    # Build a safe test request body in the endpoint's format (via format conversion registry).
+    payload = build_test_request_body(
+        format_value,
+        request_data={
+            "model": model,
+            "messages": [{"role": "user", "content": "Health check"}],
+            "max_tokens": 5,
+        },
+    )
+
+    try:
         # 获取认证信息（处理 Service Account 等异步认证场景）
         auth_info = await get_provider_auth(endpoint, key)
 
@@ -299,19 +333,13 @@ async def test_connection(
         async with httpx.AsyncClient(timeout=30.0, verify=get_ssl_context()) as client:
             resp = await client.post(url, json=provider_payload, headers=provider_headers)
             resp.raise_for_status()
-            return resp.json()
+            response = resp.json()
 
-    try:
-        response, actual_provider, *_ = await orchestrator.execute_with_fallback(
-            api_format=format_value,
-            model_name=model,
-            user_api_key=None,
-            request_func=test_request_func,
-            request_id=None,
-        )
         return {
             "status": "success",
-            "provider": actual_provider,
+            "provider": selected_provider.name,
+            "endpoint_id": getattr(endpoint, "id", None),
+            "api_format": format_value,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "response_id": response.get("id", "unknown"),
         }

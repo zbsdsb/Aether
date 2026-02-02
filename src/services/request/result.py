@@ -8,7 +8,7 @@
 
 使用场景：
 - ProviderService 创建 RequestMetadata
-- FallbackOrchestrator 在异常时补充 RequestMetadata
+- TaskService 在异常时补充 RequestMetadata
 - ChatHandlerBase 使用 RequestResult 记录 Usage
 - ChatAdapterBase 使用 RequestResult 处理异常响应
 """

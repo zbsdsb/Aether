@@ -18,7 +18,7 @@ class GeminiCliMessageHandler(CliMessageHandlerBase):
     Gemini CLI Message Handler - 处理 Gemini CLI API 格式
 
     使用新三层架构 (Provider -> ProviderEndpoint -> ProviderAPIKey)
-    通过 FallbackOrchestrator 实现自动故障转移、健康监控和并发控制
+    通过 TaskService/FailoverEngine 实现自动故障转移、健康监控和并发控制
 
     响应格式特点：
     - Gemini 使用 JSON 数组格式流式响应（非 SSE）

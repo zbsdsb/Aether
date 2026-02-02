@@ -50,7 +50,7 @@ def is_format_compatible(
         endpoint_api_format: 端点的 API 格式
         endpoint_format_acceptance_config: 端点的格式接受配置
         is_stream: 是否是流式请求
-        effective_conversion_enabled: 有效格式转换开关（全局 OR 提供商）
+        effective_conversion_enabled: 格式转换总开关（通常来自环境变量/Feature Flag）
         registry: 转换器注册表（可选，默认使用全局单例）
         skip_endpoint_check: 是否跳过端点配置检查（当全局或提供商开关为 ON 时设为 True）
 
@@ -79,9 +79,9 @@ def is_format_compatible(
         return True, False, None
 
     # 2. 格式不同 -> 需要检查格式转换开关
-    # 如果有效开关为 False（全局 OFF 且提供商 OFF），直接拒绝
+    # 如果总开关为 False，直接拒绝（禁用任何跨格式转换）
     if not effective_conversion_enabled:
-        return False, False, "格式转换已禁用（全局和提供商开关均为关闭）"
+        return False, False, "格式转换已禁用（FORMAT_CONVERSION_ENABLED=false）"
 
     # 3. 如果全局或提供商开关为 ON，跳过端点配置检查
     if not skip_endpoint_check:
