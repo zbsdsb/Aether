@@ -127,14 +127,8 @@ def _normalize_signature_dict(values) -> dict | None:
 
 def _add_video_variants(formats: list[str]) -> list[str]:
     """
-    迁移策略：如果 key/限制里包含 openai/gemini 的 chat/cli，则自动补齐 video 变体。
-
-    这是为了兼容旧数据：历史上 video 复用了 chat 的 api_format。
+    保持原有格式，不自动补齐 video 变体。
     """
-    if any(f.startswith("openai:") for f in formats) and "openai:video" not in formats:
-        formats.append("openai:video")
-    if any(f.startswith("gemini:") for f in formats) and "gemini:video" not in formats:
-        formats.append("gemini:video")
     return formats
 
 
@@ -222,102 +216,9 @@ def migrate_provider_endpoints(connection) -> None:
 
 def create_video_endpoints(connection) -> None:
     """
-    为已有 openai:chat / gemini:chat endpoint 的 provider 创建对应的 *:video endpoint。
-
-    重要：custom_path 必须置空。源 endpoint 的 custom_path 大概率是 Chat 路径，
-    复制过去会导致 Video 请求发到错误路径；置空后走 *:video 的默认路径。
+    不再自动创建 video endpoint，保持原有配置。
     """
-    result = connection.execute(text("""
-            SELECT
-                e1.provider_id,
-                e1.api_family,
-                e1.base_url,
-                e1.is_active,
-                e1.header_rules,
-                e1.max_retries,
-                e1.config,
-                e1.format_acceptance_config,
-                e1.proxy,
-                e1.api_format
-            FROM provider_endpoints e1
-            WHERE e1.api_format IN ('openai:chat', 'gemini:chat')
-              AND NOT EXISTS (
-                SELECT 1 FROM provider_endpoints e2
-                WHERE e2.provider_id = e1.provider_id
-                  AND e2.api_format = CASE
-                    WHEN e1.api_format = 'openai:chat' THEN 'openai:video'
-                    ELSE 'gemini:video'
-                  END
-              )
-            """))
-
-    for row in result:
-        base_format = str(row.api_format or "").strip().lower()
-        if base_format == "openai:chat":
-            new_format = "openai:video"
-            new_family = "openai"
-        elif base_format == "gemini:chat":
-            new_format = "gemini:video"
-            new_family = "gemini"
-        else:
-            continue
-
-        now = datetime.now(timezone.utc)
-        connection.execute(
-            text("""
-                INSERT INTO provider_endpoints
-                (
-                    id,
-                    provider_id,
-                    api_format,
-                    api_family,
-                    endpoint_kind,
-                    base_url,
-                    is_active,
-                    header_rules,
-                    max_retries,
-                    custom_path,
-                    config,
-                    format_acceptance_config,
-                    proxy,
-                    created_at,
-                    updated_at
-                )
-                VALUES
-                (
-                    :id,
-                    :provider_id,
-                    :api_format,
-                    :api_family,
-                    'video',
-                    :base_url,
-                    :is_active,
-                    :header_rules,
-                    :max_retries,
-                    NULL,
-                    :config,
-                    :format_acceptance_config,
-                    :proxy,
-                    :created_at,
-                    :updated_at
-                )
-                """),
-            {
-                "id": str(uuid4()),
-                "provider_id": row.provider_id,
-                "api_format": new_format,
-                "api_family": new_family,
-                "base_url": row.base_url,
-                "is_active": row.is_active,
-                "header_rules": _json_dumps(_json_loads(row.header_rules)),
-                "max_retries": row.max_retries,
-                "config": _json_dumps(_json_loads(row.config)),
-                "format_acceptance_config": _json_dumps(_json_loads(row.format_acceptance_config)),
-                "proxy": _json_dumps(_json_loads(row.proxy)),
-                "created_at": now,
-                "updated_at": now,
-            },
-        )
+    pass
 
 
 def migrate_provider_api_keys(connection) -> None:
@@ -344,24 +245,7 @@ def migrate_provider_api_keys(connection) -> None:
             api_formats = _add_video_variants(api_formats)
 
         rate_multipliers = _normalize_signature_dict(row.rate_multipliers)
-        if isinstance(rate_multipliers, dict):
-            if "openai:chat" in rate_multipliers and "openai:video" not in rate_multipliers:
-                rate_multipliers["openai:video"] = rate_multipliers["openai:chat"]
-            if "gemini:chat" in rate_multipliers and "gemini:video" not in rate_multipliers:
-                rate_multipliers["gemini:video"] = rate_multipliers["gemini:chat"]
-
         global_priority_by_format = _normalize_signature_dict(row.global_priority_by_format)
-        if isinstance(global_priority_by_format, dict):
-            if (
-                "openai:chat" in global_priority_by_format
-                and "openai:video" not in global_priority_by_format
-            ):
-                global_priority_by_format["openai:video"] = global_priority_by_format["openai:chat"]
-            if (
-                "gemini:chat" in global_priority_by_format
-                and "gemini:video" not in global_priority_by_format
-            ):
-                global_priority_by_format["gemini:video"] = global_priority_by_format["gemini:chat"]
 
         health_by_format = _normalize_signature_dict(row.health_by_format)
         circuit_breaker_by_format = _normalize_signature_dict(row.circuit_breaker_by_format)
