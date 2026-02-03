@@ -490,10 +490,10 @@
         <template #actions>
           <Button
             size="sm"
-            :disabled="checkinTimeLoading || !hasCheckinTimeChanged"
-            @click="handleCheckinTimeSave"
+            :disabled="schedulerConfigLoading || !hasSchedulerConfigChanges"
+            @click="handleSchedulerConfigSave"
           >
-            {{ checkinTimeLoading ? '保存中...' : '保存' }}
+            {{ schedulerConfigLoading ? '保存中...' : '保存' }}
           </Button>
         </template>
 
@@ -567,7 +567,7 @@
         </div>
 
         <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div class="flex items-start space-x-2">
+          <div class="flex items-center space-x-2">
             <Switch
               id="enable-user-quota-reset"
               :model-value="systemConfig.enable_user_quota_reset"
@@ -588,22 +588,12 @@
 
           <div
             v-if="systemConfig.enable_user_quota_reset"
-            class="space-y-4"
+            class="grid grid-cols-1 md:grid-cols-2 gap-6"
           >
             <div>
-              <div class="flex items-center justify-between gap-2">
-                <Label class="block text-sm font-medium">
-                  执行时间
-                </Label>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  :disabled="userQuotaResetTimeLoading || !hasUserQuotaResetTimeChanged"
-                  @click="handleUserQuotaResetTimeSave"
-                >
-                  {{ userQuotaResetTimeLoading ? '保存中...' : '保存' }}
-                </Button>
-              </div>
+              <Label class="block text-sm font-medium">
+                执行时间
+              </Label>
               <div class="mt-1 flex items-center gap-2">
                 <Select
                   v-model:open="userQuotaResetHourSelectOpen"
@@ -658,17 +648,10 @@
                   v-model.number="systemConfig.user_quota_reset_interval_days"
                   type="number"
                   min="1"
+                  step="1"
                   class="w-24"
                 />
                 <span class="text-xs text-muted-foreground">天</span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  :disabled="userQuotaResetIntervalSaving"
-                  @click="saveUserQuotaResetInterval"
-                >
-                  {{ userQuotaResetIntervalSaving ? '保存中...' : '保存' }}
-                </Button>
               </div>
               <p class="mt-1 text-xs text-muted-foreground">
                 滚动计算：距离上次成功执行满 N 天后才会再次执行
@@ -1103,7 +1086,6 @@ const basicConfigLoading = ref(false)
 const logConfigLoading = ref(false)
 const cleanupConfigLoading = ref(false)
 const logLevelSelectOpen = ref(false)
-const userQuotaResetIntervalSaving = ref(false)
 
 // 导出/导入相关
 const exportLoading = ref(false)
@@ -1287,6 +1269,7 @@ async function loadSystemConfig() {
     previousCheckinTime.value = systemConfig.value.provider_checkin_time
     // 初始化配额重置时间的原始值（用于回滚）
     previousUserQuotaResetTime.value = systemConfig.value.user_quota_reset_time
+    previousUserQuotaResetIntervalDays.value = systemConfig.value.user_quota_reset_interval_days
   } catch (err) {
     error('加载系统配置失败')
     log.error('加载系统配置失败:', err)
@@ -1429,9 +1412,8 @@ async function handleProviderCheckinToggle(enabled: boolean) {
   }
 }
 
-// 签到时间相关
 const previousCheckinTime = ref('')
-const checkinTimeLoading = ref(false)
+const schedulerConfigLoading = ref(false)
 const checkinHourSelectOpen = ref(false)
 const checkinMinuteSelectOpen = ref(false)
 
@@ -1458,32 +1440,6 @@ const hasCheckinTimeChanged = computed(() => {
   return systemConfig.value.provider_checkin_time !== previousCheckinTime.value
 })
 
-async function handleCheckinTimeSave() {
-  const newTime = systemConfig.value.provider_checkin_time
-
-  // 验证时间格式
-  if (!newTime || !/^\d{2}:\d{2}$/.test(newTime)) {
-    error('请输入有效的时间格式 (HH:MM)')
-    return
-  }
-
-  checkinTimeLoading.value = true
-  try {
-    await adminApi.updateSystemConfig(
-      'provider_checkin_time',
-      newTime,
-      'Provider 自动签到执行时间（HH:MM 格式）'
-    )
-    previousCheckinTime.value = newTime
-    success(`签到时间已设置为 ${newTime}`)
-  } catch (err) {
-    error('保存签到时间失败')
-    log.error('保存签到时间失败:', err)
-  } finally {
-    checkinTimeLoading.value = false
-  }
-}
-
 async function handleUserQuotaResetToggle(enabled: boolean) {
   const previousValue = systemConfig.value.enable_user_quota_reset
   systemConfig.value.enable_user_quota_reset = enabled
@@ -1504,9 +1460,9 @@ async function handleUserQuotaResetToggle(enabled: boolean) {
 
 // 用户配额重置时间相关
 const previousUserQuotaResetTime = ref('')
-const userQuotaResetTimeLoading = ref(false)
 const userQuotaResetHourSelectOpen = ref(false)
 const userQuotaResetMinuteSelectOpen = ref(false)
+const previousUserQuotaResetIntervalDays = ref(1)
 
 const userQuotaResetHour = computed(() => {
   const time = systemConfig.value.user_quota_reset_time
@@ -1528,54 +1484,94 @@ const hasUserQuotaResetTimeChanged = computed(() => {
   return systemConfig.value.user_quota_reset_time !== previousUserQuotaResetTime.value
 })
 
-async function handleUserQuotaResetTimeSave() {
-  const newTime = systemConfig.value.user_quota_reset_time
+const hasUserQuotaResetIntervalChanged = computed(() => {
+  return systemConfig.value.user_quota_reset_interval_days !== previousUserQuotaResetIntervalDays.value
+})
 
-  if (!newTime || !/^\d{2}:\d{2}$/.test(newTime)) {
-    error('请输入有效的时间格式 (HH:MM)')
-    return
+const hasSchedulerConfigChanges = computed(() => {
+  return (
+    hasCheckinTimeChanged.value ||
+    hasUserQuotaResetTimeChanged.value ||
+    hasUserQuotaResetIntervalChanged.value
+  )
+})
+
+async function handleSchedulerConfigSave() {
+  const configItems: Array<{ key: string, value: any, description: string, onSuccess: () => void }> = []
+
+  if (hasCheckinTimeChanged.value) {
+    const newTime = systemConfig.value.provider_checkin_time
+    if (!newTime || !/^\d{2}:\d{2}$/.test(newTime)) {
+      error('请输入有效的时间格式 (HH:MM)')
+      return
+    }
+    configItems.push({
+      key: 'provider_checkin_time',
+      value: newTime,
+      description: 'Provider 自动签到执行时间（HH:MM 格式）',
+      onSuccess: () => {
+        previousCheckinTime.value = newTime
+      }
+    })
   }
 
-  userQuotaResetTimeLoading.value = true
-  try {
-    await adminApi.updateSystemConfig(
-      'user_quota_reset_time',
-      newTime,
-      '用户配额自动重置执行时间（HH:MM 格式）'
-    )
-    previousUserQuotaResetTime.value = newTime
-    success(`用户配额重置时间已设置为 ${newTime}`)
-  } catch (err) {
-    error('保存用户配额重置时间失败')
-    log.error('保存用户配额重置时间失败:', err)
-  } finally {
-    userQuotaResetTimeLoading.value = false
+  if (hasUserQuotaResetTimeChanged.value) {
+    const newTime = systemConfig.value.user_quota_reset_time
+    if (!newTime || !/^\d{2}:\d{2}$/.test(newTime)) {
+      error('请输入有效的时间格式 (HH:MM)')
+      return
+    }
+    configItems.push({
+      key: 'user_quota_reset_time',
+      value: newTime,
+      description: '用户配额自动重置执行时间（HH:MM 格式）',
+      onSuccess: () => {
+        previousUserQuotaResetTime.value = newTime
+      }
+    })
   }
-}
 
-async function saveUserQuotaResetInterval() {
-  const previousValue = systemConfig.value.user_quota_reset_interval_days
-  let intervalDays = Number(systemConfig.value.user_quota_reset_interval_days)
-  if (!Number.isFinite(intervalDays) || intervalDays < 1) intervalDays = 1
+  if (hasUserQuotaResetIntervalChanged.value) {
+    let intervalDays = Number(systemConfig.value.user_quota_reset_interval_days)
+    if (!Number.isFinite(intervalDays) || intervalDays < 1) intervalDays = 1
+    intervalDays = Math.trunc(intervalDays)
 
-  // 规范化显示值
-  systemConfig.value.user_quota_reset_interval_days = intervalDays
+    systemConfig.value.user_quota_reset_interval_days = intervalDays
 
-  userQuotaResetIntervalSaving.value = true
+    configItems.push({
+      key: 'user_quota_reset_interval_days',
+      value: intervalDays,
+      description: '用户配额重置周期（天数），滚动计算',
+      onSuccess: () => {
+        previousUserQuotaResetIntervalDays.value = intervalDays
+      }
+    })
+  }
+
+  if (configItems.length === 0) return
+
+  schedulerConfigLoading.value = true
+  const failedKeys: string[] = []
+
   try {
-    await adminApi.updateSystemConfig(
-      'user_quota_reset_interval_days',
-      intervalDays,
-      '用户配额重置周期（天数），滚动计算'
-    )
-    success('用户配额重置周期已保存')
-  } catch (err) {
-    error('保存配置失败')
-    log.error('保存用户配额重置周期失败:', err)
-    // 回滚状态
-    systemConfig.value.user_quota_reset_interval_days = previousValue
+    for (const item of configItems) {
+      try {
+        await adminApi.updateSystemConfig(item.key, item.value, item.description)
+        item.onSuccess()
+      } catch (err) {
+        failedKeys.push(item.key)
+        log.error(`保存定时任务配置失败: ${item.key}`, err)
+      }
+    }
+
+    if (failedKeys.length > 0) {
+      error(`部分配置保存失败: ${failedKeys.join(', ')}`)
+      return
+    }
+
+    success('定时任务配置已保存')
   } finally {
-    userQuotaResetIntervalSaving.value = false
+    schedulerConfigLoading.value = false
   }
 }
 
