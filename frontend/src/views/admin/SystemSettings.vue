@@ -496,6 +496,7 @@
             {{ checkinTimeLoading ? '保存中...' : '保存' }}
           </Button>
         </template>
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div class="flex items-center space-x-2">
             <Switch
@@ -562,6 +563,117 @@
             <p class="mt-1 text-xs text-muted-foreground">
               每天定时执行（24小时制）
             </p>
+          </div>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="flex items-start space-x-2">
+            <Switch
+              id="enable-user-quota-reset"
+              :model-value="systemConfig.enable_user_quota_reset"
+              @update:model-value="handleUserQuotaResetToggle"
+            />
+            <div>
+              <Label
+                for="enable-user-quota-reset"
+                class="cursor-pointer"
+              >
+                启用用户配额自动重置
+              </Label>
+              <p class="text-xs text-muted-foreground">
+                每天定时触发，按周期执行
+              </p>
+            </div>
+          </div>
+
+          <div
+            v-if="systemConfig.enable_user_quota_reset"
+            class="space-y-4"
+          >
+            <div>
+              <div class="flex items-center justify-between gap-2">
+                <Label class="block text-sm font-medium">
+                  执行时间
+                </Label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  :disabled="userQuotaResetTimeLoading || !hasUserQuotaResetTimeChanged"
+                  @click="handleUserQuotaResetTimeSave"
+                >
+                  {{ userQuotaResetTimeLoading ? '保存中...' : '保存' }}
+                </Button>
+              </div>
+              <div class="mt-1 flex items-center gap-2">
+                <Select
+                  v-model:open="userQuotaResetHourSelectOpen"
+                  :model-value="userQuotaResetHour"
+                  @update:model-value="(val: string) => updateUserQuotaResetTime(val, userQuotaResetMinute)"
+                >
+                  <SelectTrigger class="w-20">
+                    <SelectValue placeholder="时" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="h in 24"
+                      :key="h - 1"
+                      :value="String(h - 1).padStart(2, '0')"
+                    >
+                      {{ String(h - 1).padStart(2, '0') }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <span class="text-muted-foreground">:</span>
+                <Select
+                  v-model:open="userQuotaResetMinuteSelectOpen"
+                  :model-value="userQuotaResetMinute"
+                  @update:model-value="(val: string) => updateUserQuotaResetTime(userQuotaResetHour, val)"
+                >
+                  <SelectTrigger class="w-20">
+                    <SelectValue placeholder="分" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="m in 60"
+                      :key="m - 1"
+                      :value="String(m - 1).padStart(2, '0')"
+                    >
+                      {{ String(m - 1).padStart(2, '0') }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p class="mt-1 text-xs text-muted-foreground">
+                每天定时执行（24小时制）
+              </p>
+            </div>
+
+            <div>
+              <Label class="block text-sm font-medium">
+                重置周期
+              </Label>
+              <div class="mt-1 flex items-center gap-2 flex-wrap">
+                <span class="text-xs text-muted-foreground">每</span>
+                <Input
+                  v-model.number="systemConfig.user_quota_reset_interval_days"
+                  type="number"
+                  min="1"
+                  class="w-24"
+                />
+                <span class="text-xs text-muted-foreground">天</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  :disabled="userQuotaResetIntervalSaving"
+                  @click="saveUserQuotaResetInterval"
+                >
+                  {{ userQuotaResetIntervalSaving ? '保存中...' : '保存' }}
+                </Button>
+              </div>
+              <p class="mt-1 text-xs text-muted-foreground">
+                滚动计算：距离上次成功执行满 N 天后才会再次执行
+              </p>
+            </div>
           </div>
         </div>
       </CardSection>
@@ -982,12 +1094,16 @@ interface SystemConfig {
   // 定时任务
   enable_provider_checkin: boolean
   provider_checkin_time: string
+  enable_user_quota_reset: boolean
+  user_quota_reset_time: string
+  user_quota_reset_interval_days: number
 }
 
 const basicConfigLoading = ref(false)
 const logConfigLoading = ref(false)
 const cleanupConfigLoading = ref(false)
 const logLevelSelectOpen = ref(false)
+const userQuotaResetIntervalSaving = ref(false)
 
 // 导出/导入相关
 const exportLoading = ref(false)
@@ -1039,6 +1155,9 @@ const systemConfig = ref<SystemConfig>({
   // 定时任务
   enable_provider_checkin: true,
   provider_checkin_time: '01:05',
+  enable_user_quota_reset: false,
+  user_quota_reset_time: '05:00',
+  user_quota_reset_interval_days: 1,
 })
 
 // 原始配置值（用于检测变动）
@@ -1147,6 +1266,9 @@ async function loadSystemConfig() {
       // 定时任务
       'enable_provider_checkin',
       'provider_checkin_time',
+      'enable_user_quota_reset',
+      'user_quota_reset_time',
+      'user_quota_reset_interval_days',
     ]
 
     for (const key of configs) {
@@ -1163,6 +1285,8 @@ async function loadSystemConfig() {
     originalConfig.value = JSON.parse(JSON.stringify(systemConfig.value))
     // 初始化签到时间的原始值（用于回滚）
     previousCheckinTime.value = systemConfig.value.provider_checkin_time
+    // 初始化配额重置时间的原始值（用于回滚）
+    previousUserQuotaResetTime.value = systemConfig.value.user_quota_reset_time
   } catch (err) {
     error('加载系统配置失败')
     log.error('加载系统配置失败:', err)
@@ -1357,6 +1481,101 @@ async function handleCheckinTimeSave() {
     log.error('保存签到时间失败:', err)
   } finally {
     checkinTimeLoading.value = false
+  }
+}
+
+async function handleUserQuotaResetToggle(enabled: boolean) {
+  const previousValue = systemConfig.value.enable_user_quota_reset
+  systemConfig.value.enable_user_quota_reset = enabled
+  try {
+    await adminApi.updateSystemConfig(
+      'enable_user_quota_reset',
+      enabled,
+      '是否启用用户配额自动重置任务'
+    )
+    success(enabled ? '已启用用户配额自动重置' : '已禁用用户配额自动重置')
+  } catch (err) {
+    error('保存配置失败')
+    log.error('保存用户配额自动重置配置失败:', err)
+    // 回滚状态
+    systemConfig.value.enable_user_quota_reset = previousValue
+  }
+}
+
+// 用户配额重置时间相关
+const previousUserQuotaResetTime = ref('')
+const userQuotaResetTimeLoading = ref(false)
+const userQuotaResetHourSelectOpen = ref(false)
+const userQuotaResetMinuteSelectOpen = ref(false)
+
+const userQuotaResetHour = computed(() => {
+  const time = systemConfig.value.user_quota_reset_time
+  if (!time || !time.includes(':')) return '05'
+  return time.split(':')[0]
+})
+
+const userQuotaResetMinute = computed(() => {
+  const time = systemConfig.value.user_quota_reset_time
+  if (!time || !time.includes(':')) return '00'
+  return time.split(':')[1]
+})
+
+function updateUserQuotaResetTime(hour: string, minute: string) {
+  systemConfig.value.user_quota_reset_time = `${hour}:${minute}`
+}
+
+const hasUserQuotaResetTimeChanged = computed(() => {
+  return systemConfig.value.user_quota_reset_time !== previousUserQuotaResetTime.value
+})
+
+async function handleUserQuotaResetTimeSave() {
+  const newTime = systemConfig.value.user_quota_reset_time
+
+  if (!newTime || !/^\d{2}:\d{2}$/.test(newTime)) {
+    error('请输入有效的时间格式 (HH:MM)')
+    return
+  }
+
+  userQuotaResetTimeLoading.value = true
+  try {
+    await adminApi.updateSystemConfig(
+      'user_quota_reset_time',
+      newTime,
+      '用户配额自动重置执行时间（HH:MM 格式）'
+    )
+    previousUserQuotaResetTime.value = newTime
+    success(`用户配额重置时间已设置为 ${newTime}`)
+  } catch (err) {
+    error('保存用户配额重置时间失败')
+    log.error('保存用户配额重置时间失败:', err)
+  } finally {
+    userQuotaResetTimeLoading.value = false
+  }
+}
+
+async function saveUserQuotaResetInterval() {
+  const previousValue = systemConfig.value.user_quota_reset_interval_days
+  let intervalDays = Number(systemConfig.value.user_quota_reset_interval_days)
+  if (!Number.isFinite(intervalDays) || intervalDays < 1) intervalDays = 1
+
+  // 规范化显示值
+  systemConfig.value.user_quota_reset_interval_days = intervalDays
+
+  userQuotaResetIntervalSaving.value = true
+  try {
+    await adminApi.updateSystemConfig(
+      'user_quota_reset_interval_days',
+      intervalDays,
+      '用户配额重置周期（天数），滚动计算'
+    )
+    success('用户配额重置周期已保存')
+  } catch (err) {
+    error('保存配置失败')
+    log.error('保存用户配额重置周期失败:', err)
+    // 回滚状态
+    systemConfig.value.user_quota_reset_interval_days = previousValue
+  } finally {
+    userQuotaResetIntervalSaving.value = false
   }
 }
 
