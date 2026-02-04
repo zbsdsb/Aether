@@ -433,7 +433,7 @@ const formatLatency = (ms: number | undefined | null): string => {
 const timeline = computed<CandidateRecord[]>(() => {
   if (!trace.value) return []
   return [...trace.value.candidates]
-    .filter(c => ['success', 'failed', 'skipped', 'available', 'pending', 'streaming'].includes(c.status))
+    .filter(c => ['success', 'failed', 'skipped', 'cancelled', 'pending', 'streaming'].includes(c.status))
     .sort((a, b) => {
       const startedA = a.started_at ? new Date(a.started_at).getTime() : Infinity
       const startedB = b.started_at ? new Date(b.started_at).getTime() : Infinity
