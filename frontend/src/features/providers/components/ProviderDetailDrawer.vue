@@ -507,10 +507,12 @@
                 >
                   <Key class="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p class="text-sm">
-                    暂无密钥配置
+                    {{ provider.provider_type === 'custom' ? '暂无密钥配置' : '暂无账号配置' }}
                   </p>
                   <p class="text-xs mt-1">
-                    {{ endpoints.length > 0 ? '点击上方"添加密钥"按钮创建第一个密钥' : '请先添加端点，然后再添加密钥' }}
+                    {{ endpoints.length > 0
+                      ? (provider.provider_type === 'custom' ? '点击上方"添加密钥"按钮创建第一个密钥' : '点击上方"添加账号"按钮添加第一个账号')
+                      : '请先添加端点，然后再添加密钥' }}
                   </p>
                 </div>
               </Card>
@@ -565,7 +567,6 @@
     :available-api-formats="provider?.api_formats || []"
     @close="keyFormDialogOpen = false"
     @saved="handleKeyChanged"
-    @edit-created-key="handleEditCreatedKey"
   />
 
   <!-- OAuth 账号对话框 -->
@@ -946,10 +947,6 @@ function handleEditKey(endpoint: ProviderEndpoint | undefined, key: EndpointAPIK
   currentEndpoint.value = endpoint || null
   editingKey.value = key
   keyFormDialogOpen.value = true
-}
-
-function handleEditCreatedKey(key: EndpointAPIKey) {
-  editingKey.value = key
 }
 
 function handleKeyPermissions(key: EndpointAPIKey) {
