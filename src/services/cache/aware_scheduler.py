@@ -34,12 +34,13 @@ import hashlib
 import random
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session, selectinload
 
-from src.core.api_format.enums import EndpointKind
+from src.core.api_format.enums import ApiFamily, EndpointKind
 from src.core.api_format.signature import make_signature_key, parse_signature_key
 from src.core.exceptions import ModelNotSupportedException, ProviderNotAvailableException
 from src.core.logger import logger
@@ -101,6 +102,21 @@ class ConcurrencySnapshot:
             f"cached={self.is_cached_user}, "
             f"reserve={reservation_text}({self.reservation_phase})"
         )
+
+
+def _sort_endpoints_by_family_priority(
+    eps: Sequence[ProviderEndpoint],
+) -> list[ProviderEndpoint]:
+    """按 ApiFamily 优先级对端点排序（同分组内使用）。"""
+
+    def sort_key(ep: ProviderEndpoint) -> int:
+        family_str = str(getattr(ep, "api_family", "") or "").strip().lower()
+        try:
+            return ApiFamily(family_str).priority
+        except ValueError:
+            return 99
+
+    return sorted(eps, key=sort_key)
 
 
 class CacheAwareScheduler:
@@ -1149,7 +1165,12 @@ class CacheAwareScheduler:
                 else:
                     fallback_other_family.append(ep)
 
-            endpoints = preferred + preferred_other_family + fallback + fallback_other_family
+            endpoints = (
+                _sort_endpoints_by_family_priority(preferred)
+                + _sort_endpoints_by_family_priority(preferred_other_family)
+                + _sort_endpoints_by_family_priority(fallback)
+                + _sort_endpoints_by_family_priority(fallback_other_family)
+            )
 
             for endpoint in endpoints:
                 logger.debug(

@@ -17,6 +17,15 @@ class ApiFamily(str, Enum):
     CLAUDE = "claude"  # claude-compatible
     GEMINI = "gemini"  # gemini-compatible
 
+    @property
+    def priority(self) -> int:
+        """基础优先级（数字越小越优先）"""
+        return {
+            ApiFamily.OPENAI: 1,
+            ApiFamily.CLAUDE: 2,
+            ApiFamily.GEMINI: 3,
+        }.get(self, 99)
+
 
 class EndpointKind(str, Enum):
     """
