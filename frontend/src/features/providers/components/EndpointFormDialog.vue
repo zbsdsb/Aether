@@ -64,6 +64,7 @@
                 </Button>
                 <!-- 删除 -->
                 <Button
+                  v-if="!isFixedProvider"
                   variant="ghost"
                   size="icon"
                   class="h-7 w-7 hover:text-destructive"
@@ -438,13 +439,6 @@
         class="text-center py-8 text-muted-foreground"
       >
         <p>所有 API 格式都已配置</p>
-      </div>
-
-      <div
-        v-else-if="isFixedProvider"
-        class="text-center py-6 text-xs text-muted-foreground"
-      >
-        固定类型 Provider 的端点已锁定并由系统自动维护。
       </div>
     </div>
 

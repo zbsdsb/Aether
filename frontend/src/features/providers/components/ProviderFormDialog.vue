@@ -19,14 +19,6 @@
 
         <div class="grid grid-cols-2 gap-4">
           <div class="space-y-1.5">
-            <Label for="name">名称 *</Label>
-            <Input
-              id="name"
-              v-model="form.name"
-              placeholder="例如: OpenAI 主账号"
-            />
-          </div>
-          <div class="space-y-1.5">
             <Label>提供商类型</Label>
             <Select
               v-model="form.provider_type"
@@ -48,27 +40,36 @@
               v-if="!isEditMode && form.provider_type !== 'custom'"
               class="text-xs text-muted-foreground"
             >
-              固定类型 Provider 将自动创建并锁定端点（base_url/custom_path 不可修改）。
+              反代使用固定端点且不可修改
             </p>
+          </div>
+          <div class="space-y-1.5">
+            <Label for="name">名称 *</Label>
+            <Input
+              id="name"
+              v-model="form.name"
+              placeholder="例如: OpenAI 主账号"
+            />
           </div>
         </div>
 
-        <div class="space-y-1.5">
-          <Label for="description">描述</Label>
-          <Input
-            id="description"
-            v-model="form.description"
-            placeholder="提供商描述（可选）"
-          />
-        </div>
-
-        <div class="space-y-1.5">
-          <Label for="website">主站链接</Label>
-          <Input
-            id="website"
-            v-model="form.website"
-            placeholder="https://example.com（可选）"
-          />
+        <div class="grid grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <Label for="description">描述</Label>
+            <Input
+              id="description"
+              v-model="form.description"
+              placeholder="提供商描述（可选）"
+            />
+          </div>
+          <div class="space-y-1.5">
+            <Label for="website">主站链接</Label>
+            <Input
+              id="website"
+              v-model="form.website"
+              placeholder="https://example.com（可选）"
+            />
+          </div>
         </div>
       </div>
 
