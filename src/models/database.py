@@ -482,12 +482,12 @@ class LDAPConfig(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     server_url = Column(String(255), nullable=False)  # ldap://host:389 或 ldaps://host:636
-    bind_dn = Column(String(255), nullable=False)  # 绑定账号 DN
+    bind_dn = Column(Text, nullable=False)  # 绑定账号 DN（可能很长）
     bind_password_encrypted = Column(Text, nullable=True)  # 加密的绑定密码（允许 NULL 表示已清除）
-    base_dn = Column(String(255), nullable=False)  # 用户搜索基础 DN
+    base_dn = Column(Text, nullable=False)  # 用户搜索基础 DN（可能很长）
     user_search_filter = Column(
-        String(500), default="(uid={username})", nullable=False
-    )  # 用户搜索过滤器
+        Text, default="(uid={username})", nullable=False
+    )  # 用户搜索过滤器（可能很复杂）
     username_attr = Column(
         String(50), default="uid", nullable=False
     )  # 用户名属性 (uid/sAMAccountName)
@@ -548,7 +548,7 @@ class OAuthProvider(Base):
     provider_type = Column(String(50), primary_key=True)
     display_name = Column(String(100), nullable=False)
 
-    client_id = Column(String(255), nullable=False)
+    client_id = Column(Text, nullable=False)  # 某些 OAuth 提供商可能使用很长的 client_id
     client_secret_encrypted = Column(Text, nullable=True)  # 允许 NULL 表示尚未配置/已清除
 
     # 可选覆盖端点（需在业务层做白名单校验）
@@ -637,6 +637,11 @@ class Provider(Base):
     name = Column(String(100), unique=True, nullable=False, index=True)  # 提供商名称（唯一）
     description = Column(Text, nullable=True)  # 提供商描述
     website = Column(String(500), nullable=True)  # 主站网站
+
+    # Provider 类型（用于模板化固定 Provider / 自定义 Provider）
+    # - custom: 自定义
+    # - claude_code / codex / gemini_cli / antigravity: 固定类型
+    provider_type = Column(String(20), default="custom", nullable=False)
 
     # 计费类型配置
     billing_type = Column(
@@ -1298,7 +1303,7 @@ class ProviderAPIKey(Base):
     # API密钥（加密存储）
     # - auth_type="api_key" 时：存储 API Key 字符串
     # - auth_type="vertex_ai" 等：可为空，敏感凭证存在 auth_config 中
-    api_key = Column(String(500), nullable=False)  # 保持 NOT NULL 兼容历史数据
+    api_key = Column(Text, nullable=False)  # 使用 Text 支持加密后的 OAuth token
 
     # 认证配置（加密存储）
     # - auth_type="api_key" 时：可为空
@@ -1385,6 +1390,13 @@ class ProviderAPIKey(Base):
     # 模型过滤规则（支持 * 和 ? 通配符，如 "gpt-*", "claude-?-sonnet"）
     model_include_patterns = Column(JSON, nullable=True)  # 包含规则列表，空表示不过滤（包含所有）
     model_exclude_patterns = Column(JSON, nullable=True)  # 排除规则列表，空表示不排除
+
+    # 上游元数据（由响应头解析器采集，如 Codex 额度信息）
+    upstream_metadata = Column(JSON, nullable=True, default=dict)
+
+    # OAuth 失效状态（账号被封、授权撤销、刷新失败等）
+    oauth_invalid_at = Column(DateTime(timezone=True), nullable=True)  # 失效时间
+    oauth_invalid_reason = Column(String(255), nullable=True)  # 失效原因
 
     # 时间戳
     created_at = Column(

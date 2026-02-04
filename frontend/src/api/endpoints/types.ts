@@ -192,7 +192,7 @@ export interface EndpointAPIKey {
   api_formats: string[]  // 支持的 endpoint signature 列表（如 "openai:chat"）
   api_key_masked: string
   api_key_plain?: string | null
-  auth_type: 'api_key' | 'vertex_ai'  // 认证类型（必返回）
+  auth_type: 'api_key' | 'vertex_ai' | 'oauth'  // 认证类型（必返回）
   name: string  // 密钥名称（必填，用于识别）
   rate_multipliers?: Record<string, number> | null  // 按 endpoint signature 的成本倍率
   internal_priority: number  // Key 内部优先级
@@ -247,6 +247,30 @@ export interface EndpointAPIKey {
   // 模型过滤规则（仅当 auto_fetch_models=true 时生效）
   model_include_patterns?: string[]  // 模型包含规则（支持 * 和 ? 通配符）
   model_exclude_patterns?: string[]  // 模型排除规则（支持 * 和 ? 通配符）
+  // OAuth 相关
+  oauth_expires_at?: number | null  // OAuth Token 过期时间（Unix 时间戳）
+  oauth_email?: string | null  // OAuth 授权的邮箱
+  oauth_plan_type?: string | null  // Codex 订阅类型: plus/free/team/enterprise
+  oauth_account_id?: string | null  // Codex ChatGPT 账号 ID
+  oauth_invalid_at?: number | null  // OAuth Token 失效时间（Unix 时间戳）
+  oauth_invalid_reason?: string | null  // OAuth Token 失效原因
+  // 上游元数据（由响应头采集，如 Codex 额度信息）
+  upstream_metadata?: CodexUpstreamMetadata | null
+}
+
+// Codex 上游元数据类型
+export interface CodexUpstreamMetadata {
+  plan_type?: string  // 套餐类型
+  primary_used_percent?: number  // 主限额窗口使用百分比
+  primary_reset_seconds?: number  // 主限额重置剩余秒数
+  primary_reset_at?: number  // 主限额重置时间（Unix 时间戳）
+  primary_window_minutes?: number  // 主限额窗口大小（分钟）
+  secondary_used_percent?: number  // 次级限额窗口使用百分比
+  secondary_reset_seconds?: number  // 次级限额重置剩余秒数
+  secondary_reset_at?: number  // 次级限额重置时间（Unix 时间戳）
+  secondary_window_minutes?: number  // 次级限额窗口大小（分钟）
+  has_credits?: boolean  // 是否有积分
+  credits_balance?: number  // 积分余额
 }
 
 // 按格式的健康度数据
@@ -273,7 +297,7 @@ export interface EndpointAPIKeyUpdate {
   api_formats?: string[]  // 支持的 API 格式列表
   name?: string
   api_key?: string  // 仅在需要更新时提供
-  auth_type?: 'api_key' | 'vertex_ai'  // 认证类型
+  auth_type?: 'api_key' | 'vertex_ai' | 'oauth'  // 认证类型
   auth_config?: Record<string, any>  // 认证配置（Vertex AI Service Account JSON）
   rate_multipliers?: Record<string, number> | null  // 按 API 格式的成本倍率
   internal_priority?: number
@@ -360,9 +384,12 @@ export interface PublicEndpointStatusMonitorResponse {
   formats: PublicEndpointStatusMonitor[]
 }
 
+export type ProviderType = 'custom' | 'claude_code' | 'codex' | 'gemini_cli' | 'antigravity'
+
 export interface ProviderWithEndpointsSummary {
   id: string
   name: string
+  provider_type?: ProviderType
   description?: string
   website?: string
   provider_priority: number

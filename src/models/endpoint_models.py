@@ -154,9 +154,7 @@ class ProviderEndpointResponse(BaseModel):
     header_rules: list[HeaderRule] | None = Field(default=None, description="请求头规则列表")
 
     # 请求体配置
-    body_rules: list[BodyRule] | None = Field(
-        default=None, description="请求体规则列表"
-    )
+    body_rules: list[BodyRule] | None = Field(default=None, description="请求体规则列表")
 
     max_retries: int
 
@@ -200,12 +198,16 @@ class EndpointAPIKeyCreate(BaseModel):
     api_key: str = Field(
         default="", max_length=500, description="API Key（标准认证时必填，将自动加密）"
     )
-    auth_type: Literal["api_key", "vertex_ai"] = Field(
+    auth_type: Literal["api_key", "vertex_ai", "oauth"] = Field(
         default="api_key",
-        description="认证类型：api_key（标准 API Key）或 vertex_ai（Vertex AI Service Account）",
+        description="认证类型：api_key（标准 API Key）/ vertex_ai（Vertex AI Service Account）/ oauth（OAuth access_token）",
     )
     auth_config: dict[str, Any] | None = Field(
-        default=None, description="认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON"
+        default=None,
+        description=(
+            "认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON；"
+            "oauth 时存储 token/refresh/expires_at 等（后端加密存储，不在响应中返回）"
+        ),
     )
     name: str = Field(..., min_length=1, max_length=100, description="密钥名称（必填，用于识别）")
 
@@ -360,12 +362,16 @@ class EndpointAPIKeyUpdate(BaseModel):
         max_length=500,
         description="API Key（标准认证时使用，将自动加密）",
     )
-    auth_type: Literal["api_key", "vertex_ai"] | None = Field(
+    auth_type: Literal["api_key", "vertex_ai", "oauth"] | None = Field(
         default=None,
-        description="认证类型：api_key（标准 API Key）或 vertex_ai（Vertex AI Service Account）",
+        description="认证类型：api_key（标准 API Key）/ vertex_ai（Vertex AI Service Account）/ oauth（OAuth access_token）",
     )
     auth_config: dict[str, Any] | None = Field(
-        default=None, description="认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON"
+        default=None,
+        description=(
+            "认证配置（JSON）：vertex_ai 时存储完整 Service Account JSON；"
+            "oauth 时存储 token/refresh/expires_at 等（后端加密存储，不在响应中返回）"
+        ),
     )
     name: str | None = Field(default=None, min_length=1, max_length=100, description="密钥名称")
     rate_multipliers: dict[str, float] | None = Field(
@@ -505,6 +511,20 @@ class EndpointAPIKeyResponse(BaseModel):
     allowed_models: list[str] | None = None
     capabilities: dict[str, bool] | None = Field(default=None, description="Key 能力标签")
 
+    # OAuth 相关
+    oauth_expires_at: int | None = Field(
+        default=None, description="OAuth Token 过期时间（Unix 时间戳）"
+    )
+    oauth_email: str | None = Field(default=None, description="OAuth 账号邮箱")
+    oauth_plan_type: str | None = Field(
+        default=None, description="OAuth 账号套餐类型（如 free/plus/team/enterprise）"
+    )
+    oauth_account_id: str | None = Field(default=None, description="OAuth 账号 ID")
+    oauth_invalid_at: int | None = Field(
+        default=None, description="OAuth Token 失效时间（Unix 时间戳），如账号被封、授权撤销等"
+    )
+    oauth_invalid_reason: str | None = Field(default=None, description="OAuth Token 失效原因")
+
     # 缓存与熔断配置
     cache_ttl_minutes: int = Field(default=5, description="缓存 TTL（分钟），0=禁用")
     max_probe_interval_minutes: int = Field(default=32, description="熔断探测间隔（分钟）")
@@ -564,6 +584,11 @@ class EndpointAPIKeyResponse(BaseModel):
     # 模型过滤规则
     model_include_patterns: list[str] | None = Field(None, description="模型包含规则")
     model_exclude_patterns: list[str] | None = Field(None, description="模型排除规则")
+
+    # 上游元数据（由响应头采集，如 Codex 额度信息）
+    upstream_metadata: dict[str, Any] | None = Field(
+        None, description="上游元数据（如 Codex 额度信息）"
+    )
 
     # 时间戳
     last_used_at: datetime | None = None
@@ -690,6 +715,9 @@ class ProviderWithEndpointsSummary(BaseModel):
     # Provider 基本信息
     id: str
     name: str
+    provider_type: str | None = Field(
+        default=None, description="Provider 类型（custom/claude_code/codex/gemini_cli/antigravity）"
+    )
     description: str | None = None
     website: str | None = None
     provider_priority: int = Field(default=100, description="提供商优先级(数字越小越优先)")
