@@ -21,9 +21,37 @@ HASH_FILE=".deps-hash"
 CODE_HASH_FILE=".code-hash"
 MIGRATION_HASH_FILE=".migration-hash"
 
+# 提取 pyproject.toml 中"会影响运行时依赖安装"的最小指纹（与 CI 保持一致）：
+# - [build-system] requires / build-backend
+# - [project] requires-python / dependencies
+# 使用 Python tomllib 解析，不受 TOML 格式变化影响。
+pyproject_deps_fingerprint() {
+    python3 - <<'PY'
+import json, pathlib, tomllib
+
+data = tomllib.loads(pathlib.Path("pyproject.toml").read_text("utf-8"))
+project = data.get("project") or {}
+build = data.get("build-system") or {}
+
+fingerprint = {
+    "requires-python": project.get("requires-python"),
+    "dependencies": sorted(project.get("dependencies") or []),
+    "build-backend": build.get("build-backend"),
+    "build-requires": sorted(build.get("requires") or []),
+}
+
+print(json.dumps(fingerprint, sort_keys=True, separators=(",", ":")))
+PY
+}
+
 # 计算依赖文件的哈希值（包含 Dockerfile.base.local）
 calc_deps_hash() {
-    cat pyproject.toml frontend/package.json frontend/package-lock.json Dockerfile.base.local 2>/dev/null | md5sum | cut -d' ' -f1
+    {
+        cat Dockerfile.base.local 2>/dev/null
+        pyproject_deps_fingerprint
+        # 前端依赖以 lock 为准（避免仅改 scripts/version 触发 base 重建）
+        cat frontend/package-lock.json 2>/dev/null
+    } | md5sum | cut -d' ' -f1
 }
 
 # 计算代码文件的哈希值（包含 Dockerfile.app.local）

@@ -15,12 +15,17 @@ env:
   REGISTRY: ghcr.io
   BASE_IMAGE_NAME: fawney19/aether-base
   APP_IMAGE_NAME: fawney19/aether
-  # Files that affect base image - used for hash calculation
-  BASE_FILES: "Dockerfile.base pyproject.toml frontend/package.json frontend/package-lock.json"
+  # Base image hash inputs:
+  # - Dockerfile.base
+  # - pyproject.toml (dependency fingerprint only; ignores tool/optional deps)
+  # - frontend/package-lock.json
 
 jobs:
   check-base-changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     outputs:
       base_changed: ${{ steps.check.outputs.base_changed }}
     steps:
@@ -41,15 +46,45 @@ jobs:
             exit 0
           fi
 
-          # Calculate current hash of base-related files
-          CURRENT_HASH=$(cat ${{ env.BASE_FILES }} 2>/dev/null | sha256sum | cut -d' ' -f1)
-          echo "Current base files hash: $CURRENT_HASH"
+          # Calculate current hash of base-related inputs (dependency-only fingerprint)
+          PY_FINGERPRINT=$(python3 - <<'PY'
+          import json
+          import pathlib
+          import tomllib
+          
+          data = tomllib.loads(pathlib.Path("pyproject.toml").read_text("utf-8"))
+          project = data.get("project") or {}
+          build = data.get("build-system") or {}
+          
+          fingerprint = {
+              "requires-python": project.get("requires-python"),
+              "dependencies": sorted(project.get("dependencies") or []),
+              "build-backend": build.get("build-backend"),
+              "build-requires": sorted(build.get("requires") or []),
+          }
+          
+          print(json.dumps(fingerprint, sort_keys=True, separators=(",", ":")))
+          PY
+          )
+          
+          CURRENT_HASH=$(
+            (
+              cat Dockerfile.base
+              printf '%s\n' "$PY_FINGERPRINT"
+              cat frontend/package-lock.json
+            ) | sha256sum | cut -d' ' -f1
+          )
+          echo "Current base hash: $CURRENT_HASH"
 
           # Try to get hash label from remote image config
           # Pull the image config and extract labels
           REMOTE_HASH=""
-          if docker pull ${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}:latest 2>/dev/null; then
+          if docker pull ${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}:latest; then
             REMOTE_HASH=$(docker inspect ${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}:latest --format '{{ index .Config.Labels "org.opencontainers.image.base.hash" }}' 2>/dev/null) || true
+          else
+            echo "WARN: failed to pull remote base image; forcing base rebuild."
+            echo "base_changed=true" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
           if [ -z "$REMOTE_HASH" ] || [ "$REMOTE_HASH" == "<no value>" ]; then
@@ -87,7 +122,33 @@ jobs:
       - name: Calculate base files hash
         id: hash
         run: |
-          HASH=$(cat ${{ env.BASE_FILES }} 2>/dev/null | sha256sum | cut -d' ' -f1)
+          PY_FINGERPRINT=$(python3 - <<'PY'
+          import json
+          import pathlib
+          import tomllib
+          
+          data = tomllib.loads(pathlib.Path("pyproject.toml").read_text("utf-8"))
+          project = data.get("project") or {}
+          build = data.get("build-system") or {}
+          
+          fingerprint = {
+              "requires-python": project.get("requires-python"),
+              "dependencies": sorted(project.get("dependencies") or []),
+              "build-backend": build.get("build-backend"),
+              "build-requires": sorted(build.get("requires") or []),
+          }
+          
+          print(json.dumps(fingerprint, sort_keys=True, separators=(",", ":")))
+          PY
+          )
+          
+          HASH=$(
+            (
+              cat Dockerfile.base
+              printf '%s\n' "$PY_FINGERPRINT"
+              cat frontend/package-lock.json
+            ) | sha256sum | cut -d' ' -f1
+          )
           echo "hash=$HASH" >> $GITHUB_OUTPUT
 
       - name: Extract metadata for base image

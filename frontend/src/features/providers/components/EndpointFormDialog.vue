@@ -51,6 +51,17 @@
                     <Shuffle class="w-3.5 h-3.5" />
                   </Button>
                 </span>
+                <!-- 上游流式三态按钮 -->
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  :class="getUpstreamStreamButtonClass(endpoint)"
+                  :title="getUpstreamStreamTooltip(endpoint)"
+                  :disabled="savingEndpointId === endpoint.id"
+                  @click="handleCycleUpstreamStream(endpoint)"
+                >
+                  <Radio class="w-3.5 h-3.5" />
+                </Button>
                 <!-- 启用/停用 -->
                 <Button
                   variant="ghost"
@@ -81,7 +92,7 @@
             <div class="p-4 space-y-4">
               <!-- URL 配置区 -->
               <div class="flex items-end gap-3">
-                <div class="flex-1 min-w-0 grid grid-cols-4 gap-3">
+                <div class="flex-1 min-w-0 grid grid-cols-3 gap-3">
                   <div class="col-span-2 space-y-1.5">
                     <Label class="text-xs text-muted-foreground">Base URL</Label>
                     <Input
@@ -99,28 +110,6 @@
                       :disabled="isFixedProvider"
                       @update:model-value="(v) => updateEndpointField(endpoint.id, 'path', v)"
                     />
-                  </div>
-                  <div class="space-y-1.5">
-                    <Label class="text-xs text-muted-foreground">上游流式</Label>
-                    <Select
-                      :model-value="getEndpointEditState(endpoint.id)?.upstreamStreamPolicy ?? getEndpointUpstreamStreamPolicy(endpoint)"
-                      @update:model-value="(v) => updateEndpointStreamPolicy(endpoint.id, v as string)"
-                    >
-                      <SelectTrigger class="h-9 text-xs">
-                        <SelectValue placeholder="跟随客户端" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">
-                          跟随客户端
-                        </SelectItem>
-                        <SelectItem value="force_stream">
-                          强制流式
-                        </SelectItem>
-                        <SelectItem value="force_non_stream">
-                          强制非流式
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
                 </div>
                 <!-- 保存/撤销按钮（URL/路径有修改时显示） -->
@@ -505,7 +494,7 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from '@/components/ui'
-import { Settings, Trash2, Check, X, Power, ChevronRight, Plus, Shuffle, RotateCcw } from 'lucide-vue-next'
+import { Settings, Trash2, Check, X, Power, ChevronRight, Plus, Shuffle, RotateCcw, Radio } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { log } from '@/utils/logger'
 import AlertDialog from '@/components/common/AlertDialog.vue'
@@ -777,18 +766,6 @@ function updateEndpointField(endpointId: string, field: 'url' | 'path', value: s
   }
   if (endpointEditStates.value[endpointId]) {
     endpointEditStates.value[endpointId][field] = value
-  }
-}
-
-function updateEndpointStreamPolicy(endpointId: string, value: string) {
-  if (!endpointEditStates.value[endpointId]) {
-    const endpoint = localEndpoints.value.find(e => e.id === endpointId)
-    if (endpoint) {
-      endpointEditStates.value[endpointId] = initEndpointEditState(endpoint)
-    }
-  }
-  if (endpointEditStates.value[endpointId]) {
-    endpointEditStates.value[endpointId].upstreamStreamPolicy = value
   }
 }
 
@@ -1167,7 +1144,7 @@ function hasUrlChanges(endpoint: ProviderEndpoint): boolean {
   if (!state) return false
   if (state.url !== endpoint.base_url) return true
   if (state.path !== (endpoint.custom_path || '')) return true
-  if (state.upstreamStreamPolicy !== getEndpointUpstreamStreamPolicy(endpoint)) return true
+  // 注：upstreamStreamPolicy 现在由头部按钮直接保存，无需在此检查
   return false
 }
 
@@ -1325,19 +1302,7 @@ async function saveEndpoint(endpoint: ProviderEndpoint) {
     if (hasRulesChanges(endpoint)) payload.header_rules = rulesToHeaderRules(state.rules)
     if (hasBodyRulesChanges(endpoint)) payload.body_rules = rulesToBodyRules(state.bodyRules)
 
-    // endpoint.config.upstream_stream_policy
-    if (state.upstreamStreamPolicy !== getEndpointUpstreamStreamPolicy(endpoint)) {
-      const merged: Record<string, any> = { ...(endpoint.config || {}) }
-      // Normalize config keys: keep only canonical `upstream_stream_policy`
-      delete merged.upstream_stream_policy
-      delete merged.upstreamStreamPolicy
-      delete merged.upstream_stream
-
-      if (state.upstreamStreamPolicy !== 'auto') {
-        merged.upstream_stream_policy = state.upstreamStreamPolicy
-      }
-      payload.config = Object.keys(merged).length > 0 ? merged : null
-    }
+    // 注：upstreamStreamPolicy 现在由头部按钮直接保存，不在此处处理
 
     if (Object.keys(payload).length === 0) return
 
@@ -1367,6 +1332,77 @@ async function handleToggleFormatConversion(endpoint: ProviderEndpoint) {
     showError(error.response?.data?.detail || '操作失败', '错误')
   } finally {
     togglingFormatEndpointId.value = null
+  }
+}
+
+// 获取上游流式按钮的当前状态（优先使用编辑状态）
+function getCurrentUpstreamStreamPolicy(endpoint: ProviderEndpoint): string {
+  const state = endpointEditStates.value[endpoint.id]
+  return state?.upstreamStreamPolicy ?? getEndpointUpstreamStreamPolicy(endpoint)
+}
+
+// 获取上游流式按钮的样式类
+function getUpstreamStreamButtonClass(endpoint: ProviderEndpoint): string {
+  const policy = getCurrentUpstreamStreamPolicy(endpoint)
+  const base = 'h-7 w-7'
+  if (policy === 'force_stream') return `${base} text-primary`
+  if (policy === 'force_non_stream') return `${base} text-destructive`
+  return `${base} text-muted-foreground` // auto - 跟随请求，淡色显示
+}
+
+// 获取上游流式按钮的提示文字
+function getUpstreamStreamTooltip(endpoint: ProviderEndpoint): string {
+  const policy = getCurrentUpstreamStreamPolicy(endpoint)
+  if (policy === 'force_stream') return '固定流式（点击切换为固定非流）'
+  if (policy === 'force_non_stream') return '固定非流（点击切换为跟随请求）'
+  return '跟随请求（点击切换为固定流式）'
+}
+
+// 循环切换上游流式策略并直接保存
+async function handleCycleUpstreamStream(endpoint: ProviderEndpoint) {
+  const currentPolicy = getCurrentUpstreamStreamPolicy(endpoint)
+  let nextPolicy: string
+  let nextLabel: string
+
+  // 循环：auto -> force_stream -> force_non_stream -> auto
+  if (currentPolicy === 'auto') {
+    nextPolicy = 'force_stream'
+    nextLabel = '固定流式'
+  } else if (currentPolicy === 'force_stream') {
+    nextPolicy = 'force_non_stream'
+    nextLabel = '固定非流'
+  } else {
+    nextPolicy = 'auto'
+    nextLabel = '跟随请求'
+  }
+
+  savingEndpointId.value = endpoint.id
+  try {
+    const merged: Record<string, any> = { ...(endpoint.config || {}) }
+    // 清理旧的 key
+    delete merged.upstream_stream_policy
+    delete merged.upstreamStreamPolicy
+    delete merged.upstream_stream
+
+    if (nextPolicy !== 'auto') {
+      merged.upstream_stream_policy = nextPolicy
+    }
+
+    await updateEndpoint(endpoint.id, {
+      config: Object.keys(merged).length > 0 ? merged : null,
+    })
+
+    // 更新本地编辑状态
+    if (endpointEditStates.value[endpoint.id]) {
+      endpointEditStates.value[endpoint.id].upstreamStreamPolicy = nextPolicy
+    }
+
+    success(`已切换为${nextLabel}`)
+    emit('endpointUpdated')
+  } catch (error: any) {
+    showError(error.response?.data?.detail || '操作失败', '错误')
+  } finally {
+    savingEndpointId.value = null
   }
 }
 
