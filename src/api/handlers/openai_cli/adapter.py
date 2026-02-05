@@ -16,6 +16,7 @@ from src.api.handlers.base.cli_handler_base import CliMessageHandlerBase
 from src.api.handlers.openai.adapter import OpenAIChatAdapter
 from src.config.settings import config
 from src.core.api_format import ApiFamily
+from src.utils.url_utils import is_codex_url
 
 
 @register_cli_adapter
@@ -75,18 +76,13 @@ class OpenAICliAdapter(CliAdapterBase):
         """
         base_url = base_url.rstrip("/")
         # Codex OAuth 端点：chatgpt.com/backend-api/codex -> /responses
-        if cls._is_codex_url(base_url):
+        if is_codex_url(base_url):
             return f"{base_url}/responses"
         # 标准 OpenAI API
         if base_url.endswith("/v1"):
             return f"{base_url}/responses"
         else:
             return f"{base_url}/v1/responses"
-
-    @classmethod
-    def _is_codex_url(cls, base_url: str) -> bool:
-        """判断是否是 Codex OAuth 端点"""
-        return "/backend-api/codex" in base_url or base_url.endswith("/codex")
 
     # build_request_body 使用基类实现
     # OpenAI CLI normalizer 会自动添加 instructions 字段
@@ -101,7 +97,7 @@ class OpenAICliAdapter(CliAdapterBase):
         """构建测试请求体（Codex 端点需要强制 stream=true 等特性）"""
         from src.api.handlers.base.request_builder import build_test_request_body
 
-        target_variant = "codex" if base_url and cls._is_codex_url(base_url) else None
+        target_variant = "codex" if base_url and is_codex_url(base_url) else None
         return build_test_request_body(
             cls.FORMAT_ID,
             request_data,
@@ -129,7 +125,7 @@ class OpenAICliAdapter(CliAdapterBase):
             headers["User-Agent"] = cli_user_agent
 
         # 仅 Codex 端点添加特定头部
-        if base_url and cls._is_codex_url(base_url):
+        if base_url and is_codex_url(base_url):
             headers["x-oai-web-search-eligible"] = "true"
             headers["session_id"] = str(uuid.uuid4())
             headers["accept"] = "text/event-stream"
