@@ -45,19 +45,38 @@ def test_cli_format_convertible_when_converter_supports_full() -> None:
     assert reason is None
 
 
-def test_global_switch_disabled_blocks_conversion() -> None:
-    """全局开关关闭时阻止转换"""
+def test_global_switch_disabled_falls_back_to_endpoint() -> None:
+    """全局开关关闭时回退到端点配置（分层开关设计）"""
+    registry = MagicMock()
+    registry.can_convert_full.return_value = True
+
+    # 全局 OFF + 端点 enabled -> 允许（端点覆盖全局默认）
     ok, needs_conv, reason = is_format_compatible(
         "claude:chat",
         "openai:chat",
         endpoint_format_acceptance_config={"enabled": True},
         is_stream=False,
         effective_conversion_enabled=False,
+        registry=registry,
+    )
+    assert ok is True
+    assert needs_conv is True
+    assert reason is None
+
+
+def test_global_switch_disabled_blocks_when_endpoint_not_configured() -> None:
+    """全局开关关闭 + 端点未配置 -> 阻止转换"""
+    ok, needs_conv, reason = is_format_compatible(
+        "claude:chat",
+        "openai:chat",
+        endpoint_format_acceptance_config=None,
+        is_stream=False,
+        effective_conversion_enabled=False,
         registry=MagicMock(),
     )
     assert ok is False
     assert needs_conv is False
-    assert reason and "格式转换已禁用" in reason
+    assert reason and "未配置" in reason
 
 
 def test_endpoint_config_none_blocks_conversion() -> None:
@@ -212,8 +231,8 @@ def test_gemini_cli_to_gemini_no_conversion_needed() -> None:
     assert reason is None
 
 
-def test_claude_cli_to_claude_blocked_when_global_switch_disabled() -> None:
-    """透传格式（CLAUDE_CLI -> CLAUDE）也受全局开关限制"""
+def test_claude_cli_to_claude_allowed_when_endpoint_enabled() -> None:
+    """透传格式（CLAUDE_CLI -> CLAUDE）全局 OFF 时回退到端点配置"""
     ok, needs_conv, reason = is_format_compatible(
         "claude:cli",
         "claude:chat",
@@ -222,8 +241,10 @@ def test_claude_cli_to_claude_blocked_when_global_switch_disabled() -> None:
         effective_conversion_enabled=False,
         registry=MagicMock(),
     )
-    assert ok is False
-    assert reason and "格式转换已禁用" in reason
+    # 全局 OFF + 端点 enabled -> 允许（同族透传无需转换）
+    assert ok is True
+    assert needs_conv is False
+    assert reason is None
 
 
 def test_claude_cli_to_claude_blocked_when_endpoint_not_configured() -> None:
@@ -312,8 +333,8 @@ def test_openai_cli_to_openai_fails_without_converter() -> None:
     assert reason and "转换器" in reason
 
 
-def test_openai_cli_to_openai_blocked_when_global_switch_disabled() -> None:
-    """同族转换（OPENAI/OPENAI_CLI）也受全局开关限制"""
+def test_openai_cli_to_openai_allowed_when_endpoint_enabled() -> None:
+    """同族转换（OPENAI/OPENAI_CLI）全局 OFF 时回退到端点配置"""
     registry = MagicMock()
     registry.can_convert_full.return_value = True
 
@@ -325,9 +346,10 @@ def test_openai_cli_to_openai_blocked_when_global_switch_disabled() -> None:
         effective_conversion_enabled=False,  # 全局开关关闭
         registry=registry,
     )
-    assert ok is False
-    assert needs_conv is False
-    assert reason and "格式转换已禁用" in reason
+    # 全局 OFF + 端点 enabled -> 允许（需要转换）
+    assert ok is True
+    assert needs_conv is True
+    assert reason is None
 
 
 def test_openai_cli_to_openai_blocked_when_endpoint_disabled() -> None:

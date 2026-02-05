@@ -78,10 +78,18 @@ def is_format_compatible(
     if provider_key == client_key:
         return True, False, None
 
-    # 2. 格式不同 -> 需要检查格式转换开关
-    # 如果总开关为 False，直接拒绝（禁用任何跨格式转换）
-    if not effective_conversion_enabled:
-        return False, False, "格式转换已禁用（enable_format_conversion=false）"
+    # 2. 格式不同 -> 需要检查格式转换开关（分层开关）
+    #
+    # 设计语义（与模块顶部注释一致）：
+    # - 全局开关 ON  -> 强制允许跨格式（通常 caller 会传 skip_endpoint_check=True）
+    # - 全局开关 OFF -> 不再“一刀切”拒绝，而是回退到 provider/endpoint 开关：
+    #   - provider 开关 ON  -> 强制允许（skip_endpoint_check=True，跳过端点检查）
+    #   - provider 开关 OFF -> 由端点 format_acceptance_config 决定（skip_endpoint_check=False）
+    #
+    # 说明：
+    # - effective_conversion_enabled 表示“全局默认允许”，不是“全局总闸/kill switch”
+    # - 当它为 False 时，我们仍然会继续执行后续检查（provider/endpoint），
+    #   兼容“按 Provider/Endpoint 精细化开启转换”的场景。
 
     # 3. 如果全局或提供商开关为 ON，跳过端点配置检查
     if not skip_endpoint_check:

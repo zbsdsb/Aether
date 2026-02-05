@@ -192,6 +192,7 @@ class CliAdapterBase(ApiAdapter):
                 start_time=start_time,
                 allowed_api_formats=self.allowed_api_formats,
                 adapter_detector=self.detect_capability_requirements,
+                perf_metrics=context.extra.get("perf"),
             )
 
             # 处理请求
@@ -661,6 +662,7 @@ class CliAdapterBase(ApiAdapter):
         if header_rules:
             # 获取认证头名称，防止被规则覆盖
             from src.core.api_format import get_auth_config_for_endpoint
+
             auth_header, _ = get_auth_config_for_endpoint(cls.FORMAT_ID)
             protected_keys = {auth_header.lower(), "content-type"}
 

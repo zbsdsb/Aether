@@ -34,15 +34,20 @@ class DbTelemetryWriter(TelemetryWriter):
 
     # MessageTelemetry 不支持的参数，需要过滤掉
     # - request_type: MessageTelemetry 内部固定为 "chat"，无需外部传入
-    # - metadata: MessageTelemetry 不支持额外元数据字段
-    _IGNORED_KWARGS = frozenset({"request_type", "metadata"})
+    # - metadata: 由本 writer 映射到 request_metadata（用于落库追踪信息）
+    _IGNORED_KWARGS = frozenset({"request_type"})
 
     def __init__(self, telemetry: MessageTelemetry) -> None:
         self._telemetry = telemetry
 
     def _filter_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """过滤掉 MessageTelemetry 不支持的参数"""
-        return {k: v for k, v in kwargs.items() if k not in self._IGNORED_KWARGS}
+        out = {k: v for k, v in kwargs.items() if k not in self._IGNORED_KWARGS}
+        # 兼容 stream 侧传入的 metadata 字段：映射到 MessageTelemetry 的 request_metadata
+        if "metadata" in out and "request_metadata" not in out:
+            out["request_metadata"] = out.get("metadata")
+        out.pop("metadata", None)
+        return out
 
     async def record_success(self, **kwargs: Any) -> None:
         await self._telemetry.record_success(**self._filter_kwargs(kwargs))

@@ -184,6 +184,9 @@ class StreamTelemetryRecorder:
                 "content-type": "text/event-stream",
             }
         )
+        metadata: dict[str, Any] = {"stream": True, "content_length": ctx.data_count}
+        if ctx.perf_metrics:
+            metadata["perf"] = ctx.perf_metrics
 
         await writer.record_success(
             provider=ctx.provider_name or "unknown",
@@ -208,7 +211,7 @@ class StreamTelemetryRecorder:
             provider_api_key_id=ctx.key_id,
             target_model=ctx.mapped_model,
             request_type="chat",
-            metadata={"stream": True, "content_length": ctx.data_count},
+            metadata=metadata,
             endpoint_api_format=ctx.provider_api_format,
             has_format_conversion=ctx.needs_conversion,
         )
@@ -230,6 +233,9 @@ class StreamTelemetryRecorder:
         client_response_headers = ctx.client_response_headers or {
             "content-type": "application/json"
         }
+        metadata: dict[str, Any] = {"stream": True, "content_length": ctx.data_count}
+        if ctx.perf_metrics:
+            metadata["perf"] = ctx.perf_metrics
 
         await writer.record_failure(
             provider=ctx.provider_name or "unknown",
@@ -251,7 +257,7 @@ class StreamTelemetryRecorder:
             client_response_headers=client_response_headers,
             target_model=ctx.mapped_model,
             request_type="chat",
-            metadata={"stream": True, "content_length": ctx.data_count},
+            metadata=metadata,
             endpoint_api_format=ctx.provider_api_format,
             has_format_conversion=ctx.needs_conversion,
         )
@@ -274,6 +280,9 @@ class StreamTelemetryRecorder:
         client_response_headers = ctx.client_response_headers or {
             "content-type": "application/json"
         }
+        metadata: dict[str, Any] = {"stream": True, "content_length": ctx.data_count}
+        if ctx.perf_metrics:
+            metadata["perf"] = ctx.perf_metrics
 
         await writer.record_cancelled(
             provider=ctx.provider_name or "unknown",
@@ -295,7 +304,7 @@ class StreamTelemetryRecorder:
             client_response_headers=client_response_headers,
             target_model=ctx.mapped_model,
             request_type="chat",
-            metadata={"stream": True, "content_length": ctx.data_count},
+            metadata=metadata,
             endpoint_api_format=ctx.provider_api_format,
             has_format_conversion=ctx.needs_conversion,
         )

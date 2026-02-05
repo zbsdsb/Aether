@@ -94,6 +94,10 @@ class StreamContext:
     # 是否记录 parsed_chunks（可用于降低高并发/长流式响应的内存占用）
     record_parsed_chunks: bool = True
 
+    # 性能采集（可选）
+    perf_sampled: bool = False
+    perf_metrics: dict[str, Any] = field(default_factory=dict)
+
     # 流式格式转换状态（跨 chunk 追踪）
     stream_conversion_state: StreamState | None = None
 

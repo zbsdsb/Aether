@@ -245,6 +245,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         adapter_detector: None | (
             Callable[[dict[str, str], dict[str, Any] | None], dict[str, bool]]
         ) = None,
+        perf_metrics: dict[str, Any] | None = None,
     ):
         allowed = allowed_api_formats or [self.FORMAT_ID]
         super().__init__(
@@ -257,6 +258,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             start_time=start_time,
             allowed_api_formats=allowed,
             adapter_detector=adapter_detector,
+            perf_metrics=perf_metrics,
         )
         self._parser: ResponseParser | None = None
         self._request_builder = PassthroughRequestBuilder()
@@ -554,6 +556,10 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         )
         # 仅在 FULL 级别才需要保留 parsed_chunks，避免长流式响应导致的内存占用
         ctx.record_parsed_chunks = SystemConfigService.should_log_body(self.db)
+        request_metadata = self._build_request_metadata()
+        if request_metadata and isinstance(request_metadata.get("perf"), dict):
+            ctx.perf_sampled = True
+            ctx.perf_metrics.update(request_metadata["perf"])
 
         # 创建更新状态的回调闭包（可以访问 ctx）
         def update_streaming_status() -> None:
@@ -1318,6 +1324,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             client_response_headers = filter_proxy_response_headers(response_headers)
             client_response_headers["content-type"] = "application/json"
 
+            request_metadata = self._build_request_metadata()
             total_cost = await self.telemetry.record_success(
                 provider=provider_name,
                 model=model,
@@ -1343,6 +1350,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 provider_api_key_id=key_id,
                 # 模型映射信息
                 target_model=mapped_model_result,
+                request_metadata=request_metadata,
             )
 
             logger.debug(f"{self.FORMAT_ID} 非流式响应完成")
@@ -1365,6 +1373,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             # 记录实际发送给 Provider 的请求体，便于排查问题根因
             response_time_ms = self.elapsed_ms()
             actual_request_body = provider_request_body or original_request_body
+            request_metadata = self._build_request_metadata()
             await self.telemetry.record_failure(
                 provider=provider_name or "unknown",
                 model=model,
@@ -1374,6 +1383,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 request_body=actual_request_body,
                 error_message=str(e),
                 is_stream=False,
+                request_metadata=request_metadata,
             )
             client_format = (client_api_format_for_error or "").upper()
             provider_format = (provider_api_format_for_error or client_format).upper()
@@ -1388,6 +1398,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         except UpstreamClientException as e:
             response_time_ms = self.elapsed_ms()
             actual_request_body = provider_request_body or original_request_body
+            request_metadata = self._build_request_metadata()
             await self.telemetry.record_failure(
                 provider=provider_name or "unknown",
                 model=model,
@@ -1405,6 +1416,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 endpoint_api_format=provider_api_format_for_error or None,
                 has_format_conversion=needs_conversion_for_error,
                 target_model=mapped_model_result,
+                request_metadata=request_metadata,
             )
             client_format = (client_api_format_for_error or "").upper()
             provider_format = (provider_api_format_for_error or client_format).upper()
@@ -1436,6 +1448,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             elif isinstance(e, httpx.HTTPStatusError) and hasattr(e, "response"):
                 error_response_headers = dict(e.response.headers)
 
+            request_metadata = self._build_request_metadata()
             await self.telemetry.record_failure(
                 provider=provider_name or "unknown",
                 model=model,
@@ -1455,6 +1468,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 has_format_conversion=needs_conversion_for_error,
                 # 模型映射信息
                 target_model=mapped_model_result,
+                request_metadata=request_metadata,
             )
 
             raise

@@ -125,7 +125,16 @@ class MessageTelemetry:
         target_model: str | None = None,
         # Provider 响应元数据（如 Gemini 的 modelVersion）
         response_metadata: dict[str, Any] | None = None,
+        # 请求元数据（用于性能与调试记录）
+        request_metadata: dict[str, Any] | None = None,
     ) -> float:
+        metadata = response_metadata
+        if request_metadata:
+            merged = dict(request_metadata)
+            if response_metadata:
+                merged.setdefault("response", response_metadata)
+            metadata = merged
+
         usage = await UsageService.record_usage(
             db=self.db,
             user=self.user,
@@ -157,8 +166,8 @@ class MessageTelemetry:
             provider_api_key_id=provider_api_key_id,
             # 模型映射信息
             target_model=target_model,
-            # Provider 响应元数据
-            metadata=response_metadata,
+            # Provider 响应元数据/请求元数据
+            metadata=metadata,
         )
 
         total_cost = float(getattr(usage, "total_cost_usd", 0.0) or 0.0)
@@ -207,6 +216,8 @@ class MessageTelemetry:
         has_format_conversion: bool = False,
         # 模型映射信息
         target_model: str | None = None,
+        # 请求元数据（用于性能与调试记录）
+        request_metadata: dict[str, Any] | None = None,
     ) -> None:
         """
         记录失败请求
@@ -257,6 +268,8 @@ class MessageTelemetry:
             request_id=self.request_id,
             # 模型映射信息
             target_model=target_model,
+            # 请求元数据
+            metadata=request_metadata,
         )
 
     async def record_cancelled(
@@ -283,6 +296,8 @@ class MessageTelemetry:
         endpoint_api_format: str | None = None,
         has_format_conversion: bool = False,
         target_model: str | None = None,
+        # 请求元数据（用于性能与调试记录）
+        request_metadata: dict[str, Any] | None = None,
     ) -> None:
         """
         记录客户端取消的请求
@@ -318,6 +333,7 @@ class MessageTelemetry:
             response_body=response_body or {},
             request_id=self.request_id,
             target_model=target_model,
+            metadata=request_metadata,
         )
 
 
@@ -375,6 +391,7 @@ class BaseMessageHandler:
         start_time: float,
         allowed_api_formats: list[str] | None = None,
         adapter_detector: AdapterDetectorType | None = None,
+        perf_metrics: dict[str, Any] | None = None,
     ) -> None:
         self.db = db
         self.user = user
@@ -387,6 +404,7 @@ class BaseMessageHandler:
         self.allowed_api_formats = allowed_api_formats or ["claude:chat"]
         self.primary_api_format = normalize_endpoint_signature(self.allowed_api_formats[0])
         self.adapter_detector = adapter_detector
+        self.perf_metrics = perf_metrics
 
         redis_client = get_redis_client_sync()
         self.redis = redis_client
@@ -394,6 +412,11 @@ class BaseMessageHandler:
 
     def elapsed_ms(self) -> int:
         return int((time.time() - self.start_time) * 1000)
+
+    def _build_request_metadata(self, http_request: Request | None = None) -> dict[str, Any] | None:
+        if not isinstance(self.perf_metrics, dict) or not self.perf_metrics:
+            return None
+        return {"perf": self.perf_metrics}
 
     def _resolve_capability_requirements(
         self,

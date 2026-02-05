@@ -320,6 +320,7 @@ class AdminCreateProviderEndpointAdapter(AdminApiAdapter):
             base_url=self.endpoint_data.base_url,
             custom_path=self.endpoint_data.custom_path,
             header_rules=self.endpoint_data.header_rules,
+            body_rules=self.endpoint_data.body_rules,
             max_retries=self.endpoint_data.max_retries,
             is_active=True,
             config=self.endpoint_data.config,

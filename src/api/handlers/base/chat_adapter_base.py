@@ -189,6 +189,7 @@ class ChatAdapterBase(ApiAdapter):
                 client_ip=client_ip,
                 user_agent=user_agent,
                 start_time=start_time,
+                perf_metrics=context.extra.get("perf"),
             )
 
             # 处理请求
@@ -269,6 +270,7 @@ class ChatAdapterBase(ApiAdapter):
         client_ip: str,
         user_agent: str,
         start_time: float,
+        perf_metrics: dict[str, Any] | None = None,
     ) -> Any:
         """创建 Handler 实例 - 子类可覆盖"""
         return self.HANDLER_CLASS(
@@ -281,6 +283,7 @@ class ChatAdapterBase(ApiAdapter):
             start_time=start_time,
             allowed_api_formats=self.allowed_api_formats,
             adapter_detector=self.detect_capability_requirements,
+            perf_metrics=perf_metrics,
         )
 
     def _merge_path_params(
@@ -679,6 +682,7 @@ class ChatAdapterBase(ApiAdapter):
         if header_rules:
             # 获取认证头名称，防止被规则覆盖
             from src.core.api_format import get_auth_config_for_endpoint
+
             auth_header, _ = get_auth_config_for_endpoint(cls.FORMAT_ID)
             protected_keys = {auth_header.lower(), "content-type"}
 

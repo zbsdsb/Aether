@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import codecs
 import json
+import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -43,6 +44,7 @@ from src.core.exceptions import (
 )
 from src.core.logger import logger
 from src.models.database import Provider, ProviderEndpoint
+from src.utils.perf import PerfRecorder
 from src.utils.sse_parser import SSEEventParser
 from src.utils.timeout import read_first_chunk_with_ttfb_timeout
 
@@ -413,16 +415,20 @@ class StreamProcessor:
             buffer = b""
             # 使用增量解码器处理跨 chunk 的 UTF-8 字符
             decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+            metrics_enabled = PerfRecorder.enabled()
+            perf_capture = metrics_enabled or ctx.perf_sampled
+            parse_time = 0.0
+            convert_time = 0.0
 
             _api_format_str = str(ctx.api_format or "")
             client_format = (ctx.client_api_format or _api_format_str).strip().lower()
             provider_format = (ctx.provider_api_format or _api_format_str).strip().lower()
             client_family = (
                 client_format.split(":", 1)[0] if ":" in client_format else client_format
-            )
+            ) or "unknown"
             provider_family = (
                 provider_format.split(":", 1)[0] if ":" in provider_format else provider_format
-            )
+            ) or "unknown"
             # 使用 handler 层预计算的 needs_conversion（由 candidate 决定）
             needs_conversion = ctx.needs_conversion
 
@@ -445,6 +451,15 @@ class StreamProcessor:
                 if not streaming_started and self.on_streaming_start:
                     self.on_streaming_start()
                     streaming_started = True
+
+            def _process_line_with_perf(line: str, *, skip_record: bool = False) -> None:
+                nonlocal parse_time
+                if perf_capture:
+                    t0 = time.perf_counter()
+                    self._process_line(ctx, sse_parser, line, skip_record=skip_record)
+                    parse_time += time.perf_counter() - t0
+                    return
+                self._process_line(ctx, sse_parser, line, skip_record=skip_record)
 
             def _build_stream_error_payload(message: str) -> dict:
                 if client_family == "openai":
@@ -477,103 +492,112 @@ class StreamProcessor:
                         message_id=ctx.response_id or ctx.request_id or "",
                     )
 
-                    skip_next_blank_line = False
-                    empty_yield_count = 0  # 空转计数（防护异常情况）
-                    openai_done_sent = (
-                        False  # 统一为 OpenAI 客户端补齐 [DONE]（避免不同 Provider 行为差异）
-                    )
+                # 转换状态变量（在 needs_conversion 块内统一初始化，确保作用域正确）
+                skip_next_blank_line = False
+                empty_yield_count = 0  # 空转计数（防护异常情况）
+                openai_done_sent = (
+                    False  # 统一为 OpenAI 客户端补齐 [DONE]（避免不同 Provider 行为差异）
+                )
 
-                    def _emit_converted_line(normalized_line: str) -> list[bytes]:
-                        nonlocal skip_next_blank_line, openai_done_sent
+                def _emit_converted_line(normalized_line: str) -> list[bytes]:
+                    nonlocal skip_next_blank_line, openai_done_sent, convert_time
 
-                        # 空行：事件分隔符（避免重复输出）
-                        if normalized_line == "":
-                            if skip_next_blank_line:
-                                skip_next_blank_line = False
-                                return []
-                            return [b"\n"]
-
-                        # 丢弃 Provider 的 event 行，避免泄漏/污染目标格式
-                        if normalized_line.startswith("event:"):
+                    # 空行：事件分隔符（避免重复输出）
+                    if normalized_line == "":
+                        if skip_next_blank_line:
+                            skip_next_blank_line = False
                             return []
+                        return [b"\n"]
 
-                        # OpenAI done 信号（仅用于 OpenAI 客户端）
-                        if (
-                            normalized_line.startswith("data:")
-                            and normalized_line[5:].strip() == "[DONE]"
-                        ):
-                            skip_next_blank_line = True
-                            if client_family == "openai":
-                                openai_done_sent = True
-                                return [b"data: [DONE]\n\n"]
-                            return []
+                    # 丢弃 Provider 的 event 行，避免泄漏/污染目标格式
+                    if normalized_line.startswith("event:"):
+                        return []
 
-                        # 默认只处理 SSE 的 data 行；但 Gemini 上游可能返回 JSON-array/chunks（无 data 前缀）
-                        is_data_line = normalized_line.startswith("data:")
-                        if not is_data_line:
-                            if provider_family != "gemini":
-                                return []
-                            data_content = normalized_line.strip()
-                        else:
-                            data_content = normalized_line[5:].strip()
-
-                        # Gemini 可能包含 JSON 数组包装符，直接忽略
-                        if data_content in ("", "[", "]", ","):
-                            return []
-                        # JSON-array/chunks 可能带前后逗号（对象分隔符），做一次保守清理
-                        data_content = data_content.lstrip(",").rstrip(",").strip()
-                        if data_content in ("", "[", "]", ","):
-                            return []
-
-                        try:
-                            data_obj = json.loads(data_content)
-                        except json.JSONDecodeError:
-                            # 跨格式转换时，JSON 解析失败应跳过而不是透传（避免泄漏 Provider 格式）
-                            logger.warning(
-                                f"[{self.request_id}] JSON 解析失败，跳过该行: {data_content[:100]}"
-                            )
-                            return []
-
-                        if not isinstance(data_obj, dict):
-                            return []
-
-                        try:
-                            converted_events = registry.convert_stream_chunk(
-                                data_obj,
-                                provider_format,
-                                client_format,
-                                state=ctx.stream_conversion_state,
-                            )
-                        except Exception as conv_err:
-                            # 首字节后无法 failover：输出目标格式错误事件并终止流
-                            # 使用 502 表示上游返回了非预期格式（Bad Gateway）
-                            ctx.status_code = 502
-                            ctx.error_message = "format_conversion_failed"
-                            # 日志记录完整错误（内部排查），客户端只返回脱敏消息
-                            logger.warning(f"[{self.request_id}] 流式格式转换失败: {conv_err}")
-                            payload = _build_stream_error_payload("响应格式转换失败，请稍后重试")
-                            error_bytes = (
-                                f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
-                            )
-                            done_bytes = b"data: [DONE]\n\n" if client_family == "openai" else b""
-                            if done_bytes:
-                                openai_done_sent = True
-                            return [error_bytes, done_bytes]
-
+                    # OpenAI done 信号（仅用于 OpenAI 客户端）
+                    if (
+                        normalized_line.startswith("data:")
+                        and normalized_line[5:].strip() == "[DONE]"
+                    ):
                         skip_next_blank_line = True
-                        out: list[bytes] = []
+                        if client_family == "openai":
+                            openai_done_sent = True
+                            return [b"data: [DONE]\n\n"]
+                        return []
 
-                        for evt in converted_events:
-                            # 记录转换后的数据到 parsed_chunks（这是客户端实际收到的格式）
-                            if isinstance(evt, dict):
-                                ctx.data_count += 1
-                                if ctx.record_parsed_chunks:
-                                    ctx.parsed_chunks.append(evt)
+                    # 默认只处理 SSE 的 data 行；但 Gemini 上游可能返回 JSON-array/chunks（无 data 前缀）
+                    is_data_line = normalized_line.startswith("data:")
+                    if not is_data_line:
+                        if provider_family != "gemini":
+                            return []
+                        data_content = normalized_line.strip()
+                    else:
+                        data_content = normalized_line[5:].strip()
 
-                            # 统一使用 SSE 格式输出（Gemini streamGenerateContent 也使用 SSE）
-                            # 参考: https://ai.google.dev/api/generate-content
-                            out.append(f"data: {json.dumps(evt, ensure_ascii=False)}\n\n".encode())
-                        return out
+                    # Gemini 可能包含 JSON 数组包装符，直接忽略
+                    if data_content in ("", "[", "]", ","):
+                        return []
+                    # JSON-array/chunks 可能带前后逗号（对象分隔符），做一次保守清理
+                    data_content = data_content.lstrip(",").rstrip(",").strip()
+                    if data_content in ("", "[", "]", ","):
+                        return []
+
+                    convert_start = time.perf_counter() if perf_capture else None
+                    try:
+                        data_obj = json.loads(data_content)
+                    except json.JSONDecodeError:
+                        if perf_capture and convert_start is not None:
+                            convert_time += time.perf_counter() - convert_start
+                        # 跨格式转换时，JSON 解析失败应跳过而不是透传（避免泄漏 Provider 格式）
+                        logger.warning(
+                            f"[{self.request_id}] JSON 解析失败，跳过该行: {data_content[:100]}"
+                        )
+                        return []
+
+                    if not isinstance(data_obj, dict):
+                        return []
+
+                    try:
+                        converted_events = registry.convert_stream_chunk(
+                            data_obj,
+                            provider_format,
+                            client_format,
+                            state=ctx.stream_conversion_state,
+                        )
+                    except Exception as conv_err:
+                        # 首字节后无法 failover：输出目标格式错误事件并终止流
+                        # 使用 502 表示上游返回了非预期格式（Bad Gateway）
+                        ctx.status_code = 502
+                        ctx.error_message = "format_conversion_failed"
+                        # 日志记录完整错误（内部排查），客户端只返回脱敏消息
+                        logger.warning(f"[{self.request_id}] 流式格式转换失败: {conv_err}")
+                        payload = _build_stream_error_payload("响应格式转换失败，请稍后重试")
+                        error_bytes = (
+                            f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
+                        )
+                        done_bytes = b"data: [DONE]\n\n" if client_family == "openai" else b""
+                        if done_bytes:
+                            openai_done_sent = True
+                        if perf_capture and convert_start is not None:
+                            convert_time += time.perf_counter() - convert_start
+                        return [error_bytes, done_bytes]
+
+                    if perf_capture and convert_start is not None:
+                        convert_time += time.perf_counter() - convert_start
+
+                    skip_next_blank_line = True
+                    out: list[bytes] = []
+
+                    for evt in converted_events:
+                        # 记录转换后的数据到 parsed_chunks（这是客户端实际收到的格式）
+                        if isinstance(evt, dict):
+                            ctx.data_count += 1
+                            if ctx.record_parsed_chunks:
+                                ctx.parsed_chunks.append(evt)
+
+                        # 统一使用 SSE 格式输出（Gemini streamGenerateContent 也使用 SSE）
+                        # 参考: https://ai.google.dev/api/generate-content
+                        out.append(f"data: {json.dumps(evt, ensure_ascii=False)}\n\n".encode())
+                    return out
 
                 # 统一处理 prefetched + iterator
                 if prefetched_chunks:
@@ -591,7 +615,7 @@ class StreamProcessor:
 
                             if line:
                                 # 需要格式转换时，跳过记录原始数据（由 _emit_converted_line 记录转换后的数据）
-                                self._process_line(ctx, sse_parser, line, skip_record=True)
+                                _process_line_with_perf(line, skip_record=True)
                             normalized_line = line.rstrip("\r\n") if line else ""
                             out_chunks = _emit_converted_line(normalized_line)
                             if not out_chunks:
@@ -625,7 +649,7 @@ class StreamProcessor:
 
                         if line:
                             # 需要格式转换时，跳过记录原始数据（由 _emit_converted_line 记录转换后的数据）
-                            self._process_line(ctx, sse_parser, line, skip_record=True)
+                            _process_line_with_perf(line, skip_record=True)
                         normalized_line = line.rstrip("\r\n") if line else ""
                         out_chunks = _emit_converted_line(normalized_line)
                         if not out_chunks:
@@ -655,7 +679,7 @@ class StreamProcessor:
                         line = ""
                     if line:
                         # 需要格式转换时，跳过记录原始数据
-                        self._process_line(ctx, sse_parser, line, skip_record=True)
+                        _process_line_with_perf(line, skip_record=True)
                         normalized_line = line.rstrip("\r\n")
                         out_chunks = _emit_converted_line(normalized_line)
                         for out in out_chunks:
@@ -684,7 +708,7 @@ class StreamProcessor:
                             try:
                                 # 使用增量解码器，可以正确处理跨 chunk 的多字节字符
                                 line = decoder.decode(line_bytes + b"\n", False)
-                                self._process_line(ctx, sse_parser, line)
+                                _process_line_with_perf(line)
                             except Exception as e:
                                 # 解码失败，记录警告但继续处理
                                 logger.warning(
@@ -708,7 +732,7 @@ class StreamProcessor:
                         try:
                             # 使用增量解码器，可以正确处理跨 chunk 的多字节字符
                             line = decoder.decode(line_bytes + b"\n", False)
-                            self._process_line(ctx, sse_parser, line)
+                            _process_line_with_perf(line)
                         except Exception as e:
                             # 解码失败，记录警告但继续处理
                             logger.warning(
@@ -722,7 +746,7 @@ class StreamProcessor:
                 try:
                     # 使用 final=True 处理最后的不完整字符
                     line = decoder.decode(buffer, True)
-                    self._process_line(ctx, sse_parser, line)
+                    _process_line_with_perf(line)
                 except Exception as e:
                     logger.warning(
                         f"[{self.request_id}] 处理剩余缓冲区失败: {e}, bytes={buffer[:50]!r}"
@@ -735,6 +759,33 @@ class StreamProcessor:
         except GeneratorExit:
             raise
         finally:
+            if metrics_enabled:
+                labels = {
+                    "format": client_family or "unknown",
+                    "provider": str(ctx.provider_name or "unknown"),
+                    "conversion": "true" if ctx.needs_conversion else "false",
+                }
+                if parse_time > 0:
+                    PerfRecorder.record_timing("stream_parse", parse_time, labels=labels)
+                if convert_time > 0:
+                    PerfRecorder.record_timing("stream_conversion", convert_time, labels=labels)
+                if ctx.chunk_count:
+                    PerfRecorder.record_counter(
+                        "stream_chunks_total", ctx.chunk_count, labels=labels
+                    )
+                if ctx.data_count:
+                    PerfRecorder.record_counter(
+                        "stream_data_events_total", ctx.data_count, labels=labels
+                    )
+            if ctx.perf_sampled:
+                if parse_time > 0:
+                    ctx.perf_metrics["stream_parse_ms"] = int(parse_time * 1000)
+                if convert_time > 0:
+                    ctx.perf_metrics["stream_conversion_ms"] = int(convert_time * 1000)
+                if ctx.chunk_count:
+                    ctx.perf_metrics["stream_chunks"] = int(ctx.chunk_count)
+                if ctx.data_count:
+                    ctx.perf_metrics["stream_data_events"] = int(ctx.data_count)
             await self._cleanup(response_ctx, http_client)
 
     def _process_line(

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from src.core.logger import logger
 from src.models.database import ApiKey, ManagementToken, User
+from src.utils.perf import PerfRecorder
 from src.utils.request_utils import get_client_ip
 
 
@@ -55,9 +56,32 @@ class ApiRequestContext:
         if not self.raw_body:
             raise HTTPException(status_code=400, detail="请求体不能为空")
 
+        perf_metrics = getattr(self.request.state, "perf_metrics", None)
+        perf_sampled = isinstance(perf_metrics, dict) and bool(perf_metrics)
+        parse_start = PerfRecorder.start(force=perf_sampled)
+
+        def _record_parse_duration(duration: float | None) -> None:
+            if duration is None:
+                return
+            if not isinstance(perf_metrics, dict):
+                return
+            perf_metrics.setdefault("pipeline", {})["json_parse_ms"] = int(duration * 1000)
+
         try:
             self.json_body = json.loads(self.raw_body.decode("utf-8"))
+            parse_duration = PerfRecorder.stop(
+                parse_start,
+                "pipeline_json_parse",
+                labels={"mode": self.mode},
+            )
+            _record_parse_duration(parse_duration)
         except json.JSONDecodeError as exc:
+            parse_duration = PerfRecorder.stop(
+                parse_start,
+                "pipeline_json_parse",
+                labels={"mode": self.mode},
+            )
+            _record_parse_duration(parse_duration)
             logger.warning(f"解析JSON失败: {exc}")
             raise HTTPException(status_code=400, detail="请求体必须是合法的JSON") from exc
 
@@ -111,6 +135,10 @@ class ApiRequestContext:
             api_format_hint=api_format_hint,
             path_params=path_params or {},
         )
+
+        perf_metrics = getattr(request.state, "perf_metrics", None)
+        if isinstance(perf_metrics, dict) and perf_metrics:
+            context.extra["perf"] = perf_metrics
 
         # 便于插件/日志引用
         request.state.request_id = request_id

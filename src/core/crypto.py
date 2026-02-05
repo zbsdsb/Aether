@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import threading
+import time
+from collections import OrderedDict
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from src.core.logger import logger
+from src.utils.perf import PerfRecorder
 
 from ..config import config
 from ..core.exceptions import DecryptionException
@@ -31,8 +35,8 @@ class CryptoService:
     使用 Fernet（AES-128-CBC + HMAC-SHA256）确保数据机密性和完整性。
     """
 
-    _instance = None
-    _cipher = None
+    _instance: CryptoService | None = None
+    _cipher: Fernet | None = None
     _key_source: str = "unknown"  # 记录密钥来源，用于调试
 
     # 应用级 salt（基于应用名称生成，比硬编码更安全）
@@ -69,6 +73,21 @@ class CryptoService:
 
         self._cipher = Fernet(key)
         logger.info(f"加密服务初始化成功 (key_source={self._key_source})")
+
+        # 解密缓存配置（使用实例变量，避免测试场景下缓存跨实例持久化）
+        self._decrypt_cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        self._decrypt_cache_lock = threading.Lock()
+        self._decrypt_cache_enabled = bool(getattr(config, "crypto_decrypt_cache_enabled", False))
+        self._decrypt_cache_size = int(getattr(config, "crypto_decrypt_cache_size", 0) or 0)
+        self._decrypt_cache_ttl_seconds = float(
+            getattr(config, "crypto_decrypt_cache_ttl_seconds", 0.0) or 0.0
+        )
+        if self._decrypt_cache_enabled and self._decrypt_cache_size > 0:
+            logger.info(
+                "解密缓存已启用 (size={}, ttl={}s)",
+                self._decrypt_cache_size,
+                self._decrypt_cache_ttl_seconds,
+            )
 
     def _derive_fernet_key(self, encryption_key: str) -> bytes:
         """
@@ -138,11 +157,22 @@ class CryptoService:
         if not ciphertext:
             return ciphertext
 
+        cached = self._get_cached_decrypt(ciphertext)
+        if cached is not None:
+            PerfRecorder.record_counter("crypto_decrypt_cache_hits_total", 1)
+            return cached
+
+        PerfRecorder.record_counter("crypto_decrypt_cache_misses_total", 1)
+        start = PerfRecorder.start()
         try:
             encrypted = base64.urlsafe_b64decode(ciphertext.encode())
             decrypted = self._cipher.decrypt(encrypted)
-            return decrypted.decode()
+            plaintext = decrypted.decode()
+            self._set_cached_decrypt(ciphertext, plaintext)
+            PerfRecorder.stop(start, "crypto_decrypt")
+            return plaintext
         except Exception as e:
+            PerfRecorder.stop(start, "crypto_decrypt")
             if not silent:
                 logger.error(f"Decryption failed: {e}")
             # 抛出自定义异常，方便在上层通过类型判断是否需要打印堆栈
@@ -162,6 +192,47 @@ class CryptoService:
             哈希后的值
         """
         return hashlib.sha256(api_key.encode()).hexdigest()
+
+    def _cache_key(self, ciphertext: str) -> str:
+        """生成缓存 key（使用密文 hash，避免内存中保留完整密文）"""
+        return hashlib.sha256(ciphertext.encode()).hexdigest()[:32]
+
+    def _get_cached_decrypt(self, ciphertext: str) -> str | None:
+        if not self._decrypt_cache_enabled:
+            return None
+        if not ciphertext:
+            return None
+        if self._decrypt_cache_size <= 0:
+            return None
+        cache_key = self._cache_key(ciphertext)
+        with self._decrypt_cache_lock:
+            entry = self._decrypt_cache.get(cache_key)
+            if not entry:
+                return None
+            value, expires_at = entry
+            if expires_at <= time.time():
+                self._decrypt_cache.pop(cache_key, None)
+                return None
+            # 维护 LRU 顺序
+            self._decrypt_cache.move_to_end(cache_key)
+            return value
+
+    def _set_cached_decrypt(self, ciphertext: str, plaintext: str) -> None:
+        if not self._decrypt_cache_enabled:
+            return
+        if not ciphertext:
+            return
+        if self._decrypt_cache_size <= 0:
+            return
+        if self._decrypt_cache_ttl_seconds <= 0:
+            return
+        cache_key = self._cache_key(ciphertext)
+        expires_at = time.time() + self._decrypt_cache_ttl_seconds
+        with self._decrypt_cache_lock:
+            self._decrypt_cache[cache_key] = (plaintext, expires_at)
+            self._decrypt_cache.move_to_end(cache_key)
+            while len(self._decrypt_cache) > self._decrypt_cache_size:
+                self._decrypt_cache.popitem(last=False)
 
 
 # 创建全局加密服务实例

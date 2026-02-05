@@ -15,6 +15,7 @@ from src.models.database import ApiKey, AuditEventType, User
 from src.services.auth.service import AuthService
 from src.services.system.audit import AuditService
 from src.services.usage.service import UsageService
+from src.utils.perf import PerfRecorder
 
 if TYPE_CHECKING:
     from src.models.database import ManagementToken
@@ -55,6 +56,28 @@ class ApiRequestPipeline:
         api_format_hint: str | None = None,
         path_params: dict[str, Any] | None = None,
     ) -> Any:
+        perf_labels = {
+            "mode": getattr(mode, "value", str(mode)),
+            "adapter": adapter.name,
+        }
+        perf_sampled = PerfRecorder.should_store_sample()
+        if perf_sampled:
+            setattr(http_request.state, "perf_sampled", True)
+            setattr(
+                http_request.state,
+                "perf_metrics",
+                {"pipeline": {}, "sample_rate": getattr(config, "perf_store_sample_rate", 1.0)},
+            )
+
+        def _record_perf_metric(key: str, duration: float | None) -> None:
+            if duration is None:
+                return
+            perf_metrics = getattr(http_request.state, "perf_metrics", None)
+            if not isinstance(perf_metrics, dict):
+                return
+            bucket = perf_metrics.setdefault("pipeline", {})
+            bucket[key] = int(duration * 1000)
+
         # 高频轮询端点抑制 debug 日志
         is_quiet = http_request.url.path in QUIET_POLLING_PATHS
         if not is_quiet:
@@ -66,26 +89,31 @@ class ApiRequestPipeline:
                 adapter.mode,
                 http_request.url.path,
             )
-        if mode == ApiMode.ADMIN:
-            user, management_token = await self._authenticate_admin(http_request, db)
-            api_key = None
-        elif mode == ApiMode.USER:
-            user, management_token = await self._authenticate_user(http_request, db)
-            api_key = None
-        elif mode == ApiMode.PUBLIC:
-            user = None
-            api_key = None
-            management_token = None
-        elif mode == ApiMode.MANAGEMENT:
-            user, management_token = await self._authenticate_management(http_request, db)
-            api_key = None
-        else:
-            if not is_quiet:
-                logger.debug("[Pipeline] 调用 _authenticate_client")
-            user, api_key = self._authenticate_client(http_request, db, adapter, quiet=is_quiet)
-            management_token = None
-            if not is_quiet:
-                logger.debug("[Pipeline] 认证完成 | user={}", user.username if user else None)
+        auth_start = PerfRecorder.start(force=perf_sampled)
+        try:
+            if mode == ApiMode.ADMIN:
+                user, management_token = await self._authenticate_admin(http_request, db)
+                api_key = None
+            elif mode == ApiMode.USER:
+                user, management_token = await self._authenticate_user(http_request, db)
+                api_key = None
+            elif mode == ApiMode.PUBLIC:
+                user = None
+                api_key = None
+                management_token = None
+            elif mode == ApiMode.MANAGEMENT:
+                user, management_token = await self._authenticate_management(http_request, db)
+                api_key = None
+            else:
+                if not is_quiet:
+                    logger.debug("[Pipeline] 调用 _authenticate_client")
+                user, api_key = self._authenticate_client(http_request, db, adapter, quiet=is_quiet)
+                management_token = None
+                if not is_quiet:
+                    logger.debug("[Pipeline] 认证完成 | user={}", user.username if user else None)
+        finally:
+            auth_duration = PerfRecorder.stop(auth_start, "pipeline_auth", labels=perf_labels)
+            _record_perf_metric("auth_ms", auth_duration)
 
         raw_body = None
         if http_request.method in {"POST", "PUT", "PATCH"}:
@@ -93,9 +121,25 @@ class ApiRequestPipeline:
                 import asyncio
 
                 # 添加超时防止卡死
-                raw_body = await asyncio.wait_for(
-                    http_request.body(), timeout=config.request_body_timeout
-                )
+                body_start = PerfRecorder.start(force=perf_sampled)
+                body_size = 0
+                try:
+                    raw_body = await asyncio.wait_for(
+                        http_request.body(), timeout=config.request_body_timeout
+                    )
+                    body_size = len(raw_body) if raw_body is not None else 0
+                finally:
+                    body_duration = PerfRecorder.stop(
+                        body_start,
+                        "pipeline_body_read",
+                        labels=perf_labels,
+                        log_hint=f"size={body_size}",
+                    )
+                    _record_perf_metric("body_read_ms", body_duration)
+                    if perf_sampled:
+                        perf_metrics = getattr(http_request.state, "perf_metrics", None)
+                        if isinstance(perf_metrics, dict):
+                            perf_metrics.setdefault("pipeline", {})["body_bytes"] = int(body_size)
                 if not is_quiet:
                     logger.debug(
                         "[Pipeline] Raw body读取完成 | size={} bytes",
@@ -112,6 +156,7 @@ class ApiRequestPipeline:
             if not is_quiet:
                 logger.debug("[Pipeline] 非写请求跳过读取Body | method={}", http_request.method)
 
+        context_start = PerfRecorder.start(force=perf_sampled)
         context = ApiRequestContext.build(
             request=http_request,
             db=db,
@@ -122,6 +167,10 @@ class ApiRequestPipeline:
             api_format_hint=api_format_hint,
             path_params=path_params,
         )
+        context_duration = PerfRecorder.stop(
+            context_start, "pipeline_context_build", labels=perf_labels
+        )
+        _record_perf_metric("context_build_ms", context_duration)
         # 存储 management_token 到 context（用于权限检查）
         if management_token:
             context.management_token = management_token
@@ -145,16 +194,28 @@ class ApiRequestPipeline:
                 context.user,
             )
         # authorize 可能是异步的，需要检查并 await
-        authorize_result = adapter.authorize(context)
-        if hasattr(authorize_result, "__await__"):
-            await authorize_result
+        authorize_start = PerfRecorder.start(force=perf_sampled)
+        try:
+            authorize_result = adapter.authorize(context)
+            if hasattr(authorize_result, "__await__"):
+                await authorize_result
+        finally:
+            authorize_duration = PerfRecorder.stop(
+                authorize_start, "pipeline_authorize", labels=perf_labels
+            )
+            _record_perf_metric("authorize_ms", authorize_duration)
 
         try:
+            handle_start = PerfRecorder.start(force=perf_sampled)
             response = await adapter.handle(context)
+            handle_duration = PerfRecorder.stop(handle_start, "pipeline_handle", labels=perf_labels)
+            _record_perf_metric("handle_ms", handle_duration)
             status_code = getattr(response, "status_code", None)
             self._record_audit_event(context, adapter, success=True, status_code=status_code)
             return response
         except HTTPException as exc:
+            handle_duration = PerfRecorder.stop(handle_start, "pipeline_handle", labels=perf_labels)
+            _record_perf_metric("handle_ms", handle_duration)
             err_detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
             self._record_audit_event(
                 context,
@@ -165,6 +226,8 @@ class ApiRequestPipeline:
             )
             raise
         except Exception as exc:
+            handle_duration = PerfRecorder.stop(handle_start, "pipeline_handle", labels=perf_labels)
+            _record_perf_metric("handle_ms", handle_duration)
             self._record_audit_event(
                 context,
                 adapter,

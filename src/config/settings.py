@@ -219,6 +219,30 @@ class Config:
         #   默认 60 秒，防止客户端发送不完整请求导致连接卡死
         self.request_body_timeout = float(os.getenv("REQUEST_BODY_TIMEOUT", "60.0"))
 
+        # 性能检测配置
+        # PERF_METRICS_ENABLED: 是否启用性能指标上报（监控插件）
+        # PERF_LOG_SLOW_MS: 慢请求日志阈值（毫秒），0 表示关闭
+        # PERF_SAMPLE_RATE: 采样率 (0-1)，降低高频指标开销
+        self.perf_metrics_enabled = os.getenv("PERF_METRICS_ENABLED", "false").lower() == "true"
+        self.perf_log_slow_ms = int(os.getenv("PERF_LOG_SLOW_MS", "0"))
+        self.perf_sample_rate = float(os.getenv("PERF_SAMPLE_RATE", "1.0"))
+        # PERF_STORE_ENABLED: 是否将性能指标写入 Usage.request_metadata
+        # PERF_STORE_SAMPLE_RATE: 存储采样率 (0-1)，用于降低写入压力
+        self.perf_store_enabled = os.getenv("PERF_STORE_ENABLED", "false").lower() == "true"
+        self.perf_store_sample_rate = float(os.getenv("PERF_STORE_SAMPLE_RATE", "1.0"))
+
+        # 解密缓存配置（降低高频解密带来的CPU开销）
+        # CRYPTO_DECRYPT_CACHE_ENABLED: 是否启用解密结果缓存
+        # CRYPTO_DECRYPT_CACHE_SIZE: 最大缓存条目数
+        # CRYPTO_DECRYPT_CACHE_TTL_SECONDS: 缓存TTL（秒）
+        self.crypto_decrypt_cache_enabled = (
+            os.getenv("CRYPTO_DECRYPT_CACHE_ENABLED", "true").lower() == "true"
+        )
+        self.crypto_decrypt_cache_size = int(os.getenv("CRYPTO_DECRYPT_CACHE_SIZE", "256"))
+        self.crypto_decrypt_cache_ttl_seconds = float(
+            os.getenv("CRYPTO_DECRYPT_CACHE_TTL_SECONDS", "60.0")
+        )
+
         # 内部请求 User-Agent 配置（用于查询上游模型列表等）
         # 可通过环境变量覆盖默认值，模拟对应 CLI 客户端
         self.internal_user_agent_claude_cli = os.getenv(
@@ -240,26 +264,6 @@ class Config:
         # BILLING_STRICT_MODE: required 维度缺失时是否拒绝请求/标记任务失败（默认 false，缺失则 cost=0 + 标记 incomplete）
         self.billing_require_rule = os.getenv("BILLING_REQUIRE_RULE", "false").lower() == "true"
         self.billing_strict_mode = os.getenv("BILLING_STRICT_MODE", "false").lower() == "true"
-
-        # 计费迁移运行时开关（用于灰度/影子计费/快速止血）
-        # BILLING_ENGINE:
-        # - legacy: 仅旧系统（当前默认）
-        # - shadow: 旧系统为真值 + 新系统影子计算（对账期）
-        # - new_with_fallback: 新系统为真值，差异过大时回退旧系统
-        # - new: 仅新系统
-        # Default to "new" per unified billing architecture.
-        self.billing_engine = os.getenv("BILLING_ENGINE", "new").strip().lower()
-        # 按 provider/model 粒度覆盖（JSON 字符串）
-        # 示例: {"anthropic/*": "shadow", "openai/gpt-4*": "new"}
-        self.billing_engine_overrides = os.getenv("BILLING_ENGINE_OVERRIDES", "{}")
-        # 影子计费差异阈值（美元）
-        self.billing_diff_threshold_usd = float(os.getenv("BILLING_DIFF_THRESHOLD_USD", "0.0001"))
-        # 差异日志级别（DEBUG/INFO/WARNING/ERROR）
-        self.billing_shadow_log_level = os.getenv("BILLING_SHADOW_LOG_LEVEL", "INFO").strip()
-        # 是否启用差异告警（预留扩展）
-        self.billing_diff_alert_enabled = (
-            os.getenv("BILLING_DIFF_ALERT_ENABLED", "false").lower() == "true"
-        )
 
         # Usage.request_metadata 体积控制（用于降低 DB/CPU/内存压力）
         # USAGE_METADATA_MAX_BYTES:

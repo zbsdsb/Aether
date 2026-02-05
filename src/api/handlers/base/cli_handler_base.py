@@ -213,6 +213,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
         adapter_detector: None | (
             Callable[[dict[str, str], dict[str, Any] | None], dict[str, bool]]
         ) = None,
+        perf_metrics: dict[str, Any] | None = None,
     ):
         allowed = allowed_api_formats or [self.FORMAT_ID]
         super().__init__(
@@ -225,6 +226,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             start_time=start_time,
             allowed_api_formats=allowed,
             adapter_detector=adapter_detector,
+            perf_metrics=perf_metrics,
         )
         self._parser: ResponseParser | None = None
         self._request_builder = PassthroughRequestBuilder()
@@ -561,6 +563,10 @@ class CliMessageHandlerBase(BaseMessageHandler):
         )
         # 仅在 FULL 级别才需要保留 parsed_chunks，避免长流式响应导致的内存占用
         ctx.record_parsed_chunks = SystemConfigService.should_log_body(self.db)
+        request_metadata = self._build_request_metadata(http_request)
+        if request_metadata and isinstance(request_metadata.get("perf"), dict):
+            ctx.perf_sampled = True
+            ctx.perf_metrics.update(request_metadata["perf"])
 
         # 定义请求函数
         async def stream_request_func(
@@ -1972,6 +1978,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
                     if ctx.is_client_disconnected():
                         # 客户端取消：记录为 cancelled（不算系统失败）
+                        request_metadata = {"perf": ctx.perf_metrics} if ctx.perf_metrics else None
                         await bg_telemetry.record_cancelled(
                             provider=ctx.provider_name or "unknown",
                             model=ctx.model,
@@ -1993,6 +2000,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                             endpoint_api_format=ctx.provider_api_format or None,
                             has_format_conversion=ctx.needs_conversion,
                             target_model=ctx.mapped_model,
+                            request_metadata=request_metadata,
                         )
                         logger.debug(f"{self.FORMAT_ID} 流式响应被客户端取消")
                         logger.info(
@@ -2001,6 +2009,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                         )
                     else:
                         # 服务端/上游异常：记录为失败
+                        request_metadata = {"perf": ctx.perf_metrics} if ctx.perf_metrics else None
                         await bg_telemetry.record_failure(
                             provider=ctx.provider_name or "unknown",
                             model=ctx.model,
@@ -2025,6 +2034,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                             has_format_conversion=ctx.needs_conversion,
                             # 模型映射信息
                             target_model=ctx.mapped_model,
+                            request_metadata=request_metadata,
                         )
                         logger.debug(f"{self.FORMAT_ID} 流式响应中断")
                         logger.info(
@@ -2050,6 +2060,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                         f"provider={ctx.provider_name}, model={ctx.model}, "
                         f"in={ctx.input_tokens}, out={ctx.output_tokens}"
                     )
+                    request_metadata = {"perf": ctx.perf_metrics} if ctx.perf_metrics else None
                     total_cost = await bg_telemetry.record_success(
                         provider=ctx.provider_name,
                         model=ctx.model,
@@ -2079,6 +2090,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                         target_model=ctx.mapped_model,
                         # Provider 响应元数据（如 Gemini 的 modelVersion）
                         response_metadata=ctx.response_metadata if ctx.response_metadata else None,
+                        request_metadata=request_metadata,
                     )
                     logger.debug(f"[{ctx.request_id}] Usage 记录完成: cost=${total_cost:.6f}")
                     # 简洁的请求完成摘要（两行格式）
@@ -2210,6 +2222,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
         # 失败时返回给客户端的是 JSON 错误响应
         client_response_headers = {"content-type": "application/json"}
 
+        request_metadata = {"perf": ctx.perf_metrics} if ctx.perf_metrics else None
         await self.telemetry.record_failure(
             provider=ctx.provider_name or "unknown",
             model=ctx.model,
@@ -2228,6 +2241,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             has_format_conversion=ctx.needs_conversion,
             # 模型映射信息
             target_model=ctx.mapped_model,
+            request_metadata=request_metadata,
         )
 
     # _update_usage_to_streaming 方法已移至基类 BaseMessageHandler
@@ -2551,6 +2565,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             client_response_headers = filter_proxy_response_headers(response_headers)
             client_response_headers["content-type"] = "application/json"
 
+            request_metadata = self._build_request_metadata()
             total_cost = await self.telemetry.record_success(
                 provider=provider_name,
                 model=model,
@@ -2579,6 +2594,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 target_model=mapped_model_result,
                 # Provider 响应元数据（如 Gemini 的 modelVersion）
                 response_metadata=response_metadata_result if response_metadata_result else None,
+                request_metadata=request_metadata,
             )
 
             logger.info(f"{self.FORMAT_ID} 非流式响应处理完成")
@@ -2595,6 +2611,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             # 记录实际发送给 Provider 的请求体，便于排查问题根因
             response_time_ms = int((time.time() - sync_start_time) * 1000)
             actual_request_body = provider_request_body or original_request_body
+            request_metadata = self._build_request_metadata()
             await self.telemetry.record_failure(
                 provider=provider_name or "unknown",
                 model=model,
@@ -2605,6 +2622,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 error_message=str(e),
                 is_stream=False,
                 api_format=api_format,
+                request_metadata=request_metadata,
             )
             raise
 
@@ -2629,6 +2647,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
             elif isinstance(e, httpx.HTTPStatusError) and hasattr(e, "response"):
                 error_response_headers = dict(e.response.headers)
 
+            request_metadata = self._build_request_metadata()
             await self.telemetry.record_failure(
                 provider=provider_name or "unknown",
                 model=model,
@@ -2648,6 +2667,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 has_format_conversion=needs_conversion,
                 # 模型映射信息
                 target_model=mapped_model_result,
+                request_metadata=request_metadata,
             )
 
             raise

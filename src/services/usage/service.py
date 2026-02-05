@@ -410,171 +410,6 @@ class UsageService:
             db, provider_api_key_id, provider_id, api_format
         )
 
-    @classmethod
-    async def _calculate_costs(
-        cls,
-        db: Session,
-        provider: str,
-        model: str,
-        input_tokens: int,
-        output_tokens: int,
-        cache_creation_input_tokens: int,
-        cache_read_input_tokens: int,
-        api_format: str | None,
-        cache_ttl_minutes: int | None,
-        use_tiered_pricing: bool,
-        is_failed_request: bool,
-    ) -> tuple[
-        float,
-        float,
-        float,
-        float,
-        float,
-        float,
-        float,
-        float,
-        float,
-        float | None,
-        float | None,
-        float | None,
-        int | None,
-    ]:
-        """计算所有成本相关数据
-
-        Returns:
-            (input_price, output_price, cache_creation_price, cache_read_price, request_price,
-             input_cost, output_cost, cache_creation_cost, cache_read_cost, cache_cost,
-             request_cost, total_cost, tier_index)
-        """
-        import asyncio
-
-        service = ModelCostService(db)
-
-        # 并行获取模型价格、按次计费价格；阶梯计费时额外获取 tiered 配置
-        price_task = service.get_model_price_async(provider, model)
-        request_price_task = service.get_request_price_async(provider, model)
-
-        tiered_pricing: dict | None = None
-        if use_tiered_pricing:
-            tiered_pricing_task = service.get_tiered_pricing_async(provider, model)
-            (input_price, output_price), request_price, tiered_pricing = await asyncio.gather(
-                price_task, request_price_task, tiered_pricing_task
-            )
-        else:
-            (input_price, output_price), request_price = await asyncio.gather(
-                price_task, request_price_task
-            )
-
-        # 缓存价格依赖 input_price，需要串行获取
-        cache_creation_price, cache_read_price = await service.get_cache_prices_async(
-            provider, model, input_price
-        )
-        effective_request_price = None if is_failed_request else request_price
-
-        # 初始化成本变量
-        input_cost = 0.0
-        output_cost = 0.0
-        cache_creation_cost = 0.0
-        cache_read_cost = 0.0
-        cache_cost = 0.0
-        request_cost = 0.0
-        total_cost = 0.0
-        tier_index = None
-
-        if use_tiered_pricing:
-            # 使用与 ModelCostService.compute_cost_with_strategy_async 一致的 adapter 逻辑，
-            # 但复用本方法已获取的价格/配置，避免重复 I/O。
-            adapter = None
-            if api_format:
-                from src.api.handlers.base.chat_adapter_base import get_adapter_instance
-                from src.api.handlers.base.cli_adapter_base import get_cli_adapter_instance
-
-                adapter = get_adapter_instance(api_format)
-                if adapter is None:
-                    adapter = get_cli_adapter_instance(api_format)
-
-            if adapter:
-                result = adapter.compute_cost(
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    cache_creation_input_tokens=cache_creation_input_tokens,
-                    cache_read_input_tokens=cache_read_input_tokens,
-                    input_price_per_1m=input_price,
-                    output_price_per_1m=output_price,
-                    cache_creation_price_per_1m=cache_creation_price,
-                    cache_read_price_per_1m=cache_read_price,
-                    price_per_request=effective_request_price,
-                    tiered_pricing=tiered_pricing,
-                    cache_ttl_minutes=cache_ttl_minutes,
-                )
-                input_cost = result["input_cost"]
-                output_cost = result["output_cost"]
-                cache_creation_cost = result["cache_creation_cost"]
-                cache_read_cost = result["cache_read_cost"]
-                cache_cost = result["cache_cost"]
-                request_cost = result["request_cost"]
-                total_cost = result["total_cost"]
-                tier_index = result.get("tier_index")
-            else:
-                (
-                    input_cost,
-                    output_cost,
-                    cache_creation_cost,
-                    cache_read_cost,
-                    cache_cost,
-                    request_cost,
-                    total_cost,
-                    tier_index,
-                ) = ModelCostService.compute_cost_with_tiered_pricing(
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    cache_creation_input_tokens=cache_creation_input_tokens,
-                    cache_read_input_tokens=cache_read_input_tokens,
-                    tiered_pricing=tiered_pricing,
-                    cache_ttl_minutes=cache_ttl_minutes,
-                    price_per_request=effective_request_price,
-                    fallback_input_price_per_1m=input_price,
-                    fallback_output_price_per_1m=output_price,
-                    fallback_cache_creation_price_per_1m=cache_creation_price,
-                    fallback_cache_read_price_per_1m=cache_read_price,
-                )
-        else:
-            (
-                input_cost,
-                output_cost,
-                cache_creation_cost,
-                cache_read_cost,
-                cache_cost,
-                request_cost,
-                total_cost,
-            ) = cls.calculate_cost(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                input_price_per_1m=input_price,
-                output_price_per_1m=output_price,
-                cache_creation_input_tokens=cache_creation_input_tokens,
-                cache_read_input_tokens=cache_read_input_tokens,
-                cache_creation_price_per_1m=cache_creation_price,
-                cache_read_price_per_1m=cache_read_price,
-                price_per_request=effective_request_price,
-            )
-
-        return (
-            input_price,
-            output_price,
-            cache_creation_price,
-            cache_read_price,
-            request_price,
-            input_cost,
-            output_cost,
-            cache_creation_cost,
-            cache_read_cost,
-            cache_cost,
-            request_cost,
-            total_cost,
-            tier_index,
-        )
-
     @staticmethod
     def _update_existing_usage(
         existing_usage: Usage,
@@ -780,8 +615,8 @@ class UsageService:
     _METADATA_KEEP_KEYS: frozenset[str] = frozenset(
         {
             "billing_snapshot",
-            "billing_shadow",
             "billing_updated_at",
+            "perf",
             "_metadata_truncated",
         }
     )
@@ -871,163 +706,65 @@ class UsageService:
         metadata = dict(params.metadata or {})
         is_failed_request = params.status_code >= 400 or params.error_message is not None
 
-        # Resolve engine mode early to avoid unnecessary legacy computations.
-        from src.services.billing.shadow import resolve_engine_mode
-
-        engine_mode = resolve_engine_mode(params.provider, params.model)
-
         # Helper: compute billing task_type (billing domain)
         billing_task_type = (params.request_type or "").lower()
         if billing_task_type not in {"chat", "cli", "video", "image", "audio"}:
             billing_task_type = "chat"
 
-        # Defaults (filled by either legacy or new path)
-        input_price: float = 0.0
-        output_price: float = 0.0
-        cache_creation_price: float | None = None
-        cache_read_price: float | None = None
-        request_price: float | None = None
+        # 使用新计费系统计算费用
+        from src.services.billing.service import BillingService
 
-        input_cost: float = 0.0
-        output_cost: float = 0.0
-        cache_creation_cost: float = 0.0
-        cache_read_cost: float = 0.0
-        cache_cost: float = 0.0
-        request_cost: float = 0.0
-        total_cost: float = 0.0
+        request_count = 0 if is_failed_request else 1
+        dims: dict[str, Any] = {
+            "input_tokens": input_tokens_for_billing,
+            "output_tokens": params.output_tokens,
+            "cache_creation_input_tokens": params.cache_creation_input_tokens,
+            "cache_read_input_tokens": params.cache_read_input_tokens,
+            "request_count": request_count,
+        }
+        if params.cache_ttl_minutes is not None:
+            dims["cache_ttl_minutes"] = params.cache_ttl_minutes
+        # If tiered pricing is disabled, force first tier by using tier-key=0.
+        if not params.use_tiered_pricing:
+            dims["total_input_context"] = 0
 
-        # ------------------------------------------------------------------
-        # NEW: new engine as truth (no reconciliation)
-        # ------------------------------------------------------------------
-        if engine_mode == "new":
-            from src.services.billing.service import BillingService
+        billing = BillingService(params.db)
+        result = billing.calculate(
+            task_type=billing_task_type,
+            model=params.model,
+            provider_id=params.provider_id or "",
+            dimensions=dims,
+            strict_mode=None,
+        )
+        snap = result.snapshot
 
-            request_count = 0 if is_failed_request else 1
-            dims: dict[str, Any] = {
-                "input_tokens": input_tokens_for_billing,
-                "output_tokens": params.output_tokens,
-                "cache_creation_input_tokens": params.cache_creation_input_tokens,
-                "cache_read_input_tokens": params.cache_read_input_tokens,
-                "request_count": request_count,
-            }
-            if params.cache_ttl_minutes is not None:
-                dims["cache_ttl_minutes"] = params.cache_ttl_minutes
-            # If tiered pricing is disabled, force first tier by using tier-key=0.
-            if not params.use_tiered_pricing:
-                dims["total_input_context"] = 0
+        breakdown = snap.cost_breakdown or {}
+        input_cost = float(breakdown.get("input_cost", 0.0))
+        output_cost = float(breakdown.get("output_cost", 0.0))
+        cache_creation_cost = float(breakdown.get("cache_creation_cost", 0.0))
+        cache_read_cost = float(breakdown.get("cache_read_cost", 0.0))
+        request_cost = float(breakdown.get("request_cost", 0.0))
+        cache_cost = cache_creation_cost + cache_read_cost
+        total_cost = float(snap.total_cost or 0.0)
 
-            billing = BillingService(params.db)
-            result = billing.calculate(
-                task_type=billing_task_type,
-                model=params.model,
-                provider_id=params.provider_id or "",
-                dimensions=dims,
-                strict_mode=None,
-            )
-            snap = result.snapshot
+        rv = snap.resolved_variables or {}
 
-            breakdown = snap.cost_breakdown or {}
-            input_cost = float(breakdown.get("input_cost", 0.0))
-            output_cost = float(breakdown.get("output_cost", 0.0))
-            cache_creation_cost = float(breakdown.get("cache_creation_cost", 0.0))
-            cache_read_cost = float(breakdown.get("cache_read_cost", 0.0))
-            request_cost = float(breakdown.get("request_cost", 0.0))
-            cache_cost = cache_creation_cost + cache_read_cost
-            total_cost = float(snap.total_cost or 0.0)
-
-            rv = snap.resolved_variables or {}
-
-            def _as_float(v: Any, d: float | None) -> float | None:
-                try:
-                    if v is None:
-                        return d
-                    return float(v)
-                except Exception:
+        def _as_float(v: Any, d: float | None) -> float | None:
+            try:
+                if v is None:
                     return d
+                return float(v)
+            except Exception:
+                return d
 
-            input_price = _as_float(rv.get("input_price_per_1m"), 0.0) or 0.0
-            output_price = _as_float(rv.get("output_price_per_1m"), 0.0) or 0.0
-            cache_creation_price = _as_float(rv.get("cache_creation_price_per_1m"), None)
-            cache_read_price = _as_float(rv.get("cache_read_price_per_1m"), None)
-            request_price = _as_float(rv.get("price_per_request"), None)
+        input_price = _as_float(rv.get("input_price_per_1m"), 0.0) or 0.0
+        output_price = _as_float(rv.get("output_price_per_1m"), 0.0) or 0.0
+        cache_creation_price = _as_float(rv.get("cache_creation_price_per_1m"), None)
+        cache_read_price = _as_float(rv.get("cache_read_price_per_1m"), None)
+        request_price = _as_float(rv.get("price_per_request"), None)
 
-            # Audit snapshot for new engine (pruned later by _sanitize_request_metadata)
-            metadata["billing_snapshot"] = snap.to_dict()
-
-        # ------------------------------------------------------------------
-        # LEGACY truth (legacy or shadow or new_with_fallback)
-        # ------------------------------------------------------------------
-        else:
-            (
-                input_price,
-                output_price,
-                cache_creation_price,
-                cache_read_price,
-                request_price,
-                input_cost,
-                output_cost,
-                cache_creation_cost,
-                cache_read_cost,
-                cache_cost,
-                request_cost,
-                total_cost,
-                _tier_index,
-            ) = await cls._calculate_costs(
-                db=params.db,
-                provider=params.provider,
-                model=params.model,
-                input_tokens=input_tokens_for_billing,
-                output_tokens=params.output_tokens,
-                cache_creation_input_tokens=params.cache_creation_input_tokens,
-                cache_read_input_tokens=params.cache_read_input_tokens,
-                api_format=billing_api_format,
-                cache_ttl_minutes=params.cache_ttl_minutes,
-                use_tiered_pricing=params.use_tiered_pricing,
-                is_failed_request=is_failed_request,
-            )
-
-            # Shadow mode: compute new snapshot and store in metadata.billing_shadow only.
-            if engine_mode == "shadow":
-                try:
-                    from src.services.billing.shadow import CostBreakdown as ShadowCostBreakdown
-                    from src.services.billing.shadow import (
-                        ShadowBillingService,
-                    )
-
-                    legacy_truth = ShadowCostBreakdown(
-                        input_cost=input_cost,
-                        output_cost=output_cost,
-                        cache_creation_cost=cache_creation_cost,
-                        cache_read_cost=cache_read_cost,
-                        request_cost=request_cost,
-                        total_cost=total_cost,
-                    )
-
-                    shadow = ShadowBillingService(params.db)
-                    shadow_result = shadow.calculate_with_shadow(
-                        provider=params.provider,
-                        provider_id=params.provider_id,
-                        model=params.model,
-                        task_type=billing_task_type,
-                        api_format=billing_api_format,
-                        input_tokens=input_tokens_for_billing,
-                        output_tokens=params.output_tokens,
-                        cache_creation_input_tokens=params.cache_creation_input_tokens,
-                        cache_read_input_tokens=params.cache_read_input_tokens,
-                        cache_ttl_minutes=params.cache_ttl_minutes,
-                        legacy_truth=legacy_truth,
-                        is_failed_request=is_failed_request,
-                    )
-                    if shadow_result.shadow_snapshot is not None:
-                        metadata["billing_shadow"] = {
-                            "engine_mode": shadow_result.engine_mode,
-                            "truth_engine": shadow_result.truth_engine,
-                            "was_fallback": shadow_result.was_fallback,
-                            "comparison": shadow_result.comparison,
-                            "snapshot": shadow_result.shadow_snapshot.to_dict(),
-                        }
-                except Exception as exc:
-                    logger.debug("Shadow billing skipped/failed: {}", str(exc))
+        # Audit snapshot (pruned later by _sanitize_request_metadata)
+        metadata["billing_snapshot"] = snap.to_dict()
 
         # Best-effort prune metadata to reduce DB/memory pressure.
         metadata = cls._sanitize_request_metadata(metadata)

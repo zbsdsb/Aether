@@ -67,7 +67,11 @@ async def test_build_candidates_allows_cross_format_when_endpoint_accepts_and_ov
 
 
 @pytest.mark.asyncio
-async def test_build_candidates_blocks_cross_format_when_master_switch_off() -> None:
+async def test_build_candidates_allows_cross_format_when_global_off_but_endpoint_enabled() -> None:
+    """
+    分层开关设计：全局 OFF 时回退到端点配置
+    - 全局 OFF + 端点 enabled=True -> 允许（端点覆盖全局默认）
+    """
     register_default_normalizers()
 
     scheduler = CacheAwareScheduler()
@@ -91,9 +95,44 @@ async def test_build_candidates_blocks_cross_format_when_master_switch_off() -> 
         client_format="claude:chat",
         model_name="dummy-model",
         affinity_key=None,
+        global_conversion_enabled=False,  # 全局开关关闭，但端点配置允许
+    )
+
+    # 新设计：全局 OFF 时回退到端点配置，端点 enabled=True 则允许
+    assert len(candidates) == 1
+    assert candidates[0].needs_conversion is True
+    assert candidates[0].provider_api_format == "openai:chat"
+
+
+@pytest.mark.asyncio
+async def test_build_candidates_blocks_cross_format_when_global_off_and_endpoint_not_configured() -> (
+    None
+):
+    """
+    分层开关设计：全局 OFF + 端点未配置 -> 阻止
+    """
+    register_default_normalizers()
+
+    scheduler = CacheAwareScheduler()
+    scheduler._check_model_support = AsyncMock(return_value=(True, None, None, {"m"}))  # type: ignore[method-assign]
+    scheduler._check_key_availability = MagicMock(return_value=(True, None, None))  # type: ignore[method-assign]
+
+    provider = MagicMock()
+    provider.name = "p1"
+    provider.enable_format_conversion = False
+    provider.endpoints = [_mock_endpoint("openai:chat", None)]  # 端点未配置格式接受策略
+    provider.api_keys = [_mock_key("k1", ["openai:chat"])]
+
+    candidates = await scheduler._build_candidates(
+        db=MagicMock(),
+        providers=[provider],
+        client_format="claude:chat",
+        model_name="dummy-model",
+        affinity_key=None,
         global_conversion_enabled=False,  # 全局开关关闭
     )
 
+    # 全局 OFF + 端点未配置 -> 阻止
     assert candidates == []
 
 
