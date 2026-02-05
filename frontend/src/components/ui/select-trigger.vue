@@ -25,7 +25,9 @@ const triggerClass = computed(() =>
     :class="triggerClass"
     :disabled="disabled"
   >
-    <slot />
-    <ChevronDown class="h-4 w-4 opacity-50 pointer-events-none" />
+    <span class="truncate">
+      <slot />
+    </span>
+    <ChevronDown class="h-4 w-4 opacity-50 pointer-events-none flex-shrink-0" />
   </SelectTriggerPrimitive>
 </template>

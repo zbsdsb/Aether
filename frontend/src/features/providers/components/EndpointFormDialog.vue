@@ -182,7 +182,7 @@
                       :disabled="savingEndpointId === endpoint.id"
                       @click="saveEndpoint(endpoint)"
                     >
-                      <Check class="w-3.5 h-3.5" />
+                      <Save class="w-3.5 h-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -292,6 +292,13 @@
                       </Button>
                     </div>
 
+                    <div
+                      v-if="getEndpointEditBodyRules(endpoint.id).length > 0"
+                      class="text-xs text-muted-foreground px-2"
+                    >
+                      用 <code class="bg-muted px-1 rounded">.</code> 访问嵌套字段；值为 JSON 格式，字符串需加引号如 <code class="bg-muted px-1 rounded">"text"</code>
+                    </div>
+
                     <!-- 请求体规则列表 - 次要色边框 -->
                     <div
                       v-for="(rule, index) in getEndpointEditBodyRules(endpoint.id)"
@@ -326,7 +333,7 @@
                       <template v-if="rule.action === 'set'">
                         <Input
                           :model-value="rule.path"
-                          placeholder="字段名"
+                          placeholder="字段路径（如 metadata.user_id）"
                           size="sm"
                           class="flex-1 min-w-0 h-7 text-xs"
                           @update:model-value="(v) => updateEndpointBodyRuleField(endpoint.id, index, 'path', v)"
@@ -334,16 +341,21 @@
                         <span class="text-muted-foreground text-xs">=</span>
                         <Input
                           :model-value="rule.value"
-                          placeholder="值"
+                          placeholder="123 / &quot;text&quot; / [1,2]"
                           size="sm"
                           class="flex-1 min-w-0 h-7 text-xs"
                           @update:model-value="(v) => updateEndpointBodyRuleField(endpoint.id, index, 'value', v)"
+                        />
+                        <CheckCircle
+                          class="w-4 h-4 shrink-0"
+                          :class="getBodySetValueValidation(rule) === true ? 'text-green-600' : getBodySetValueValidation(rule) === false ? 'text-destructive' : 'text-muted-foreground/40'"
+                          :title="getBodySetValueValidationTip(rule)"
                         />
                       </template>
                       <template v-else-if="rule.action === 'drop'">
                         <Input
                           :model-value="rule.path"
-                          placeholder="要删除的字段名"
+                          placeholder="要删除的字段路径"
                           size="sm"
                           class="flex-1 min-w-0 h-7 text-xs"
                           @update:model-value="(v) => updateEndpointBodyRuleField(endpoint.id, index, 'path', v)"
@@ -352,7 +364,7 @@
                       <template v-else-if="rule.action === 'rename'">
                         <Input
                           :model-value="rule.from"
-                          placeholder="原名"
+                          placeholder="原路径"
                           size="sm"
                           class="flex-1 min-w-0 h-7 text-xs"
                           @update:model-value="(v) => updateEndpointBodyRuleField(endpoint.id, index, 'from', v)"
@@ -360,7 +372,7 @@
                         <span class="text-muted-foreground text-xs">→</span>
                         <Input
                           :model-value="rule.to"
-                          placeholder="新名"
+                          placeholder="新路径"
                           size="sm"
                           class="flex-1 min-w-0 h-7 text-xs"
                           @update:model-value="(v) => updateEndpointBodyRuleField(endpoint.id, index, 'to', v)"
@@ -494,7 +506,7 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from '@/components/ui'
-import { Settings, Trash2, Check, X, Power, ChevronRight, Plus, Shuffle, RotateCcw, Radio } from 'lucide-vue-next'
+import { Settings, Trash2, Check, X, Power, ChevronRight, Plus, Shuffle, RotateCcw, Radio, CheckCircle, Save } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { log } from '@/utils/logger'
 import AlertDialog from '@/components/common/AlertDialog.vue'
@@ -523,7 +535,7 @@ interface EditableRule {
 interface EditableBodyRule {
   action: 'set' | 'drop' | 'rename'
   path: string     // set/drop 用
-  value: string    // set 用
+  value: string    // set 用（JSON 格式）
   from: string     // rename 用
   to: string       // rename 用
 }
@@ -650,6 +662,44 @@ const RESERVED_BODY_FIELDS = new Set([
   'stream',
 ])
 
+function parseBodyRulePathParts(path: string): string[] | null {
+  const raw = path.trim()
+  if (!raw) return null
+
+  const parts: string[] = []
+  let current = ''
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]
+    // 支持 \. 转义字面量点号；其他反斜杠组合按字面量保留
+    if (ch === '\\' && i + 1 < raw.length && raw[i + 1] === '.') {
+      current += '.'
+      i++
+      continue
+    }
+    if (ch === '.') {
+      if (!current) return null // 禁止空段：.a / a. / a..b
+      parts.push(current)
+      current = ''
+      continue
+    }
+    current += ch
+  }
+  if (!current) return null
+  parts.push(current)
+  return parts
+}
+
+function initBodyRuleSetValueForEditor(value: any): { value: string } {
+  if (value === undefined) return { value: '' }
+
+  // 所有值都用 JSON 格式回显
+  try {
+    return { value: JSON.stringify(value) }
+  } catch {
+    return { value: String(value) }
+  }
+}
+
 // 内部状态
 const internalOpen = computed(() => props.modelValue)
 
@@ -733,7 +783,8 @@ function initEndpointEditState(endpoint: ProviderEndpoint): EndpointEditState {
   if (endpoint.body_rules && endpoint.body_rules.length > 0) {
     for (const rule of endpoint.body_rules) {
       if (rule.action === 'set') {
-        bodyRules.push({ action: 'set', path: rule.path, value: rule.value || '', from: '', to: '' })
+        const { value } = initBodyRuleSetValueForEditor((rule as any).value)
+        bodyRules.push({ action: 'set', path: rule.path, value, from: '', to: '' })
       } else if (rule.action === 'drop') {
         bodyRules.push({ action: 'drop', path: rule.path, value: '', from: '', to: '' })
       } else if (rule.action === 'rename') {
@@ -959,22 +1010,30 @@ function updateEndpointBodyRuleField(endpointId: string, index: number, field: '
 
 // 验证请求体规则 path（针对特定端点）
 function validateBodyRulePathForEndpoint(endpointId: string, path: string, index: number): string | null {
-  const trimmedPath = path.trim().toLowerCase()
-  if (!trimmedPath) return null
+  const raw = path.trim()
+  if (!raw) return null
 
-  if (RESERVED_BODY_FIELDS.has(trimmedPath)) {
-    return `"${path}" 是系统保留的字段`
+  const parts = parseBodyRulePathParts(raw)
+  if (!parts) {
+    return '路径格式无效（不允许 .a / a. / a..b）'
   }
+
+  const topKey = (parts[0] || '').trim().toLowerCase()
+  if (RESERVED_BODY_FIELDS.has(topKey)) {
+    return `"${parts[0]}" 是系统保留的顶层字段`
+  }
+
+  const normalizedPath = raw.toLowerCase()
 
   const rules = getEndpointEditBodyRules(endpointId)
   const duplicate = rules.findIndex(
     (r, i) => i !== index && (
-      ((r.action === 'set' || r.action === 'drop') && r.path.trim().toLowerCase() === trimmedPath) ||
-      (r.action === 'rename' && r.to.trim().toLowerCase() === trimmedPath)
+      ((r.action === 'set' || r.action === 'drop') && r.path.trim().toLowerCase() === normalizedPath) ||
+      (r.action === 'rename' && r.to.trim().toLowerCase() === normalizedPath)
     )
   )
   if (duplicate >= 0) {
-    return '字段名重复'
+    return '字段路径重复'
   }
 
   return null
@@ -982,18 +1041,30 @@ function validateBodyRulePathForEndpoint(endpointId: string, path: string, index
 
 // 验证请求体 rename from
 function validateBodyRenameFromForEndpoint(endpointId: string, from: string, index: number): string | null {
-  const trimmedFrom = from.trim().toLowerCase()
-  if (!trimmedFrom) return null
+  const raw = from.trim()
+  if (!raw) return null
+
+  const parts = parseBodyRulePathParts(raw)
+  if (!parts) {
+    return '路径格式无效（不允许 .a / a. / a..b）'
+  }
+
+  const topKey = (parts[0] || '').trim().toLowerCase()
+  if (RESERVED_BODY_FIELDS.has(topKey)) {
+    return `"${parts[0]}" 是系统保留的顶层字段`
+  }
+
+  const normalizedFrom = raw.toLowerCase()
 
   const rules = getEndpointEditBodyRules(endpointId)
   const duplicate = rules.findIndex(
     (r, i) => i !== index &&
-      ((r.action === 'set' && r.path.trim().toLowerCase() === trimmedFrom) ||
-       (r.action === 'drop' && r.path.trim().toLowerCase() === trimmedFrom) ||
-       (r.action === 'rename' && r.from.trim().toLowerCase() === trimmedFrom))
+      ((r.action === 'set' && r.path.trim().toLowerCase() === normalizedFrom) ||
+       (r.action === 'drop' && r.path.trim().toLowerCase() === normalizedFrom) ||
+       (r.action === 'rename' && r.from.trim().toLowerCase() === normalizedFrom))
   )
   if (duplicate >= 0) {
-    return '该字段已被其他规则处理'
+    return '该路径已被其他规则处理'
   }
 
   return null
@@ -1001,24 +1072,76 @@ function validateBodyRenameFromForEndpoint(endpointId: string, from: string, ind
 
 // 验证请求体 rename to
 function validateBodyRenameToForEndpoint(endpointId: string, to: string, index: number): string | null {
-  const trimmedTo = to.trim().toLowerCase()
-  if (!trimmedTo) return null
+  const raw = to.trim()
+  if (!raw) return null
 
-  if (RESERVED_BODY_FIELDS.has(trimmedTo)) {
-    return `"${to}" 是系统保留的字段`
+  const parts = parseBodyRulePathParts(raw)
+  if (!parts) {
+    return '路径格式无效（不允许 .a / a. / a..b）'
   }
+
+  const topKey = (parts[0] || '').trim().toLowerCase()
+  if (RESERVED_BODY_FIELDS.has(topKey)) {
+    return `"${parts[0]}" 是系统保留的顶层字段`
+  }
+
+  const normalizedTo = raw.toLowerCase()
 
   const rules = getEndpointEditBodyRules(endpointId)
   const duplicate = rules.findIndex(
     (r, i) => i !== index &&
-      ((r.action === 'set' && r.path.trim().toLowerCase() === trimmedTo) ||
-       (r.action === 'rename' && r.to.trim().toLowerCase() === trimmedTo))
+      ((r.action === 'set' && r.path.trim().toLowerCase() === normalizedTo) ||
+       (r.action === 'rename' && r.to.trim().toLowerCase() === normalizedTo))
   )
   if (duplicate >= 0) {
-    return '字段名重复'
+    return '字段路径重复'
   }
 
   return null
+}
+
+function validateBodySetValue(rule: EditableBodyRule): string | null {
+  if (rule.action !== 'set') return null
+
+  const raw = rule.value.trim()
+  if (!raw) return '值不能为空'
+  try {
+    JSON.parse(raw)
+  } catch (err: any) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return `JSON 格式错误：${msg}`
+  }
+  return null
+}
+
+// 获取值验证状态：true=有效, false=无效, null=空
+function getBodySetValueValidation(rule: EditableBodyRule): boolean | null {
+  if (rule.action !== 'set') return null
+  const raw = rule.value.trim()
+  if (!raw) return null
+  try {
+    JSON.parse(raw)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// 获取验证提示
+function getBodySetValueValidationTip(rule: EditableBodyRule): string {
+  const validation = getBodySetValueValidation(rule)
+  if (validation === null) return '点击验证 JSON'
+  if (validation === true) {
+    const parsed = JSON.parse(rule.value.trim())
+    const type = Array.isArray(parsed) ? '数组' : typeof parsed === 'object' && parsed !== null ? '对象' : typeof parsed === 'string' ? '字符串' : typeof parsed === 'number' ? '数字' : typeof parsed === 'boolean' ? '布尔' : 'null'
+    return `有效的 JSON (${type})`
+  }
+  try {
+    JSON.parse(rule.value.trim())
+    return ''
+  } catch (err: any) {
+    return err instanceof Error ? err.message : String(err)
+  }
 }
 
 // 获取端点的请求体规则数量（有效的规则）
@@ -1096,7 +1219,9 @@ function hasBodyRulesChanges(endpoint: ProviderEndpoint): boolean {
     if (!original) return true
     if (edited.action !== original.action) return true
     if (edited.action === 'set' && original.action === 'set') {
-      if (edited.path !== original.path || edited.value !== (original.value || '')) return true
+      const baseline = initBodyRuleSetValueForEditor((original as any).value)
+      if (edited.path !== original.path) return true
+      if (edited.value !== baseline.value) return true
     } else if (edited.action === 'drop' && original.action === 'drop') {
       if (edited.path !== original.path) return true
     } else if (edited.action === 'rename' && original.action === 'rename') {
@@ -1112,7 +1237,14 @@ function rulesToBodyRules(rules: EditableBodyRule[]): BodyRule[] | null {
 
   for (const rule of rules) {
     if (rule.action === 'set' && rule.path.trim()) {
-      result.push({ action: 'set', path: rule.path.trim(), value: rule.value })
+      let value: any = rule.value
+      try {
+        value = JSON.parse(rule.value.trim())
+      } catch {
+        // 保存前会做校验；这里兜底避免 UI 崩溃
+        value = rule.value
+      }
+      result.push({ action: 'set', path: rule.path.trim(), value })
     } else if (rule.action === 'drop' && rule.path.trim()) {
       result.push({ action: 'drop', path: rule.path.trim() })
     } else if (rule.action === 'rename' && rule.from.trim() && rule.to.trim()) {
@@ -1123,19 +1255,32 @@ function rulesToBodyRules(rules: EditableBodyRule[]): BodyRule[] | null {
   return result.length > 0 ? result : null
 }
 
-// 检查请求体规则是否有验证错误
-function hasBodyValidationErrorsForEndpoint(endpointId: string): boolean {
+function getBodyValidationErrorForEndpoint(endpointId: string): string | null {
   const rules = getEndpointEditBodyRules(endpointId)
   for (let i = 0; i < rules.length; i++) {
     const rule = rules[i]
+    const prefix = `第 ${i + 1} 条请求体规则：`
+
     if (rule.action === 'set' || rule.action === 'drop') {
-      if (validateBodyRulePathForEndpoint(endpointId, rule.path, i)) return true
+      const pathErr = validateBodyRulePathForEndpoint(endpointId, rule.path, i)
+      if (pathErr) return `${prefix}${pathErr}`
+      if (rule.action === 'set') {
+        const valueErr = validateBodySetValue(rule)
+        if (valueErr) return `${prefix}${valueErr}`
+      }
     } else if (rule.action === 'rename') {
-      if (validateBodyRenameFromForEndpoint(endpointId, rule.from, i)) return true
-      if (validateBodyRenameToForEndpoint(endpointId, rule.to, i)) return true
+      const fromErr = validateBodyRenameFromForEndpoint(endpointId, rule.from, i)
+      if (fromErr) return `${prefix}${fromErr}`
+      const toErr = validateBodyRenameToForEndpoint(endpointId, rule.to, i)
+      if (toErr) return `${prefix}${toErr}`
     }
   }
-  return false
+  return null
+}
+
+// 检查请求体规则是否有验证错误
+function hasBodyValidationErrorsForEndpoint(endpointId: string): boolean {
+  return !!getBodyValidationErrorForEndpoint(endpointId)
 }
 
 // 检查端点 URL/路径是否有修改
@@ -1284,8 +1429,9 @@ async function saveEndpoint(endpoint: ProviderEndpoint) {
   }
 
   // 检查请求体规则是否有验证错误
-  if (hasBodyValidationErrorsForEndpoint(endpoint.id)) {
-    showError('请修正请求体规则中的错误')
+  const bodyErr = getBodyValidationErrorForEndpoint(endpoint.id)
+  if (bodyErr) {
+    showError(bodyErr)
     return
   }
 

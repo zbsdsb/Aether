@@ -16,8 +16,8 @@
         <Input
           id="usage-records-search"
           v-model="localSearch"
-          :placeholder="isAdmin ? '搜索用户/密钥/模型/提供商' : '搜索密钥/模型'"
-          class="w-32 sm:w-48 h-8 text-xs border-border/60 pl-8"
+          :placeholder="isAdmin ? '搜索用户/密钥' : '搜索密钥/模型'"
+          class="w-[7.5rem] sm:w-48 h-8 text-xs border-border/60 pl-8"
         />
       </div>
 
@@ -28,8 +28,8 @@
         :model-value="filterUser"
         @update:model-value="$emit('update:filterUser', $event)"
       >
-        <SelectTrigger class="w-24 sm:w-36 h-8 text-xs border-border/60">
-          <SelectValue placeholder="全部用户" />
+        <SelectTrigger class="flex-1 min-w-0 sm:flex-none sm:w-36 h-8 text-xs border-border/60">
+          <SelectValue placeholder="用户" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__all__">
@@ -51,8 +51,8 @@
         :model-value="filterModel"
         @update:model-value="$emit('update:filterModel', $event)"
       >
-        <SelectTrigger class="w-24 sm:w-40 h-8 text-xs border-border/60">
-          <SelectValue placeholder="全部模型" />
+        <SelectTrigger class="flex-1 min-w-0 sm:flex-none sm:w-40 h-8 text-xs border-border/60">
+          <SelectValue placeholder="模型" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__all__">
@@ -75,8 +75,8 @@
         :model-value="filterProvider"
         @update:model-value="$emit('update:filterProvider', $event)"
       >
-        <SelectTrigger class="w-24 sm:w-32 h-8 text-xs border-border/60">
-          <SelectValue placeholder="全部提供商" />
+        <SelectTrigger class="flex-1 min-w-0 sm:flex-none sm:w-32 h-8 text-xs border-border/60">
+          <SelectValue placeholder="提供商" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__all__">
@@ -98,8 +98,8 @@
         :model-value="filterApiFormat"
         @update:model-value="$emit('update:filterApiFormat', $event)"
       >
-        <SelectTrigger class="w-24 sm:w-32 h-8 text-xs border-border/60">
-          <SelectValue placeholder="全部格式" />
+        <SelectTrigger class="flex-1 min-w-0 sm:flex-none sm:w-32 h-8 text-xs border-border/60">
+          <SelectValue placeholder="格式" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__all__">
@@ -121,8 +121,8 @@
         :model-value="filterStatus"
         @update:model-value="$emit('update:filterStatus', $event)"
       >
-        <SelectTrigger class="w-20 sm:w-28 h-8 text-xs border-border/60">
-          <SelectValue placeholder="全部状态" />
+        <SelectTrigger class="flex-1 min-w-0 sm:flex-none sm:w-28 h-8 text-xs border-border/60">
+          <SelectValue placeholder="状态" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__all__">
@@ -165,7 +165,117 @@
       </Button>
     </template>
 
-    <Table>
+    <!-- 移动端卡片视图 -->
+    <div class="md:hidden">
+      <div
+        v-if="records.length === 0"
+        class="text-center py-12 text-muted-foreground"
+      >
+        暂无请求记录
+      </div>
+      <div
+        v-for="record in records"
+        v-else
+        :key="record.id"
+        class="border-b border-border/40 py-2.5 px-2"
+        :class="isAdmin ? 'cursor-pointer active:bg-muted/30 transition-colors' : ''"
+        @click="isAdmin && emit('showDetail', record.id)"
+      >
+        <!-- 第一行：模型 + 费用 -->
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <span class="text-sm font-medium truncate block">{{ record.model }}</span>
+            <span
+              v-if="getActualModel(record)"
+              class="text-[11px] text-muted-foreground truncate block"
+            >-> {{ getActualModel(record) }}</span>
+          </div>
+          <div class="flex flex-col items-end flex-shrink-0">
+            <span class="text-xs text-primary font-medium">{{ formatCurrency(record.cost || 0) }}</span>
+            <span
+              v-if="showActualCost && record.actual_cost !== undefined"
+              class="text-[10px] text-muted-foreground"
+            >{{ formatCurrency(record.actual_cost) }}</span>
+          </div>
+        </div>
+
+        <!-- 第二行：状态 | 时间 | API格式 | 耗时 | Tokens -->
+        <div class="flex items-center justify-between text-[11px] text-muted-foreground mt-1 leading-4">
+          <div class="flex items-center gap-1.5">
+            <!-- 状态 Badge -->
+            <Badge
+              v-if="record.status === 'failed' || (record.status_code && record.status_code >= 400) || record.error_message"
+              variant="destructive"
+              class="whitespace-nowrap text-[10px] px-1.5 h-4 leading-4 inline-flex items-center"
+            >
+              失败
+            </Badge>
+            <Badge
+              v-else-if="record.status === 'pending'"
+              variant="outline"
+              class="whitespace-nowrap animate-pulse border-muted-foreground/30 text-muted-foreground text-[10px] px-1.5 h-4 leading-4 inline-flex items-center"
+            >
+              等待
+            </Badge>
+            <Badge
+              v-else-if="record.status === 'streaming'"
+              variant="outline"
+              class="whitespace-nowrap animate-pulse border-primary/50 text-primary text-[10px] px-1.5 h-4 leading-4 inline-flex items-center"
+            >
+              传输
+            </Badge>
+            <Badge
+              v-else-if="record.status === 'cancelled'"
+              variant="outline"
+              class="whitespace-nowrap border-amber-500/50 text-amber-600 dark:text-amber-400 text-[10px] px-1.5 h-4 leading-4 inline-flex items-center"
+            >
+              取消
+            </Badge>
+            <Badge
+              v-else-if="record.is_stream"
+              variant="secondary"
+              class="whitespace-nowrap text-[10px] px-1.5 h-4 leading-4 inline-flex items-center"
+            >
+              流式
+            </Badge>
+            <Badge
+              v-else
+              variant="outline"
+              class="whitespace-nowrap border-border/60 text-muted-foreground text-[10px] px-1.5 h-4 leading-4 inline-flex items-center"
+            >
+              标准
+            </Badge>
+            <span class="text-muted-foreground/50">|</span>
+            <span>{{ formatDateTime(record.created_at) }}</span>
+            <template v-if="record.api_format">
+              <span class="text-muted-foreground/50">|</span>
+              <span>{{ formatApiFormat(record.api_format) }}</span>
+            </template>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <!-- 耗时 -->
+            <span
+              v-if="record.status === 'pending' || record.status === 'streaming'"
+              class="text-primary tabular-nums"
+            >{{ getElapsedTime(record) }}</span>
+            <span
+              v-else-if="record.response_time_ms != null"
+              class="tabular-nums"
+            >{{ record.first_byte_time_ms != null ? (record.first_byte_time_ms / 1000).toFixed(1) + '/' : '' }}{{ (record.response_time_ms / 1000).toFixed(1) }}s</span>
+            <span
+              v-else
+              class="tabular-nums"
+            >-</span>
+            <span class="text-muted-foreground/50">|</span>
+            <!-- Tokens -->
+            <span>{{ formatTokens(record.input_tokens || 0) }}/{{ formatTokens(record.output_tokens || 0) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 桌面端表格视图 -->
+    <Table class="hidden md:table">
       <TableHeader>
         <TableRow class="border-b border-border/60 hover:bg-transparent">
           <TableHead class="h-12 font-semibold w-[70px]">
@@ -192,7 +302,7 @@
           >
             提供商
           </TableHead>
-          <TableHead class="h-12 font-semibold w-[80px]">
+          <TableHead class="h-12 font-semibold w-[120px]">
             API格式
           </TableHead>
           <TableHead class="h-12 font-semibold w-[70px] text-center">
@@ -354,7 +464,7 @@
             </div>
           </TableCell>
           <TableCell
-            class="py-4 w-[80px]"
+            class="py-4 w-[120px]"
             :title="getApiFormatTooltip(record)"
           >
             <!-- 有格式转换或同族格式差异：两行显示 -->
@@ -362,7 +472,7 @@
               v-if="shouldShowFormatConversion(record)"
               class="flex flex-col text-xs gap-0.5"
             >
-              <div class="flex items-center gap-1">
+              <div class="flex items-center gap-1 whitespace-nowrap">
                 <span>{{ formatApiFormat(record.api_format!) }}</span>
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -377,12 +487,12 @@
                   />
                 </svg>
               </div>
-              <span class="text-muted-foreground">{{ formatApiFormat(record.endpoint_api_format!) }}</span>
+              <span class="text-muted-foreground whitespace-nowrap">{{ formatApiFormat(record.endpoint_api_format!) }}</span>
             </div>
             <!-- 无格式转换：单行显示 -->
             <span
               v-else-if="record.api_format"
-              class="text-xs"
+              class="text-xs whitespace-nowrap"
             >{{ formatApiFormat(record.api_format) }}</span>
             <span
               v-else

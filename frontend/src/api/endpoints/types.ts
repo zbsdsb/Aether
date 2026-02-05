@@ -120,17 +120,35 @@ export type HeaderRule = HeaderRuleSet | HeaderRuleDrop | HeaderRuleRename
  * - drop: 删除字段
  * - rename: 重命名字段（保留原值）
  */
+/**
+ * 请求体规则 - 覆写字段
+ *
+ * - path 支持嵌套路径，如 "metadata.user.name"
+ * - 使用 "\." 转义字面量点号，如 "config\.v1.enabled"
+ */
 export interface BodyRuleSet {
   action: 'set'
   path: string
   value: any
 }
 
+/**
+ * 请求体规则 - 删除字段
+ *
+ * - path 支持嵌套路径，如 "metadata.internal_flag"
+ * - 使用 "\." 转义字面量点号，如 "config\.v1.enabled"
+ */
 export interface BodyRuleDrop {
   action: 'drop'
   path: string
 }
 
+/**
+ * 请求体规则 - 重命名/移动字段
+ *
+ * - from/to 支持嵌套路径，如 "extra.old_config" -> "settings.new_config"
+ * - 使用 "\." 转义字面量点号，如 "config\.v1.enabled"
+ */
 export interface BodyRuleRename {
   action: 'rename'
   from: string

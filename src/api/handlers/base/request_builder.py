@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import time
 from abc import ABC, abstractmethod
@@ -147,6 +148,150 @@ def build_test_request_body(
 # ==============================================================================
 
 
+def _parse_path(path: str) -> list[str]:
+    """
+    解析点号路径，支持转义（用 \\.
+    表示字面量点号）。
+
+    Examples:
+        "metadata.user.name" -> ["metadata", "user", "name"]
+        "config\\.v1.enabled" -> ["config.v1", "enabled"]
+
+    约束：
+        - 不允许空段（例如：".a" / "a." / "a..b"），遇到则返回空列表表示无效路径。
+        - 仅对 "\\." 做特殊处理；其他反斜杠组合按字面量保留。
+    """
+    raw = (path or "").strip()
+    if not raw:
+        return []
+
+    parts: list[str] = []
+    current: list[str] = []
+
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
+        if ch == "\\" and i + 1 < len(raw) and raw[i + 1] == ".":
+            current.append(".")
+            i += 2
+            continue
+
+        if ch == ".":
+            if not current:
+                return []
+            parts.append("".join(current))
+            current = []
+            i += 1
+            continue
+
+        current.append(ch)
+        i += 1
+
+    if not current:
+        return []
+
+    parts.append("".join(current))
+    return parts
+
+
+def _get_nested_value(obj: dict[str, Any], path: str) -> tuple[bool, Any]:
+    """
+    获取嵌套值
+
+    Returns:
+        (found, value) - found 为 True 时 value 有效
+    """
+    parts = _parse_path(path)
+    if not parts:
+        return False, None
+
+    current: Any = obj
+    for key in parts:
+        if isinstance(current, dict) and key in current:
+            current = current[key]
+        else:
+            return False, None
+    return True, current
+
+
+def _set_nested_value(obj: dict[str, Any], path: str, value: Any) -> bool:
+    """
+    设置嵌套值，自动创建中间层级。
+
+    当中间层存在但不是 dict 时，会覆盖为 dict 后继续写入（覆写语义）。
+
+    Returns:
+        True: 写入成功
+        False: 路径无效（空/含空段等）
+    """
+    parts = _parse_path(path)
+    if not parts:
+        return False
+
+    current: dict[str, Any] = obj
+    for key in parts[:-1]:
+        next_val = current.get(key)
+        if not isinstance(next_val, dict):
+            next_val = {}
+            current[key] = next_val
+        current = next_val
+
+    current[parts[-1]] = value
+    return True
+
+
+def _delete_nested_value(obj: dict[str, Any], path: str) -> bool:
+    """
+    删除嵌套值
+
+    Returns:
+        True: 删除成功
+        False: 路径不存在或无效
+    """
+    parts = _parse_path(path)
+    if not parts:
+        return False
+
+    current: Any = obj
+    for key in parts[:-1]:
+        if isinstance(current, dict) and key in current:
+            current = current[key]
+        else:
+            return False
+        if not isinstance(current, dict):
+            return False
+
+    if isinstance(current, dict) and parts[-1] in current:
+        del current[parts[-1]]
+        return True
+    return False
+
+
+def _rename_nested_value(obj: dict[str, Any], from_path: str, to_path: str) -> bool:
+    """
+    重命名嵌套值（移动到新路径）
+
+    Returns:
+        True: 重命名成功
+        False: 源路径不存在或路径无效
+    """
+    src = (from_path or "").strip()
+    dst = (to_path or "").strip()
+    if not src or not dst:
+        return False
+    if src == dst:
+        found, _ = _get_nested_value(obj, src)
+        return found
+
+    found, value = _get_nested_value(obj, src)
+    if not found:
+        return False
+
+    _delete_nested_value(obj, src)
+    _set_nested_value(obj, dst, value)
+    return True
+
+
 def apply_body_rules(
     body: dict[str, Any],
     rules: list[dict[str, Any]],
@@ -155,10 +300,14 @@ def apply_body_rules(
     """
     应用请求体规则
 
+    路径语法：
+    - 使用点号分隔层级：metadata.user.name
+    - 转义字面量点号：config\\.v1.enabled -> key "config.v1" 下的 "enabled"
+
     支持的规则类型：
-    - set: 设置/覆盖字段 {"action": "set", "path": "metadata", "value": {"custom": "val"}}
+    - set: 设置/覆盖字段 {"action": "set", "path": "metadata.user_id", "value": 123}
     - drop: 删除字段 {"action": "drop", "path": "unwanted_field"}
-    - rename: 重命名字段 {"action": "rename", "from": "old_key", "to": "new_key"}
+    - rename: 重命名字段 {"action": "rename", "from": "old.key", "to": "new.key"}
 
     Args:
         body: 原始请求体
@@ -171,32 +320,64 @@ def apply_body_rules(
     if not rules:
         return body
 
-    # 复制一份，避免修改原始数据
-    result = dict(body)
+    # 深拷贝，避免修改原始数据（尤其是嵌套 dict）
+    result = copy.deepcopy(body)
     protected = protected_keys or PROTECTED_BODY_FIELDS
+    protected_lower = frozenset(str(k).lower() for k in protected)
 
     for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+
         action = rule.get("action")
+        if not isinstance(action, str):
+            continue
+        action = action.strip().lower()
 
         if action == "set":
-            path = rule.get("path", "")
+            raw_path = rule.get("path", "")
+            if not isinstance(raw_path, str):
+                continue
+            path = raw_path.strip()
             value = rule.get("value")
-            if path and path not in protected:
-                result[path] = value
+            parts = _parse_path(path)
+            if not parts:
+                continue
+            if parts[0].lower() in protected_lower:
+                continue
+            _set_nested_value(result, path, value)
 
         elif action == "drop":
-            path = rule.get("path", "")
-            if path and path not in protected:
-                result.pop(path, None)
+            raw_path = rule.get("path", "")
+            if not isinstance(raw_path, str):
+                continue
+            path = raw_path.strip()
+            parts = _parse_path(path)
+            if not parts:
+                continue
+            if parts[0].lower() in protected_lower:
+                continue
+            _delete_nested_value(result, path)
 
         elif action == "rename":
-            from_key = rule.get("from", "")
-            to_key = rule.get("to", "")
-            if from_key and to_key:
-                # 两个 key 都不能是受保护的
-                if from_key not in protected and to_key not in protected:
-                    if from_key in result:
-                        result[to_key] = result.pop(from_key)
+            raw_from = rule.get("from", "")
+            raw_to = rule.get("to", "")
+            if not isinstance(raw_from, str) or not isinstance(raw_to, str):
+                continue
+            from_path = raw_from.strip()
+            to_path = raw_to.strip()
+            if not from_path or not to_path:
+                continue
+            from_parts = _parse_path(from_path)
+            to_parts = _parse_path(to_path)
+            if not from_parts or not to_parts:
+                continue
+
+            # 受保护字段只检查顶层 key
+            if from_parts[0].lower() in protected_lower or to_parts[0].lower() in protected_lower:
+                continue
+
+            _rename_nested_value(result, from_path, to_path)
 
     return result
 

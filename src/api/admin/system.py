@@ -910,6 +910,8 @@ class AdminExportConfigAdapter(AdminApiAdapter):
                 )
 
             # 导出 Provider Models
+            # 注意：提供商模型（Model）必须关联全局模型（GlobalModel）才能参与路由
+            # 导入时未关联 GlobalModel 的模型会被跳过，这是业务规则而非 bug
             models = db.query(Model).filter(Model.provider_id == provider.id).all()
             models_data = []
             for model in models:
@@ -988,6 +990,27 @@ class AdminExportConfigAdapter(AdminApiAdapter):
                 "connect_timeout": ldap_config.connect_timeout,
             }
 
+        # 导出 SystemConfig 配置
+        from src.models.database import SystemConfig
+
+        # 敏感配置项需要解密导出
+        SENSITIVE_CONFIG_KEYS = {"smtp_password"}
+        system_configs = db.query(SystemConfig).all()
+        system_configs_data = []
+        for cfg in system_configs:
+            cfg_data = {
+                "key": cfg.key,
+                "value": cfg.value,
+                "description": cfg.description,
+            }
+            # 解密敏感配置
+            if cfg.key in SENSITIVE_CONFIG_KEYS and cfg.value:
+                try:
+                    cfg_data["value"] = crypto_service.decrypt(cfg.value)
+                except Exception as e:
+                    logger.debug(f"解密 SystemConfig '{cfg.key}' 失败: {e}")
+            system_configs_data.append(cfg_data)
+
         # 导出 OAuth Providers 配置
         from src.models.database import OAuthProvider
 
@@ -1021,12 +1044,13 @@ class AdminExportConfigAdapter(AdminApiAdapter):
             )
 
         return {
-            "version": "2.1",
+            "version": "2.2",
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "global_models": global_models_data,
             "providers": providers_data,
             "ldap_config": ldap_data,
             "oauth_providers": oauth_data,
+            "system_configs": system_configs_data,
         }
 
 
@@ -1086,9 +1110,9 @@ class AdminImportConfigAdapter(AdminApiAdapter):
         db = context.db
         payload = context.ensure_json_body()
 
-        # 验证配置版本（支持 2.0 和 2.1）
+        # 验证配置版本（支持 2.0、2.1 和 2.2）
         version = payload.get("version")
-        if version not in ("2.0", "2.1"):
+        if version not in ("2.0", "2.1", "2.2"):
             raise InvalidRequestException(f"不支持的配置版本: {version}")
 
         # 获取导入选项
@@ -1097,6 +1121,7 @@ class AdminImportConfigAdapter(AdminApiAdapter):
         providers_data = payload.get("providers", [])
         ldap_data = payload.get("ldap_config")  # 2.1 新增
         oauth_data = payload.get("oauth_providers", [])  # 2.1 新增
+        system_configs_data = payload.get("system_configs", [])  # 2.2 新增
 
         stats = {
             "global_models": {"created": 0, "updated": 0, "skipped": 0},
@@ -1106,6 +1131,7 @@ class AdminImportConfigAdapter(AdminApiAdapter):
             "models": {"created": 0, "updated": 0, "skipped": 0},
             "ldap": {"created": 0, "updated": 0, "skipped": 0},
             "oauth": {"created": 0, "updated": 0, "skipped": 0},
+            "system_configs": {"created": 0, "updated": 0, "skipped": 0},  # 2.2 新增
             "errors": [],
         }
 
@@ -1402,6 +1428,8 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         stats["keys_to_fetch"].append(new_key.id)
 
                 # 导入 Models
+                # 注意：提供商模型（Model）必须关联全局模型（GlobalModel）才能参与路由
+                # 未关联 GlobalModel 的模型会被跳过，这是业务规则而非 bug
                 for model_data in prov_data.get("models", []):
                     global_model_name = model_data.get("global_model_name")
                     if not global_model_name:
@@ -1652,6 +1680,49 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         )
                         db.add(new_oauth)
                         stats["oauth"]["created"] += 1
+
+            # 导入 SystemConfig（2.2 新增）
+            if system_configs_data:
+                from src.models.database import SystemConfig
+
+                # 敏感配置项需要加密存储
+                SENSITIVE_CONFIG_KEYS = {"smtp_password"}
+
+                for cfg_item in system_configs_data:
+                    cfg_key = cfg_item.get("key")
+                    if not cfg_key:
+                        stats["errors"].append("跳过无 key 的 SystemConfig 配置")
+                        continue
+
+                    existing_cfg = (
+                        db.query(SystemConfig).filter(SystemConfig.key == cfg_key).first()
+                    )
+
+                    cfg_value = cfg_item.get("value")
+                    # 加密敏感配置
+                    if cfg_key in SENSITIVE_CONFIG_KEYS and cfg_value:
+                        cfg_value = crypto_service.encrypt(cfg_value)
+
+                    if existing_cfg:
+                        if merge_mode == "skip":
+                            stats["system_configs"]["skipped"] += 1
+                        elif merge_mode == "error":
+                            raise InvalidRequestException(f"SystemConfig '{cfg_key}' 已存在")
+                        elif merge_mode == "overwrite":
+                            existing_cfg.value = cfg_value
+                            existing_cfg.description = cfg_item.get(
+                                "description", existing_cfg.description
+                            )
+                            existing_cfg.updated_at = datetime.now(timezone.utc)
+                            stats["system_configs"]["updated"] += 1
+                    else:
+                        new_cfg = SystemConfig(
+                            key=cfg_key,
+                            value=cfg_value,
+                            description=cfg_item.get("description"),
+                        )
+                        db.add(new_cfg)
+                        stats["system_configs"]["created"] += 1
 
             db.commit()
 
