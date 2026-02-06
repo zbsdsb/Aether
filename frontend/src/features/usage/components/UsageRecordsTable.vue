@@ -24,7 +24,7 @@
       <!-- 用户筛选（仅管理员可见） -->
       <Select
         v-if="isAdmin && availableUsers.length > 0"
-        v-model:open="filterUserSelectOpen"
+
         :model-value="filterUser"
         @update:model-value="$emit('update:filterUser', $event)"
       >
@@ -47,7 +47,7 @@
 
       <!-- 模型筛选 -->
       <Select
-        v-model:open="filterModelSelectOpen"
+
         :model-value="filterModel"
         @update:model-value="$emit('update:filterModel', $event)"
       >
@@ -71,7 +71,7 @@
       <!-- 提供商筛选（仅管理员可见） -->
       <Select
         v-if="isAdmin"
-        v-model:open="filterProviderSelectOpen"
+
         :model-value="filterProvider"
         @update:model-value="$emit('update:filterProvider', $event)"
       >
@@ -94,7 +94,7 @@
 
       <!-- API格式筛选 -->
       <Select
-        v-model:open="filterApiFormatSelectOpen"
+
         :model-value="filterApiFormat"
         @update:model-value="$emit('update:filterApiFormat', $event)"
       >
@@ -117,7 +117,7 @@
 
       <!-- 状态筛选 -->
       <Select
-        v-model:open="filterStatusSelectOpen"
+
         :model-value="filterStatus"
         @update:model-value="$emit('update:filterStatus', $event)"
       >
@@ -724,13 +724,6 @@ const AVAILABLE_API_FORMATS = [
   { value: 'gemini:cli', label: 'Gemini CLI' },
   { value: 'gemini:video', label: 'Gemini Video' },
 ] as const
-
-// Select 打开状态
-const filterUserSelectOpen = ref(false)
-const filterModelSelectOpen = ref(false)
-const filterProviderSelectOpen = ref(false)
-const filterApiFormatSelectOpen = ref(false)
-const filterStatusSelectOpen = ref(false)
 
 // 使用模块级常量
 const availableApiFormats = AVAILABLE_API_FORMATS

@@ -182,7 +182,6 @@
             <div class="flex items-center gap-3">
               <Select
                 v-model="form.role"
-                v-model:open="roleSelectOpen"
                 class="flex-1"
               >
                 <SelectTrigger
@@ -405,7 +404,6 @@ const isOpen = computed(() => props.open)
 const saving = ref(false)
 const formNonce = ref(createFieldNonce())
 const passwordFocused = ref(false)
-const roleSelectOpen = ref(false)
 
 // 下拉框状态
 const providerDropdownOpen = ref(false)

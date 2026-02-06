@@ -93,7 +93,6 @@
           <div class="flex items-center gap-2">
             <!-- 状态筛选 -->
             <Select
-              v-model:open="statusSelectOpen"
               v-model="filterStatus"
             >
               <SelectTrigger class="w-28 h-8 text-xs border-border/60">
@@ -895,7 +894,6 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const filterStatus = ref('all')
-const statusSelectOpen = ref(false)
 const filterModel = ref('')
 const showDetail = ref(false)
 const selectedTask = ref<AsyncTaskDetail | null>(null)

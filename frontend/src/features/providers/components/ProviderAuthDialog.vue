@@ -30,7 +30,6 @@
           <Label>认证模板</Label>
           <Select
             v-model="selectedTemplateId"
-            v-model:open="templateSelectOpen"
             @update:model-value="handleTemplateChange"
           >
             <SelectTrigger>
@@ -336,9 +335,6 @@ const formChanged = ref(false)
 const sensitivePlaceholders = ref<Record<string, string>>({})
 // 是否有已保存的配置（编辑模式）
 const hasExistingConfig = ref(false)
-
-// Select 下拉框状态
-const templateSelectOpen = ref(false)
 
 // 模板选择
 const selectedTemplateId = ref('new_api')

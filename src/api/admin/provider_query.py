@@ -6,6 +6,7 @@ Provider Query API 端点
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import httpx
@@ -17,6 +18,7 @@ from src.config.constants import TimeoutDefaults
 from src.core.api_format import get_extra_headers_from_endpoint
 from src.core.crypto import crypto_service
 from src.core.logger import logger
+from src.core.provider_types import ProviderType
 from src.database.database import get_db
 from src.models.database import Provider, ProviderEndpoint, User
 from src.services.model.fetch_scheduler import (
@@ -25,14 +27,87 @@ from src.services.model.fetch_scheduler import (
     set_upstream_models_to_cache,
 )
 from src.services.model.upstream_fetcher import (
-    _get_adapter_for_format,
-    build_all_format_configs,
-    fetch_models_from_endpoints,
+    UpstreamModelsFetchContext,
+    fetch_models_for_key,
+    get_adapter_for_format,
 )
+from src.services.provider.oauth_token import resolve_oauth_access_token
 from src.utils.auth_utils import get_current_user
 from src.utils.ssl_utils import get_ssl_context
 
 router = APIRouter(prefix="/api/admin/provider-query", tags=["Provider Query"])
+
+
+# ---------------------------------------------------------------------------
+# Key Auth Resolution (shared by multi-key and single-key paths)
+# ---------------------------------------------------------------------------
+
+
+class _KeyAuthError(Exception):
+    """Key 认证解析失败（调用方决定是返回错误还是抛 HTTPException）。"""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+async def _resolve_key_auth(
+    api_key: Any,
+    provider: Any,
+) -> tuple[str, dict[str, Any] | None]:
+    """统一解析 Key 的 api_key_value 和 auth_config。
+
+    Returns:
+        (api_key_value, auth_config)
+
+    Raises:
+        _KeyAuthError: 解析失败（含可读消息）
+    """
+    auth_type = str(getattr(api_key, "auth_type", "api_key") or "api_key").lower()
+    provider_type = str(getattr(provider, "provider_type", "") or "").lower()
+
+    api_key_value: str | None = None
+    auth_config: dict[str, Any] | None = None
+
+    if auth_type == "oauth":
+        endpoint_api_format = "gemini:cli" if provider_type == ProviderType.ANTIGRAVITY else None
+        try:
+            resolved = await resolve_oauth_access_token(
+                key_id=str(api_key.id),
+                encrypted_api_key=str(api_key.api_key or ""),
+                encrypted_auth_config=(
+                    str(api_key.auth_config)
+                    if getattr(api_key, "auth_config", None) is not None
+                    else None
+                ),
+                provider_proxy_config=getattr(provider, "proxy", None),
+                endpoint_api_format=endpoint_api_format,
+            )
+            api_key_value = resolved.access_token
+            auth_config = resolved.decrypted_auth_config
+        except Exception as e:
+            logger.error("[provider-query] OAuth auth failed for key {}: {}", api_key.id, e)
+            raise _KeyAuthError("oauth auth failed") from e
+
+        if not api_key_value:
+            raise _KeyAuthError("oauth token missing")
+    else:
+        try:
+            api_key_value = crypto_service.decrypt(api_key.api_key)
+        except Exception as e:
+            logger.error("Failed to decrypt API key {}: {}", api_key.id, e)
+            raise _KeyAuthError("decrypt failed") from e
+
+        # Best-effort: 解密 auth_config 元数据（如 Antigravity project_id）
+        if getattr(api_key, "auth_config", None):
+            try:
+                decrypted = crypto_service.decrypt(api_key.auth_config)
+                parsed = json.loads(decrypted)
+                auth_config = parsed if isinstance(parsed, dict) else None
+            except Exception:
+                auth_config = None
+
+    return api_key_value, auth_config
 
 
 # ============ Request/Response Models ============
@@ -130,22 +205,28 @@ async def query_available_models(
 
         # 缓存未命中或强制刷新，实时获取
         try:
-            api_key_value = crypto_service.decrypt(api_key.api_key)
-        except Exception as e:
-            logger.error(f"Failed to decrypt API key {api_key.id}: {e}")
-            return [], f"Key {api_key.name or api_key.id}: decrypt failed", False
+            api_key_value, auth_config = await _resolve_key_auth(api_key, provider)
+        except _KeyAuthError as e:
+            return [], f"Key {api_key.name or api_key.id}: {e.message}", False
 
-        endpoint_configs = build_all_format_configs(api_key_value, format_to_endpoint)
-        models, errors, has_success = await fetch_models_from_endpoints(
-            endpoint_configs, timeout=MODEL_FETCH_HTTP_TIMEOUT
+        fetch_ctx = UpstreamModelsFetchContext(
+            provider_type=str(getattr(provider, "provider_type", "") or ""),
+            api_key_value=str(api_key_value or ""),
+            format_to_endpoint=format_to_endpoint,
+            proxy_config=getattr(provider, "proxy", None),
+            auth_config=auth_config,
+        )
+        models, errors, has_success, _meta = await fetch_models_for_key(
+            fetch_ctx, timeout_seconds=MODEL_FETCH_HTTP_TIMEOUT
         )
 
-        # 写入缓存
-        if models:
-            await set_upstream_models_to_cache(request.provider_id, api_key.id, models)
+        # 写入缓存（按 model id 聚合，保证返回 api_formats 数组，避免前端 schema 不一致）
+        unique_models = _aggregate_models_by_id([m for m in models if isinstance(m, dict)])
+        if unique_models:
+            await set_upstream_models_to_cache(request.provider_id, api_key.id, unique_models)
 
         error = f"Key {api_key.name or api_key.id}: {'; '.join(errors)}" if errors else None
-        return models, error, False  # models, error, from_cache
+        return unique_models, error, False  # models, error, from_cache
 
     # 并发执行所有 Key 的获取
     results = await asyncio.gather(*[fetch_for_key(key) for key in active_keys])
@@ -260,9 +341,16 @@ async def _fetch_models_for_single_key(
     if not force_refresh:
         cached_models = await get_upstream_models_from_cache(provider.id, api_key_id)
         if cached_models is not None:
+            safe_models = [m for m in cached_models if isinstance(m, dict)]
+            unique_cached = _aggregate_models_by_id(safe_models)
+            # 修复遗留缓存格式（以前可能缓存了未聚合的 api_format 版本）
+            if unique_cached and (
+                not safe_models or "api_formats" not in safe_models[0]  # type: ignore[operator]
+            ):
+                await set_upstream_models_to_cache(provider.id, api_key_id, unique_cached)
             return {
                 "success": True,
-                "data": {"models": cached_models, "error": None, "from_cache": True},
+                "data": {"models": unique_cached, "error": None, "from_cache": True},
                 "provider": {
                     "id": provider.id,
                     "name": provider.name,
@@ -271,14 +359,19 @@ async def _fetch_models_for_single_key(
 
     # 缓存未命中或强制刷新，实时获取
     try:
-        api_key_value = crypto_service.decrypt(api_key.api_key)
-    except Exception as e:
-        logger.error(f"Failed to decrypt API key: {e}")
-        raise HTTPException(status_code=500, detail="Failed to decrypt API key")
+        api_key_value, auth_config = await _resolve_key_auth(api_key, provider)
+    except _KeyAuthError as e:
+        raise HTTPException(status_code=500, detail=e.message)
 
-    endpoint_configs = build_all_format_configs(api_key_value, format_to_endpoint)
-    all_models, errors, has_success = await fetch_models_from_endpoints(
-        endpoint_configs, timeout=MODEL_FETCH_HTTP_TIMEOUT
+    fetch_ctx = UpstreamModelsFetchContext(
+        provider_type=str(getattr(provider, "provider_type", "") or ""),
+        api_key_value=str(api_key_value or ""),
+        format_to_endpoint=format_to_endpoint,
+        proxy_config=getattr(provider, "proxy", None),
+        auth_config=auth_config,
+    )
+    all_models, errors, has_success, _meta = await fetch_models_for_key(
+        fetch_ctx, timeout_seconds=MODEL_FETCH_HTTP_TIMEOUT
     )
 
     # 按 model id 聚合，合并所有 api_format
@@ -431,28 +524,44 @@ async def test_model(
     if not endpoint or not api_key:
         raise HTTPException(status_code=404, detail="No active endpoint or API key found")
 
+    auth_type = str(getattr(api_key, "auth_type", "api_key") or "api_key").lower()
+
     try:
-        api_key_value = crypto_service.decrypt(api_key.api_key)
+        if auth_type == "oauth":
+            resolved = await resolve_oauth_access_token(
+                key_id=str(api_key.id),
+                encrypted_api_key=str(api_key.api_key or ""),
+                encrypted_auth_config=(
+                    str(api_key.auth_config) if getattr(api_key, "auth_config", None) else None
+                ),
+                provider_proxy_config=getattr(provider, "proxy", None),
+                endpoint_api_format=str(getattr(endpoint, "api_format", "") or ""),
+            )
+            api_key_value = resolved.access_token
+            oauth_meta = resolved.decrypted_auth_config or {}
+            if not api_key_value:
+                raise HTTPException(status_code=500, detail="OAuth token missing")
+        else:
+            api_key_value = crypto_service.decrypt(api_key.api_key)
+            oauth_meta = {}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"[test-model] Failed to decrypt API key: {e}")
-        raise HTTPException(status_code=500, detail="Failed to decrypt API key")
+        logger.error(f"[test-model] Failed to resolve API key: {e}")
+        raise HTTPException(status_code=500, detail="Failed to resolve API key")
 
     # 构建请求配置
     extra_headers = get_extra_headers_from_endpoint(endpoint) or {}
 
-    # OAuth 认证：从 auth_config 获取 account_id 并添加到请求头
-    if api_key.auth_type == "oauth" and api_key.auth_config:
+    # OAuth 认证：Codex 需要 chatgpt-account-id
+    if auth_type == "oauth":
         try:
-            import json
-
-            decrypted_config = crypto_service.decrypt(api_key.auth_config)
-            auth_config = json.loads(decrypted_config)
-            account_id = auth_config.get("account_id")
+            account_id = oauth_meta.get("account_id")
             if account_id:
-                extra_headers["chatgpt-account-id"] = account_id
+                extra_headers["chatgpt-account-id"] = str(account_id)
                 logger.debug("[test-model] Added chatgpt-account-id header: {}", account_id)
         except Exception as e:
-            logger.warning("[test-model] Failed to parse OAuth auth_config: {}", e)
+            logger.warning("[test-model] Failed to apply OAuth extra headers: {}", e)
 
     endpoint_config = {
         "api_key": api_key_value,
@@ -465,7 +574,7 @@ async def test_model(
 
     try:
         # 获取对应的 Adapter 类
-        adapter_class = _get_adapter_for_format(endpoint.api_format)
+        adapter_class = get_adapter_for_format(endpoint.api_format)
         if not adapter_class:
             return {
                 "success": False,
@@ -479,6 +588,7 @@ async def test_model(
 
         logger.debug(f"[test-model] 使用 Adapter: {adapter_class.__name__}")
         logger.debug(f"[test-model] 端点 API Format: {endpoint.api_format}")
+        logger.debug(f"[test-model] 使用 Key: {api_key.name or api_key.id} (auth_type={auth_type})")
 
         # 准备测试请求数据
         check_request = {
@@ -506,6 +616,9 @@ async def test_model(
         ) as client:
             logger.debug("[test-model] 开始端点测试...")
 
+            # Provider 上下文：auth_type 用于 OAuth 认证头处理，provider_type 用于特殊路由
+            p_type = str(getattr(provider, "provider_type", "") or "").lower()
+
             response = await adapter_class.check_endpoint(
                 client,
                 endpoint_config["base_url"],
@@ -522,6 +635,10 @@ async def test_model(
                 provider_id=provider.id,
                 api_key_id=endpoint_config.get("api_key_id"),
                 model_name=request.model_name,
+                # Provider 上下文
+                auth_type=auth_type,
+                provider_type=p_type if p_type else None,
+                decrypted_auth_config=oauth_meta if oauth_meta else None,
             )
 
             # 记录提供商返回信息
@@ -546,14 +663,69 @@ async def test_model(
                 error_obj = parsed_body["error"]
                 # 兼容 error 可能是字典或字符串的情况
                 if isinstance(error_obj, dict):
-                    logger.debug(f"[test-model] Error Message: {error_obj.get('message')}")
-                    raise HTTPException(status_code=500, detail=error_obj.get("message"))
+                    error_message = error_obj.get("message", "")
+                    logger.debug(f"[test-model] Error Message: {error_message}")
+
+                    # Antigravity 403 "verify your account" → 标记账号异常
+                    if (
+                        api_key
+                        and auth_type == "oauth"
+                        and error_obj.get("code") == 403
+                        and (
+                            "verify" in error_message.lower()
+                            or "permission" in str(error_obj.get("status", "")).lower()
+                        )
+                    ):
+                        from datetime import datetime, timezone
+
+                        from src.services.provider.oauth_token import (
+                            OAUTH_ACCOUNT_BLOCK_PREFIX,
+                        )
+
+                        api_key.oauth_invalid_at = datetime.now(timezone.utc)
+                        api_key.oauth_invalid_reason = (
+                            f"{OAUTH_ACCOUNT_BLOCK_PREFIX}Google 要求验证账号"
+                        )
+                        db.commit()
+                        oauth_email = None
+                        if getattr(api_key, "auth_config", None):
+                            try:
+                                decrypted = crypto_service.decrypt(api_key.auth_config)
+                                parsed = json.loads(decrypted)
+                                if isinstance(parsed, dict):
+                                    email_val = parsed.get("email")
+                                    if isinstance(email_val, str) and email_val.strip():
+                                        oauth_email = email_val.strip()
+                            except Exception:
+                                oauth_email = None
+                        if oauth_email:
+                            logger.warning(
+                                "[test-model] Key {} (email={}) 因 403 verify 已标记为异常",
+                                api_key.id,
+                                oauth_email,
+                            )
+                        else:
+                            logger.warning(
+                                "[test-model] Key {} 因 403 verify 已标记为异常", api_key.id
+                            )
+
+                    raise HTTPException(
+                        status_code=500,
+                        detail=str(error_message)[:500] if error_message else "Provider error",
+                    )
                 else:
                     logger.debug(f"[test-model] Error: {error_obj}")
-                    raise HTTPException(status_code=500, detail=error_obj)
+                    # error_obj 可能是字符串，截断以避免泄露过多上游信息
+                    raise HTTPException(
+                        status_code=500,
+                        detail=str(error_obj)[:500] if error_obj else "Provider error",
+                    )
             elif "error" in response:
                 logger.debug(f"[test-model] Error: {response['error']}")
-                raise HTTPException(status_code=500, detail=response["error"])
+                raise HTTPException(
+                    status_code=500,
+                    detail=str(response["error"])[:500],
+                )
             else:
                 # 如果有选择或消息，记录内容预览
                 if isinstance(response_data, dict):

@@ -892,13 +892,48 @@ class CliMessageHandlerBase(BaseMessageHandler):
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError as e:
-                error_body = ""
-                try:
-                    error_body = resp.text[:4000] if resp.text else ""
-                except Exception:
+                # OAuth token may be revoked/expired earlier than expires_at indicates.
+                # Best-effort: force refresh once on 401 and retry a single time.
+                if (
+                    resp.status_code == 401
+                    and str(getattr(key, "auth_type", "") or "").lower() == "oauth"
+                ):
+                    refreshed_auth = await get_provider_auth(endpoint, key, force_refresh=True)
+                    if refreshed_auth:
+                        provider_headers[refreshed_auth.auth_header] = refreshed_auth.auth_value
+                        ctx.provider_request_headers = provider_headers
+
+                    # retry once
+                    resp = await http_client.post(
+                        url,
+                        json=provider_payload,
+                        headers=provider_headers,
+                        timeout=httpx.Timeout(request_timeout_sync),
+                    )
+                    ctx.status_code = resp.status_code
+                    ctx.response_headers = dict(resp.headers)
+                    if envelope:
+                        envelope.on_http_status(
+                            base_url=ctx.selected_base_url, status_code=ctx.status_code
+                        )
+                    try:
+                        resp.raise_for_status()
+                    except httpx.HTTPStatusError as e2:
+                        error_body = ""
+                        try:
+                            error_body = resp.text[:4000] if resp.text else ""
+                        except Exception:
+                            error_body = ""
+                        e2.upstream_response = error_body  # type: ignore[attr-defined]
+                        raise
+                else:
                     error_body = ""
-                e.upstream_response = error_body  # type: ignore[attr-defined]
-                raise
+                    try:
+                        error_body = resp.text[:4000] if resp.text else ""
+                    except Exception:
+                        error_body = ""
+                    e.upstream_response = error_body  # type: ignore[attr-defined]
+                    raise
 
             # Safe JSON parsing.
             try:
@@ -1055,85 +1090,112 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 byte_iterator, provider, endpoint, ctx
             )
 
-        try:
-            # 使用 asyncio.wait_for 包裹整个"建立连接 + 获取首字节"阶段
-            # stream_first_byte_timeout 控制首字节超时，避免上游长时间无响应
-            # 同时检测客户端断连，避免客户端已断开但服务端仍在等待上游响应
-            if http_request is not None:
-                await wait_for_with_disconnect_detection(
-                    _connect_and_prefetch(),
-                    timeout=request_timeout,
-                    is_disconnected=http_request.is_disconnected,
-                    request_id=self.request_id,
-                )
-            else:
-                await asyncio.wait_for(_connect_and_prefetch(), timeout=request_timeout)
-
-        except TimeoutError as e:
-            # 整体请求超时（建立连接 + 获取首字节）
-            # 清理可能已建立的连接上下文
-            if response_ctx is not None:
-                try:
-                    await response_ctx.__aexit__(None, None, None)
-                except Exception:
-                    pass
-            if envelope:
-                envelope.on_connection_error(base_url=ctx.selected_base_url, exc=e)
-            await http_client.aclose()
-            logger.warning(
-                f"  [{self.request_id}] 请求超时: Provider={provider.name}, timeout={request_timeout}s"
-            )
-            raise ProviderTimeoutException(
-                provider_name=str(provider.name),
-                timeout=int(request_timeout),
-            )
-
-        except ClientDisconnectedException:
-            # 客户端断开连接，清理资源
-            if response_ctx is not None:
-                try:
-                    await response_ctx.__aexit__(None, None, None)
-                except Exception:
-                    pass
-            await http_client.aclose()
-            logger.warning(f"  [{self.request_id}] 客户端在等待首字节时断开连接")
-            ctx.status_code = 499
-            ctx.error_message = "client_disconnected_during_prefetch"
-            raise
-
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.TimeoutException) as e:
-            if envelope:
-                envelope.on_connection_error(base_url=ctx.selected_base_url, exc=e)
-                if ctx.selected_base_url:
-                    logger.warning(
-                        f"[{envelope.name}] Connection error: {ctx.selected_base_url} ({e})"
-                    )
-            await http_client.aclose()
-            raise
-
-        except httpx.HTTPStatusError as e:
-            error_text = await self._extract_error_text(e)
-            logger.error(
-                f"Provider 返回错误状态: {e.response.status_code}\n  Response: {error_text}"
-            )
-            await http_client.aclose()
-            # 将上游错误信息附加到异常，以便故障转移时能够返回给客户端
-            e.upstream_response = error_text  # type: ignore[attr-defined]
-            raise
-
-        except EmbeddedErrorException:
-            # 嵌套错误需要触发重试，关闭连接后重新抛出
+        for attempt in range(2):
             try:
-                if response_ctx is not None:
-                    await response_ctx.__aexit__(None, None, None)
-            except Exception:
-                pass
-            await http_client.aclose()
-            raise
+                # 使用 asyncio.wait_for 包裹整个"建立连接 + 获取首字节"阶段
+                # stream_first_byte_timeout 控制首字节超时，避免上游长时间无响应
+                # 同时检测客户端断连，避免客户端已断开但服务端仍在等待上游响应
+                if http_request is not None:
+                    await wait_for_with_disconnect_detection(
+                        _connect_and_prefetch(),
+                        timeout=request_timeout,
+                        is_disconnected=http_request.is_disconnected,
+                        request_id=self.request_id,
+                    )
+                else:
+                    await asyncio.wait_for(_connect_and_prefetch(), timeout=request_timeout)
+                break
 
-        except Exception:
-            await http_client.aclose()
-            raise
+            except TimeoutError as e:
+                # 整体请求超时（建立连接 + 获取首字节）
+                # 清理可能已建立的连接上下文
+                if response_ctx is not None:
+                    try:
+                        await response_ctx.__aexit__(None, None, None)
+                    except Exception:
+                        pass
+                if envelope:
+                    envelope.on_connection_error(base_url=ctx.selected_base_url, exc=e)
+                await http_client.aclose()
+                logger.warning(
+                    f"  [{self.request_id}] 请求超时: Provider={provider.name}, timeout={request_timeout}s"
+                )
+                raise ProviderTimeoutException(
+                    provider_name=str(provider.name),
+                    timeout=int(request_timeout),
+                )
+
+            except ClientDisconnectedException:
+                # 客户端断开连接，清理资源
+                if response_ctx is not None:
+                    try:
+                        await response_ctx.__aexit__(None, None, None)
+                    except Exception:
+                        pass
+                await http_client.aclose()
+                logger.warning(f"  [{self.request_id}] 客户端在等待首字节时断开连接")
+                ctx.status_code = 499
+                ctx.error_message = "client_disconnected_during_prefetch"
+                raise
+
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.TimeoutException) as e:
+                if envelope:
+                    envelope.on_connection_error(base_url=ctx.selected_base_url, exc=e)
+                    if ctx.selected_base_url:
+                        logger.warning(
+                            f"[{envelope.name}] Connection error: {ctx.selected_base_url} ({e})"
+                        )
+                await http_client.aclose()
+                raise
+
+            except httpx.HTTPStatusError as e:
+                status = int(getattr(e.response, "status_code", 0) or 0)
+                if (
+                    attempt == 0
+                    and status == 401
+                    and str(getattr(key, "auth_type", "") or "").lower() == "oauth"
+                ):
+                    # OAuth token may be revoked/expired earlier than expires_at indicates.
+                    # Best-effort: force refresh once on 401 and retry a single time.
+                    try:
+                        if response_ctx is not None:
+                            await response_ctx.__aexit__(None, None, None)
+                    except Exception:
+                        pass
+
+                    refreshed_auth = await get_provider_auth(endpoint, key, force_refresh=True)
+                    if refreshed_auth:
+                        provider_headers[refreshed_auth.auth_header] = refreshed_auth.auth_value
+                        ctx.provider_request_headers = provider_headers
+
+                    # Reset state for the next attempt.
+                    byte_iterator = None
+                    prefetched_chunks = None
+                    response_ctx = None
+                    continue
+
+                error_text = await self._extract_error_text(e)
+                logger.error(
+                    f"Provider 返回错误状态: {e.response.status_code}\n  Response: {error_text}"
+                )
+                await http_client.aclose()
+                # 将上游错误信息附加到异常，以便故障转移时能够返回给客户端
+                e.upstream_response = error_text  # type: ignore[attr-defined]
+                raise
+
+            except EmbeddedErrorException:
+                # 嵌套错误需要触发重试，关闭连接后重新抛出
+                try:
+                    if response_ctx is not None:
+                        await response_ctx.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                await http_client.aclose()
+                raise
+
+            except Exception:
+                await http_client.aclose()
+                raise
 
         # 类型断言：成功执行后这些变量不会为 None
         assert byte_iterator is not None

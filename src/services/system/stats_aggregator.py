@@ -277,9 +277,6 @@ class StatsAggregatorService:
         if commit:
             db.commit()
 
-        logger.info(
-            f"[StatsAggregator] 聚合日期 {date.date()} 完成: {computed['total_requests']} 请求"
-        )
         return stats
 
     @staticmethod
@@ -347,7 +344,6 @@ class StatsAggregatorService:
 
         if commit:
             db.commit()
-        logger.info(f"[StatsAggregator] 聚合日期 {date.date()} 模型统计完成: {len(results)} 个模型")
         return results
 
     @staticmethod
@@ -416,9 +412,6 @@ class StatsAggregatorService:
 
         if commit:
             db.commit()
-        logger.info(
-            f"[StatsAggregator] 聚合日期 {date.date()} 供应商统计完成: {len(results)} 个供应商"
-        )
         return results
 
     @staticmethod
@@ -483,9 +476,6 @@ class StatsAggregatorService:
 
         if commit:
             db.commit()
-        logger.info(
-            f"[StatsAggregator] 聚合日期 {date.date()} API Key 统计完成: {len(results)} 个密钥"
-        )
         return results
 
     @staticmethod
@@ -527,7 +517,6 @@ class StatsAggregatorService:
 
         if commit:
             db.commit()
-        logger.info(f"[StatsAggregator] 聚合日期 {date.date()} 错误统计完成: {len(results)} 条")
         return results
 
     @staticmethod

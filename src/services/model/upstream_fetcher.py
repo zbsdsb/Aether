@@ -7,6 +7,8 @@
 """
 
 import asyncio
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable
 
 import httpx
 
@@ -21,8 +23,70 @@ MAX_CONCURRENT_REQUESTS = 5
 # 只对这些基础 endpoint signature 获取模型列表，CLI 使用相同的上游 API
 MODEL_FETCH_FORMATS = ["openai:chat", "claude:chat", "gemini:chat"]
 
+# Return tuple signature:
+# (models, errors, has_success, upstream_metadata)
+_ModelsFetcher = Callable[
+    ["UpstreamModelsFetchContext", float],
+    Awaitable[tuple[list[dict], list[str], bool, dict[str, Any] | None]],
+]
 
-def _get_adapter_for_format(api_format: str) -> type | None:
+
+@dataclass(frozen=True)
+class UpstreamModelsFetchContext:
+    """上游模型获取上下文（Key 级别）。"""
+
+    provider_type: str
+    api_key_value: str
+    format_to_endpoint: dict[str, Any]
+    proxy_config: dict[str, Any] | None = None
+    auth_config: dict[str, Any] | None = None
+
+
+class UpstreamModelsFetcherRegistry:
+    """按 provider_type 注册上游模型获取策略，避免到处写特判。"""
+
+    _fetchers: dict[str, _ModelsFetcher] = {}
+
+    @classmethod
+    def register(cls, *, provider_types: list[str], fetcher: _ModelsFetcher) -> None:
+        for pt in provider_types:
+            if not pt:
+                continue
+            cls._fetchers[pt.lower()] = fetcher
+
+    @classmethod
+    def get(cls, provider_type: str) -> _ModelsFetcher | None:
+        if not provider_type:
+            return None
+        return cls._fetchers.get(provider_type.lower())
+
+
+async def _fetch_models_default(
+    ctx: UpstreamModelsFetchContext,
+    timeout_seconds: float,
+) -> tuple[list[dict], list[str], bool, dict[str, Any] | None]:
+    endpoint_configs = build_all_format_configs(ctx.api_key_value, ctx.format_to_endpoint)
+    models, errors, has_success = await fetch_models_from_endpoints(
+        endpoint_configs, timeout=timeout_seconds
+    )
+    return models, errors, has_success, None
+
+
+async def fetch_models_for_key(
+    ctx: UpstreamModelsFetchContext,
+    *,
+    timeout_seconds: float = 30.0,
+) -> tuple[list[dict], list[str], bool, dict[str, Any] | None]:
+    """统一入口：按 provider_type 选择策略获取模型列表（可附带 upstream_metadata）。"""
+    fetcher = UpstreamModelsFetcherRegistry.get(ctx.provider_type) or _fetch_models_default
+    return await fetcher(ctx, timeout_seconds)
+
+
+# Provider-specific fetchers are registered by plugin.register_all()
+# (called from envelope.py bootstrap)
+
+
+def get_adapter_for_format(api_format: str) -> type | None:
     """根据 API 格式获取对应的 Adapter 类"""
     from src.api.handlers.base.chat_adapter_base import get_adapter_class
     from src.api.handlers.base.cli_adapter_base import get_cli_adapter_class
@@ -125,7 +189,7 @@ async def fetch_models_from_endpoints(
         extra_headers = config.get("extra_headers")
 
         try:
-            adapter_class = _get_adapter_for_format(api_format)
+            adapter_class = get_adapter_for_format(api_format)
             if not adapter_class:
                 return [], f"Unknown API format: {api_format}", False
 

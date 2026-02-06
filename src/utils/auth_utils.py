@@ -68,9 +68,7 @@ async def get_current_user(
 
         # 兼容旧 token：email 字段可能存在；新 token 不再包含 email（支持无邮箱用户）
 
-        # 仅在DEBUG模式下记录详细信息
         token_fp = hashlib.sha256(token.encode()).hexdigest()[:12]
-        logger.debug("尝试获取用户: user_id={}, token_fp={}", user_id, token_fp)
 
         # 确保user_id是字符串格式（UUID）
         if not isinstance(user_id, str):
@@ -105,7 +103,6 @@ async def get_current_user(
             logger.error("Token身份校验失败: user_id={}, token_fp={}", user_id, token_fp)
             raise ForbiddenException("身份验证失败")
 
-        logger.debug("成功获取用户: user_id={}, email={}", user_id, user.email)
         return user
 
     except HTTPException:

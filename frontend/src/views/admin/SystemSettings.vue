@@ -234,7 +234,6 @@
             </Label>
             <Select
               v-model="systemConfig.request_record_level"
-              v-model:open="logLevelSelectOpen"
             >
               <SelectTrigger
                 id="request-log-level"
@@ -539,7 +538,6 @@
                 >
                   <Clock class="w-4 h-4 text-muted-foreground" />
                   <Select
-                    v-model:open="task.hourSelectOpen.value"
                     :model-value="task.hour"
                     @update:model-value="(val: string) => task.updateTime(val, task.minute)"
                   >
@@ -558,7 +556,6 @@
                   </Select>
                   <span class="text-sm text-muted-foreground">:</span>
                   <Select
-                    v-model:open="task.minuteSelectOpen.value"
                     :model-value="task.minute"
                     @update:model-value="(val: string) => task.updateTime(task.hour, val)"
                   >
@@ -1050,7 +1047,6 @@ interface SystemConfig {
 const basicConfigLoading = ref(false)
 const logConfigLoading = ref(false)
 const cleanupConfigLoading = ref(false)
-const logLevelSelectOpen = ref(false)
 
 // 导出/导入相关
 const exportLoading = ref(false)
@@ -1382,8 +1378,6 @@ async function handleProviderCheckinToggle(enabled: boolean) {
 const previousCheckinTime = ref('')
 const checkinConfigLoading = ref(false)
 const quotaResetConfigLoading = ref(false)
-const checkinHourSelectOpen = ref(false)
-const checkinMinuteSelectOpen = ref(false)
 
 // 解析签到时间的小时和分钟
 const checkinHour = computed(() => {
@@ -1444,14 +1438,8 @@ async function handleOAuthTokenRefreshToggle(enabled: boolean) {
   }
 }
 
-// OAuth Token 刷新（无时间配置，占位 ref）
-const oauthRefreshHourSelectOpen = ref(false)
-const oauthRefreshMinuteSelectOpen = ref(false)
-
 // 用户配额重置时间相关
 const previousUserQuotaResetTime = ref('')
-const userQuotaResetHourSelectOpen = ref(false)
-const userQuotaResetMinuteSelectOpen = ref(false)
 const previousUserQuotaResetIntervalDays = ref(1)
 
 const userQuotaResetHour = computed(() => {
@@ -1493,8 +1481,6 @@ const scheduledTasks = computed(() => [
     hasTimeConfig: true,
     hour: checkinHour.value,
     minute: checkinMinute.value,
-    hourSelectOpen: checkinHourSelectOpen,
-    minuteSelectOpen: checkinMinuteSelectOpen,
     updateTime: updateCheckinTime,
     hasChanges: hasCheckinTimeChanged.value,
     loading: checkinConfigLoading.value,
@@ -1510,8 +1496,6 @@ const scheduledTasks = computed(() => [
     hasTimeConfig: true,
     hour: userQuotaResetHour.value,
     minute: userQuotaResetMinute.value,
-    hourSelectOpen: userQuotaResetHourSelectOpen,
-    minuteSelectOpen: userQuotaResetMinuteSelectOpen,
     updateTime: updateUserQuotaResetTime,
     hasChanges: hasQuotaResetConfigChanged.value,
     loading: quotaResetConfigLoading.value,
@@ -1527,8 +1511,6 @@ const scheduledTasks = computed(() => [
     hasTimeConfig: false,
     hour: '',
     minute: '',
-    hourSelectOpen: oauthRefreshHourSelectOpen,
-    minuteSelectOpen: oauthRefreshMinuteSelectOpen,
     updateTime: () => {},
     hasChanges: false,
     loading: false,

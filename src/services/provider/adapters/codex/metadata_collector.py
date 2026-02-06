@@ -10,7 +10,9 @@ Codex Provider 元数据采集器
 
 from typing import Any, ClassVar
 
-from src.services.provider.metadata_collectors import MetadataCollector
+from src.services.provider.metadata_collectors import (  # noqa: E501 — core registry
+    MetadataCollector,
+)
 
 
 def _safe_float(value: str | None) -> float | None:

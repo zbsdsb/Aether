@@ -15,7 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.core.provider_templates.types import ProviderType
-from src.services.antigravity.constants import PROD_BASE_URL as ANTIGRAVITY_PROD_URL
+from src.services.provider.adapters.antigravity.constants import (
+    PROD_BASE_URL as ANTIGRAVITY_PROD_URL,
+)
 
 
 @dataclass(frozen=True, slots=True)

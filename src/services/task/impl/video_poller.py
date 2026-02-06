@@ -585,6 +585,7 @@ class VideoTaskPollerAdapter:
             endpoint_sig,
             upstream_key,
             endpoint_headers=extra_headers,
+            header_rules=getattr(endpoint, "header_rules", None),
         )
         if auth_info:
             headers.pop("x-goog-api-key", None)

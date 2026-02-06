@@ -1457,13 +1457,23 @@ class UsageService:
                 req_id = record.get("request_id")
                 if req_id and req_id in existing_usages:
                     existing_usage = existing_usages[req_id]
-                    # 只更新 pending/streaming 状态的记录
-                    # 已经是 completed/failed/cancelled 的记录跳过
-                    if existing_usage.status in ("pending", "streaming"):
+                    # 以 billing_status 为幂等闸门：
+                    # - pending: 允许更新（补全 tokens/cost/headers/body 等）
+                    # - settled/void: 跳过（避免重复记账/重复覆盖）
+                    #
+                    # 注意：stream_telemetry 在 usage_queue_enabled 时会“直接更新 status”
+                    # 来减少 UI 延迟，但不会同步更新 billing_status。
+                    # 这会导致出现 status=completed 但 billing_status=pending 的中间态，
+                    # 此时仍应允许 completed/failed/cancelled 事件落库补全详情。
+                    billing_status = getattr(existing_usage, "billing_status", None)
+                    if billing_status == "pending":
                         records_to_update.append(record)
                     else:
                         logger.debug(
-                            f"批量记录预过滤: 跳过已完成的 request_id={req_id} (status={existing_usage.status})"
+                            "批量记录预过滤: 跳过已结算的 request_id={} (status={}, billing_status={})",
+                            req_id,
+                            getattr(existing_usage, "status", None),
+                            billing_status,
                         )
                 else:
                     records_to_insert.append(record)
@@ -1472,7 +1482,7 @@ class UsageService:
 
         if records_to_update:
             logger.debug(
-                f"批量记录: 需要更新 {len(records_to_update)} 条已存在的 pending/streaming 记录"
+                f"批量记录: 需要更新 {len(records_to_update)} 条已存在的 billing_status=pending 记录"
             )
 
         usages: list[Usage] = []
@@ -1582,6 +1592,9 @@ class UsageService:
         update_results = prepared_results[: len(update_params_list)]
         insert_results = prepared_results[len(update_params_list) :]
 
+        finalized_at = datetime.now(timezone.utc)
+        terminal_statuses = {"completed", "failed", "cancelled"}
+
         # 1. 处理需要更新的记录
         for i, (record, request_id, params) in enumerate(update_params_list):
             try:
@@ -1596,6 +1609,14 @@ class UsageService:
 
                 # 更新已存在的 Usage 记录
                 cls._update_existing_usage(existing_usage, usage_params, record.get("target_model"))
+                # 结算标记：pending -> settled（幂等闸门由 prefilter 控制）
+                if (
+                    usage_params.get("status") in terminal_statuses
+                    and getattr(existing_usage, "billing_status", None) == "pending"
+                ):
+                    existing_usage.billing_status = "settled"
+                    if getattr(existing_usage, "finalized_at", None) is None:
+                        existing_usage.finalized_at = finalized_at
                 usages.append(existing_usage)
                 updated_count += 1
 
@@ -1634,6 +1655,12 @@ class UsageService:
 
                 # 创建 Usage 记录
                 usage = Usage(**usage_params)
+                # 新建记录默认 billing_status=settled，但补齐 finalized_at，便于审计与幂等判断
+                if usage_params.get("status") in terminal_statuses:
+                    if getattr(usage, "billing_status", None) in (None, "pending"):
+                        usage.billing_status = "settled"
+                    if getattr(usage, "finalized_at", None) is None:
+                        usage.finalized_at = finalized_at
                 db.add(usage)
                 usages.append(usage)
 

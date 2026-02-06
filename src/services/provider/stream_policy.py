@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Any
 
 from src.core.api_format.metadata import resolve_endpoint_definition
+from src.core.provider_types import ProviderType
 
 
 class UpstreamStreamPolicy(str, Enum):
@@ -72,7 +73,7 @@ def get_upstream_stream_policy(
         if parsed != UpstreamStreamPolicy.AUTO:
             # Codex upstream requires streaming; do not allow forcing non-stream.
             if (
-                pt == "codex"
+                pt == ProviderType.CODEX
                 and sig == "openai:cli"
                 and parsed == UpstreamStreamPolicy.FORCE_NON_STREAM
             ):
@@ -80,7 +81,7 @@ def get_upstream_stream_policy(
             return parsed
 
     # Safe-by-default: Codex Responses OAuth behaves like SSE-only.
-    if pt == "codex" and sig == "openai:cli":
+    if pt == ProviderType.CODEX and sig == "openai:cli":
         return UpstreamStreamPolicy.FORCE_STREAM
 
     return UpstreamStreamPolicy.AUTO

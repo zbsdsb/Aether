@@ -578,6 +578,15 @@ class StreamProcessor:
                     if not isinstance(data_obj, dict):
                         return []
 
+                    # Provider envelope: unwrap v1internal wrapper before conversion
+                    # (e.g. Antigravity {"response": {...}, "traceId": "..."} → inner response)
+                    if envelope and isinstance(data_obj, dict):
+                        data_obj = envelope.unwrap_response(data_obj)
+                        envelope.postprocess_unwrapped_response(
+                            model=str(ctx.model or ""),
+                            data=data_obj,
+                        )
+
                     try:
                         converted_events = registry.convert_stream_chunk(
                             data_obj,

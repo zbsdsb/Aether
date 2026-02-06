@@ -23,7 +23,6 @@ This migration consolidates all schema changes from 2026-01-08 to 2026-01-10:
 import logging
 
 import sqlalchemy as sa
-from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import ProgrammingError
 
@@ -39,27 +38,39 @@ depends_on = None
 
 
 def _column_exists(table_name: str, column_name: str) -> bool:
-    """Check if a column exists in the table"""
+    """Check if a column exists in the table (bypasses inspector cache)"""
     bind = op.get_bind()
-    inspector = inspect(bind)
-    columns = [col["name"] for col in inspector.get_columns(table_name)]
-    return column_name in columns
+    result = bind.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = :table AND column_name = :col"
+        ),
+        {"table": table_name, "col": column_name},
+    )
+    return result.scalar() is not None
 
 
 def _constraint_exists(table_name: str, constraint_name: str) -> bool:
-    """Check if a constraint exists"""
+    """Check if a constraint exists (bypasses inspector cache)"""
     bind = op.get_bind()
-    inspector = inspect(bind)
-    fks = inspector.get_foreign_keys(table_name)
-    return any(fk.get("name") == constraint_name for fk in fks)
+    result = bind.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.table_constraints "
+            "WHERE table_name = :table AND constraint_name = :name"
+        ),
+        {"table": table_name, "name": constraint_name},
+    )
+    return result.scalar() is not None
 
 
 def _index_exists(table_name: str, index_name: str) -> bool:
-    """Check if an index exists"""
+    """Check if an index exists (bypasses inspector cache)"""
     bind = op.get_bind()
-    inspector = inspect(bind)
-    indexes = inspector.get_indexes(table_name)
-    return any(idx.get("name") == index_name for idx in indexes)
+    result = bind.execute(
+        sa.text("SELECT 1 FROM pg_indexes WHERE indexname = :name"),
+        {"name": index_name},
+    )
+    return result.scalar() is not None
 
 
 def upgrade() -> None:
@@ -68,14 +79,19 @@ def upgrade() -> None:
 
     # ========== 1. provider_api_keys: 添加 provider_id 和 api_formats ==========
     if not _column_exists("provider_api_keys", "provider_id"):
+        conn = op.get_bind()
+        conn.execute(sa.text("SAVEPOINT sp_add_provider_id"))
         try:
             op.add_column(
                 "provider_api_keys", sa.Column("provider_id", sa.String(36), nullable=True)
             )
+            conn.execute(sa.text("RELEASE SAVEPOINT sp_add_provider_id"))
         except ProgrammingError as exc:
             if getattr(getattr(exc, "orig", None), "pgcode", None) == "42701":
+                conn.execute(sa.text("ROLLBACK TO SAVEPOINT sp_add_provider_id"))
                 alembic_logger.warning("provider_api_keys.provider_id already exists; skipping add")
             else:
+                conn.execute(sa.text("ROLLBACK TO SAVEPOINT sp_add_provider_id"))
                 raise
 
     # 数据迁移：从 endpoint 获取 provider_id（如果 endpoint_id 仍存在）
@@ -397,18 +413,24 @@ def upgrade() -> None:
     # ========== 10. provider_api_keys: 删除 endpoint_id ==========
     # Key 不再与 Endpoint 绑定，通过 provider_id + api_formats 关联
     if _column_exists("provider_api_keys", "endpoint_id"):
-        # 确保外键已删除（前面可能已经删除）
-        try:
-            bind = op.get_bind()
-            inspector = inspect(bind)
-            for fk in inspector.get_foreign_keys("provider_api_keys"):
-                constrained = fk.get("constrained_columns") or []
-                if "endpoint_id" in constrained:
-                    name = fk.get("name")
-                    if name:
-                        op.drop_constraint(name, "provider_api_keys", type_="foreignkey")
-        except Exception:
-            pass  # 外键可能已经不存在
+        # 查找 endpoint_id 上的外键并删除（用 savepoint 保护，避免事务中止）
+        conn = op.get_bind()
+        fk_rows = conn.execute(
+            sa.text(
+                "SELECT con.conname FROM pg_constraint con "
+                "JOIN pg_attribute att ON att.attnum = ANY(con.conkey) "
+                "  AND att.attrelid = con.conrelid "
+                "WHERE con.conrelid = 'provider_api_keys'::regclass "
+                "  AND con.contype = 'f' AND att.attname = 'endpoint_id'"
+            )
+        ).fetchall()
+        for (fk_name,) in fk_rows:
+            conn.execute(sa.text(f"SAVEPOINT sp_drop_fk_{fk_name}"))
+            try:
+                op.drop_constraint(fk_name, "provider_api_keys", type_="foreignkey")
+                conn.execute(sa.text(f"RELEASE SAVEPOINT sp_drop_fk_{fk_name}"))
+            except Exception:
+                conn.execute(sa.text(f"ROLLBACK TO SAVEPOINT sp_drop_fk_{fk_name}"))
         op.drop_column("provider_api_keys", "endpoint_id")
 
     # ========== 11. provider_endpoints: 删除废弃的 max_concurrent 列 ==========
@@ -495,17 +517,20 @@ def downgrade() -> None:
         op.add_column("provider_api_keys", sa.Column("monthly_limit", sa.Integer(), nullable=True))
 
     # 5. name -> display_name (需要先删除索引)
-    if _index_exists("providers", "ix_providers_name"):
-        op.drop_index("ix_providers_name", table_name="providers")
-    op.alter_column("providers", "name", new_column_name="display_name")
-    # 重新添加原 name 字段
-    op.add_column("providers", sa.Column("name", sa.String(100), nullable=True))
-    op.execute("""
-        UPDATE providers
-        SET name = LOWER(REPLACE(REPLACE(display_name, ' ', '_'), '-', '_'))
-    """)
-    op.alter_column("providers", "name", nullable=False)
-    op.create_index("ix_providers_name", "providers", ["name"], unique=True)
+    if _column_exists("providers", "name") and not _column_exists("providers", "display_name"):
+        if _index_exists("providers", "ix_providers_name"):
+            op.drop_index("ix_providers_name", table_name="providers")
+        op.alter_column("providers", "name", new_column_name="display_name")
+
+    if not _column_exists("providers", "name"):
+        op.add_column("providers", sa.Column("name", sa.String(100), nullable=True))
+        op.execute("""
+            UPDATE providers
+            SET name = LOWER(REPLACE(REPLACE(display_name, ' ', '_'), '-', '_'))
+        """)
+        op.alter_column("providers", "name", nullable=False)
+    if not _index_exists("providers", "ix_providers_name"):
+        op.create_index("ix_providers_name", "providers", ["name"], unique=True)
 
     # 4. 删除 providers 的 timeout, max_retries, proxy
     if _column_exists("providers", "proxy"):

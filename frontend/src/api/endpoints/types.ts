@@ -272,8 +272,8 @@ export interface EndpointAPIKey {
   oauth_account_id?: string | null  // Codex ChatGPT 账号 ID
   oauth_invalid_at?: number | null  // OAuth Token 失效时间（Unix 时间戳）
   oauth_invalid_reason?: string | null  // OAuth Token 失效原因
-  // 上游元数据（由响应头采集，如 Codex 额度信息）
-  upstream_metadata?: CodexUpstreamMetadata | null
+  // 上游元数据（由上游响应采集，如 Codex 额度信息 / Antigravity 配额信息）
+  upstream_metadata?: UpstreamMetadata | null
 }
 
 // Codex 上游元数据类型
@@ -289,6 +289,21 @@ export interface CodexUpstreamMetadata {
   secondary_window_minutes?: number  // 次级限额窗口大小（分钟）
   has_credits?: boolean  // 是否有积分
   credits_balance?: number  // 积分余额
+}
+
+export interface AntigravityModelQuota {
+  remaining_fraction: number  // 剩余比例 (0.0-1.0)
+  used_percent: number  // 已用百分比 (0.0-100.0)
+  reset_time?: string  // RFC3339
+}
+
+export interface AntigravityUpstreamMetadata {
+  updated_at?: number  // Unix 时间戳（秒）
+  quota_by_model?: Record<string, AntigravityModelQuota>
+}
+
+export interface UpstreamMetadata extends CodexUpstreamMetadata {
+  antigravity?: AntigravityUpstreamMetadata
 }
 
 // 按格式的健康度数据

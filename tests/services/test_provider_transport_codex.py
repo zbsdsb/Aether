@@ -22,7 +22,7 @@ def test_codex_openai_cli_uses_responses_path_without_v1_prefix() -> None:
     )
 
     url = build_provider_url(
-        endpoint,  # type: ignore[arg-type] - test stub
+        endpoint,  # type: ignore[arg-type]
         path_params={"model": "ignored"},
         is_stream=True,
     )
@@ -38,10 +38,9 @@ def test_codex_openai_cli_does_not_duplicate_responses_suffix() -> None:
     )
 
     url = build_provider_url(
-        endpoint,  # type: ignore[arg-type] - test stub
+        endpoint,  # type: ignore[arg-type]
         path_params={"model": "ignored"},
         is_stream=False,
     )
 
     assert url == "https://chatgpt.com/backend-api/codex/responses"
-

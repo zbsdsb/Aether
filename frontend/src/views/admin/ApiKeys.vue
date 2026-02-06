@@ -39,7 +39,6 @@
               <!-- 状态筛选 -->
               <Select
                 v-model="filterStatus"
-                v-model:open="filterStatusOpen"
               >
                 <SelectTrigger class="w-20 sm:w-28 h-8 text-xs border-border/60">
                   <SelectValue placeholder="全部状态" />
@@ -58,7 +57,6 @@
               <!-- 余额类型筛选 -->
               <Select
                 v-model="filterBalance"
-                v-model:open="filterBalanceOpen"
               >
                 <SelectTrigger class="w-20 sm:w-28 h-8 text-xs border-border/60">
                   <SelectValue placeholder="全部类型" />
@@ -759,9 +757,7 @@ const EXPIRY_SOON_DAYS = 7
 // 筛选相关
 const searchQuery = ref('')
 const filterStatus = ref<'all' | 'active' | 'inactive'>('all')
-const filterStatusOpen = ref(false)
 const filterBalance = ref<'all' | 'limited' | 'unlimited'>('all')
-const filterBalanceOpen = ref(false)
 
 const statusFilters = [
   { value: 'all' as const, label: '全部状态' },

@@ -31,20 +31,22 @@
             <Label>提供商类型</Label>
             <Select
               v-model="form.provider_type"
-              v-model:open="providerTypeSelectOpen"
               :disabled="isEditMode"
             >
               <SelectTrigger>
                 <SelectValue placeholder="请选择" />
               </SelectTrigger>
               <SelectContent>
-                <!-- 新建模式：只允许自定义和 Codex -->
+                <!-- 新建模式：允许自定义、Codex 和 Antigravity -->
                 <template v-if="!isEditMode">
                   <SelectItem value="custom">
                     自定义
                   </SelectItem>
                   <SelectItem value="codex">
                     Codex
+                  </SelectItem>
+                  <SelectItem value="antigravity">
+                    Antigravity
                   </SelectItem>
                 </template>
                 <!-- 编辑模式：显示所有类型（兼容已有数据） -->
@@ -100,7 +102,6 @@
             <Label>计费类型</Label>
             <Select
               v-model="form.billing_type"
-              v-model:open="billingTypeSelectOpen"
             >
               <SelectTrigger>
                 <SelectValue />
@@ -325,6 +326,7 @@ import { parseNumberInput } from '@/utils/form'
 const props = defineProps<{
   modelValue: boolean
   provider?: ProviderWithEndpointsSummary | null  // 编辑模式时传入
+  maxPriority?: number  // 当前已有的最大优先级值
 }>()
 
 const emit = defineEmits<{
@@ -335,11 +337,17 @@ const emit = defineEmits<{
 
 const { success, error: showError } = useToast()
 const loading = ref(false)
-const providerTypeSelectOpen = ref(false)
-const billingTypeSelectOpen = ref(false)
 
 // 内部状态
 const internalOpen = computed(() => props.modelValue)
+
+// 计算新建时的默认优先级
+const defaultPriority = computed(() => {
+  if (props.maxPriority != null) {
+    return Math.min(props.maxPriority + 10, 10000)
+  }
+  return 100
+})
 
 // 表单数据
 const form = ref({
@@ -353,7 +361,7 @@ const form = ref({
   quota_reset_day: 30,
   quota_last_reset_at: '',  // 周期开始时间
   quota_expires_at: '',
-  provider_priority: 999,
+  provider_priority: 100,
   keep_priority_on_conversion: false,  // 格式转换时是否保持优先级
   // 状态配置
   is_active: true,
@@ -383,7 +391,7 @@ function resetForm() {
     quota_reset_day: 30,
     quota_last_reset_at: '',
     quota_expires_at: '',
-    provider_priority: 999,
+    provider_priority: defaultPriority.value,
     keep_priority_on_conversion: false,
     is_active: true,
     rate_limit: undefined,

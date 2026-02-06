@@ -643,6 +643,10 @@ class ChatAdapterBase(ApiAdapter):
         provider_id: str | None = None,
         api_key_id: str | None = None,
         model_name: str | None = None,
+        # Provider 上下文（Chat 适配器忽略这些参数，仅保持签名兼容）
+        auth_type: str | None = None,  # noqa: ARG003
+        provider_type: str | None = None,  # noqa: ARG003
+        decrypted_auth_config: dict[str, Any] | None = None,  # noqa: ARG003
     ) -> dict[str, Any]:
         """
         测试模型连接性（非流式）

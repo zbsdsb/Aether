@@ -18,7 +18,9 @@ class _DummyEndpoint:
 
 
 def test_get_upstream_stream_policy_defaults_to_auto() -> None:
-    ep = _DummyEndpoint(api_format="openai:chat", config=None, provider=SimpleNamespace(provider_type="custom"))
+    ep = _DummyEndpoint(
+        api_format="openai:chat", config=None, provider=SimpleNamespace(provider_type="custom")
+    )
     assert get_upstream_stream_policy(ep) == UpstreamStreamPolicy.AUTO
 
 
@@ -60,4 +62,3 @@ def test_enforce_stream_mode_for_upstream_gemini_drops_stream_field() -> None:
     )
     assert "stream" not in out
     assert out["foo"] == "bar"
-

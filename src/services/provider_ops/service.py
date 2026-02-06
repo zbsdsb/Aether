@@ -292,12 +292,6 @@ class ProviderOpsService:
             actual_credentials = credentials
         else:
             actual_credentials = self._decrypt_credentials(config.connector_credentials)
-            logger.debug(
-                f"解密凭据: provider_id={provider_id}, "
-                f"encrypted_keys={list(config.connector_credentials.keys())}, "
-                f"decrypted_keys={list(actual_credentials.keys())}, "
-                f"has_api_key={bool(actual_credentials.get('api_key'))}"
-            )
 
         if not actual_credentials:
             return False, "未提供凭据"
@@ -590,9 +584,6 @@ class ProviderOpsService:
         }
 
         await CacheService.set(cache_key, cache_data, BALANCE_CACHE_TTL)
-        logger.debug(
-            f"余额缓存已写入: provider_id={provider_id}, extra={data.get('extra') if data else None}"
-        )
 
     async def _cache_balance_from_verify(
         self,
@@ -845,7 +836,6 @@ class ProviderOpsService:
         # 使用信号量限制并发数，避免同时发起过多请求耗尽连接池
         concurrency = _get_batch_balance_concurrency()
         semaphore = asyncio.Semaphore(concurrency)
-        logger.debug(f"批量余额查询: providers={len(provider_ids)}, concurrency={concurrency}")
 
         async def _query_with_limit(provider_id: str) -> tuple[str, ActionResult]:
             async with semaphore:

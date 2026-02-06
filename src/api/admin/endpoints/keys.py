@@ -21,14 +21,16 @@ from src.core.crypto import crypto_service
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.key_capabilities import get_capability
 from src.core.logger import logger
+from src.core.provider_types import ProviderType
 from src.database import get_db
-from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
+from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint, User
 from src.models.endpoint_models import (
     EndpointAPIKeyCreate,
     EndpointAPIKeyResponse,
     EndpointAPIKeyUpdate,
 )
 from src.services.cache.provider_cache import ProviderCacheService
+from src.utils.auth_utils import require_admin
 
 router = APIRouter(tags=["Provider Keys"])
 pipeline = ApiRequestPipeline()
@@ -144,6 +146,42 @@ async def delete_endpoint_key(
     """
     adapter = AdminDeleteEndpointKeyAdapter(key_id=key_id)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post("/keys/{key_id}/clear-oauth-invalid")
+async def clear_oauth_invalid(
+    key_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict:
+    """
+    清除 Key 的 OAuth 失效标记
+
+    手动清除指定 Key 的 oauth_invalid_at / oauth_invalid_reason 状态，
+    通常在管理员确认账号已完成验证后使用。
+
+    **路径参数**:
+    - `key_id`: Key ID
+
+    **返回字段**:
+    - `message`: 操作结果消息
+    """
+    key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
+    if not key:
+        raise NotFoundException(f"Key {key_id} 不存在")
+
+    if not key.oauth_invalid_at:
+        return {"message": "该 Key 当前无失效标记，无需清除"}
+
+    old_reason = key.oauth_invalid_reason
+    key.oauth_invalid_at = None
+    key.oauth_invalid_reason = None
+    db.commit()
+
+    logger.info("[OK] 手动清除 Key {}... 的 OAuth 失效标记 (原因: {})", key_id[:8], old_reason)
+
+    return {"message": "已清除 OAuth 失效标记"}
 
 
 # ========== Provider Keys API ==========
@@ -640,14 +678,12 @@ def _build_key_response(
             oauth_expires_at = auth_config.get("expires_at")
             oauth_email = auth_config.get("email")
             oauth_plan_type = auth_config.get("plan_type")  # Codex: plus/free/team/enterprise
+            # Antigravity 使用 "tier" 字段（如 "PAID"/"FREE"），做小写化 fallback
+            if not oauth_plan_type:
+                ag_tier = auth_config.get("tier")
+                if ag_tier and isinstance(ag_tier, str):
+                    oauth_plan_type = ag_tier.lower()
             oauth_account_id = auth_config.get("account_id")  # Codex: chatgpt_account_id
-            logger.debug(
-                "OAuth key {} auth_config: email={} plan_type={} account_id={}",
-                key.id,
-                oauth_email,
-                oauth_plan_type,
-                oauth_account_id,
-            )
         except Exception as e:
             logger.error("Failed to decrypt auth_config for key {}: {}", key.id, e)
 
@@ -924,9 +960,9 @@ class AdminRefreshProviderQuotaAdapter(AdminApiAdapter):
         if not provider:
             raise NotFoundException(f"Provider {self.provider_id} 不存在")
 
-        # 检查是否是 Codex 类型
-        if provider.provider_type != "codex":
-            raise InvalidRequestException("仅支持 Codex 类型的 Provider 刷新限额")
+        provider_type = str(getattr(provider, "provider_type", "") or "").strip().lower()
+        if provider_type not in {ProviderType.CODEX, ProviderType.ANTIGRAVITY}:
+            raise InvalidRequestException("仅支持 Codex / Antigravity 类型的 Provider 刷新限额")
 
         # 获取所有活跃的 Keys
         keys = (
@@ -947,15 +983,24 @@ class AdminRefreshProviderQuotaAdapter(AdminApiAdapter):
                 "message": "没有活跃的 Key",
             }
 
-        # 获取 openai:cli 端点
+        # 获取端点：
+        # - Codex: openai:cli
+        # - Antigravity: gemini:cli（用于触发 oauth 刷新 + 提供 auth_config.project_id）
         endpoint = None
-        for ep in provider.endpoints:
-            if ep.api_format == "openai:cli" and ep.is_active:
-                endpoint = ep
-                break
-
-        if not endpoint:
-            raise InvalidRequestException("找不到有效的 openai:cli 端点")
+        if provider_type == ProviderType.CODEX:
+            for ep in provider.endpoints:
+                if ep.api_format == "openai:cli" and ep.is_active:
+                    endpoint = ep
+                    break
+            if not endpoint:
+                raise InvalidRequestException("找不到有效的 openai:cli 端点")
+        else:
+            for ep in provider.endpoints:
+                if ep.api_format == "gemini:cli" and ep.is_active:
+                    endpoint = ep
+                    break
+            if not endpoint:
+                raise InvalidRequestException("找不到有效的 gemini:cli 端点")
 
         results: list[dict] = []
         success_count = 0
@@ -967,56 +1012,57 @@ class AdminRefreshProviderQuotaAdapter(AdminApiAdapter):
         # 单个 Key 刷新函数
         async def refresh_single_key(key: ProviderAPIKey) -> dict:
             try:
-                # 获取认证信息
-                auth_info = await get_provider_auth(endpoint, key)
+                if provider_type == ProviderType.CODEX:
+                    # 获取认证信息
+                    auth_info = await get_provider_auth(endpoint, key)
 
-                # 构建请求 URL
-                url = build_provider_url(endpoint, key=key)
+                    # 构建请求 URL
+                    url = build_provider_url(endpoint, key=key)
 
-                # 构建请求头
-                headers = {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                }
-                if auth_info:
-                    headers[auth_info.auth_header] = auth_info.auth_value
-                else:
-                    # 标准 API Key
-                    decrypted_key = crypto_service.decrypt(key.api_key)
-                    headers["Authorization"] = f"Bearer {decrypted_key}"
-
-                # 发送最小的测试请求，使用 Codex Responses API 格式
-                test_body = {
-                    "model": CODEX_QUOTA_REFRESH_MODEL,
-                    "input": [
-                        {
-                            "type": "message",
-                            "role": "user",
-                            "content": [{"type": "input_text", "text": "hi"}],
-                        }
-                    ],
-                    "instructions": "",
-                    "stream": True,
-                    "store": False,
-                }
-
-                async with httpx.AsyncClient(timeout=30.0, verify=get_ssl_context()) as client:
-                    response = await client.post(url, json=test_body, headers=headers)
-
-                # 解析响应头中的限额信息
-                response_headers = dict(response.headers)
-                metadata = MetadataCollectorRegistry.collect("codex", response_headers)
-
-                if metadata:
-                    # 收集元数据，稍后统一更新数据库
-                    metadata_updates[key.id] = metadata
-                    return {
-                        "key_id": key.id,
-                        "key_name": key.name,
-                        "status": "success",
-                        "metadata": metadata,
+                    # 构建请求头
+                    headers = {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
                     }
-                else:
+                    if auth_info:
+                        headers[auth_info.auth_header] = auth_info.auth_value
+                    else:
+                        # 标准 API Key
+                        decrypted_key = crypto_service.decrypt(key.api_key)
+                        headers["Authorization"] = f"Bearer {decrypted_key}"
+
+                    # 发送最小的测试请求，使用 Codex Responses API 格式
+                    test_body = {
+                        "model": CODEX_QUOTA_REFRESH_MODEL,
+                        "input": [
+                            {
+                                "type": "message",
+                                "role": "user",
+                                "content": [{"type": "input_text", "text": "hi"}],
+                            }
+                        ],
+                        "instructions": "",
+                        "stream": True,
+                        "store": False,
+                    }
+
+                    async with httpx.AsyncClient(timeout=30.0, verify=get_ssl_context()) as client:
+                        response = await client.post(url, json=test_body, headers=headers)
+
+                    # 解析响应头中的限额信息
+                    response_headers = dict(response.headers)
+                    metadata = MetadataCollectorRegistry.collect("codex", response_headers)
+
+                    if metadata:
+                        # 收集元数据，稍后统一更新数据库
+                        metadata_updates[key.id] = metadata
+                        return {
+                            "key_id": key.id,
+                            "key_name": key.name,
+                            "status": "success",
+                            "metadata": metadata,
+                        }
+
                     # 响应成功但没有限额头
                     return {
                         "key_id": key.id,
@@ -1024,6 +1070,82 @@ class AdminRefreshProviderQuotaAdapter(AdminApiAdapter):
                         "status": "no_metadata",
                         "message": "响应中未包含限额信息",
                         "status_code": response.status_code,
+                    }
+
+                elif provider_type == ProviderType.ANTIGRAVITY:
+                    # 直接调用 /v1internal:fetchAvailableModels 获取 quotaInfo，无需发送真实对话请求
+                    auth_info = await get_provider_auth(endpoint, key)
+                    if not auth_info:
+                        return {
+                            "key_id": key.id,
+                            "key_name": key.name,
+                            "status": "error",
+                            "message": "缺少 OAuth 认证信息，请先授权/刷新 Token",
+                        }
+
+                    access_token = str(auth_info.auth_value).removeprefix("Bearer ").strip()
+
+                    from src.services.model.upstream_fetcher import (
+                        UpstreamModelsFetchContext,
+                        fetch_models_for_key,
+                    )
+
+                    fetch_ctx = UpstreamModelsFetchContext(
+                        provider_type="antigravity",
+                        api_key_value=access_token,
+                        # antigravity fetcher 不依赖 endpoint mapping
+                        format_to_endpoint={},
+                        proxy_config=getattr(provider, "proxy", None),
+                        auth_config=auth_info.decrypted_auth_config,
+                    )
+                    _models, errors, ok, upstream_meta = await fetch_models_for_key(
+                        fetch_ctx, timeout_seconds=10.0
+                    )
+
+                    if ok and upstream_meta:
+                        metadata_updates[key.id] = upstream_meta
+                        return {
+                            "key_id": key.id,
+                            "key_name": key.name,
+                            "status": "success",
+                            "metadata": upstream_meta,
+                        }
+
+                    if ok and not upstream_meta:
+                        return {
+                            "key_id": key.id,
+                            "key_name": key.name,
+                            "status": "no_metadata",
+                            "message": "响应中未包含配额信息",
+                        }
+
+                    error_msg = "; ".join(errors) if errors else "fetchAvailableModels failed"
+
+                    # 403 "verify your account" → 标记账号异常
+                    if any(
+                        "403" in e and ("verify" in e.lower() or "permission" in e.lower())
+                        for e in errors
+                    ):
+                        from datetime import datetime, timezone
+
+                        from src.services.provider.oauth_token import (
+                            OAUTH_ACCOUNT_BLOCK_PREFIX,
+                        )
+
+                        key.oauth_invalid_at = datetime.now(timezone.utc)
+                        key.oauth_invalid_reason = (
+                            f"{OAUTH_ACCOUNT_BLOCK_PREFIX}Google 要求验证账号"
+                        )
+                        # 立即持久化异常标记，使负载均衡能尽快跳过此 Key；
+                        # 后续 metadata 更新由外层统一 commit
+                        db.commit()
+                        logger.warning("[QUOTA_REFRESH] Key {} 因 403 verify 已标记为异常", key.id)
+
+                    return {
+                        "key_id": key.id,
+                        "key_name": key.name,
+                        "status": "error",
+                        "message": error_msg,
                     }
 
             except Exception as e:
@@ -1054,19 +1176,41 @@ class AdminRefreshProviderQuotaAdapter(AdminApiAdapter):
         if metadata_updates:
             for key in keys:
                 if key.id in metadata_updates:
-                    key.upstream_metadata = metadata_updates[key.id]
+                    updates = metadata_updates[key.id]
+                    if isinstance(updates, dict):
+                        # NOTE: upstream_metadata is a plain JSON column (not MutableDict),
+                        # so in-place mutation won't be persisted reliably. Always assign
+                        # a new dict object to mark the column as dirty.
+                        current = key.upstream_metadata
+                        merged: dict = dict(current) if isinstance(current, dict) else {}
+                        merged.update(updates)
+                        key.upstream_metadata = merged
                     db.add(key)
 
         # 提交数据库更改
         db.commit()
 
-        logger.info(
-            "[QUOTA_REFRESH] Provider {}: 成功 {}/{}, 失败 {}",
-            self.provider_id,
-            success_count,
-            len(keys),
-            failed_count,
-        )
+        failed_details = [
+            f"{r.get('key_name', r.get('key_id', '?'))}: {r.get('message', 'unknown')}"
+            for r in results
+            if r["status"] != "success"
+        ]
+        if failed_details:
+            logger.info(
+                "[QUOTA_REFRESH] Provider {}: 成功 {}/{}, 失败 {} [{}]",
+                self.provider_id,
+                success_count,
+                len(keys),
+                failed_count,
+                "; ".join(failed_details),
+            )
+        else:
+            logger.info(
+                "[QUOTA_REFRESH] Provider {}: 成功 {}/{}",
+                self.provider_id,
+                success_count,
+                len(keys),
+            )
 
         return {
             "success": success_count,

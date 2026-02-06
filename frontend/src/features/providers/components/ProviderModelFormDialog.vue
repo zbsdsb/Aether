@@ -18,7 +18,6 @@
       >
         <Label for="global-model">选择模型 *</Label>
         <Select
-          v-model:open="globalModelSelectOpen"
           :model-value="form.global_model_id"
           :disabled="loadingGlobalModels"
           @update:model-value="form.global_model_id = $event"
@@ -262,7 +261,6 @@ const showCache1h = computed(() => {
 const submitting = ref(false)
 const loadingGlobalModels = ref(false)
 const availableGlobalModels = ref<GlobalModelResponse[]>([])
-const globalModelSelectOpen = ref(false)
 
 // 阶梯计费配置
 const tieredPricing = ref<TieredPricingConfig | null>(null)

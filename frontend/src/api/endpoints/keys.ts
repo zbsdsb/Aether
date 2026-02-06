@@ -146,7 +146,15 @@ export async function updateProviderKey(
 }
 
 /**
- * 刷新 Provider 的所有 Key 限额信息（Codex）
+ * 清除 Key 的 OAuth 失效标记
+ */
+export async function clearOAuthInvalid(keyId: string): Promise<{ message: string }> {
+  const response = await client.post(`/api/admin/endpoints/keys/${keyId}/clear-oauth-invalid`)
+  return response.data
+}
+
+/**
+ * 刷新 Provider 的所有 Key 限额信息（Codex / Antigravity）
  */
 export interface RefreshQuotaResult {
   success: number
@@ -156,13 +164,8 @@ export interface RefreshQuotaResult {
     key_id: string
     key_name: string
     status: 'success' | 'no_metadata' | 'error'
-    metadata?: {
-      plan_type?: string
-      primary_used_percent?: number
-      primary_reset_seconds?: number
-      secondary_used_percent?: number
-      secondary_reset_seconds?: number
-    }
+    // Codex: 额度字段为扁平结构；Antigravity: 返回 { antigravity: { quota_by_model: ... } }
+    metadata?: Record<string, any>
     message?: string
     status_code?: number
   }>

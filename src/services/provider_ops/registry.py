@@ -63,20 +63,23 @@ class ArchitectureRegistry:
         ]
 
         for arch_cls in builtin:
-            self.register(arch_cls())
+            self.register(arch_cls(), _quiet=True)
+        logger.debug(f"内置架构注册完成: {', '.join(self._architectures.keys())}")
 
-    def register(self, architecture: ProviderArchitecture) -> None:
+    def register(self, architecture: ProviderArchitecture, *, _quiet: bool = False) -> None:
         """
         注册架构
 
         Args:
             architecture: 架构实例
+            _quiet: 内部参数，批量注册时抑制逐条日志
         """
         if architecture.architecture_id in self._architectures:
             logger.warning(f"架构 {architecture.architecture_id} 已存在，将被覆盖")
 
         self._architectures[architecture.architecture_id] = architecture
-        logger.debug(f"注册架构: {architecture.architecture_id}")
+        if not _quiet:
+            logger.debug(f"注册架构: {architecture.architecture_id}")
 
     def unregister(self, architecture_id: str) -> bool:
         """

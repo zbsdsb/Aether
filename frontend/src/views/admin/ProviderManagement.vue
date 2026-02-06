@@ -565,6 +565,7 @@
   <ProviderFormDialog
     v-model="providerDialogOpen"
     :provider="providerToEdit"
+    :max-priority="maxProviderPriority"
     @provider-created="handleProviderAdded"
     @provider-updated="handleProviderUpdated"
   />
@@ -670,6 +671,13 @@ const priorityModeConfig = computed(() => {
   return {
     label: priorityMode.value === 'global_key' ? '全局 Key 优先' : '提供商优先'
   }
+})
+
+// 当前已有提供商的最大优先级
+const maxProviderPriority = computed(() => {
+  if (providers.value.length === 0) return undefined
+  const priorities = providers.value.map(p => p.provider_priority).filter(v => typeof v === 'number' && Number.isFinite(v))
+  return priorities.length > 0 ? Math.max(...priorities) : undefined
 })
 
 // 筛选后的提供商列表

@@ -7,7 +7,6 @@
       </span>
       <Select
         v-if="showPageSizeSelector"
-        v-model:open="pageSizeSelectOpen"
         :model-value="String(pageSize)"
         @update:model-value="handlePageSizeChange"
       >
@@ -100,7 +99,6 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<Emits>()
 
-const pageSizeSelectOpen = ref(false)
 const jumpPageInput = ref('')
 
 const totalPages = computed(() => Math.ceil(props.total / props.pageSize))

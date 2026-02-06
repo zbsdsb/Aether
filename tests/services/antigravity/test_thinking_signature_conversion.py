@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from src.api.handlers.base.utils import get_format_converter_registry
-from src.services.antigravity.constants import DUMMY_THOUGHT_SIGNATURE
-from src.services.antigravity.signature_cache import signature_cache
+from src.services.provider.adapters.antigravity.constants import DUMMY_THOUGHT_SIGNATURE
+from src.services.provider.adapters.antigravity.signature_cache import signature_cache
 
 
 def _reset_sig_cache() -> None:
     # Module-global cache; tests must isolate state.
-    signature_cache._cache.clear()  # type: ignore[attr-defined]
+    signature_cache.clear()
 
 
-def test_antigravity_converts_claude_thinking_block_to_gemini_thought_part_prefers_payload_sig() -> None:
+def test_antigravity_converts_claude_thinking_block_to_gemini_thought_part_prefers_payload_sig() -> (
+    None
+):
     _reset_sig_cache()
 
     req = {
@@ -115,4 +117,3 @@ def test_antigravity_inserts_dummy_thought_for_last_assistant_when_thinking_enab
     assert parts[0]["thought"] is True
     assert parts[0]["thoughtSignature"] == DUMMY_THOUGHT_SIGNATURE
     assert parts[1]["text"] == "prefill"
-

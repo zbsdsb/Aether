@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from src.config.settings import config
 from src.core.logger import logger
+from src.core.provider_types import ProviderType
 from src.models.database import ApiKey
 from src.services.candidate.failover import FailoverEngine
 from src.services.candidate.policy import RetryPolicy, SkipPolicy
@@ -598,7 +599,7 @@ class TaskService:
         if stage <= 0 and request_body_ref.get("_rectified", False):
             stage = 1
 
-        if stage >= 2 or (stage >= 1 and provider_type_norm != "antigravity"):
+        if stage >= 2 or (stage >= 1 and provider_type_norm != ProviderType.ANTIGRAVITY):
             logger.warning("  [{}] Thinking 错误：已整流仍失败，终止重试", request_id)
             self._mark_thinking_error_failed(
                 candidate_record_id,
@@ -631,7 +632,7 @@ class TaskService:
             request_body_ref["_rectified_this_turn"] = True
             request_body_ref["_rectify_stage"] = next_stage
 
-            if provider_type_norm == "antigravity":
+            if provider_type_norm == ProviderType.ANTIGRAVITY:
                 try:
                     from src.core.metrics import antigravity_degradation_total
 
@@ -1501,6 +1502,7 @@ class TaskService:
             provider_format,
             upstream_key,
             endpoint_headers=extra_headers,
+            header_rules=getattr(endpoint, "header_rules", None),
         )
 
         client = await HTTPClientPool.get_default_client_async()

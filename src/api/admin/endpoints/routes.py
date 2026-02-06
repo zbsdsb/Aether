@@ -21,6 +21,7 @@ from src.api.base.pipeline import ApiRequestPipeline
 from src.core.api_format.signature import parse_signature_key
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.logger import logger
+from src.core.provider_types import ProviderType
 from src.database import get_db
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
 from src.models.endpoint_models import (
@@ -283,7 +284,7 @@ class AdminCreateProviderEndpointAdapter(AdminApiAdapter):
 
         # 固定类型 Provider：禁止通过该接口新增 Endpoints（端点由模板自动创建并锁定）
         provider_type = (getattr(provider, "provider_type", "custom") or "custom").strip()
-        if provider_type != "custom":
+        if provider_type != ProviderType.CUSTOM:
             raise InvalidRequestException("固定类型 Provider 不允许手动新增 Endpoint")
 
         if self.endpoint_data.provider_id != self.provider_id:
@@ -424,7 +425,7 @@ class AdminUpdateProviderEndpointAdapter(AdminApiAdapter):
         provider = db.query(Provider).filter(Provider.id == endpoint.provider_id).first()
         if provider:
             provider_type = (getattr(provider, "provider_type", "custom") or "custom").strip()
-            if provider_type != "custom":
+            if provider_type != ProviderType.CUSTOM:
                 if "base_url" in update_data or "custom_path" in update_data:
                     raise InvalidRequestException(
                         "固定类型 Provider 的 Endpoint 不允许修改 base_url/custom_path"
@@ -441,8 +442,14 @@ class AdminUpdateProviderEndpointAdapter(AdminApiAdapter):
                         new_proxy["password"] = old_password
                 update_data["proxy"] = new_proxy
             # proxy 为 None 时保留，用于清除代理配置
+
+        # JSON 列需要 flag_modified 以确保 SQLAlchemy 检测到变更
+        json_fields = {"header_rules", "body_rules", "config", "proxy", "format_acceptance_config"}
+
         for field, value in update_data.items():
             setattr(endpoint, field, value)
+            if field in json_fields:
+                flag_modified(endpoint, field)
 
         # Phase 3/4: 自动维护新架构字段，确保新增/历史数据都能被调度器按 family/kind 查询
         sig = parse_signature_key(endpoint.api_format)

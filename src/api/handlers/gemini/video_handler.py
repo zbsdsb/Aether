@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.api.handlers.base.request_builder import get_provider_auth
+from src.api.handlers.base.request_builder import apply_body_rules, get_provider_auth
 from src.api.handlers.base.video_handler_base import (
     VideoHandlerBase,
     normalize_gemini_operation_id,
@@ -145,6 +145,9 @@ class GeminiVeoHandler(VideoHandlerBase):
             format_conversion_info["provider_format"] = provider_format
             format_conversion_info["converted"] = needs_conversion
 
+            # 应用端点的请求体规则
+            endpoint_body_rules = getattr(endpoint, "body_rules", None)
+
             if needs_conversion and provider_format.upper().startswith("OPENAI:"):
                 # Gemini -> OpenAI 格式转换
                 converted_body = format_conversion_registry.convert_video_request(
@@ -155,6 +158,9 @@ class GeminiVeoHandler(VideoHandlerBase):
                 # 确保 seconds 字段为字符串类型（上游 Go 服务要求 string）
                 if "seconds" in converted_body and converted_body["seconds"] is not None:
                     converted_body["seconds"] = str(converted_body["seconds"])
+
+                if endpoint_body_rules:
+                    converted_body = apply_body_rules(converted_body, endpoint_body_rules)
 
                 # 构建 OpenAI 风格的 URL
                 upstream_url = self._build_openai_upstream_url(endpoint.base_url)
@@ -168,12 +174,18 @@ class GeminiVeoHandler(VideoHandlerBase):
                 return await client.post(upstream_url, headers=headers, json=converted_body)
             else:
                 # 原始 Gemini 格式
+                request_body = (
+                    original_request_body.copy() if endpoint_body_rules else original_request_body
+                )
+                if endpoint_body_rules:
+                    request_body = apply_body_rules(request_body, endpoint_body_rules)
+
                 upstream_url = self._build_upstream_url(endpoint.base_url, internal_request.model)
                 headers = self._build_upstream_headers(
                     original_headers, upstream_key, endpoint, auth_info
                 )
                 client = await HTTPClientPool.get_default_client_async()
-                return await client.post(upstream_url, headers=headers, json=original_request_body)
+                return await client.post(upstream_url, headers=headers, json=request_body)
 
         def _extract_task_id(payload: dict[str, Any]) -> str | None:
             # 根据响应格式提取 task ID
@@ -514,6 +526,7 @@ class GeminiVeoHandler(VideoHandlerBase):
             endpoint_sig,
             upstream_key,
             endpoint_headers=extra_headers,
+            header_rules=getattr(endpoint, "header_rules", None),
         )
         if auth_info:
             # 覆盖为 OAuth2 Bearer（Vertex AI）
@@ -557,6 +570,7 @@ class GeminiVeoHandler(VideoHandlerBase):
             endpoint_sig,
             upstream_key,
             endpoint_headers=extra_headers,
+            header_rules=getattr(endpoint, "header_rules", None),
         )
 
     def _create_task_record(

@@ -126,7 +126,7 @@ class OpenAICliAdapter(CliAdapterBase):
         # 仅 Codex 端点添加特定头部
         if base_url and is_codex_url(base_url):
             # 与运行时路径保持一致：使用 Codex envelope 的 best-effort headers。
-            from src.services.codex.envelope import codex_oauth_envelope
+            from src.services.provider.adapters.codex.envelope import codex_oauth_envelope
 
             headers.update(codex_oauth_envelope.extra_headers() or {})
 

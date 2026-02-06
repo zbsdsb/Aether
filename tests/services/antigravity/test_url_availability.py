@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-import src.services.antigravity.url_availability as ua_mod
-from src.services.antigravity.constants import (
+from typing import Any
+
+import src.services.provider.adapters.antigravity.url_availability as ua_mod
+from src.services.provider.adapters.antigravity.constants import (
     DAILY_BASE_URL,
     PROD_BASE_URL,
+    SANDBOX_BASE_URL,
     URL_UNAVAILABLE_TTL_SECONDS,
 )
-from src.services.antigravity.url_availability import url_availability
+from src.services.provider.adapters.antigravity.url_availability import url_availability
 
 
 def _reset_state() -> None:
@@ -31,11 +34,13 @@ def test_mark_unavailable_filters_url() -> None:
     url_availability.mark_unavailable(DAILY_BASE_URL)
     ordered = url_availability.get_ordered_urls(prefer_daily=True)
 
-    assert ordered[0] == PROD_BASE_URL
+    # Sandbox → Prod（Daily 被标记为不可用，应被过滤掉）
+    assert ordered[0] == SANDBOX_BASE_URL
+    assert DAILY_BASE_URL not in ordered
     assert url_availability.is_available(DAILY_BASE_URL) is False
 
 
-def test_ttl_recovery(monkeypatch) -> None:
+def test_ttl_recovery(monkeypatch: Any) -> None:
     _reset_state()
 
     t0 = 1000.0
@@ -50,9 +55,10 @@ def test_ttl_recovery(monkeypatch) -> None:
 def test_all_unavailable_fallback_returns_base_order() -> None:
     _reset_state()
 
-    url_availability.mark_unavailable(PROD_BASE_URL)
+    url_availability.mark_unavailable(SANDBOX_BASE_URL)
     url_availability.mark_unavailable(DAILY_BASE_URL)
+    url_availability.mark_unavailable(PROD_BASE_URL)
 
     ordered = url_availability.get_ordered_urls(prefer_daily=True)
-    assert ordered == [DAILY_BASE_URL, PROD_BASE_URL]
-
+    # 全部不可用时仍返回基础顺序（允许继续尝试，等 TTL 恢复）
+    assert ordered == [SANDBOX_BASE_URL, DAILY_BASE_URL, PROD_BASE_URL]

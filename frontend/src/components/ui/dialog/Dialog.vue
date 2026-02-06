@@ -67,6 +67,7 @@
                       {{ description }}
                     </p>
                   </div>
+                  <slot name="header-actions" />
                 </div>
               </div>
             </slot>

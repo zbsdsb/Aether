@@ -10,6 +10,7 @@ provider-specific envelopes live in their own service modules.
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Protocol
 
 
@@ -50,32 +51,83 @@ class ProviderEnvelope(Protocol):
         """Whether streaming should always go through the rewrite/conversion path."""
 
 
+# ---------------------------------------------------------------------------
+# Envelope Registry
+# ---------------------------------------------------------------------------
+# key: (provider_type, endpoint_sig) — endpoint_sig="" 表示通配
+_envelope_registry: dict[tuple[str, str], ProviderEnvelope] = {}
+
+
+def register_envelope(
+    provider_type: str,
+    endpoint_sig: str,
+    envelope: ProviderEnvelope,
+) -> None:
+    """注册 provider 特有的 envelope。
+
+    Args:
+        provider_type: 如 "antigravity"
+        endpoint_sig: 如 "gemini:cli"，传 "" 表示该 provider 的所有 endpoint
+        envelope: 实现了 ProviderEnvelope 协议的实例
+    """
+    from src.core.provider_types import normalize_provider_type
+
+    pt = normalize_provider_type(provider_type)
+    sig = str(endpoint_sig or "").strip().lower()
+    _envelope_registry[(pt, sig)] = envelope
+
+
 def get_provider_envelope(
     *,
     provider_type: str | None,
     endpoint_sig: str | None,
 ) -> ProviderEnvelope | None:
     """Return envelope hooks for the given provider_type + endpoint signature."""
+    ensure_providers_bootstrapped()
 
-    pt = str(provider_type or "").strip().lower()
+    from src.core.provider_types import normalize_provider_type
+
+    pt = normalize_provider_type(provider_type)
     sig = str(endpoint_sig or "").strip().lower()
 
     if not pt:
         return None
 
-    # Antigravity wraps Gemini CLI responses in a v1internal envelope.
-    if pt == "antigravity" and (sig == "gemini:cli" or not sig):
-        from src.services.antigravity.envelope import antigravity_v1internal_envelope
-
-        return antigravity_v1internal_envelope
-
-    # Codex OAuth upstream requires a few fixed headers (SSE, session id, etc.).
-    if pt == "codex" and (sig == "openai:cli" or not sig):
-        from src.services.codex.envelope import codex_oauth_envelope
-
-        return codex_oauth_envelope
-
-    return None
+    # 精确匹配优先，再尝试通配
+    return _envelope_registry.get((pt, sig)) or _envelope_registry.get((pt, ""))
 
 
-__all__ = ["ProviderEnvelope", "get_provider_envelope"]
+# ---------------------------------------------------------------------------
+# Provider Bootstrap（惰性 + 幂等）
+# ---------------------------------------------------------------------------
+# 所有 registry 共享同一个 bootstrap，首次访问任何 registry 时自动触发。
+# 不再依赖模块 import 顺序。
+_bootstrapped = False
+_bootstrap_lock = threading.Lock()
+
+
+def ensure_providers_bootstrapped() -> None:
+    """确保所有 provider plugin 已注册（幂等，只执行一次）。"""
+    global _bootstrapped  # noqa: PLW0603
+    if _bootstrapped:
+        return
+    with _bootstrap_lock:
+        if _bootstrapped:
+            return
+        _bootstrapped = True
+
+        from src.services.provider.adapters.antigravity.plugin import (
+            register_all as _reg_antigravity,
+        )
+        from src.services.provider.adapters.codex.plugin import register_all as _reg_codex
+
+        _reg_antigravity()
+        _reg_codex()
+
+
+__all__ = [
+    "ProviderEnvelope",
+    "ensure_providers_bootstrapped",
+    "get_provider_envelope",
+    "register_envelope",
+]

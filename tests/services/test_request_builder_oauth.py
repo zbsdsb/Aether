@@ -29,18 +29,19 @@ async def test_get_provider_auth_oauth_returns_decrypted_auth_config() -> None:
         provider=None,
     )
 
-    def _decrypt(v):  # noqa: ANN001
+    def _decrypt(v: str) -> str:
         if v == "enc_access":
             return "access-token"
         if v == "enc_cfg":
             return json.dumps(token_meta)
         return ""
 
-    with patch("src.api.handlers.base.request_builder.crypto_service.decrypt", side_effect=_decrypt):
+    with patch(
+        "src.api.handlers.base.request_builder.crypto_service.decrypt", side_effect=_decrypt
+    ):
         auth = await get_provider_auth(endpoint, key)  # type: ignore[arg-type]
 
     assert auth is not None
     assert auth.auth_header == "Authorization"
     assert auth.auth_value == "Bearer access-token"
     assert auth.decrypted_auth_config == token_meta
-

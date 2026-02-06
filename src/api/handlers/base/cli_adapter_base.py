@@ -609,6 +609,10 @@ class CliAdapterBase(ApiAdapter):
         provider_id: str | None = None,
         api_key_id: str | None = None,
         model_name: str | None = None,
+        # Provider 上下文（用于 OAuth 认证和 Antigravity 等特殊路由）
+        auth_type: str | None = None,
+        provider_type: str | None = None,
+        decrypted_auth_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         测试模型连接性（非流式）
@@ -634,6 +638,10 @@ class CliAdapterBase(ApiAdapter):
             provider_id: 提供商ID
             api_key_id: API密钥ID
             model_name: 模型名称
+            auth_type: Key 认证类型（"api_key"/"oauth"/"vertex_ai"），
+                       OAuth 类型自动使用 Authorization: Bearer 替代端点默认认证头
+            provider_type: 提供商类型（用于 Antigravity v1internal 等特殊路由）
+            decrypted_auth_config: 解密后的 OAuth 配置（Antigravity 需要 project_id）
 
         Returns:
             测试响应数据
@@ -641,37 +649,84 @@ class CliAdapterBase(ApiAdapter):
         from src.api.handlers.base.endpoint_checker import run_endpoint_check
         from src.api.handlers.base.request_builder import apply_body_rules
         from src.core.api_format.headers import HeaderBuilder
+        from src.core.provider_types import ProviderType
 
-        # 构建请求组件
-        url = cls.build_endpoint_url(base_url, request_data, model_name)
+        is_antigravity = provider_type == ProviderType.ANTIGRAVITY
+        is_oauth = auth_type == "oauth"
 
-        # 合并 CLI 额外头部到 extra_headers
+        # ---- URL ----
+        if is_antigravity:
+            # Antigravity 走 v1internal 端点，模型名在请求体 envelope 中，不在 URL 路径里
+            from src.services.provider.adapters.antigravity.constants import (
+                V1INTERNAL_PATH_TEMPLATE,
+            )
+            from src.services.provider.adapters.antigravity.constants import (
+                get_http_user_agent as _get_antigravity_ua,
+            )
+            from src.services.provider.adapters.antigravity.envelope import wrap_v1internal_request
+            from src.services.provider.adapters.antigravity.url_availability import url_availability
+
+            ordered_urls = url_availability.get_ordered_urls(prefer_daily=True)
+            effective_base_url = ordered_urls[0] if ordered_urls else base_url
+            path = V1INTERNAL_PATH_TEMPLATE.format(action="generateContent")
+            url = f"{str(effective_base_url).rstrip('/')}{path}"
+        else:
+            url = cls.build_endpoint_url(base_url, request_data, model_name)
+
+        # ---- Headers ----
         cli_extra = cls.get_cli_extra_headers(base_url=base_url)
         merged_extra = dict(extra_headers) if extra_headers else {}
         merged_extra.update(cli_extra)
 
-        # 使用统一的头部构建函数
+        # Antigravity 需要特定的 User-Agent
+        if is_antigravity:
+            merged_extra["User-Agent"] = _get_antigravity_ua()
+
         headers = cls.build_headers_with_extra(api_key, merged_extra if merged_extra else None)
+
+        # OAuth 统一处理：替换端点默认认证头为 Authorization: Bearer
+        # （与 get_provider_auth 返回的 ProviderAuthInfo 行为一致）
+        if is_oauth:
+            from src.core.api_format import get_auth_config_for_endpoint
+
+            default_auth_header, _ = get_auth_config_for_endpoint(cls.FORMAT_ID)
+            if default_auth_header.lower() != "authorization":
+                headers.pop(default_auth_header, None)
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        # ---- Body ----
         body = cls.build_request_body(request_data, base_url=base_url)
 
-        # 应用请求体规则（在格式转换后应用，确保规则效果不被覆盖）
         if body_rules:
             body = apply_body_rules(body, body_rules)
 
-        # 应用请求头规则（在请求头构建后应用）
-        if header_rules:
-            # 获取认证头名称，防止被规则覆盖
-            from src.core.api_format import get_auth_config_for_endpoint
+        # Antigravity：用 v1internal envelope 包装请求体
+        if is_antigravity:
+            project_id = (decrypted_auth_config or {}).get("project_id", "")
+            effective_model = model_name or request_data.get("model", "")
+            body = wrap_v1internal_request(
+                body,
+                project_id=project_id,
+                model=effective_model,
+            )
 
-            auth_header, _ = get_auth_config_for_endpoint(cls.FORMAT_ID)
-            protected_keys = {auth_header.lower(), "content-type"}
+        # ---- Header Rules ----
+        if header_rules:
+            from src.core.api_format import get_auth_config_for_endpoint as _get_auth_cfg
+
+            # 保护实际使用的认证头，而非端点默认的
+            if is_oauth:
+                protected_keys = {"authorization", "content-type"}
+            else:
+                ep_auth_header, _ = _get_auth_cfg(cls.FORMAT_ID)
+                protected_keys = {ep_auth_header.lower(), "content-type"}
 
             header_builder = HeaderBuilder()
             header_builder.add_many(headers)
             header_builder.apply_rules(header_rules, protected_keys)
             headers = header_builder.build()
 
-        # 获取有效的模型名称
+        # ---- Execute ----
         effective_model_name = model_name or request_data.get("model")
 
         return await run_endpoint_check(
@@ -680,7 +735,6 @@ class CliAdapterBase(ApiAdapter):
             headers=headers,
             json_body=body,
             api_format=cls.FORMAT_ID,
-            # 用量计算参数（现在强制记录）
             db=db,
             user=user,
             provider_name=provider_name,

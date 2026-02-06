@@ -156,7 +156,7 @@ class ProviderCompleteOAuthResponse(BaseModel):
 
 def _require_fixed_provider(provider: Provider) -> str:
     provider_type = (getattr(provider, "provider_type", "custom") or "custom").strip()
-    if provider_type == "custom":
+    if provider_type == ProviderType.CUSTOM:
         raise InvalidRequestException("该 Provider 不是固定类型，无法使用 provider-oauth")
     return provider_type
 
@@ -415,14 +415,6 @@ async def complete_oauth(
     key.auth_config = crypto_service.encrypt(json.dumps(auth_config))
     db.commit()
 
-    # 触发 OAuth 刷新任务重新调度
-    try:
-        from src.services.system import get_maintenance_scheduler
-
-        get_maintenance_scheduler().trigger_oauth_refresh_check()
-    except Exception as e:
-        logger.debug("trigger_oauth_refresh_check 调用失败: {}", e)
-
     return CompleteOAuthResponse(
         provider_type=provider_type,
         expires_at=expires_at,
@@ -556,10 +548,24 @@ async def refresh_oauth(
         proxy_config=proxy_config,
     )
 
+    # Antigravity：enrich_auth_config 会自动尝试补 project_id，
+    # 即使本次仍未获取到也不阻断刷新（token 已成功更新），下次刷新会继续重试
+    if provider_type == ProviderType.ANTIGRAVITY and not parsed.get("project_id"):
+        logger.warning(
+            "[OAUTH_REFRESH] Antigravity key {} 刷新成功但 project_id 仍缺失，"
+            "下次刷新将继续尝试获取",
+            key_id,
+        )
+
     key.auth_config = crypto_service.encrypt(json.dumps(parsed))
-    # 刷新成功，清除失效标记
-    key.oauth_invalid_at = None
-    key.oauth_invalid_reason = None
+    # 刷新成功，清除 token 级别的失效标记
+    # 但保留账号级别的失效标记（以 OAUTH_ACCOUNT_BLOCK_PREFIX 开头），
+    # 这种不是 token 问题，刷新 token 解决不了
+    from src.services.provider.oauth_token import is_account_level_block
+
+    if not is_account_level_block(getattr(key, "oauth_invalid_reason", None)):
+        key.oauth_invalid_at = None
+        key.oauth_invalid_reason = None
     db.commit()
 
     return CompleteOAuthResponse(
@@ -785,14 +791,6 @@ async def complete_provider_oauth(
     db.add(new_key)
     db.commit()
     db.refresh(new_key)
-
-    # 触发 OAuth 刷新任务重新调度
-    try:
-        from src.services.system import get_maintenance_scheduler
-
-        get_maintenance_scheduler().trigger_oauth_refresh_check()
-    except Exception as e:
-        logger.debug("trigger_oauth_refresh_check 调用失败: {}", e)
 
     return ProviderCompleteOAuthResponse(
         key_id=str(new_key.id),

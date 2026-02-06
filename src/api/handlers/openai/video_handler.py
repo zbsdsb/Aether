@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.api.handlers.base.request_builder import get_provider_auth
+from src.api.handlers.base.request_builder import apply_body_rules, get_provider_auth
 from src.api.handlers.base.video_handler_base import VideoHandlerBase, sanitize_error_message
 from src.clients.http_client import HTTPClientPool
 from src.config.settings import config
@@ -139,6 +139,9 @@ class OpenAIVideoHandler(VideoHandlerBase):
             if "seconds" in request_body and request_body["seconds"] is not None:
                 request_body["seconds"] = str(request_body["seconds"])
 
+            # 应用端点的请求体规则
+            endpoint_body_rules = getattr(endpoint, "body_rules", None)
+
             if needs_conversion and provider_format.upper().startswith("GEMINI:"):
                 # OpenAI -> Gemini 格式转换
                 converted_body = format_conversion_registry.convert_video_request(
@@ -149,6 +152,9 @@ class OpenAIVideoHandler(VideoHandlerBase):
                 # 如果 model 不在请求体中，从路径或内部请求中获取
                 if "model" not in converted_body:
                     converted_body["model"] = internal_request.model
+
+                if endpoint_body_rules:
+                    converted_body = apply_body_rules(converted_body, endpoint_body_rules)
 
                 # 构建 Gemini 风格的 URL
                 upstream_url = self._build_gemini_upstream_url(
@@ -165,6 +171,9 @@ class OpenAIVideoHandler(VideoHandlerBase):
                 return await client.post(upstream_url, headers=headers, json=converted_body)
             else:
                 # 原始 OpenAI 格式
+                if endpoint_body_rules:
+                    request_body = apply_body_rules(request_body, endpoint_body_rules)
+
                 upstream_url = self._build_upstream_url(endpoint.base_url)
                 headers = self._build_upstream_headers(original_headers, upstream_key, endpoint)
                 client = await HTTPClientPool.get_default_client_async()
@@ -500,6 +509,11 @@ class OpenAIVideoHandler(VideoHandlerBase):
         if "seconds" in request_body and request_body["seconds"] is not None:
             request_body["seconds"] = str(request_body["seconds"])
 
+        # 应用端点的请求体规则
+        endpoint_body_rules = getattr(endpoint, "body_rules", None)
+        if endpoint_body_rules:
+            request_body = apply_body_rules(request_body, endpoint_body_rules)
+
         client = await HTTPClientPool.get_default_client_async()
         response = await client.post(upstream_url, headers=headers, json=request_body)
 
@@ -785,6 +799,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
             endpoint_sig,
             upstream_key,
             endpoint_headers=extra_headers,
+            header_rules=getattr(endpoint, "header_rules", None),
         )
 
     # ------------------------------------------------------------------
@@ -816,6 +831,7 @@ class OpenAIVideoHandler(VideoHandlerBase):
             endpoint_sig,
             upstream_key,
             endpoint_headers=extra_headers,
+            header_rules=getattr(endpoint, "header_rules", None),
         )
         if auth_info:
             # 覆盖为 OAuth2 Bearer（Vertex AI）

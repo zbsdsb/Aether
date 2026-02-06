@@ -105,7 +105,7 @@ class CreateProviderRequest(BaseModel):
     quota_last_reset_at: datetime | None = Field(None, description="当前周期开始时间")
     quota_expires_at: datetime | None = Field(None, description="配额过期时间")
     provider_priority: int | None = Field(
-        100, ge=0, le=1000, description="提供商优先级（数字越小越优先）"
+        100, ge=0, le=10000, description="提供商优先级（数字越小越优先）"
     )
     is_active: bool | None = Field(True, description="是否启用")
     concurrent_limit: int | None = Field(None, ge=0, description="并发限制")
@@ -127,9 +127,12 @@ class CreateProviderRequest(BaseModel):
         if v is None:
             return "custom"
         v = v.strip()
-        allowed = {"custom", "claude_code", "codex", "gemini_cli", "antigravity"}
-        if v not in allowed:
-            raise ValueError(f"无效的 provider_type，有效值为: {', '.join(sorted(allowed))}")
+        from src.core.provider_types import VALID_PROVIDER_TYPES
+
+        if v not in VALID_PROVIDER_TYPES:
+            raise ValueError(
+                f"无效的 provider_type，有效值为: {', '.join(sorted(VALID_PROVIDER_TYPES))}"
+            )
         return v
 
     @field_validator("name", "description")
@@ -199,7 +202,7 @@ class UpdateProviderRequest(BaseModel):
     quota_reset_day: int | None = Field(None, ge=1, le=365)
     quota_last_reset_at: datetime | None = None
     quota_expires_at: datetime | None = None
-    provider_priority: int | None = Field(None, ge=0, le=1000)
+    provider_priority: int | None = Field(None, ge=0, le=10000)
     is_active: bool | None = None
     concurrent_limit: int | None = Field(None, ge=0)
     # 请求配置（从 Endpoint 迁移）

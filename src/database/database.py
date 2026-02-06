@@ -379,15 +379,22 @@ def init_admin_user(db: Session) -> None:
     if config.admin_email == "admin@localhost" and config.admin_password == "admin123":
         logger.warning("使用默认管理员账户配置，建议修改为安全的凭据")
 
-    # 检查是否已存在管理员
-    existing_admin = (
+    # 检查是否已存在管理员（优先按角色判断，避免修改用户名/邮箱后重复创建）
+    existing_admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
+    if existing_admin:
+        logger.info(f"管理员账户已存在: {existing_admin.email}")
+        return
+
+    # 再检查配置的邮箱或用户名是否已被普通用户占用
+    existing_user = (
         db.query(User)
         .filter((User.email == config.admin_email) | (User.username == config.admin_username))
         .first()
     )
-
-    if existing_admin:
-        logger.info(f"管理员账户已存在: {existing_admin.email}")
+    if existing_user:
+        logger.warning(
+            f"配置的管理员邮箱/用户名已被占用: {existing_user.email} ({existing_user.username})"
+        )
         return
 
     try:

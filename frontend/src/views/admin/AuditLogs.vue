@@ -33,7 +33,6 @@
             <!-- 事件类型筛选 -->
             <Select
               v-model="filters.eventType"
-              v-model:open="eventTypeSelectOpen"
               @update:model-value="handleEventTypeChange"
             >
               <SelectTrigger class="w-24 sm:w-40 h-8 border-border/60">
@@ -78,7 +77,6 @@
             <!-- 时间范围筛选 -->
             <Select
               v-model="filtersDaysString"
-              v-model:open="daysSelectOpen"
               @update:model-value="handleDaysChange"
             >
               <SelectTrigger class="w-20 sm:w-28 h-8 border-border/60">
@@ -468,9 +466,6 @@ const selectedLog = ref<AuditLog | null>(null)
 // 搜索查询
 const searchQuery = ref('')
 
-// Select open state
-const eventTypeSelectOpen = ref(false)
-const daysSelectOpen = ref(false)
 
 const filters = ref({
   username: '',

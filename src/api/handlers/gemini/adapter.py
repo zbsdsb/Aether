@@ -137,7 +137,10 @@ class GeminiChatAdapter(ChatAdapterBase):
 
         contents = getattr(request_obj, "contents", []) or []
         for content in contents:
-            role = getattr(content, "role", None) or content.get("role", "unknown")
+            if isinstance(content, dict):
+                role = content.get("role", "unknown")
+            else:
+                role = getattr(content, "role", None) or "unknown"
             role_counts[role] = role_counts.get(role, 0) + 1
 
         generation_config = getattr(request_obj, "generation_config", None) or {}
@@ -262,6 +265,10 @@ class GeminiChatAdapter(ChatAdapterBase):
         provider_id: str | None = None,
         api_key_id: str | None = None,
         model_name: str | None = None,
+        # Provider 上下文（Gemini Chat 适配器忽略，仅保持签名兼容）
+        auth_type: str | None = None,  # noqa: ARG003
+        provider_type: str | None = None,  # noqa: ARG003
+        decrypted_auth_config: dict[str, Any] | None = None,  # noqa: ARG003
     ) -> dict[str, Any]:
         """测试 Gemini API 模型连接性（非流式）"""
         from src.api.handlers.base.endpoint_checker import run_endpoint_check
@@ -292,6 +299,7 @@ class GeminiChatAdapter(ChatAdapterBase):
         if header_rules:
             # 获取认证头名称，防止被规则覆盖
             from src.core.api_format import get_auth_config_for_endpoint
+
             auth_header, _ = get_auth_config_for_endpoint(cls.FORMAT_ID)
             protected_keys = {auth_header.lower(), "content-type"}
 

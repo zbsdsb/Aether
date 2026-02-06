@@ -13,9 +13,12 @@ async def test_enrich_auth_config_antigravity_adds_project_id_and_email() -> Non
     token_response: dict[str, object] = {}
 
     with (
-        patch("src.core.provider_oauth_utils.fetch_google_email", AsyncMock(return_value="u@example.com")),
         patch(
-            "src.services.antigravity.client.load_code_assist",
+            "src.core.provider_oauth_utils.fetch_google_email",
+            AsyncMock(return_value="u@example.com"),
+        ),
+        patch(
+            "src.services.provider.adapters.antigravity.client.load_code_assist",
             AsyncMock(
                 return_value={
                     "cloudaicompanionProject": "project-1",
@@ -34,5 +37,4 @@ async def test_enrich_auth_config_antigravity_adds_project_id_and_email() -> Non
 
     assert out["email"] == "u@example.com"
     assert out["project_id"] == "project-1"
-    assert out["tier"] == "PAID"
-
+    assert out["tier"] == "Pro"

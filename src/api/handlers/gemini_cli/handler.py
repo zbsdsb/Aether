@@ -114,7 +114,9 @@ class GeminiCliMessageHandler(CliMessageHandlerBase):
         Returns:
             包含 input_tokens, output_tokens, cached_tokens 的字典
         """
-        if str(provider_type or "").lower() == "antigravity":
+        from src.core.provider_types import ProviderType
+
+        if str(provider_type or "").lower() == ProviderType.ANTIGRAVITY:
             return self._extract_antigravity_usage(event)
 
         from src.api.handlers.gemini.stream_parser import GeminiStreamParser

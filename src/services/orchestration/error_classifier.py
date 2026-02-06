@@ -14,6 +14,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from src.core.api_format.signature import make_signature_key
+from src.core.crypto import CryptoService
 from src.core.exceptions import (
     ConcurrencyLimitError,
     ProviderAuthException,
@@ -116,6 +117,37 @@ class ErrorClassifier:
         self.db = db
         self.adaptive_manager = adaptive_manager or get_adaptive_rpm_manager()
         self.cache_scheduler = cache_scheduler
+
+    def _extract_oauth_email(self, key: ProviderAPIKey | None) -> str | None:
+        if not key or str(getattr(key, "auth_type", "") or "").lower() != "oauth":
+            return None
+        encrypted_auth_config = getattr(key, "auth_config", None)
+        if not encrypted_auth_config:
+            return None
+        try:
+            decrypted = CryptoService().decrypt(encrypted_auth_config, silent=True)
+            auth_config = json.loads(decrypted) if decrypted else {}
+        except Exception:
+            return None
+        email = auth_config.get("email")
+        if isinstance(email, str):
+            email = email.strip()
+            if email:
+                return email
+        return None
+
+    def _format_key_display(self, key: ProviderAPIKey | None) -> str:
+        if not key:
+            return "key=unknown"
+        key_id = str(getattr(key, "id", "") or "")[:8] or "unknown"
+        name = str(getattr(key, "name", "") or "").strip()
+        email = self._extract_oauth_email(key)
+        parts = [f"key={key_id}"]
+        if email:
+            parts.append(f"email={email}")
+        if name and name != email:
+            parts.append(f"name={name}")
+        return " ".join(parts)
 
     # 表示客户端错误的 error type（不区分大小写）
     # 这些 type 表明是请求本身的问题，不应重试
@@ -344,6 +376,38 @@ class ErrorClassifier:
         search_text = error_text.lower()
         return any(p.lower() in search_text for p in self.THINKING_ERROR_PATTERNS)
 
+    def _is_account_validation_required(self, error_text: str | None) -> bool:
+        """
+        检测 403 错误是否为 Google 账号验证要求 (VALIDATION_REQUIRED)
+
+        Google 会在某些情况下要求账号所有者手动完成人机验证，
+        此时所有 API 请求都会返回 403 + VALIDATION_REQUIRED。
+        这是账号级别的永久性错误，重试无法修复，需要人工干预。
+
+        匹配条件（满足任一即可）：
+        - error.details 中包含 reason=VALIDATION_REQUIRED
+        - error.status 为 PERMISSION_DENIED 且 message 包含 "verify your account"
+        - error.message 包含 "verify your account"
+
+        Args:
+            error_text: 错误响应文本
+
+        Returns:
+            是否为账号验证要求错误
+        """
+        if not error_text:
+            return False
+
+        search_text = error_text.lower()
+
+        # 快速路径：关键词匹配
+        if "validation_required" in search_text:
+            return True
+        if "verify your account" in search_text and "permission_denied" in search_text:
+            return True
+
+        return False
+
     def _extract_error_message(self, error_text: str | None) -> str | None:
         """
         从错误响应中提取错误消息
@@ -393,7 +457,10 @@ class ErrorClassifier:
             return ErrorAction.BREAK
 
         if isinstance(error, httpx.HTTPStatusError):
-            # HTTP 错误根据状态码决定
+            status_code = int(getattr(error.response, "status_code", 0) or 0)
+            # 401/403 是认证/权限错误，在同一个 key 上重试无意义，直接跳到下一个候选
+            if status_code in (401, 403):
+                return ErrorAction.BREAK
             return ErrorAction.CONTINUE if has_retry_left else ErrorAction.BREAK
 
         if isinstance(error, self.RETRIABLE_ERRORS):
@@ -498,6 +565,12 @@ class ErrorClassifier:
             detailed_message = f"上游服务返回错误: {status}"
 
         if status == 401:
+            return ProviderAuthException(provider_name=provider_name)
+
+        # 403: 检查是否为 Google VALIDATION_REQUIRED（账号需要手动验证）
+        # 这类错误是永久性的，重试同一个 key 无意义，应视为认证错误
+        if status == 403 and self._is_account_validation_required(error_response_text):
+            logger.warning("检测到 Google 账号验证要求 (VALIDATION_REQUIRED): {}", provider_name)
             return ProviderAuthException(provider_name=provider_name)
 
         if status == 429:
@@ -651,6 +724,32 @@ class ErrorClassifier:
                     api_format=provider_format_str,
                     error_type="ProviderAuthException",
                 )
+            # 403 VALIDATION_REQUIRED → 标记 OAuth key 为账号级别封禁
+            # 这与 test-model 端点的行为对齐（provider_query.py 第 669-690 行）
+            status_code = http_error.response.status_code if http_error.response else None
+            if (
+                status_code == 403
+                and key
+                and str(getattr(key, "auth_type", "") or "").lower() == "oauth"
+                and self._is_account_validation_required(error_response_text)
+            ):
+                try:
+                    from datetime import datetime, timezone
+
+                    from src.services.provider.oauth_token import (
+                        OAUTH_ACCOUNT_BLOCK_PREFIX,
+                    )
+
+                    key.oauth_invalid_at = datetime.now(timezone.utc)
+                    key.oauth_invalid_reason = f"{OAUTH_ACCOUNT_BLOCK_PREFIX}Google 要求验证账号"
+                    self.db.commit()
+                    logger.warning(
+                        "  [{}] {} 因 403 VALIDATION_REQUIRED 已标记为账号异常",
+                        request_id,
+                        self._format_key_display(key),
+                    )
+                except Exception as mark_exc:
+                    logger.debug("  [{}] 标记 oauth_invalid 失败: {}", request_id, mark_exc)
             return extra_data
 
         # 处理限流错误

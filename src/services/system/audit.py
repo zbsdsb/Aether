@@ -94,8 +94,7 @@ class AuditService:
                 logger.warning(log_message)
             elif event_type in [AuditEventType.LOGIN_FAILED, AuditEventType.REQUEST_FAILED]:
                 logger.info(log_message)
-            else:
-                logger.debug(log_message)
+            # request_success 已由 Pipeline 日志覆盖，不再重复输出到控制台
 
         return audit_log
 

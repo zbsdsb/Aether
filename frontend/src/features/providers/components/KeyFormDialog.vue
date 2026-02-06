@@ -36,7 +36,6 @@
           <Label :for="authTypeSelectId">认证类型</Label>
           <Select
             v-model="form.auth_type"
-            v-model:open="authTypeSelectOpen"
           >
             <SelectTrigger :id="authTypeSelectId">
               <SelectValue placeholder="选择认证类型" />
@@ -407,7 +406,6 @@ const canSave = computed(() => {
 const isOpen = computed(() => props.open)
 const saving = ref(false)
 const formNonce = ref(createFieldNonce())
-const authTypeSelectOpen = ref(false)
 const keyNameInputId = computed(() => `key-name-${formNonce.value}`)
 const apiKeyInputId = computed(() => `api-key-${formNonce.value}`)
 const authTypeSelectId = computed(() => `auth-type-${formNonce.value}`)

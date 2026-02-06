@@ -189,7 +189,7 @@
                       {{ provider.provider_type === 'custom' ? '密钥管理' : '账号管理' }}
                     </h3>
                     <div class="flex items-center gap-2">
-                      <!-- Codex 刷新限额按钮 -->
+                      <!-- 刷新限额按钮（Codex：会产生少量调用费用；Antigravity 采用打开抽屉自动后台刷新） -->
                       <Button
                         v-if="provider.provider_type === 'codex' && allKeys.length > 0"
                         variant="outline"
@@ -275,31 +275,66 @@
                             </Button>
                             <!-- OAuth 状态（失效/过期/倒计时）和刷新按钮 -->
                             <template v-if="getKeyOAuthExpires(key)">
-                              <span
-                                class="text-[10px]"
-                                :class="{
-                                  'text-destructive': getKeyOAuthExpires(key)?.isInvalid || getKeyOAuthExpires(key)?.isExpired,
-                                  'text-warning': getKeyOAuthExpires(key)?.isExpiringSoon && !getKeyOAuthExpires(key)?.isExpired && !getKeyOAuthExpires(key)?.isInvalid,
-                                  'text-muted-foreground': !getKeyOAuthExpires(key)?.isExpired && !getKeyOAuthExpires(key)?.isExpiringSoon && !getKeyOAuthExpires(key)?.isInvalid
-                                }"
-                                :title="getOAuthStatusTitle(key)"
-                              >
-                                {{ getKeyOAuthExpires(key)?.text }}
-                              </span>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                class="h-4 w-4 shrink-0"
-                                :disabled="refreshingOAuthKeyId === key.id"
-                                :title="getKeyOAuthExpires(key)?.isInvalid ? '重新授权' : '刷新 Token'"
-                                @click.stop="handleRefreshOAuth(key)"
-                              >
-                                <RefreshCw
-                                  class="w-2.5 h-2.5"
-                                  :class="{ 'animate-spin': refreshingOAuthKeyId === key.id }"
-                                />
-                              </Button>
+                              <!-- 账号级别异常：醒目提示 + 清除按钮 -->
+                              <template v-if="getKeyOAuthExpires(key)?.isInvalid && isAccountLevelBlock(key)">
+                                <Badge
+                                  variant="destructive"
+                                  class="text-[10px] px-1.5 py-0 shrink-0 gap-0.5"
+                                  :title="getOAuthStatusTitle(key)"
+                                >
+                                  <ShieldX class="w-2.5 h-2.5" />
+                                  账号异常
+                                </Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  class="h-4 w-4 shrink-0 text-destructive hover:text-destructive"
+                                  :disabled="clearingOAuthInvalidKeyId === key.id"
+                                  title="清除异常标记（确认账号已完成验证后使用）"
+                                  @click.stop="handleClearOAuthInvalid(key)"
+                                >
+                                  <RefreshCw
+                                    class="w-2.5 h-2.5"
+                                    :class="{ 'animate-spin': clearingOAuthInvalidKeyId === key.id }"
+                                  />
+                                </Button>
+                              </template>
+                              <!-- 普通 OAuth 状态 -->
+                              <template v-else>
+                                <span
+                                  class="text-[10px]"
+                                  :class="{
+                                    'text-destructive': getKeyOAuthExpires(key)?.isInvalid || getKeyOAuthExpires(key)?.isExpired,
+                                    'text-warning': getKeyOAuthExpires(key)?.isExpiringSoon && !getKeyOAuthExpires(key)?.isExpired && !getKeyOAuthExpires(key)?.isInvalid,
+                                    'text-muted-foreground': !getKeyOAuthExpires(key)?.isExpired && !getKeyOAuthExpires(key)?.isExpiringSoon && !getKeyOAuthExpires(key)?.isInvalid
+                                  }"
+                                  :title="getOAuthStatusTitle(key)"
+                                >
+                                  {{ getKeyOAuthExpires(key)?.text }}
+                                </span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  class="h-4 w-4 shrink-0"
+                                  :disabled="refreshingOAuthKeyId === key.id"
+                                  :title="getKeyOAuthExpires(key)?.isInvalid ? '重新授权' : '刷新 Token'"
+                                  @click.stop="handleRefreshOAuth(key)"
+                                >
+                                  <RefreshCw
+                                    class="w-2.5 h-2.5"
+                                    :class="{ 'animate-spin': refreshingOAuthKeyId === key.id }"
+                                  />
+                                </Button>
+                              </template>
                             </template>
+                            <!-- Antigravity 账号未激活提示 -->
+                            <span
+                              v-if="provider.provider_type === 'antigravity' && key.is_active && key.auth_type === 'oauth' && (!key.upstream_metadata || !hasAntigravityQuotaData(key.upstream_metadata))"
+                              class="text-[10px] text-orange-500 dark:text-orange-400"
+                              title="该账号尚未完成 Gemini Code Assist 激活，无法获取配额和使用模型"
+                            >
+                              账号未激活
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -361,6 +396,16 @@
                           @click="handleEditKey(endpoint, key)"
                         >
                           <Edit class="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          v-if="provider.provider_type === 'antigravity'"
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7"
+                          title="配额详情"
+                          @click="openAntigravityQuotaDialog(key)"
+                        >
+                          <BarChart3 class="w-3.5 h-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -430,6 +475,60 @@
                           <div class="text-[9px] text-muted-foreground/70 mt-0.5">
                             <template v-if="key.upstream_metadata.secondary_reset_seconds">
                               {{ formatResetTime(key.upstream_metadata.secondary_reset_seconds) }}后重置
+                            </template>
+                            <template v-else>
+                              已重置
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <!-- Antigravity 上游额度摘要（按家族分组展示关键配额） -->
+                    <div
+                      v-if="provider.provider_type === 'antigravity' && key.upstream_metadata && hasAntigravityQuotaData(key.upstream_metadata)"
+                      class="mt-2 p-2 bg-muted/30 rounded-md"
+                    >
+                      <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] text-muted-foreground">模型配额</span>
+                        <div class="flex items-center gap-1">
+                          <RefreshCw
+                            v-if="refreshingQuota"
+                            class="w-3 h-3 text-muted-foreground/70 animate-spin"
+                          />
+                          <span
+                            v-if="key.upstream_metadata.antigravity?.updated_at"
+                            class="text-[9px] text-muted-foreground/70"
+                          >
+                            {{ formatAntigravityUpdatedAt(key.upstream_metadata.antigravity.updated_at) }}
+                          </span>
+                        </div>
+                      </div>
+                      <div class="grid grid-cols-2 gap-3">
+                        <div
+                          v-for="group in getAntigravityQuotaSummary(key.upstream_metadata)"
+                          :key="group.key"
+                        >
+                          <div class="flex items-center justify-between text-[10px] mb-0.5">
+                            <span class="text-muted-foreground truncate mr-2 min-w-0 flex-1">
+                              {{ group.label }}
+                            </span>
+                            <span :class="getQuotaRemainingClass(group.usedPercent)">
+                              {{ group.remainingPercent.toFixed(1) }}%
+                            </span>
+                          </div>
+                          <div class="relative w-full h-1.5 bg-border rounded-full overflow-hidden">
+                            <div
+                              class="absolute left-0 top-0 h-full transition-all duration-300"
+                              :class="getQuotaRemainingBarColor(group.usedPercent)"
+                              :style="{ width: `${Math.max(group.remainingPercent, 0)}%` }"
+                            />
+                          </div>
+                          <div
+                            v-if="group.resetSeconds !== null"
+                            class="text-[9px] text-muted-foreground/70 mt-0.5"
+                          >
+                            <template v-if="group.resetSeconds > 0">
+                              {{ formatResetTime(group.resetSeconds) }}后重置
                             </template>
                             <template v-else>
                               已重置
@@ -640,6 +739,17 @@
     @update:open="batchAssignDialogOpen = $event"
     @changed="handleBatchAssignChanged"
   />
+
+  <!-- Antigravity 配额详情弹窗 -->
+  <AntigravityQuotaDialog
+    v-if="antigravityQuotaDialogKey"
+    :open="antigravityQuotaDialogOpen"
+    :metadata="antigravityQuotaDialogKey.upstream_metadata"
+    :key-name="antigravityQuotaDialogKey.name || '未命名密钥'"
+    :provider-id="providerId"
+    :key-id="antigravityQuotaDialogKey.id"
+    @update:open="antigravityQuotaDialogOpen = $event"
+  />
 </template>
 
 <script setup lang="ts">
@@ -656,7 +766,9 @@ import {
   Copy,
   Shield,
   Shuffle,
-  ExternalLink
+  ExternalLink,
+  BarChart3,
+  ShieldX,
 } from 'lucide-vue-next'
 import { useEscapeKey } from '@/composables/useEscapeKey'
 import Button from '@/components/ui/button.vue'
@@ -679,6 +791,7 @@ import ModelMappingTab from '@/features/providers/components/provider-tabs/Model
 import EndpointFormDialog from '@/features/providers/components/EndpointFormDialog.vue'
 import ProviderModelFormDialog from '@/features/providers/components/ProviderModelFormDialog.vue'
 import AlertDialog from '@/components/common/AlertDialog.vue'
+import AntigravityQuotaDialog from '@/features/providers/components/AntigravityQuotaDialog.vue'
 import {
   deleteEndpointKey,
   recoverKeyHealth,
@@ -687,6 +800,7 @@ import {
   revealEndpointKey,
   refreshProviderOAuth,
   refreshProviderQuota,
+  clearOAuthInvalid,
   type ProviderEndpoint,
   type EndpointAPIKey,
   type Model,
@@ -695,6 +809,7 @@ import {
   API_FORMAT_SHORT,
   sortApiFormats,
 } from '@/api/endpoints'
+import type { UpstreamMetadata, AntigravityModelQuota } from '@/api/endpoints/types'
 
 // 扩展端点类型,包含密钥列表
 interface ProviderEndpointWithKeys extends ProviderEndpoint {
@@ -767,8 +882,15 @@ const prioritySaving = ref(false)
 // OAuth 刷新状态
 const refreshingOAuthKeyId = ref<string | null>(null)
 
-// Codex 限额刷新状态
+// OAuth 失效清除状态
+const clearingOAuthInvalidKeyId = ref<string | null>(null)
+
+// 限额刷新状态（Codex / Antigravity）
 const refreshingQuota = ref(false)
+
+// Antigravity 配额详情弹窗状态
+const antigravityQuotaDialogOpen = ref(false)
+const antigravityQuotaDialogKey = ref<EndpointAPIKey | null>(null)
 
 // 描述编辑状态
 const editingDescription = ref(false)
@@ -791,6 +913,7 @@ const hasBlockingDialogOpen = computed(() =>
   deleteKeyConfirmOpen.value ||
   modelFormDialogOpen.value ||
   batchAssignDialogOpen.value ||
+  antigravityQuotaDialogOpen.value ||
   modelMappingTabRef.value?.dialogOpen
 )
 
@@ -824,46 +947,49 @@ const allKeys = computed(() => {
   return result
 })
 
-// 监听 providerId 变化
-watch(() => props.providerId, (newId) => {
-  if (newId && props.open) {
-    loadProvider()
-    loadEndpoints()
-  }
-}, { immediate: true })
+// 合并监听 providerId 和 open，避免同一 tick 内两个 watcher 都触发导致重复请求
+watch(
+  [() => props.providerId, () => props.open],
+  async ([newId, newOpen], [oldId, oldOpen]) => {
+    if (newOpen && newId) {
+      await Promise.all([
+        loadProvider(),
+        loadEndpoints(),
+      ])
+      // 仅在抽屉刚打开时启动倒计时
+      if (newOpen && !oldOpen) {
+        startCountdownTimer()
+      }
+      void autoRefreshAntigravityQuotaInBackground()
+    } else if (!newOpen && oldOpen) {
+      // 停止倒计时定时器
+      stopCountdownTimer()
+      // 重置所有状态
+      provider.value = null
+      endpoints.value = []
+      providerKeys.value = []  // 清空 Provider 级别的 keys
 
-// 监听 open 变化
-watch(() => props.open, (newOpen) => {
-  if (newOpen && props.providerId) {
-    loadProvider()
-    loadEndpoints()
-    // 启动倒计时定时器
-    startCountdownTimer()
-  } else if (!newOpen) {
-    // 停止倒计时定时器
-    stopCountdownTimer()
-    // 重置所有状态
-    provider.value = null
-    endpoints.value = []
-    providerKeys.value = []  // 清空 Provider 级别的 keys
+      // 重置所有对话框状态
+      endpointDialogOpen.value = false
+      keyFormDialogOpen.value = false
+      keyPermissionsDialogOpen.value = false
+      oauthAccountDialogOpen.value = false
+      deleteKeyConfirmOpen.value = false
+      batchAssignDialogOpen.value = false
+      antigravityQuotaDialogOpen.value = false
+      antigravityQuotaDialogKey.value = null
 
-    // 重置所有对话框状态
-    endpointDialogOpen.value = false
-    keyFormDialogOpen.value = false
-    keyPermissionsDialogOpen.value = false
-    oauthAccountDialogOpen.value = false
-    deleteKeyConfirmOpen.value = false
-    batchAssignDialogOpen.value = false
+      // 重置临时数据
+      currentEndpoint.value = null
+      editingKey.value = null
+      keyToDelete.value = null
 
-    // 重置临时数据
-    currentEndpoint.value = null
-    editingKey.value = null
-    keyToDelete.value = null
-
-    // 清除已显示的密钥（安全考虑）
-    revealedKeys.value.clear()
-  }
-})
+      // 清除已显示的密钥（安全考虑）
+      revealedKeys.value.clear()
+    }
+  },
+  { immediate: true },
+)
 
 // 处理背景点击
 function handleBackdropClick() {
@@ -1057,7 +1183,11 @@ async function handleRefreshOAuth(key: EndpointAPIKey) {
     if (keyInList) {
       keyInList.oauth_expires_at = result.expires_at
     }
-    emit('refresh')
+    // 重新加载 key 数据（token 刷新可能补上了 project_id 等信息）
+    await loadEndpoints()
+    // Antigravity：token 刷新后可能完成了账号激活，触发配额获取
+    // （不 emit('refresh')，避免触发全局 provider 余额刷新）
+    void autoRefreshAntigravityQuotaInBackground()
   } catch (err: any) {
     showError(err.response?.data?.detail || 'Token 刷新失败', '错误')
   } finally {
@@ -1065,14 +1195,53 @@ async function handleRefreshOAuth(key: EndpointAPIKey) {
   }
 }
 
-// 刷新 Codex 所有账号限额
+// 判断是否为账号级别的封禁（刷新 token 无法修复）
+function isAccountLevelBlock(key: EndpointAPIKey): boolean {
+  if (!key.oauth_invalid_reason) return false
+  return key.oauth_invalid_reason.startsWith('[ACCOUNT_BLOCK]')
+}
+
+// 清除 OAuth 失效标记
+async function handleClearOAuthInvalid(key: EndpointAPIKey) {
+  if (clearingOAuthInvalidKeyId.value) return
+
+  const confirmed = await confirm({
+    title: '清除账号异常标记',
+    message: `确认账号 "${key.name || key.id.slice(0, 8)}" 已手动完成验证？清除后该 Key 将恢复正常调度。`,
+    confirmText: '确认清除',
+    variant: 'default',
+  })
+  if (!confirmed) return
+
+  clearingOAuthInvalidKeyId.value = key.id
+  try {
+    await clearOAuthInvalid(key.id)
+    showSuccess('已清除 OAuth 异常标记')
+    // 更新本地数据
+    const keyInList = providerKeys.value.find(k => k.id === key.id)
+    if (keyInList) {
+      keyInList.oauth_invalid_at = null
+      keyInList.oauth_invalid_reason = null
+    }
+    await loadEndpoints()
+  } catch (err: any) {
+    showError(err.response?.data?.detail || '清除失败', '错误')
+  } finally {
+    clearingOAuthInvalidKeyId.value = null
+  }
+}
+
+// 刷新所有账号限额（Codex / Antigravity）
 async function handleRefreshQuota() {
   if (refreshingQuota.value || !props.providerId) return
 
   // 确认对话框
+  const message = provider.value?.provider_type === 'codex'
+    ? '这将使用每个账号发送测试请求以获取最新限额信息，可能产生少量 API 调用费用。是否继续？'
+    : '这将向每个账号请求一次上游额度信息以更新限额显示。是否继续？'
   const confirmed = await confirm({
     title: '获取限额',
-    message: '这将使用每个账号发送测试请求以获取最新限额信息，会产生少量 API 调用费用。是否继续？',
+    message,
     confirmText: '继续',
     variant: 'info'
   })
@@ -1097,6 +1266,100 @@ async function handleRefreshQuota() {
   }
 }
 
+// Antigravity：打开抽屉后自动后台刷新（配额缓存缺失/过期，或 Token 即将过期时触发）
+const ANTIGRAVITY_AUTO_QUOTA_REFRESH_STALE_SECONDS = 5 * 60
+// 与后端 OAuth 懒刷新阈值对齐：到期前 2 分钟内视为需要刷新
+const ANTIGRAVITY_AUTO_TOKEN_REFRESH_SKEW_SECONDS = 2 * 60
+
+function shouldAutoRefreshAntigravityQuota(): boolean {
+  if (provider.value?.provider_type !== 'antigravity') return false
+  const now = Math.floor(Date.now() / 1000)
+
+  let hasActiveKey = false
+  for (const { key } of allKeys.value) {
+    if (!key.is_active) continue
+    hasActiveKey = true
+
+    // Token 已过期 / 即将过期：即使配额缓存还新，也触发一次后台刷新，
+    // 这样不会出现“打开抽屉看到已过期但没有任何刷新动作”的体验。
+    if (key.oauth_invalid_at == null && typeof key.oauth_expires_at === 'number') {
+      if ((key.oauth_expires_at - now) <= ANTIGRAVITY_AUTO_TOKEN_REFRESH_SKEW_SECONDS) {
+        return true
+      }
+    }
+
+    const meta: UpstreamMetadata | null | undefined = key.upstream_metadata
+    const updatedAt = meta?.antigravity?.updated_at
+    const quotaByModel = meta?.antigravity?.quota_by_model
+
+    // 只要有一个活跃 key 没有配额/为空/过期，就刷新一次（接口会批量刷新所有活跃 key）
+    if (!quotaByModel || typeof quotaByModel !== 'object' || Object.keys(quotaByModel).length === 0) {
+      return true
+    }
+    if (typeof updatedAt !== 'number' || (now - updatedAt) > ANTIGRAVITY_AUTO_QUOTA_REFRESH_STALE_SECONDS) {
+      return true
+    }
+  }
+
+  return false
+}
+
+async function autoRefreshAntigravityQuotaInBackground() {
+  if (!props.providerId) return
+  if (provider.value?.provider_type !== 'antigravity') return
+  if (refreshingQuota.value) return
+  if (!shouldAutoRefreshAntigravityQuota()) return
+
+  const hadCachedQuota = allKeys.value.some(({ key }) => (
+    key.is_active &&
+    key.upstream_metadata &&
+    hasAntigravityQuotaData(key.upstream_metadata)
+  ))
+
+  refreshingQuota.value = true
+  try {
+    const result = await refreshProviderQuota(props.providerId)
+    if (result.success > 0) {
+      // 重新加载 keys 以更新配额显示
+      await loadEndpoints()
+    } else if (!hadCachedQuota) {
+      showError('没有获取到配额信息（请检查账号是否已授权、project_id 是否存在）', '提示')
+    }
+  } catch (err: any) {
+    if (!hadCachedQuota) {
+      showError(err.response?.data?.detail || '后台刷新配额失败', '错误')
+    }
+  } finally {
+    refreshingQuota.value = false
+  }
+}
+
+async function openAntigravityQuotaDialog(key: EndpointAPIKey) {
+  antigravityQuotaDialogKey.value = key
+  antigravityQuotaDialogOpen.value = true
+
+  // 没有配额数据时主动获取
+  if (!key.upstream_metadata || !hasAntigravityQuotaData(key.upstream_metadata)) {
+    if (refreshingQuota.value) return
+    refreshingQuota.value = true
+    try {
+      const result = await refreshProviderQuota(props.providerId)
+      if (result.success > 0) {
+        await loadEndpoints()
+        // 更新弹窗引用的 key 数据
+        const updated = allKeys.value.find(({ key: k }) => k.id === key.id)
+        if (updated) {
+          antigravityQuotaDialogKey.value = updated.key
+        }
+      }
+    } catch {
+      // 静默失败，弹窗会显示"暂无配额数据"
+    } finally {
+      refreshingQuota.value = false
+    }
+  }
+}
+
 async function handleKeyChanged() {
   await loadEndpoints()
   // 并行刷新模型列表和模型映射（因为模型权限会影响正则映射预览）
@@ -1105,6 +1368,8 @@ async function handleKeyChanged() {
     modelMappingTabRef.value?.reload()
   ])
   emit('refresh')
+  // 添加/修改 key 后自动获取 Antigravity 配额（新 key 的 upstream_metadata 为空）
+  void autoRefreshAntigravityQuotaInBackground()
 }
 
 // 切换密钥启用状态
@@ -1457,10 +1722,12 @@ function formatOAuthPlanType(planType: string): string {
     plus: 'Plus',
     pro: 'Pro',
     free: 'Free',
+    paid: 'Paid',
     team: 'Team',
     enterprise: 'Enterprise',
+    ultra: 'Ultra',
   }
-  return labels[planType] || planType
+  return labels[planType.toLowerCase()] || planType
 }
 
 // Codex 剩余额度样式（基于已用百分比计算剩余）
@@ -1480,11 +1747,158 @@ function getQuotaRemainingBarColor(usedPercent: number): string {
 }
 
 // 检查是否有 Codex 额度数据
-function hasCodexQuotaData(metadata: any): boolean {
+function hasCodexQuotaData(metadata: UpstreamMetadata | null | undefined): boolean {
   if (!metadata) return false
   return metadata.primary_used_percent !== undefined ||
          metadata.secondary_used_percent !== undefined ||
          (metadata.has_credits && metadata.credits_balance !== undefined)
+}
+
+interface AntigravityQuotaItem {
+  model: string
+  label: string
+  usedPercent: number
+  remainingPercent: number
+  resetSeconds: number | null
+}
+
+function hasAntigravityQuotaData(metadata: UpstreamMetadata | null | undefined): boolean {
+  const quotaByModel = metadata?.antigravity?.quota_by_model
+  return !!quotaByModel && typeof quotaByModel === 'object' && Object.keys(quotaByModel).length > 0
+}
+
+function formatAntigravityUpdatedAt(updatedAt: number): string {
+  if (!updatedAt || typeof updatedAt !== 'number') return ''
+  const now = Math.floor(Date.now() / 1000)
+  const diff = now - updatedAt
+  if (diff <= 60) return '刚刚更新'
+  const minutes = Math.floor(diff / 60)
+  if (minutes < 60) return `${minutes}分钟前更新`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}小时前更新`
+  const days = Math.floor(hours / 24)
+  return `${days}天前更新`
+}
+
+function secondsUntilReset(resetTime: string): number | null {
+  if (!resetTime) return null
+  const ts = Date.parse(resetTime)
+  if (Number.isNaN(ts)) return null
+  const diff = Math.floor((ts - Date.now()) / 1000)
+  return diff > 0 ? diff : 0
+}
+
+function getAntigravityQuotaItems(metadata: UpstreamMetadata | null | undefined): AntigravityQuotaItem[] {
+  const quotaByModel = metadata?.antigravity?.quota_by_model
+  if (!quotaByModel || typeof quotaByModel !== 'object') return []
+
+  const items: AntigravityQuotaItem[] = []
+  for (const [model, rawInfo] of Object.entries(quotaByModel)) {
+    if (!model) continue
+    const info: Partial<AntigravityModelQuota> = rawInfo || {}
+
+    let usedPercent = Number(info.used_percent)
+    if (!Number.isFinite(usedPercent)) {
+      const remainingFraction = Number(info.remaining_fraction)
+      if (Number.isFinite(remainingFraction)) {
+        usedPercent = (1 - remainingFraction) * 100
+      } else {
+        continue
+      }
+    }
+
+    if (usedPercent < 0) usedPercent = 0
+    if (usedPercent > 100) usedPercent = 100
+
+    const remainingPercent = Math.max(100 - usedPercent, 0)
+
+    let resetSeconds: number | null = null
+    if (typeof info.reset_time === 'string' && info.reset_time.trim()) {
+      resetSeconds = secondsUntilReset(info.reset_time.trim())
+    }
+
+    items.push({
+      model,
+      label: model,
+      usedPercent,
+      remainingPercent,
+      resetSeconds,
+    })
+  }
+
+  // 按“最紧张”（已用最多）优先排序，便于快速定位额度风险；完整列表通过滚动展示
+  items.sort((a, b) => (b.usedPercent - a.usedPercent) || a.model.localeCompare(b.model))
+  return items
+}
+
+// Antigravity 配额分组定义（按匹配优先级排列，具体规则在前）
+interface AntigravityQuotaGroup {
+  key: string
+  label: string
+  match: (model: string) => boolean
+}
+
+const ANTIGRAVITY_QUOTA_GROUPS: AntigravityQuotaGroup[] = [
+  { key: 'claude-gpt', label: 'Claude 4.5', match: m => m.includes('claude') },
+  { key: 'gemini-3-pro', label: 'Gemini 3 Pro', match: m => m.includes('gemini-3-pro') && !m.includes('image') },
+  { key: 'gemini-3-flash', label: 'Gemini 3 Flash', match: m => m.includes('gemini-3-flash') },
+  { key: 'gemini-3-pro-image', label: 'Gemini 3 Pro Image', match: m => m.includes('gemini-3-pro-image') },
+  { key: 'other', label: 'Other', match: () => true },
+]
+
+interface AntigravityQuotaSummaryItem {
+  key: string
+  label: string
+  usedPercent: number       // 组内最高已用百分比（最紧张）
+  remainingPercent: number  // 100 - usedPercent
+  resetSeconds: number | null
+}
+
+function getAntigravityQuotaSummary(metadata: UpstreamMetadata | null | undefined): AntigravityQuotaSummaryItem[] {
+  const items = getAntigravityQuotaItems(metadata)
+  if (!items.length) return []
+
+  // 将每个模型归入分组
+  const groupMap = new Map<string, { label: string, maxUsed: number, resetSeconds: number | null }>()
+
+  for (const item of items) {
+    const model = item.model.toLowerCase()
+    const group = ANTIGRAVITY_QUOTA_GROUPS.find(g => g.match(model))
+    if (!group) continue
+
+    const existing = groupMap.get(group.key)
+    if (!existing) {
+      groupMap.set(group.key, {
+        label: group.label,
+        maxUsed: item.usedPercent,
+        resetSeconds: item.resetSeconds,
+      })
+    } else {
+      if (item.usedPercent > existing.maxUsed) {
+        existing.maxUsed = item.usedPercent
+      }
+      if (existing.resetSeconds === null) {
+        existing.resetSeconds = item.resetSeconds
+      } else if (item.resetSeconds !== null && item.resetSeconds < existing.resetSeconds) {
+        existing.resetSeconds = item.resetSeconds
+      }
+    }
+  }
+
+  // 按 ANTIGRAVITY_QUOTA_GROUPS 定义的顺序输出
+  const result: AntigravityQuotaSummaryItem[] = []
+  for (const group of ANTIGRAVITY_QUOTA_GROUPS) {
+    const data = groupMap.get(group.key)
+    if (!data) continue
+    result.push({
+      key: group.key,
+      label: data.label,
+      usedPercent: data.maxUsed,
+      remainingPercent: Math.max(100 - data.maxUsed, 0),
+      resetSeconds: data.resetSeconds,
+    })
+  }
+  return result
 }
 
 // 格式化重置时间
@@ -1508,10 +1922,12 @@ function getOAuthPlanTypeClass(planType: string): string {
     plus: 'border-green-500/50 text-green-600 dark:text-green-400',
     pro: 'border-blue-500/50 text-blue-600 dark:text-blue-400',
     free: 'border-primary/50 text-primary',
+    paid: 'border-blue-500/50 text-blue-600 dark:text-blue-400',
     team: 'border-purple-500/50 text-purple-600 dark:text-purple-400',
     enterprise: 'border-amber-500/50 text-amber-600 dark:text-amber-400',
+    ultra: 'border-amber-500/50 text-amber-600 dark:text-amber-400',
   }
-  return classes[planType] || ''
+  return classes[planType.toLowerCase()] || ''
 }
 
 // OAuth 状态信息（包括失效和过期）
@@ -1706,5 +2122,20 @@ useEscapeKey(() => {
 .drawer-enter-to .relative,
 .drawer-leave-from .relative {
   transform: translateX(0);
+}
+
+/* 轻量滚动条（用于 Antigravity 模型配额等小区域） */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground) / 0.4);
 }
 </style>

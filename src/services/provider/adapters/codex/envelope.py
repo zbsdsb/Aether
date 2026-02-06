@@ -75,4 +75,5 @@ class CodexOAuthEnvelope:
 
 codex_oauth_envelope = CodexOAuthEnvelope()
 
+
 __all__ = ["CodexOAuthEnvelope", "codex_oauth_envelope"]

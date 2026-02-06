@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.services.provider.codex import (
+from src.services.provider.adapters.codex.request_patching import (
     maybe_patch_request_for_codex,
     patch_openai_cli_request_for_codex,
 )
@@ -106,7 +106,7 @@ def test_maybe_patch_request_for_codex_patches_for_codex_openai_cli() -> None:
 
 
 def test_codex_envelope_extra_headers_includes_sse_accept_and_session() -> None:
-    from src.services.codex.envelope import codex_oauth_envelope
+    from src.services.provider.adapters.codex.envelope import codex_oauth_envelope
 
     headers = codex_oauth_envelope.extra_headers() or {}
     assert headers.get("Accept") == "text/event-stream"

@@ -41,8 +41,12 @@ async def test_video_cancel_openai_route_end_to_end(monkeypatch: pytest.MonkeyPa
     # Pipeline auth/quota/audit shortcuts
     user = SimpleNamespace(id="u1", username="u1", role="user", quota_usd=None, used_usd=0.0)
     api_key = SimpleNamespace(id="ak1", user_id="u1", is_standalone=False)
-    monkeypatch.setattr(pipeline.auth_service, "authenticate_api_key", lambda _db, _k: (user, api_key))
-    monkeypatch.setattr(pipeline.usage_service, "check_user_quota", lambda *_args, **_kwargs: (True, "ok"))
+    monkeypatch.setattr(
+        pipeline.auth_service, "authenticate_api_key", lambda _db, _k: (user, api_key)
+    )
+    monkeypatch.setattr(
+        pipeline.usage_service, "check_user_quota", lambda *_args, **_kwargs: (True, "ok")
+    )
     monkeypatch.setattr(pipeline.audit_service, "log_event", MagicMock())
 
     # DB stubs used by TaskService.cancel
@@ -81,7 +85,7 @@ async def test_video_cancel_openai_route_end_to_end(monkeypatch: pytest.MonkeyPa
 
     db = MagicMock()
 
-    def _query(model):  # noqa: ANN001
+    def _query(model: type) -> MagicMock:
         name = getattr(model, "__name__", "")
         if name == "VideoTask":
             return q_task
@@ -100,19 +104,28 @@ async def test_video_cancel_openai_route_end_to_end(monkeypatch: pytest.MonkeyPa
     )
 
     with (
-        patch("src.clients.http_client.HTTPClientPool.get_default_client_async", AsyncMock(return_value=upstream)),
+        patch(
+            "src.clients.http_client.HTTPClientPool.get_default_client_async",
+            AsyncMock(return_value=upstream),
+        ),
         patch("src.core.crypto.crypto_service.decrypt", lambda _v: "upstream-key"),
         patch(
             "src.services.provider.transport.build_provider_url",
             lambda _endpoint, **_kwargs: "https://upstream.example.com/v1/videos",
         ),
-        patch("src.services.usage.service.UsageService.finalize_void", MagicMock(return_value=True)),
+        patch(
+            "src.services.usage.service.UsageService.finalize_void", MagicMock(return_value=True)
+        ),
         patch("src.services.usage.service.UsageService.void_settled", MagicMock()),
     ):
         request = _make_request(
             method="POST",
             path="/v1/videos/t1/cancel",
-            headers={"authorization": "Bearer sk-test", "x-real-ip": "127.0.0.1", "user-agent": "pytest"},
+            headers={
+                "authorization": "Bearer sk-test",
+                "x-real-ip": "127.0.0.1",
+                "user-agent": "pytest",
+            },
             body=b"",
         )
         adapter = OpenAIVideoAdapter()
@@ -142,8 +155,12 @@ async def test_video_cancel_gemini_route_end_to_end(monkeypatch: pytest.MonkeyPa
     # Pipeline auth/quota/audit shortcuts
     user = SimpleNamespace(id="u1", username="u1", role="user", quota_usd=None, used_usd=0.0)
     api_key = SimpleNamespace(id="ak1", user_id="u1", is_standalone=False)
-    monkeypatch.setattr(pipeline.auth_service, "authenticate_api_key", lambda _db, _k: (user, api_key))
-    monkeypatch.setattr(pipeline.usage_service, "check_user_quota", lambda *_args, **_kwargs: (True, "ok"))
+    monkeypatch.setattr(
+        pipeline.auth_service, "authenticate_api_key", lambda _db, _k: (user, api_key)
+    )
+    monkeypatch.setattr(
+        pipeline.usage_service, "check_user_quota", lambda *_args, **_kwargs: (True, "ok")
+    )
     monkeypatch.setattr(pipeline.audit_service, "log_event", MagicMock())
 
     # DB stubs used by TaskService.cancel
@@ -185,7 +202,7 @@ async def test_video_cancel_gemini_route_end_to_end(monkeypatch: pytest.MonkeyPa
     db = MagicMock()
     _video_query_count = {"n": 0}
 
-    def _query(model):  # noqa: ANN001
+    def _query(model: type) -> MagicMock:
         name = getattr(model, "__name__", "")
         if name == "VideoTask":
             _video_query_count["n"] += 1
@@ -204,10 +221,17 @@ async def test_video_cancel_gemini_route_end_to_end(monkeypatch: pytest.MonkeyPa
     )
 
     with (
-        patch("src.clients.http_client.HTTPClientPool.get_default_client_async", AsyncMock(return_value=upstream)),
+        patch(
+            "src.clients.http_client.HTTPClientPool.get_default_client_async",
+            AsyncMock(return_value=upstream),
+        ),
         patch("src.core.crypto.crypto_service.decrypt", lambda _v: "upstream-key"),
-        patch("src.api.handlers.base.request_builder.get_provider_auth", AsyncMock(return_value=None)),
-        patch("src.services.usage.service.UsageService.finalize_void", MagicMock(return_value=True)),
+        patch(
+            "src.api.handlers.base.request_builder.get_provider_auth", AsyncMock(return_value=None)
+        ),
+        patch(
+            "src.services.usage.service.UsageService.finalize_void", MagicMock(return_value=True)
+        ),
         patch("src.services.usage.service.UsageService.void_settled", MagicMock()),
     ):
         request = _make_request(
@@ -230,4 +254,3 @@ async def test_video_cancel_gemini_route_end_to_end(monkeypatch: pytest.MonkeyPa
     assert upstream.post.await_count == 1
     assert upstream.post.call_args.args[0].endswith("/v1beta/operations/op123:cancel")
     assert task.status == VideoStatus.CANCELLED.value
-

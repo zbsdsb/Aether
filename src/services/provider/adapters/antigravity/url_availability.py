@@ -5,9 +5,10 @@ from __future__ import annotations
 import threading
 import time
 
-from src.services.antigravity.constants import (
+from src.services.provider.adapters.antigravity.constants import (
     DAILY_BASE_URL,
     PROD_BASE_URL,
+    SANDBOX_BASE_URL,
     URL_UNAVAILABLE_TTL_SECONDS,
 )
 
@@ -50,8 +51,11 @@ class URLAvailability:
         with self._mu:
             self._prune()
 
+            # Antigravity-Manager 顺序：sandbox → daily → prod
             base_order = (
-                [DAILY_BASE_URL, PROD_BASE_URL] if prefer_daily else [PROD_BASE_URL, DAILY_BASE_URL]
+                [SANDBOX_BASE_URL, DAILY_BASE_URL, PROD_BASE_URL]
+                if prefer_daily
+                else [PROD_BASE_URL, SANDBOX_BASE_URL, DAILY_BASE_URL]
             )
 
             if self._last_success and self._last_success in base_order:

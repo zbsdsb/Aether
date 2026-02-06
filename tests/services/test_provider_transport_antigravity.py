@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.services.antigravity.constants import PROD_BASE_URL
+from src.services.provider.adapters.antigravity.constants import PROD_BASE_URL
 from src.services.provider.transport import build_provider_url, get_antigravity_base_url
 
 
@@ -24,11 +24,11 @@ def test_antigravity_uses_v1internal_path_and_sets_contextvar() -> None:
     )
 
     with patch(
-        "src.services.provider.transport.url_availability.get_ordered_urls",
+        "src.services.provider.adapters.antigravity.plugin.url_availability.get_ordered_urls",
         return_value=[PROD_BASE_URL],
     ):
         url = build_provider_url(
-            endpoint,  # type: ignore[arg-type] - test stub
+            endpoint,  # type: ignore[arg-type]
             path_params={"model": "gemini-2.0-flash"},
             is_stream=True,
         )
@@ -46,11 +46,10 @@ def test_gemini_cli_non_antigravity_uses_v1beta_path_and_clears_contextvar() -> 
     )
 
     url = build_provider_url(
-        endpoint,  # type: ignore[arg-type] - test stub
+        endpoint,  # type: ignore[arg-type]
         path_params={"model": "gemini-2.0-flash"},
         is_stream=False,
     )
 
     assert "/v1beta/models/gemini-2.0-flash:generateContent" in url
     assert get_antigravity_base_url() is None
-

@@ -1001,6 +1001,37 @@ class DashboardDailyStatsAdapter(DashboardAdapter):
                     }
                 )
 
+            # 补充 unique_models / unique_providers
+            # query_time_series 使用小时粒度数据，不含这些维度统计
+            # 直接从 Usage 表按本地日 UTC 范围查询，避免 StatsDaily 历史数据未回填的问题
+            granularity = (self.time_range.granularity or "day").lower()
+            if formatted and granularity == "day":
+                local_days = self.time_range.get_local_day_hours()
+                enrichment: dict[str, dict] = {}
+
+                for local_date, day_start_utc, day_end_utc in local_days:
+                    q = db.query(
+                        func.count(func.distinct(Usage.model)).label("um"),
+                        func.count(func.distinct(Usage.provider_name)).label("up"),
+                    ).filter(
+                        Usage.created_at >= day_start_utc,
+                        Usage.created_at < day_end_utc,
+                    )
+                    if not is_admin:
+                        q = q.filter(Usage.user_id == user.id)
+                    row = q.first()
+                    if row:
+                        enrichment[local_date.isoformat()] = {
+                            "unique_models": row.um or 0,
+                            "unique_providers": row.up or 0,
+                        }
+
+                for item in formatted:
+                    date_key = item["date"][:10]  # YYYY-MM-DD
+                    if date_key in enrichment:
+                        item["unique_models"] = enrichment[date_key]["unique_models"]
+                        item["unique_providers"] = enrichment[date_key]["unique_providers"]
+
             # Model summary (use Usage directly for now)
             start_utc, end_utc = self.time_range.to_utc_datetime_range()
             model_query = db.query(

@@ -13,20 +13,25 @@
 
 import asyncio
 import fnmatch
+import json
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.orm import Session, joinedload
 
 from src.core.cache_service import CacheService
 from src.core.crypto import crypto_service
 from src.core.logger import logger
+from src.core.provider_types import ProviderType
 from src.database import create_session
 from src.models.database import Provider, ProviderAPIKey
 from src.services.model.upstream_fetcher import (
-    build_all_format_configs,
-    fetch_models_from_endpoints,
+    UpstreamModelsFetchContext,
+    fetch_models_for_key,
 )
+from src.services.provider.oauth_token import resolve_oauth_access_token
 from src.services.system.scheduler import get_scheduler
 
 # 从环境变量读取间隔，默认 1440 分钟（1 天），限制在 60-10080 分钟之间
@@ -45,6 +50,19 @@ MODEL_FETCH_HTTP_TIMEOUT = 10.0
 
 # 上游模型缓存 TTL（与定时任务间隔保持一致）
 UPSTREAM_MODELS_CACHE_TTL_SECONDS = MODEL_FETCH_INTERVAL_MINUTES * 60
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedModelsFetchContext:
+    key_id: str
+    provider_id: str
+    provider_name: str
+    provider_type: str
+    auth_type: str
+    encrypted_api_key: str
+    encrypted_auth_config: str | None
+    format_to_endpoint: dict[str, Any]
+    proxy_config: dict[str, Any] | None
 
 
 def _match_pattern(model_id: str, pattern: str) -> bool:
@@ -270,38 +288,82 @@ class ModelFetchScheduler:
         优化：分两个阶段处理，HTTP 请求期间不持有数据库连接，避免阻塞其他请求
         """
         # ========== 阶段 1：准备数据（短暂持有连接）==========
-        fetch_context = self._prepare_fetch_context(key_id)
-        if fetch_context is None:
+        prepared = self._prepare_fetch_context(key_id)
+        if prepared is None:
             return "skip"
-        if isinstance(fetch_context, str):
-            return fetch_context  # "error" or "skip"
+        if isinstance(prepared, str):
+            return prepared  # "error" or "skip"
 
-        key_id, provider_id, provider_name, api_key_value, endpoint_configs = fetch_context
+        # Resolve auth (incl. lazy OAuth refresh) without holding a DB session.
+        api_key_value: str = ""
+        auth_config: dict[str, Any] | None = None
+
+        if prepared.auth_type == "oauth":
+            # Use request_builder's lazy refresh logic and persist refreshed token back to DB.
+            # Endpoint signature is only used for tracing/debug; auth logic doesn't depend on it.
+            endpoint_api_format = (
+                "gemini:cli" if prepared.provider_type.lower() == ProviderType.ANTIGRAVITY else None
+            )
+            try:
+                resolved = await resolve_oauth_access_token(
+                    key_id=prepared.key_id,
+                    encrypted_api_key=prepared.encrypted_api_key,
+                    encrypted_auth_config=prepared.encrypted_auth_config,
+                    provider_proxy_config=prepared.proxy_config,
+                    endpoint_api_format=endpoint_api_format,
+                )
+                api_key_value = resolved.access_token
+                auth_config = resolved.decrypted_auth_config
+            except Exception as e:
+                self._update_key_error(prepared.key_id, f"OAuth token resolution failed: {e}")
+                return "error"
+        else:
+            try:
+                api_key_value = crypto_service.decrypt(prepared.encrypted_api_key)
+            except Exception:
+                self._update_key_error(prepared.key_id, "Decrypt error")
+                return "error"
+
+            # Best-effort: decrypt auth_config if present (e.g. Antigravity project_id).
+            if prepared.encrypted_auth_config:
+                try:
+                    parsed = json.loads(crypto_service.decrypt(prepared.encrypted_auth_config))
+                    auth_config = parsed if isinstance(parsed, dict) else None
+                except Exception:
+                    auth_config = None
+
+        fetch_ctx = UpstreamModelsFetchContext(
+            provider_type=prepared.provider_type,
+            api_key_value=api_key_value,
+            format_to_endpoint=prepared.format_to_endpoint,
+            proxy_config=prepared.proxy_config,
+            auth_config=auth_config,
+        )
 
         # ========== 阶段 2：HTTP 请求（不持有数据库连接）==========
         # 使用较短的超时时间（10秒），避免长时间阻塞
-        all_models, errors, has_success = await fetch_models_from_endpoints(
-            endpoint_configs, timeout=MODEL_FETCH_HTTP_TIMEOUT
+        all_models, errors, has_success, upstream_metadata = await fetch_models_for_key(
+            fetch_ctx,
+            timeout_seconds=MODEL_FETCH_HTTP_TIMEOUT,
         )
 
         # ========== 阶段 3：更新数据库（获取新连接）==========
         return await self._update_key_after_fetch(
-            key_id=key_id,
-            provider_id=provider_id,
-            provider_name=provider_name,
+            key_id=prepared.key_id,
+            provider_id=prepared.provider_id,
+            provider_name=prepared.provider_name,
             all_models=all_models,
             errors=errors,
             has_success=has_success,
+            upstream_metadata=upstream_metadata,
         )
 
-    def _prepare_fetch_context(
-        self, key_id: str
-    ) -> tuple[str, str, str, str, list[dict]] | str | None:
+    def _prepare_fetch_context(self, key_id: str) -> PreparedModelsFetchContext | str | None:
         """
         准备获取模型所需的上下文数据
 
         Returns:
-            - tuple: (key_id, provider_id, provider_name, api_key_value, endpoint_configs)
+            - PreparedModelsFetchContext: 准备好的上下文（不包含解密后的 token）
             - "skip": 跳过该 Key
             - "error": 出错
             - None: Key 不存在
@@ -349,7 +411,7 @@ class ModelFetchScheduler:
                 logger.info(f"Key {key.id} 为 Vertex AI 类型，跳过自动获取模型")
                 return "skip"
 
-            # 解密 API Key
+            # 基础校验：必须有 api_key（OAuth: 加密 access_token；API Key: 加密 key）
             if not key.api_key:
                 logger.warning(f"Key {key.id} 没有 API Key，跳过")
                 key.last_models_fetch_error = "No API key configured"
@@ -357,17 +419,8 @@ class ModelFetchScheduler:
                 db.commit()
                 return "error"
 
-            try:
-                api_key_value = crypto_service.decrypt(key.api_key)
-            except Exception:
-                logger.error(f"解密 Key {key.id} 失败")
-                key.last_models_fetch_error = "Decrypt error"
-                key.last_models_fetch_at = now
-                db.commit()
-                return "error"
-
             # 构建 api_format -> endpoint 映射
-            format_to_endpoint: dict[str, object] = {}
+            format_to_endpoint: dict[str, Any] = {}
             for endpoint in provider.endpoints:  # type: ignore[attr-defined]
                 if endpoint.is_active:
                     format_to_endpoint[endpoint.api_format] = endpoint
@@ -379,10 +432,22 @@ class ModelFetchScheduler:
                 db.commit()
                 return "error"
 
-            # 使用公共函数构建所有格式的端点配置
-            endpoint_configs = build_all_format_configs(api_key_value, format_to_endpoint)  # type: ignore[arg-type]
+            encrypted_auth_config = getattr(key, "auth_config", None)
+            provider_type = str(getattr(provider, "provider_type", "") or "")
 
-            return (key_id, provider_id, provider.name, api_key_value, endpoint_configs)
+            return PreparedModelsFetchContext(
+                key_id=key_id,
+                provider_id=provider_id,
+                provider_name=provider.name,
+                provider_type=provider_type,
+                auth_type=auth_type,
+                encrypted_api_key=str(key.api_key),
+                encrypted_auth_config=(
+                    encrypted_auth_config if isinstance(encrypted_auth_config, str) else None
+                ),
+                format_to_endpoint=format_to_endpoint,
+                proxy_config=getattr(provider, "proxy", None),
+            )
 
     async def _update_key_after_fetch(
         self,
@@ -392,6 +457,7 @@ class ModelFetchScheduler:
         all_models: list[dict],
         errors: list[str],
         has_success: bool,
+        upstream_metadata: dict[str, Any] | None = None,
     ) -> str:
         """
         HTTP 请求完成后更新数据库
@@ -422,6 +488,16 @@ class ModelFetchScheduler:
 
             # 有成功的响应，清除错误状态
             key.last_models_fetch_error = None
+
+            # 最佳努力：保存上游元数据（如 Antigravity 配额信息）
+            if upstream_metadata and isinstance(upstream_metadata, dict):
+                # NOTE: upstream_metadata is a plain JSON column (not MutableDict),
+                # so in-place mutation won't be persisted reliably. Always assign
+                # a new dict object to mark the column as dirty.
+                current = key.upstream_metadata
+                merged: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
+                merged.update(upstream_metadata)
+                key.upstream_metadata = merged
 
             # 去重获取模型 ID 列表
             fetched_model_ids: set[str] = set()

@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import urlencode
 
 from src.core.api_format import (
@@ -19,11 +19,7 @@ from src.core.api_format import (
     make_signature_key,
 )
 from src.core.logger import logger
-from src.services.antigravity.constants import PROVIDER_TYPE as ANTIGRAVITY_PROVIDER_TYPE
-from src.services.antigravity.constants import (
-    V1INTERNAL_PATH_TEMPLATE,
-)
-from src.services.antigravity.url_availability import url_availability
+from src.core.provider_types import ProviderType, normalize_provider_type
 from src.services.provider.format import normalize_endpoint_signature
 from src.services.provider.request_context import (
     get_selected_base_url,
@@ -33,6 +29,25 @@ from src.utils.url_utils import is_codex_url
 
 if TYPE_CHECKING:
     from src.models.database import ProviderAPIKey, ProviderEndpoint
+
+# ---------------------------------------------------------------------------
+# Transport Hook Registry
+# ---------------------------------------------------------------------------
+# key: (provider_type, endpoint_sig)
+# value: Callable(endpoint, *, is_stream, effective_query_params) -> str
+_TransportHookFn = Callable[..., str]
+_transport_hooks: dict[tuple[str, str], _TransportHookFn] = {}
+
+
+def register_transport_hook(
+    provider_type: str,
+    endpoint_sig: str,
+    hook: _TransportHookFn,
+) -> None:
+    """注册 provider 特有的 URL 构建 hook。"""
+    pt = normalize_provider_type(provider_type)
+    sig = str(endpoint_sig or "").strip().lower()
+    _transport_hooks[(pt, sig)] = hook
 
 
 # URL 中需要脱敏的查询参数（正则模式）
@@ -174,43 +189,21 @@ def build_provider_url(
     if endpoint_sig.startswith("gemini:"):
         effective_query_params.pop("key", None)
 
-    # Antigravity 特殊处理：复用 gemini:cli endpoint signature，但走 v1internal 端点
-    if provider_type == ANTIGRAVITY_PROVIDER_TYPE and endpoint_sig == "gemini:cli":
-        ordered_urls = url_availability.get_ordered_urls(prefer_daily=True)
-        base_url = ordered_urls[0] if ordered_urls else endpoint.base_url  # type: ignore[arg-type]
+    # Provider transport hook: 如果有注册的 hook 则委托处理
+    from src.services.provider.envelope import ensure_providers_bootstrapped
 
-        # 存入 contextvars（供后续 Handler 层获取）
-        set_selected_base_url(str(base_url) if base_url is not None else None)
+    ensure_providers_bootstrapped()
+    if provider_type and endpoint_sig:
+        hook = _transport_hooks.get((provider_type, endpoint_sig))
+        # Codex hook 仅在无 custom_path 时生效
+        if hook and not (provider_type == ProviderType.CODEX and endpoint.custom_path):
+            return hook(
+                endpoint,
+                is_stream=is_stream,
+                effective_query_params=effective_query_params,
+            )
 
-        action = "streamGenerateContent" if is_stream else "generateContent"
-        path = V1INTERNAL_PATH_TEMPLATE.format(action=action)
-
-        # v1internal 流式请求同样支持 `?alt=sse`
-        if is_stream:
-            effective_query_params.setdefault("alt", "sse")
-
-        url = f"{str(base_url).rstrip('/')}{path}"
-        if effective_query_params:
-            query_string = urlencode(effective_query_params, doseq=True)
-            if query_string:
-                url = f"{url}?{query_string}"
-
-        return url
-
-    # Codex OAuth upstream (chatgpt.com/backend-api/codex) uses `/responses` instead of `/v1/responses`.
-    # We special-case this at transport layer so fixed providers work without requiring custom_path.
-    if provider_type == "codex" and endpoint_sig == "openai:cli" and not endpoint.custom_path:
-        base = str(endpoint.base_url).rstrip("/")
-        path = "/responses"
-        # If user already included the final path in base_url, don't duplicate it.
-        url = base if base.endswith(path) else f"{base}{path}"
-        if effective_query_params:
-            query_string = urlencode(effective_query_params, doseq=True)
-            if query_string:
-                url = f"{url}?{query_string}"
-        return url
-
-    # 非 Antigravity：清除 contextvar，避免跨请求污染
+    # 非 hook 路径：清除 contextvar，避免跨请求污染
     set_selected_base_url(None)
 
     # 准备路径参数（Gemini chat/cli 需要 action）

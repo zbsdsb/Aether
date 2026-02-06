@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { SelectRoot as SelectRootPrimitive } from 'radix-vue'
 
 interface Props {
@@ -14,80 +14,39 @@ interface Props {
   required?: boolean
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  modelValue: undefined,
+  open: undefined,
+})
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   'update:open': [value: boolean]
 }>()
 
-const internalValue = ref<string | undefined>(
-  props.modelValue ?? props.defaultValue
+// open 未传入时不绑定，让 radix-vue 走 uncontrolled 模式
+const openProp = computed(() =>
+  props.open !== undefined ? { open: props.open } : {}
 )
 
-const isModelControlled = computed(() => props.modelValue !== undefined)
-
-watch(
-  () => props.modelValue,
-  value => {
-    if (isModelControlled.value) {
-      internalValue.value = value
-    }
-  }
+// modelValue 未传入时不绑定，让 radix-vue 走 uncontrolled 模式
+const modelValueProp = computed(() =>
+  props.modelValue !== undefined ? { modelValue: props.modelValue } : {}
 )
-
-const modelValueState = computed({
-  get: () => (isModelControlled.value ? props.modelValue : internalValue.value),
-  set: (value: string | undefined) => {
-    if (!isModelControlled.value) {
-      internalValue.value = value
-    }
-    // Cast to string for the emit signature when value exists
-    if (value !== undefined) {
-      emit('update:modelValue', value)
-    }
-  }
-})
-
-const internalOpen = ref<boolean>(
-  props.open ?? props.defaultOpen ?? false
-)
-
-const isOpenControlled = computed(() => props.open !== undefined)
-
-watch(
-  () => props.open,
-  value => {
-    if (isOpenControlled.value && value !== undefined) {
-      internalOpen.value = value
-    }
-  }
-)
-
-const openState = computed({
-  get: () => (isOpenControlled.value ? props.open : internalOpen.value),
-  set: (value: boolean) => {
-    if (!isOpenControlled.value) {
-      internalOpen.value = value
-    }
-    emit('update:open', value)
-  }
-})
 </script>
 
 <template>
   <SelectRootPrimitive
     :default-value="defaultValue"
-    :model-value="modelValueState"
-    :open="openState"
+    v-bind="{ ...modelValueProp, ...openProp }"
     :default-open="defaultOpen"
     :dir="dir"
     :name="name"
     :autocomplete="autocomplete"
     :disabled="disabled"
     :required="required"
-    @update:model-value="modelValueState = $event"
-    @update:open="openState = $event"
+    @update:model-value="emit('update:modelValue', $event)"
+    @update:open="emit('update:open', $event)"
   >
     <slot />
   </SelectRootPrimitive>

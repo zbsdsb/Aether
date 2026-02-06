@@ -1,7 +1,6 @@
 <template>
   <div class="flex flex-wrap items-center gap-2">
     <Select
-      v-model:open="presetSelectOpen"
       v-model="selectedPreset"
     >
       <SelectTrigger class="h-8 w-32 text-xs border-border/60">
@@ -63,7 +62,6 @@
 
     <Select
       v-if="showGranularity"
-      v-model:open="granularitySelectOpen"
       v-model="selectedGranularity"
     >
       <SelectTrigger class="h-8 w-24 text-xs border-border/60">
@@ -116,8 +114,6 @@ const selectedPreset = ref(props.modelValue.preset || 'last7days')
 const startDate = ref(props.modelValue.start_date || '')
 const endDate = ref(props.modelValue.end_date || '')
 const selectedGranularity = ref(props.modelValue.granularity || 'day')
-const presetSelectOpen = ref(false)
-const granularitySelectOpen = ref(false)
 
 const showGranularity = computed(() => props.showGranularity !== false)
 const allowHourly = computed(() => props.allowHourly === true)

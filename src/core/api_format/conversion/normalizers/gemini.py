@@ -311,7 +311,9 @@ class GeminiNormalizer(FormatNormalizer):
                     )
                     if not has_thought:
                         try:
-                            from src.services.antigravity.constants import DUMMY_THOUGHT_SIGNATURE
+                            from src.services.provider.adapters.antigravity.constants import (
+                                DUMMY_THOUGHT_SIGNATURE,
+                            )
 
                             dummy_sig = DUMMY_THOUGHT_SIGNATURE
                         except Exception:
@@ -1285,8 +1287,8 @@ class GeminiNormalizer(FormatNormalizer):
 
         signature: str | None = None
         try:
-            from src.services.antigravity.constants import DUMMY_THOUGHT_SIGNATURE
-            from src.services.antigravity.signature_cache import signature_cache
+            from src.services.provider.adapters.antigravity.constants import DUMMY_THOUGHT_SIGNATURE
+            from src.services.provider.adapters.antigravity.signature_cache import signature_cache
 
             cached_or_dummy = signature_cache.get_or_dummy(model, text_val)
 

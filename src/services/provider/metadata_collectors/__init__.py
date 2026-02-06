@@ -47,7 +47,7 @@ class MetadataCollectorRegistry:
         cls._collectors.append(collector)
         for pt in collector.PROVIDER_TYPES:
             cls._type_index[pt.lower()] = collector
-        logger.info(
+        logger.debug(
             "[MetadataCollectorRegistry] 注册: {} -> {}",
             collector.__class__.__name__,
             collector.PROVIDER_TYPES,
@@ -79,7 +79,7 @@ def _ensure_collectors_registered() -> None:
     _initialized = True
 
     # 延迟导入，避免模块加载时的循环依赖
-    from src.services.provider.metadata_collectors.codex import CodexMetadataCollector
+    from src.services.provider.adapters.codex.metadata_collector import CodexMetadataCollector
 
     MetadataCollectorRegistry.register(CodexMetadataCollector())
 

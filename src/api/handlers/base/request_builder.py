@@ -599,6 +599,8 @@ def build_passthrough_request(
 async def get_provider_auth(
     endpoint: "ProviderEndpoint",
     key: "ProviderAPIKey",
+    *,
+    force_refresh: bool = False,
 ) -> ProviderAuthInfo | None:
     """
     获取 Provider 的认证信息
@@ -638,13 +640,16 @@ async def get_provider_auth(
         refresh_token = token_meta.get("refresh_token")
         provider_type = str(token_meta.get("provider_type") or "")
 
-        # 120s skew
+        # 120s skew (or force refresh when upstream returns 401)
         should_refresh = False
         try:
             if expires_at is not None:
                 should_refresh = int(time.time()) >= int(expires_at) - 120
         except Exception:
             should_refresh = False
+
+        if force_refresh:
+            should_refresh = True
 
         if should_refresh and refresh_token and provider_type:
             try:

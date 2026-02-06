@@ -81,13 +81,12 @@ class ApiRequestPipeline:
         # 高频轮询端点抑制 debug 日志
         is_quiet = http_request.url.path in QUIET_POLLING_PATHS
         if not is_quiet:
-            logger.debug("[Pipeline] START | path={}", http_request.url.path)
             logger.debug(
-                "[Pipeline] Running with mode={}, adapter={}, adapter.mode={}, path={}",
-                mode,
-                adapter.__class__.__name__,
-                adapter.mode,
+                "[Pipeline] {} {} | adapter={}, mode={}",
+                http_request.method,
                 http_request.url.path,
+                adapter.__class__.__name__,
+                mode,
             )
         auth_start = PerfRecorder.start(force=perf_sampled)
         try:
@@ -105,12 +104,8 @@ class ApiRequestPipeline:
                 user, management_token = await self._authenticate_management(http_request, db)
                 api_key = None
             else:
-                if not is_quiet:
-                    logger.debug("[Pipeline] 调用 _authenticate_client")
                 user, api_key = self._authenticate_client(http_request, db, adapter, quiet=is_quiet)
                 management_token = None
-                if not is_quiet:
-                    logger.debug("[Pipeline] 认证完成 | user={}", user.username if user else None)
         finally:
             auth_duration = PerfRecorder.stop(auth_start, "pipeline_auth", labels=perf_labels)
             _record_perf_metric("auth_ms", auth_duration)
@@ -140,11 +135,6 @@ class ApiRequestPipeline:
                         perf_metrics = getattr(http_request.state, "perf_metrics", None)
                         if isinstance(perf_metrics, dict):
                             perf_metrics.setdefault("pipeline", {})["body_bytes"] = int(body_size)
-                if not is_quiet:
-                    logger.debug(
-                        "[Pipeline] Raw body读取完成 | size={} bytes",
-                        len(raw_body) if raw_body is not None else 0,
-                    )
             except TimeoutError:
                 timeout_sec = int(config.request_body_timeout)
                 logger.error(f"读取请求体超时({timeout_sec}s),可能客户端未发送完整请求体")
@@ -152,10 +142,6 @@ class ApiRequestPipeline:
                     status_code=408,
                     detail=f"Request timeout: body not received within {timeout_sec} seconds",
                 )
-        else:
-            if not is_quiet:
-                logger.debug("[Pipeline] 非写请求跳过读取Body | method={}", http_request.method)
-
         context_start = PerfRecorder.start(force=perf_sampled)
         context = ApiRequestContext.build(
             request=http_request,
@@ -176,23 +162,8 @@ class ApiRequestPipeline:
             context.management_token = management_token
         # 存储 quiet 标志到 context，用于审计日志判断
         context.quiet_logging = is_quiet
-        if not is_quiet:
-            logger.debug(
-                "[Pipeline] Context构建完成 | adapter={} | request_id={}",
-                adapter.name,
-                context.request_id,
-            )
-
         if mode != ApiMode.ADMIN and user:
             context.quota_remaining = self._calculate_quota_remaining(user)
-
-        if not is_quiet:
-            logger.debug("[Pipeline] Adapter={} | RequestID={}", adapter.name, context.request_id)
-            logger.debug(
-                "[Pipeline] Calling authorize on {}, user={}",
-                adapter.__class__.__name__,
-                context.user,
-            )
         # authorize 可能是异步的，需要检查并 await
         authorize_start = PerfRecorder.start(force=perf_sampled)
         try:
@@ -242,25 +213,14 @@ class ApiRequestPipeline:
     # --------------------------------------------------------------------- #
 
     def _authenticate_client(
-        self, request: Request, db: Session, adapter: ApiAdapter, *, quiet: bool = False
+        self, request: Request, db: Session, adapter: ApiAdapter, **_kw: object
     ) -> tuple[User, ApiKey]:
-        if not quiet:
-            logger.debug("[Pipeline._authenticate_client] 开始")
         # 使用 adapter 的 extract_api_key 方法，支持不同 API 格式的认证头
         client_api_key = adapter.extract_api_key(request)
-        if not quiet:
-            logger.debug(
-                "[Pipeline._authenticate_client] 提取API密钥完成 | key_prefix={}...",
-                client_api_key[:8] if client_api_key else None,
-            )
         if not client_api_key:
             raise HTTPException(status_code=401, detail="请提供API密钥")
 
-        if not quiet:
-            logger.debug("[Pipeline._authenticate_client] 调用 auth_service.authenticate_api_key")
         auth_result = self.auth_service.authenticate_api_key(db, client_api_key)
-        if not quiet:
-            logger.debug("[Pipeline._authenticate_client] 认证结果 | result={}", bool(auth_result))
         if not auth_result:
             raise HTTPException(status_code=401, detail="无效的API密钥")
 

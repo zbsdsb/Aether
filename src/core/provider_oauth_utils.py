@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -9,6 +9,7 @@ import jwt
 
 from src.clients.http_client import HTTPClientPool, build_proxy_url
 from src.core.logger import logger
+from src.core.provider_types import ProviderType
 
 _ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
 _GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json"
@@ -171,7 +172,7 @@ async def post_oauth_token(
     IMPORTANT: Never log secrets (tokens, secrets). This function only logs generic errors.
     """
 
-    if provider_type == "claude_code" and token_url == _ANTHROPIC_TOKEN_URL:
+    if provider_type == ProviderType.CLAUDE_CODE and token_url == _ANTHROPIC_TOKEN_URL:
         proxy_url = _coerce_proxy_url(proxy_config)
         try:
             status_code, resp_headers, text = await asyncio.to_thread(
@@ -292,6 +293,64 @@ def extract_claude_email_from_token_response(token: dict[str, Any]) -> str | Non
     return None
 
 
+# ---------------------------------------------------------------------------
+# Auth Enricher Registry
+# ---------------------------------------------------------------------------
+
+AuthEnricherFn = Callable[
+    [dict[str, Any], dict[str, Any], str, dict[str, Any] | None],
+    Awaitable[dict[str, Any]],
+]
+_auth_enrichers: dict[str, AuthEnricherFn] = {}
+
+
+def register_auth_enricher(provider_type: str, enricher: AuthEnricherFn) -> None:
+    """注册 provider 特有的 auth_config enrichment hook。"""
+    from src.core.provider_types import normalize_provider_type
+
+    _auth_enrichers[normalize_provider_type(provider_type)] = enricher
+
+
+async def _enrich_claude_code(
+    auth_config: dict[str, Any],
+    token_response: dict[str, Any],
+    access_token: str,
+    proxy_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    email = extract_claude_email_from_token_response(token_response)
+    if email:
+        auth_config["email"] = email
+    return auth_config
+
+
+async def _enrich_gemini_cli(
+    auth_config: dict[str, Any],
+    token_response: dict[str, Any],
+    access_token: str,
+    proxy_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not auth_config.get("email"):
+        email = await fetch_google_email(
+            access_token,
+            proxy_config=proxy_config,
+            timeout_seconds=10.0,
+        )
+        if email:
+            auth_config["email"] = email
+    return auth_config
+
+
+def _bootstrap_auth_enrichers() -> None:
+    # 简单的内置 enrichers 直接注册
+    register_auth_enricher("claude_code", _enrich_claude_code)
+    register_auth_enricher("gemini_cli", _enrich_gemini_cli)
+    # Provider-specific enrichers 通过 plugin.register_all() 注册
+    # (called from envelope.py bootstrap)
+
+
+_bootstrap_auth_enrichers()
+
+
 async def enrich_auth_config(
     *,
     provider_type: str,
@@ -302,71 +361,14 @@ async def enrich_auth_config(
 ) -> dict[str, Any]:
     """Enrich auth_config with non-secret metadata (email/account_id).
 
-    - Claude Code: email from token response (if present)
-    - Codex: parse id_token -> email/account_id
-    - Gemini/Antigravity: call Google userinfo -> email
-
-    id_token is not persisted.
+    各 provider 的 enrichment 逻辑通过 register_auth_enricher 注册。
     """
+    from src.core.provider_types import normalize_provider_type
+    from src.services.provider.envelope import ensure_providers_bootstrapped
 
-    # Claude
-    if provider_type == "claude_code":
-        email = extract_claude_email_from_token_response(token_response)
-        if email:
-            auth_config["email"] = email
-        return auth_config
-
-    # Codex
-    if provider_type == "codex":
-        id_token = token_response.get("id_token")
-        logger.debug(
-            "Codex enrich_auth_config: id_token_present={} token_keys={}",
-            bool(id_token),
-            list(token_response.keys()),
-        )
-        codex_info = parse_codex_id_token(str(id_token) if id_token else None)
-        if codex_info:
-            logger.debug("Codex parsed id_token fields: {}", list(codex_info.keys()))
-        if codex_info.get("email"):
-            auth_config["email"] = codex_info["email"]
-        if codex_info.get("account_id"):
-            auth_config["account_id"] = codex_info["account_id"]
-        if codex_info.get("plan_type"):
-            auth_config["plan_type"] = codex_info["plan_type"]
-        if codex_info.get("user_id"):
-            auth_config["user_id"] = codex_info["user_id"]
-        return auth_config
-
-    # Gemini family (gemini_cli / antigravity)
-    if provider_type in {"gemini_cli", "antigravity"}:
-        # Only fetch if missing to reduce overhead
-        if not auth_config.get("email"):
-            email = await fetch_google_email(
-                access_token,
-                proxy_config=proxy_config,
-                timeout_seconds=10.0,
-            )
-            if email:
-                auth_config["email"] = email
-
-        # Antigravity: project_id 需要通过 /v1internal:loadCodeAssist 获取
-        if provider_type == "antigravity":
-            if not auth_config.get("project_id"):
-                try:
-                    from src.services.antigravity.client import load_code_assist
-
-                    code_assist = await load_code_assist(access_token, proxy_config=proxy_config)
-                    project_id = code_assist.get("cloudaicompanionProject")
-                    if isinstance(project_id, str) and project_id:
-                        auth_config["project_id"] = project_id
-
-                    tier_obj = code_assist.get("currentTier")
-                    if isinstance(tier_obj, dict):
-                        tier_type = tier_obj.get("tierType")
-                        if isinstance(tier_type, str) and tier_type:
-                            auth_config["tier"] = tier_type
-                except Exception as e:
-                    logger.warning(f"Failed to load code assist: {e}")
-        return auth_config
-
+    ensure_providers_bootstrapped()
+    pt = normalize_provider_type(provider_type)
+    enricher = _auth_enrichers.get(pt)
+    if enricher:
+        return await enricher(auth_config, token_response, access_token, proxy_config)
     return auth_config

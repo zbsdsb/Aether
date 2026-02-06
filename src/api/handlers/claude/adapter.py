@@ -160,7 +160,11 @@ class ClaudeChatAdapter(ChatAdapterBase):
         api_key: str,
         extra_headers: dict[str, str] | None = None,
     ) -> tuple[list, str | None]:
-        """查询 Claude API 支持的模型列表"""
+        """查询 Claude API 支持的模型列表
+
+        Anthropic 的 /v1/models 是分页接口（has_more/first_id/last_id），
+        默认只返回一页。这里做 best-effort 的全量拉取，确保管理端能展示完整模型列表。
+        """
         headers = cls.build_headers_with_extra(api_key, extra_headers)
 
         # 构建 /v1/models URL
@@ -171,24 +175,60 @@ class ClaudeChatAdapter(ChatAdapterBase):
             models_url = f"{base_url}/v1/models"
 
         try:
-            response = await client.get(models_url, headers=headers)
-            logger.debug(f"Claude models request to {models_url}: status={response.status_code}")
-            if response.status_code == 200:
+            all_models: list[dict] = []
+            seen_ids: set[str] = set()
+
+            after_id: str | None = None
+            limit = 100  # Anthropic 支持 limit，尽量减少分页次数
+            max_pages = 20  # safety guard
+
+            for _ in range(max_pages):
+                params: dict[str, Any] = {"limit": limit}
+                if after_id:
+                    params["after_id"] = after_id
+
+                response = await client.get(models_url, headers=headers, params=params)
+                logger.debug(
+                    f"Claude models request to {models_url}: status={response.status_code}, after_id={after_id}"
+                )
+                if response.status_code != 200:
+                    error_body = response.text[:500] if response.text else "(empty)"
+                    error_msg = f"HTTP {response.status_code}: {error_body}"
+                    logger.warning(f"Claude models request to {models_url} failed: {error_msg}")
+                    return [], error_msg
+
                 data = response.json()
-                models = []
-                if "data" in data:
-                    models = data["data"]
+                page_models: list[dict] = []
+                if isinstance(data, dict) and isinstance(data.get("data"), list):
+                    page_models = [m for m in data["data"] if isinstance(m, dict)]
                 elif isinstance(data, list):
-                    models = data
-                # 为每个模型添加 api_format 字段
-                for m in models:
+                    page_models = [m for m in data if isinstance(m, dict)]
+
+                for m in page_models:
+                    mid = m.get("id")
+                    if isinstance(mid, str) and mid and mid in seen_ids:
+                        continue
+                    if isinstance(mid, str) and mid:
+                        seen_ids.add(mid)
                     m["api_format"] = cls.FORMAT_ID
-                return models, None
-            else:
-                error_body = response.text[:500] if response.text else "(empty)"
-                error_msg = f"HTTP {response.status_code}: {error_body}"
-                logger.warning(f"Claude models request to {models_url} failed: {error_msg}")
-                return [], error_msg
+                    all_models.append(m)
+
+                # Pagination (Anthropic list response shape)
+                if not isinstance(data, dict):
+                    break
+
+                has_more = bool(data.get("has_more"))
+                last_id = data.get("last_id")
+                if not has_more:
+                    break
+                if not isinstance(last_id, str) or not last_id:
+                    break
+                if after_id == last_id:
+                    # Prevent infinite loops on unexpected upstream behavior.
+                    break
+                after_id = last_id
+
+            return all_models, None
         except Exception as e:
             error_msg = f"Request error: {str(e)}"
             logger.warning(f"Failed to fetch Claude models from {models_url}: {e}")

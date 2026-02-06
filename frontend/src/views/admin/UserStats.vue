@@ -15,7 +15,6 @@
           :allow-hourly="true"
         />
         <Select
-          v-model:open="userSelectOpen"
           v-model="selectedUserId"
         >
           <SelectTrigger class="h-8 text-xs w-52">
@@ -32,7 +31,6 @@
           </SelectContent>
         </Select>
         <Select
-          v-model:open="compareUserSelectOpen"
           v-model="compareUserId"
         >
           <SelectTrigger class="h-8 text-xs w-52">
@@ -164,8 +162,6 @@ const metric = ref<'requests' | 'tokens' | 'cost'>('requests')
 const users = ref<User[]>([])
 const selectedUserId = ref<string | null>(null)
 const compareUserId = ref<string>('__none__')
-const userSelectOpen = ref(false)
-const compareUserSelectOpen = ref(false)
 
 const leaderboard = ref<LeaderboardItem[]>([])
 const leaderboardLoading = ref(false)

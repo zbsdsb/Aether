@@ -159,7 +159,6 @@
             </Label>
             <Select
               v-model="smtpEncryption"
-              v-model:open="smtpEncryptionSelectOpen"
             >
               <SelectTrigger
                 id="smtp-encryption"
@@ -239,7 +238,6 @@
               </Label>
               <Select
                 v-model="emailConfig.email_suffix_mode"
-                v-model:open="emailSuffixModeSelectOpen"
                 :disabled="!requireEmailVerification"
               >
                 <SelectTrigger
@@ -509,8 +507,6 @@ interface EmailConfig {
 
 const smtpSaveLoading = ref(false)
 const emailVerificationSaveLoading = ref(false)
-const smtpEncryptionSelectOpen = ref(false)
-const emailSuffixModeSelectOpen = ref(false)
 const testSmtpLoading = ref(false)
 const smtpPasswordIsSet = ref(false)
 const requireEmailVerification = ref(false) // 是否开启了邮箱验证

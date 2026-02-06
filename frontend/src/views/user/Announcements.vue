@@ -379,7 +379,6 @@
             >类型</Label>
             <Select
               v-model="formData.type"
-              v-model:open="typeSelectOpen"
             >
               <SelectTrigger
                 id="type"
@@ -597,7 +596,6 @@ const pageSize = ref(20)
 const dialogOpen = ref(false)
 const deleteDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
-const typeSelectOpen = ref(false)
 const editingAnnouncement = ref<Announcement | null>(null)
 const deletingAnnouncement = ref<Announcement | null>(null)
 const viewingAnnouncement = ref<Announcement | null>(null)

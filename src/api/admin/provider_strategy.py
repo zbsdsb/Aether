@@ -33,7 +33,7 @@ class ProviderBillingUpdate(BaseModel):
     quota_last_reset_at: str | None = None  # 当前周期开始时间
     quota_expires_at: str | None = None
     rpm_limit: int | None = Field(default=None, ge=0)
-    provider_priority: int = Field(default=100, ge=0, le=200)
+    provider_priority: int = Field(default=100, ge=0, le=10000)
 
 
 @router.put("/providers/{provider_id}/billing")

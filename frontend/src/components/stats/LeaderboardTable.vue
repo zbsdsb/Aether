@@ -3,7 +3,6 @@
     <template #actions>
       <Select
         v-if="showMetricSelect"
-        v-model:open="metricSelectOpen"
         :model-value="metric"
         @update:model-value="emitMetric"
       >
@@ -119,7 +118,6 @@ const emit = defineEmits<{
 }>()
 
 const metric = computed(() => props.metric)
-const metricSelectOpen = ref(false)
 
 function emitMetric(value: string) {
   if (value === 'requests' || value === 'tokens' || value === 'cost') {

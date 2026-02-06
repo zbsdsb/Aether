@@ -283,8 +283,9 @@ async function fetchUpstreamModels() {
   errorMessage.value = ''
 
   try {
-    // 不传 apiKeyId，后端会遍历所有 Key 并聚合结果
-    const response = await adminApi.queryProviderModels(props.providerId)
+    // 不传 apiKeyId，后端会遍历所有 Key 并聚合结果。
+    // 已查询过再点“刷新”时，强制跳过后端缓存，避免长期 TTL 导致模型列表不更新。
+    const response = await adminApi.queryProviderModels(props.providerId, undefined, hasQueried.value)
 
     if (response.success && response.data?.models) {
       upstreamModels.value = response.data.models

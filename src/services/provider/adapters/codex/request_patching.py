@@ -1,19 +1,27 @@
 """
-Codex provider request patching helpers.
+Codex provider request patching helpers (standalone / passthrough path).
 
-Codex (OpenAI-compatible) gateways may reject or behave unexpectedly with some parameters in
-OpenAI CLI / Responses-style requests. These helpers apply a minimal, safe transformation:
+In the main request pipeline, Codex-specific transformations are handled by the
+``openai:cli`` normalizer with ``target_variant="codex"`` (triggered automatically
+via ``register_behavior_variant("codex", same_format=True)``).
 
-- Force `store=false` (avoid persistence features not supported by some gateways).
-- Ensure `instructions` exists (Codex expects it in some deployments).
-- Convert `role=system` messages to `role=developer` (Codex may not accept `system`).
+This module provides an **equivalent** standalone patcher for contexts where the full
+normalizer pipeline is not used (e.g. external tooling, one-off scripts, or future
+passthrough-only paths). It is intentionally kept in sync with the normalizer logic.
+
+Transformations applied:
+- Force ``store=false`` (avoid persistence features not supported by some gateways).
+- Ensure ``instructions`` exists (Codex expects it in some deployments).
+- Convert ``role=system`` messages to ``role=developer`` (Codex may not accept ``system``).
 - Drop request parameters known to be rejected by Codex gateways.
-- Ensure `include` contains "reasoning.encrypted_content" for parity with CLI behavior.
+- Ensure ``include`` contains ``"reasoning.encrypted_content"`` for parity with CLI behavior.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from src.core.provider_types import ProviderType
 
 _REJECTED_PARAMS: frozenset[str] = frozenset(
     {
@@ -96,7 +104,7 @@ def maybe_patch_request_for_codex(
     - Non OpenAI CLI / Responses-style endpoints
     - Non-dict request bodies
     """
-    if (provider_type or "").lower() != "codex":
+    if (provider_type or "").lower() != ProviderType.CODEX:
         return request_body
     if (provider_api_format or "").lower() != "openai:cli":
         return request_body

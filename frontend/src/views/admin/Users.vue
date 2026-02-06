@@ -45,7 +45,6 @@
             </div>
             <Select
               v-model="filterRole"
-              v-model:open="filterRoleOpenMobile"
             >
               <SelectTrigger class="w-24 h-8 text-xs border-border/60">
                 <SelectValue placeholder="角色" />
@@ -64,7 +63,6 @@
             </Select>
             <Select
               v-model="filterStatus"
-              v-model:open="filterStatusOpenMobile"
             >
               <SelectTrigger class="w-20 h-8 text-xs border-border/60">
                 <SelectValue placeholder="状态" />
@@ -110,7 +108,6 @@
             <!-- 角色筛选 -->
             <Select
               v-model="filterRole"
-              v-model:open="filterRoleOpen"
             >
               <SelectTrigger class="w-32 h-8 text-xs border-border/60">
                 <SelectValue placeholder="全部角色" />
@@ -131,7 +128,6 @@
             <!-- 状态筛选 -->
             <Select
               v-model="filterStatus"
-              v-model:open="filterStatusOpen"
             >
               <SelectTrigger class="w-28 h-8 text-xs border-border/60">
                 <SelectValue placeholder="全部状态" />
@@ -799,10 +795,6 @@ const loadingStats = ref(false)
 const searchQuery = ref('')
 const filterRole = ref('all')
 const filterStatus = ref('all')
-const filterRoleOpen = ref(false)
-const filterStatusOpen = ref(false)
-const filterRoleOpenMobile = ref(false)
-const filterStatusOpenMobile = ref(false)
 
 const currentPage = ref(1)
 const pageSize = ref(20)

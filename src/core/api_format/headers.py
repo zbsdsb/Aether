@@ -336,6 +336,7 @@ def build_upstream_headers_for_endpoint(
     endpoint_headers: dict[str, str] | None = None,
     extra_headers: dict[str, str] | None = None,
     drop_headers: frozenset[str] | None = None,
+    header_rules: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     """
     新模式：构建发送给上游 Provider 的请求头（基于 endpoint signature）。
@@ -343,8 +344,9 @@ def build_upstream_headers_for_endpoint(
     优先级（后者覆盖前者）：
     1. 原始头部（排除 drop_headers）
     2. endpoint 配置头部
-    3. extra_headers
-    4. 认证头（最高优先级，始终设置）
+    3. header_rules（用户自定义的请求头规则，支持 set/drop/rename）
+    4. extra_headers
+    5. 认证头（最高优先级，始终设置）
     """
     if drop_headers is None:
         drop_headers = UPSTREAM_DROP_HEADERS
@@ -362,6 +364,10 @@ def build_upstream_headers_for_endpoint(
 
     if endpoint_headers:
         builder.add_protected(endpoint_headers, protected_keys)
+
+    # 应用用户自定义的请求头规则（认证头受保护）
+    if header_rules:
+        builder.apply_rules(header_rules, protected_keys)
 
     if extra_headers:
         builder.add_many(extra_headers)

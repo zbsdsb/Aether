@@ -13,7 +13,6 @@
           <Label class="text-xs text-muted-foreground">回溯时间：</Label>
           <Select
             v-model="lookbackHours"
-            v-model:open="selectOpen"
           >
             <SelectTrigger class="w-28 h-8 text-xs border-border/60">
               <SelectValue />
@@ -160,7 +159,6 @@ const loading = ref(false)
 const loadingMonitors = ref(false)
 const monitors = ref<(EndpointStatusMonitor | PublicEndpointStatusMonitor)[]>([])
 const lookbackHours = ref('6')
-const selectOpen = ref(false)
 
 async function loadMonitors() {
   loadingMonitors.value = true

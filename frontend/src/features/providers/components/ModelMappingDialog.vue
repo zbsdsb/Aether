@@ -12,7 +12,6 @@
       <div class="space-y-1.5">
         <Label class="text-xs">目标模型</Label>
         <Select
-          v-model:open="modelSelectOpen"
           :model-value="formData.modelId"
           :disabled="!!editingGroup"
           @update:model-value="handleModelChange"
@@ -300,7 +299,6 @@ const { fetchModels: fetchCachedModels } = useUpstreamModelsCache()
 
 // 状态
 const submitting = ref(false)
-const modelSelectOpen = ref(false)
 const loadingModels = ref(false)
 const fetchingUpstreamModels = ref(false)
 const upstreamModelsLoaded = ref(false)

@@ -6,19 +6,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.services.antigravity.envelope import (
+from src.api.handlers.base.stream_context import StreamContext
+from src.api.handlers.gemini_cli.handler import GeminiCliMessageHandler
+from src.services.provider.adapters.antigravity.envelope import (
     unwrap_v1internal_response,
     wrap_v1internal_request,
 )
-from src.api.handlers.base.stream_context import StreamContext
-from src.api.handlers.gemini_cli.handler import GeminiCliMessageHandler
 
 
 def _make_handler() -> GeminiCliMessageHandler:
     return GeminiCliMessageHandler(
-        db=MagicMock(),
-        user=SimpleNamespace(id=1),
-        api_key=SimpleNamespace(id=1),
+        db=MagicMock(),  # type: ignore[arg-type]
+        user=SimpleNamespace(id=1),  # type: ignore[arg-type]
+        api_key=SimpleNamespace(id=1),  # type: ignore[arg-type]
         request_id="req_1",
         client_ip="127.0.0.1",
         user_agent="pytest",
@@ -73,7 +73,9 @@ def test_convert_sse_line_unwraps_before_convert_stream_chunk() -> None:
     seen: dict[str, object] = {}
 
     class _DummyRegistry:
-        def convert_stream_chunk(self, data_obj, *_args, **_kwargs):  # noqa: ANN001
+        def convert_stream_chunk(
+            self, data_obj: object, *_args: object, **_kwargs: object
+        ) -> list[str]:
             seen["data_obj"] = data_obj
             return []
 
@@ -84,8 +86,8 @@ def test_convert_sse_line_unwraps_before_convert_stream_chunk() -> None:
         _lines, _events = handler._convert_sse_line(ctx, v1_line, [])
 
     assert isinstance(seen.get("data_obj"), dict)
-    assert "response" not in seen["data_obj"]  # 已解包
-    assert "_v1internal_response_id" in seen["data_obj"]
+    assert "response" not in seen["data_obj"]  # type: ignore[operator]
+    assert "_v1internal_response_id" in seen["data_obj"]  # type: ignore[operator]
 
 
 def test_handle_sse_event_unwraps_for_antigravity() -> None:
@@ -118,13 +120,16 @@ def test_handle_sse_event_unwraps_for_antigravity() -> None:
 
 
 def test_handle_sse_event_caches_thought_signature_for_antigravity() -> None:
-    from src.services.antigravity.signature_cache import signature_cache
+    from src.services.provider.adapters.antigravity.signature_cache import signature_cache
 
-    signature_cache._cache.clear()  # type: ignore[attr-defined]
+    signature_cache.clear()
 
     handler = _make_handler()
     ctx = StreamContext(model="claude-sonnet-4-5", api_format="gemini:cli")
     ctx.provider_type = "antigravity"
+
+    # 签名须 >= MIN_SIGNATURE_LENGTH(50)，否则会被忽略
+    long_sig = "a" * 60
 
     payload = {
         "candidates": [
@@ -134,7 +139,7 @@ def test_handle_sse_event_caches_thought_signature_for_antigravity() -> None:
                         {
                             "text": "t1",
                             "thought": True,
-                            "thoughtSignature": "sig-abc",
+                            "thoughtSignature": long_sig,
                         }
                     ]
                 }
@@ -145,7 +150,7 @@ def test_handle_sse_event_caches_thought_signature_for_antigravity() -> None:
     with patch.object(handler, "_process_event_data") as _mock_process:
         handler._handle_sse_event(ctx, None, json.dumps(payload), record_chunk=False)
 
-    assert signature_cache.get_or_dummy("claude-sonnet-4-5", "t1") == "sig-abc"
+    assert signature_cache.get_or_dummy("claude-sonnet-4-5", "t1") == long_sig
 
 
 def test_provider_type_drives_antigravity_usage_path() -> None:
@@ -167,13 +172,13 @@ async def test_antigravity_forces_conversion_path_in_stream_with_prefetch() -> N
     ctx.needs_conversion = False  # same-format case normally would passthrough
 
     class _AsyncIter:
-        def __init__(self, items):  # noqa: ANN001
+        def __init__(self, items: list[bytes]) -> None:
             self._it = iter(items)
 
-        def __aiter__(self):
+        def __aiter__(self) -> _AsyncIter:
             return self
 
-        async def __anext__(self):
+        async def __anext__(self) -> bytes:
             try:
                 return next(self._it)
             except StopIteration as e:
@@ -193,7 +198,7 @@ async def test_antigravity_forces_conversion_path_in_stream_with_prefetch() -> N
     ) as mock_convert:
         out = []
         async for chunk in handler._create_response_stream_with_prefetch(
-            ctx, byte_iter, response_ctx, http_client, prefetched
+            ctx, byte_iter, response_ctx, http_client, prefetched  # type: ignore[arg-type]
         ):
             out.append(chunk)
 

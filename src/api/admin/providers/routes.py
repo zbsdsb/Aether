@@ -19,14 +19,13 @@ from src.core.enums import ProviderBillingType
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.logger import logger
 from src.core.model_permissions import match_model_with_pattern, parse_allowed_models_to_list
+from src.core.provider_templates.fixed_providers import FIXED_PROVIDERS
+from src.core.provider_templates.types import ProviderType
 from src.database import get_db
 from src.models.admin_requests import CreateProviderRequest, UpdateProviderRequest
 from src.models.database import GlobalModel, Provider, ProviderAPIKey, ProviderEndpoint
 from src.services.cache.model_cache import ModelCacheService
 from src.services.cache.provider_cache import ProviderCacheService
-
-from src.core.provider_templates.fixed_providers import FIXED_PROVIDERS
-from src.core.provider_templates.types import ProviderType
 
 router = APIRouter(tags=["Provider CRUD"])
 pipeline = ApiRequestPipeline()
@@ -291,10 +290,16 @@ class AdminCreateProviderAdapter(AdminApiAdapter):
                 else ProviderBillingType.PAY_AS_YOU_GO
             )
 
+            # 有 envelope 包装的 Provider 类型（如 Antigravity、Codex）需要格式转换来正确
+            # 解包上游响应，创建时默认开启 enable_format_conversion。
+            pt = (validated_data.provider_type or "custom").strip()
+            envelope_provider_types = {ProviderType.ANTIGRAVITY, ProviderType.CODEX}
+            default_enable_format_conversion = pt in envelope_provider_types
+
             # 创建 Provider 对象
             provider = Provider(
                 name=validated_data.name,
-                provider_type=validated_data.provider_type or "custom",
+                provider_type=pt,
                 description=validated_data.description,
                 website=validated_data.website,
                 billing_type=billing_type,
@@ -311,6 +316,8 @@ class AdminCreateProviderAdapter(AdminApiAdapter):
                 stream_first_byte_timeout=validated_data.stream_first_byte_timeout,
                 request_timeout=validated_data.request_timeout,
                 config=validated_data.config,
+                # 有 envelope 的反代类型默认开启格式转换
+                enable_format_conversion=default_enable_format_conversion,
             )
 
             db.add(provider)
@@ -318,7 +325,7 @@ class AdminCreateProviderAdapter(AdminApiAdapter):
 
             # 固定类型 Provider：自动创建并锁定预置 Endpoints（同一事务）
             provider_type = (provider.provider_type or "custom").strip()
-            if provider_type != "custom":
+            if provider_type != ProviderType.CUSTOM:
                 try:
                     template = FIXED_PROVIDERS.get(ProviderType(provider_type))
                 except Exception:
