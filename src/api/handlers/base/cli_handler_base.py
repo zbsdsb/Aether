@@ -368,6 +368,32 @@ class CliMessageHandlerBase(BaseMessageHandler):
         """
         return request_body
 
+    def finalize_provider_request(
+        self,
+        request_body: dict[str, Any],
+        *,
+        mapped_model: str | None,
+        provider_api_format: str | None,
+    ) -> dict[str, Any]:
+        """
+        格式转换完成后、envelope 之前的模型感知后处理钩子 - 子类可覆盖
+
+        用于根据目标模型的特性对请求体做最终调整，例如：
+        - 图像生成模型需要移除不兼容的 tools/system_instruction 并注入 imageConfig
+        - 特定模型需要注入/移除某些字段
+
+        此方法在流式和非流式路径中均会被调用，且 mapped_model 已确定。
+
+        Args:
+            request_body: 已完成格式转换的请求体
+            mapped_model: 映射后的目标模型名
+            provider_api_format: Provider 侧 API 格式标识
+
+        Returns:
+            调整后的请求体
+        """
+        return request_body
+
     @staticmethod
     def _get_format_metadata(format_id: str) -> "EndpointDefinition | None":
         """获取 endpoint 元数据（解析失败返回 None）"""
@@ -800,6 +826,13 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     provider_api_format,
                     target_variant=target_variant,
                 )
+
+        # 模型感知的请求后处理（如图像生成模型移除不兼容字段）
+        request_body = self.finalize_provider_request(
+            request_body,
+            mapped_model=mapped_model,
+            provider_api_format=provider_api_format,
+        )
 
         # Force upstream stream/sync mode in request body (best-effort).
         if provider_api_format:
@@ -2811,6 +2844,13 @@ class CliMessageHandlerBase(BaseMessageHandler):
                         provider_api_format,
                         target_variant=target_variant,
                     )
+
+            # 模型感知的请求后处理（如图像生成模型移除不兼容字段）
+            request_body = self.finalize_provider_request(
+                request_body,
+                mapped_model=mapped_model,
+                provider_api_format=provider_api_format,
+            )
 
             # Force upstream stream/sync mode in request body (best-effort).
             if provider_api_format:

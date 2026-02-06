@@ -78,6 +78,22 @@ class GeminiCliMessageHandler(CliMessageHandlerBase):
         result.pop("model", None)
         return result
 
+    def finalize_provider_request(
+        self,
+        request_body: dict[str, Any],
+        *,
+        mapped_model: str | None,
+        provider_api_format: str | None,  # noqa: ARG002
+    ) -> dict[str, Any]:
+        from src.api.handlers.gemini.image_gen import (
+            adapt_request_for_image_gen,
+            is_image_gen_model,
+        )
+
+        if not is_image_gen_model(mapped_model):
+            return request_body
+        return adapt_request_for_image_gen(request_body)
+
     def get_model_for_url(
         self,
         request_body: dict[str, Any],

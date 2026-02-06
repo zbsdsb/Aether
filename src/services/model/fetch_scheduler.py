@@ -30,6 +30,7 @@ from src.models.database import Provider, ProviderAPIKey
 from src.services.model.upstream_fetcher import (
     UpstreamModelsFetchContext,
     fetch_models_for_key,
+    merge_upstream_metadata,
 )
 from src.services.provider.oauth_token import resolve_oauth_access_token
 from src.services.system.scheduler import get_scheduler
@@ -491,13 +492,9 @@ class ModelFetchScheduler:
 
             # 最佳努力：保存上游元数据（如 Antigravity 配额信息）
             if upstream_metadata and isinstance(upstream_metadata, dict):
-                # NOTE: upstream_metadata is a plain JSON column (not MutableDict),
-                # so in-place mutation won't be persisted reliably. Always assign
-                # a new dict object to mark the column as dirty.
-                current = key.upstream_metadata
-                merged: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
-                merged.update(upstream_metadata)
-                key.upstream_metadata = merged
+                key.upstream_metadata = merge_upstream_metadata(
+                    key.upstream_metadata, upstream_metadata
+                )
 
             # 去重获取模型 ID 列表
             fetched_model_ids: set[str] = set()

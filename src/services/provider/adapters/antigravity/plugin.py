@@ -255,6 +255,11 @@ async def fetch_models_antigravity(
 
         quota_info = model_data.get("quotaInfo")
         if not isinstance(quota_info, dict):
+            # 没有 quotaInfo 视为配额耗尽
+            quota_by_model[model_id] = {
+                "remaining_fraction": 0.0,
+                "used_percent": 100.0,
+            }
             continue
 
         remaining = quota_info.get("remainingFraction")
@@ -268,6 +273,14 @@ async def fetch_models_antigravity(
             remaining_fraction = None
 
         if remaining_fraction is None:
+            # remainingFraction 缺失视为配额耗尽
+            payload: dict[str, Any] = {
+                "remaining_fraction": 0.0,
+                "used_percent": 100.0,
+            }
+            if isinstance(reset_time, str) and reset_time.strip():
+                payload["reset_time"] = reset_time.strip()
+            quota_by_model[model_id] = payload
             continue
 
         used_percent = (1.0 - remaining_fraction) * 100.0

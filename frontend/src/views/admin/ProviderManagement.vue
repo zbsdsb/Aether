@@ -26,6 +26,66 @@
               />
             </div>
 
+            <!-- 状态筛选 -->
+            <Select v-model="filterStatus">
+              <SelectTrigger class="w-20 sm:w-28 h-8 text-xs border-border/60">
+                <SelectValue placeholder="全部状态" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="status in statusFilters"
+                  :key="status.value"
+                  :value="status.value"
+                >
+                  {{ status.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <!-- API 格式筛选 -->
+            <Select v-model="filterApiFormat">
+              <SelectTrigger class="w-20 sm:w-28 h-8 text-xs border-border/60">
+                <SelectValue placeholder="全部格式" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="fmt in apiFormatFilters"
+                  :key="fmt.value"
+                  :value="fmt.value"
+                >
+                  {{ fmt.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <!-- 模型筛选 -->
+            <Select v-model="filterModel">
+              <SelectTrigger class="w-20 sm:w-36 h-8 text-xs border-border/60">
+                <SelectValue placeholder="全部模型" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="model in modelFilters"
+                  :key="model.value"
+                  :value="model.value"
+                >
+                  {{ model.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <!-- 重置筛选 -->
+            <Button
+              v-if="hasActiveFilters"
+              variant="ghost"
+              size="icon"
+              class="h-8 w-8"
+              title="重置筛选"
+              @click="searchQuery = ''; filterStatus = 'all'; filterApiFormat = 'all'; filterModel = 'all'"
+            >
+              <FilterX class="w-3.5 h-3.5" />
+            </Button>
+
             <div class="hidden sm:block h-4 w-px bg-border" />
 
             <!-- 调度策略 -->
@@ -73,20 +133,20 @@
         class="flex flex-col items-center justify-center py-16 text-center"
       >
         <div class="text-muted-foreground mb-2">
-          <template v-if="searchQuery">
-            未找到匹配 "{{ searchQuery }}" 的提供商
+          <template v-if="hasActiveFilters">
+            未找到匹配当前筛选条件的提供商
           </template>
           <template v-else>
             暂无提供商，点击右上角添加
           </template>
         </div>
         <Button
-          v-if="searchQuery"
+          v-if="hasActiveFilters"
           variant="outline"
           size="sm"
-          @click="searchQuery = ''"
+          @click="searchQuery = ''; filterStatus = 'all'; filterApiFormat = 'all'; filterModel = 'all'"
         >
-          清除搜索
+          清除筛选
         </Button>
       </div>
 
@@ -604,7 +664,8 @@ import {
   ChevronDown,
   Power,
   KeyRound,
-  Loader2
+  Loader2,
+  FilterX
 } from 'lucide-vue-next'
 import Button from '@/components/ui/button.vue'
 import Badge from '@/components/ui/badge.vue'
@@ -618,6 +679,11 @@ import TableHead from '@/components/ui/table-head.vue'
 import TableCell from '@/components/ui/table-cell.vue'
 import Pagination from '@/components/ui/pagination.vue'
 import RefreshButton from '@/components/ui/refresh-button.vue'
+import Select from '@/components/ui/select.vue'
+import SelectTrigger from '@/components/ui/select-trigger.vue'
+import SelectValue from '@/components/ui/select-value.vue'
+import SelectContent from '@/components/ui/select-content.vue'
+import SelectItem from '@/components/ui/select-item.vue'
 import { ProviderFormDialog, PriorityManagementDialog, ProviderAuthDialog } from '@/features/providers/components'
 import ProviderDetailDrawer from '@/features/providers/components/ProviderDetailDrawer.vue'
 import { useToast } from '@/composables/useToast'
@@ -627,6 +693,7 @@ import {
   getProvidersSummary,
   deleteProvider,
   updateProvider,
+  getGlobalModels,
   type ProviderWithEndpointsSummary,
   API_FORMAT_SHORT
 } from '@/api/endpoints'
@@ -659,8 +726,44 @@ const balanceCache = ref<Record<string, ActionResultResponse>>({})
 // 使用普通变量而非 ref，因为不需要响应式，仅用于比较请求版本
 let balanceLoadVersion = 0
 
-// 搜索
+// 搜索与筛选
 const searchQuery = ref('')
+const filterStatus = ref('all')
+const filterApiFormat = ref('all')
+const filterModel = ref('all')
+
+// 全局模型数据（用于模型筛选下拉）
+const globalModels = ref<{ id: string; name: string }[]>([])
+
+const statusFilters = [
+  { value: 'all', label: '全部状态' },
+  { value: 'active', label: '活跃' },
+  { value: 'inactive', label: '已停用' },
+]
+
+const apiFormatFilters = [
+  { value: 'all', label: '全部格式' },
+  { value: 'claude:chat', label: 'Claude Chat' },
+  { value: 'claude:cli', label: 'Claude CLI' },
+  { value: 'openai:chat', label: 'OpenAI Chat' },
+  { value: 'openai:cli', label: 'OpenAI CLI' },
+  { value: 'gemini:chat', label: 'Gemini Chat' },
+  { value: 'gemini:cli', label: 'Gemini CLI' },
+]
+
+// 动态计算模型筛选选项：只展示当前提供商列表中实际关联的全局模型
+const modelFilters = computed(() => {
+  const usedIds = new Set(providers.value.flatMap(p => p.global_model_ids || []))
+  const items = globalModels.value
+    .filter(m => usedIds.has(m.id))
+    .map(m => ({ value: m.id, label: m.name }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+  return [{ value: 'all', label: '全部模型' }, ...items]
+})
+
+const hasActiveFilters = computed(() => {
+  return searchQuery.value !== '' || filterStatus.value !== 'all' || filterApiFormat.value !== 'all' || filterModel.value !== 'all'
+})
 
 // 分页
 const currentPage = ref(1)
@@ -693,6 +796,26 @@ const filteredProviders = computed(() => {
     })
   }
 
+  // 状态筛选
+  if (filterStatus.value !== 'all') {
+    const isActive = filterStatus.value === 'active'
+    result = result.filter(p => p.is_active === isActive)
+  }
+
+  // API 格式筛选
+  if (filterApiFormat.value !== 'all') {
+    result = result.filter(p =>
+      p.api_formats && p.api_formats.includes(filterApiFormat.value)
+    )
+  }
+
+  // 模型筛选
+  if (filterModel.value !== 'all') {
+    result = result.filter(p =>
+      p.global_model_ids && p.global_model_ids.includes(filterModel.value)
+    )
+  }
+
   // 排序
   return result.sort((a, b) => {
     // 1. 优先显示活跃的提供商
@@ -715,8 +838,8 @@ const paginatedProviders = computed(() => {
   return filteredProviders.value.slice(start, end)
 })
 
-// 搜索时重置分页
-watch(searchQuery, () => {
+// 搜索/筛选时重置分页
+watch([searchQuery, filterStatus, filterApiFormat, filterModel], () => {
   currentPage.value = 1
 })
 
@@ -729,6 +852,16 @@ async function loadPriorityMode() {
     }
   } catch {
     priorityMode.value = 'provider'
+  }
+}
+
+// 加载全局模型列表（用于模型筛选下拉）
+async function loadGlobalModelList() {
+  try {
+    const response = await getGlobalModels({ is_active: true, limit: 1000 })
+    globalModels.value = response.models.map(m => ({ id: m.id, name: m.name }))
+  } catch {
+    globalModels.value = []
   }
 }
 
@@ -1179,6 +1312,7 @@ let tickInterval: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   loadProviders()
   loadPriorityMode()
+  loadGlobalModelList()
   // 每秒更新一次倒计时
   tickInterval = setInterval(() => {
     tickCounter.value++

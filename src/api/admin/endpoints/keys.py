@@ -30,6 +30,7 @@ from src.models.endpoint_models import (
     EndpointAPIKeyUpdate,
 )
 from src.services.cache.provider_cache import ProviderCacheService
+from src.services.model.upstream_fetcher import merge_upstream_metadata
 from src.utils.auth_utils import require_admin
 
 router = APIRouter(tags=["Provider Keys"])
@@ -466,6 +467,29 @@ class AdminRevealEndpointKeyAdapter(AdminApiAdapter):
                 raise InvalidRequestException(
                     "无法解密认证配置，可能是加密密钥已更改。请重新添加该密钥。"
                 )
+
+        # OAuth 类型：返回 access_token + refresh_token
+        if auth_type == "oauth":
+            try:
+                decrypted_key = crypto_service.decrypt(key.api_key)
+            except Exception as e:
+                logger.error(f"解密 Key 失败: ID={self.key_id}, Error={e}")
+                raise InvalidRequestException(
+                    "无法解密 API Key，可能是加密密钥已更改。请重新添加该密钥。"
+                )
+            result: dict[str, Any] = {"auth_type": "oauth", "api_key": decrypted_key}
+            encrypted_auth_config = getattr(key, "auth_config", None)
+            if encrypted_auth_config:
+                try:
+                    decrypted_config = crypto_service.decrypt(encrypted_auth_config)
+                    auth_config = json.loads(decrypted_config)
+                    refresh_token = auth_config.get("refresh_token")
+                    if refresh_token:
+                        result["refresh_token"] = refresh_token
+                except Exception as e:
+                    logger.error(f"解密 auth_config 失败: ID={self.key_id}, Error={e}")
+            logger.info(f"[REVEAL] 查看 OAuth Key: ID={self.key_id}, Name={key.name}")
+            return result
 
         # API Key 类型返回 api_key
         try:
@@ -1178,13 +1202,9 @@ class AdminRefreshProviderQuotaAdapter(AdminApiAdapter):
                 if key.id in metadata_updates:
                     updates = metadata_updates[key.id]
                     if isinstance(updates, dict):
-                        # NOTE: upstream_metadata is a plain JSON column (not MutableDict),
-                        # so in-place mutation won't be persisted reliably. Always assign
-                        # a new dict object to mark the column as dirty.
-                        current = key.upstream_metadata
-                        merged: dict = dict(current) if isinstance(current, dict) else {}
-                        merged.update(updates)
-                        key.upstream_metadata = merged
+                        key.upstream_metadata = merge_upstream_metadata(
+                            key.upstream_metadata, updates
+                        )
                     db.add(key)
 
         # 提交数据库更改

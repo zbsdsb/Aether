@@ -759,6 +759,7 @@ class ProviderWithEndpointsSummary(BaseModel):
     # Model 统计
     total_models: int = Field(default=0, description="总模型数量")
     active_models: int = Field(default=0, description="活跃模型数量")
+    global_model_ids: list[str] = Field(default=[], description="活跃模型关联的全局模型 ID 列表")
 
     # API 格式列表
     api_formats: list[str] = Field(default=[], description="支持的 API 格式列表")

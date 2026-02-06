@@ -708,6 +708,7 @@ class StreamProcessor:
                             f"[{self.request_id}] 处理剩余缓冲区失败: {e}, bytes={buffer[:50]!r}"
                         )
                         line = ""
+                    buffer = b""  # 标记已消费，避免 finally 中重复处理
                     if line:
                         # 需要格式转换时，跳过记录原始数据
                         _process_line_with_perf(line, skip_record=True)
@@ -782,8 +783,26 @@ class StreamProcessor:
                     logger.warning(
                         f"[{self.request_id}] 处理剩余缓冲区失败: {e}, bytes={buffer[:50]!r}"
                     )
+                buffer = b""  # 标记已消费，避免下方重复处理
 
-            # 处理剩余事件
+            # flush 残留的字节 buffer（异常中断时 buffer 可能仍有未解析的数据，
+            # 如包含 usage 的 message_delta/response.completed 事件）
+            # 正常结束时 buffer 已在上方被消费为空，此处为 no-op
+            if buffer:
+                try:
+                    remaining = decoder.decode(buffer, True)
+                    for line in remaining.split("\n"):
+                        stripped = line.rstrip("\r\n")
+                        if stripped:
+                            events = sse_parser.feed_line(stripped)
+                            for event in events:
+                                self.handle_sse_event(
+                                    ctx, event.get("event"), event.get("data") or ""
+                                )
+                except Exception:
+                    pass  # best-effort: 不应因 flush 失败影响后续流程
+
+            # flush SSE parser 内部累积的未完成事件
             for event in sse_parser.flush():
                 self.handle_sse_event(ctx, event.get("event"), event.get("data") or "")
 

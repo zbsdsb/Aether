@@ -157,6 +157,22 @@ class GeminiChatHandler(ChatHandlerBase):
             "cache_read_input_tokens": usage.get("cached_tokens", 0),
         }
 
+    def finalize_provider_request(
+        self,
+        request_body: dict[str, Any],
+        *,
+        mapped_model: str | None,
+        provider_api_format: str | None,  # noqa: ARG002
+    ) -> dict[str, Any]:
+        from src.api.handlers.gemini.image_gen import (
+            adapt_request_for_image_gen,
+            is_image_gen_model,
+        )
+
+        if not is_image_gen_model(mapped_model):
+            return request_body
+        return adapt_request_for_image_gen(request_body)
+
     def _normalize_response(self, response: dict) -> dict:
         """
         规范化 Gemini 响应

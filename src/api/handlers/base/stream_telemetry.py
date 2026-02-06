@@ -8,6 +8,7 @@
 """
 
 import asyncio
+import json
 import time
 from typing import Any
 
@@ -104,6 +105,19 @@ class StreamTelemetryRecorder:
                 if writer is None:
                     return
                 actual_request_body = ctx.provider_request_body or original_request_body
+
+                # 兜底估算：流未正常完成且 token 均为 0 时，从请求体粗略估算
+                # 覆盖 Chat Handler 路径（CLI Handler 在更早的位置已做估算，
+                # 若已估算过则 token > 0，此处条件不会触发）
+                if (
+                    ctx.is_success()
+                    and not ctx.has_completion
+                    and ctx.data_count > 0
+                    and ctx.input_tokens == 0
+                    and ctx.output_tokens == 0
+                ):
+                    self._estimate_tokens_for_incomplete_stream(ctx, actual_request_body)
+
                 should_log_body = SystemConfigService.should_log_body(bg_db)
                 include_bodies = (
                     writer.include_bodies
@@ -535,6 +549,59 @@ class StreamTelemetryRecorder:
         if ctx.is_client_disconnected():
             return "cancelled"
         return "failed"
+
+    @staticmethod
+    def _estimate_tokens_for_incomplete_stream(
+        ctx: StreamContext,
+        request_body: dict[str, Any],
+    ) -> None:
+        """
+        流未正常完成（无 response.completed）且 token 均为 0 时的兜底估算。
+
+        从已收集的输出文本和请求体粗略估算 token 数，确保 usage 记录不为 0。
+        估算采用 ~4 字符/token 的保守比例。
+        """
+        # 输出 tokens：从已收集的文本估算
+        collected = ctx.collected_text
+        if collected:
+            ctx.output_tokens = max(1, len(collected) // 4)
+
+        # 输入 tokens：从请求体文本内容估算
+        try:
+            total_input_len = 0
+            instructions = request_body.get("instructions")
+            if isinstance(instructions, str):
+                total_input_len += len(instructions)
+            # OpenAI Responses API 使用 input 字段；Claude 使用 messages
+            input_items = request_body.get("input") or request_body.get("messages") or []
+            if isinstance(input_items, list):
+                for item in input_items:
+                    if isinstance(item, str):
+                        total_input_len += len(item)
+                    elif isinstance(item, dict):
+                        content = item.get("content", "")
+                        if isinstance(content, str):
+                            total_input_len += len(content)
+                        elif isinstance(content, list):
+                            for block in content:
+                                if isinstance(block, dict):
+                                    text = block.get("text", "")
+                                    if isinstance(text, str):
+                                        total_input_len += len(text)
+            if total_input_len > 0:
+                ctx.input_tokens = max(1, total_input_len // 4)
+            else:
+                # fallback: 整个请求体 JSON 大小
+                body_str = json.dumps(request_body, ensure_ascii=False)
+                ctx.input_tokens = max(1, len(body_str) // 4)
+        except Exception:
+            pass
+
+        if ctx.input_tokens > 0 or ctx.output_tokens > 0:
+            logger.warning(
+                f"[{ctx.request_id}] 流未正常完成 (has_completion=False, data_count={ctx.data_count}), "
+                f"使用估算 tokens: in={ctx.input_tokens}, out={ctx.output_tokens}"
+            )
 
     def _build_db_writer(self, bg_db: Session) -> DbTelemetryWriter | None:
         user = bg_db.query(User).filter(User.id == self.user_id).first()

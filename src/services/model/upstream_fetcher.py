@@ -82,6 +82,50 @@ async def fetch_models_for_key(
     return await fetcher(ctx, timeout_seconds)
 
 
+def merge_upstream_metadata(
+    current: dict[str, Any] | None,
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    """合并上游元数据，对 quota_by_model 做模型级深度合并。
+
+    上游 API 在配额耗尽后可能不再返回该模型的 quotaInfo，因此需要：
+    1. 保留旧数据中已有的 reset_time（当新数据缺少时）
+    2. 保留旧数据中存在但新数据中缺失的模型条目（标记为 100% 已用）
+    """
+    merged: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
+    for ns_key, ns_val in incoming.items():
+        old_ns = merged.get(ns_key)
+        if (
+            isinstance(ns_val, dict)
+            and isinstance(old_ns, dict)
+            and "quota_by_model" in ns_val
+            and "quota_by_model" in old_ns
+        ):
+            old_qbm = old_ns["quota_by_model"]
+            new_qbm = ns_val["quota_by_model"]
+            if isinstance(old_qbm, dict) and isinstance(new_qbm, dict):
+                # 保留新数据中已有模型的旧 reset_time
+                for model_id, new_info in new_qbm.items():
+                    if not isinstance(new_info, dict):
+                        continue
+                    old_info = old_qbm.get(model_id)
+                    if (
+                        isinstance(old_info, dict)
+                        and "reset_time" in old_info
+                        and "reset_time" not in new_info
+                    ):
+                        new_info["reset_time"] = old_info["reset_time"]
+                # 保留新数据中缺失但旧数据中存在的模型（配额耗尽后上游可能不返回）
+                for model_id, old_info in old_qbm.items():
+                    if model_id not in new_qbm and isinstance(old_info, dict):
+                        exhausted = dict(old_info)
+                        exhausted["remaining_fraction"] = 0.0
+                        exhausted["used_percent"] = 100.0
+                        new_qbm[model_id] = exhausted
+        merged[ns_key] = ns_val
+    return merged
+
+
 # Provider-specific fetchers are registered by plugin.register_all()
 # (called from envelope.py bootstrap)
 

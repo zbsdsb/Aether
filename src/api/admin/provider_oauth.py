@@ -35,7 +35,8 @@ from src.core.provider_oauth_utils import enrich_auth_config, post_oauth_token
 from src.core.provider_templates.fixed_providers import FIXED_PROVIDERS
 from src.core.provider_templates.types import ProviderType
 from src.database.database import get_db
-from src.models.database import Provider, ProviderAPIKey
+from src.models.database import Provider, ProviderAPIKey, User
+from src.utils.auth_utils import require_admin
 
 router = APIRouter(prefix="/api/admin/provider-oauth", tags=["Provider OAuth"])
 
@@ -189,7 +190,7 @@ def _parse_callback_params(callback_url: str) -> dict[str, str]:
 
 
 @router.get("/supported-types")
-async def supported_types() -> list[dict[str, Any]]:
+async def supported_types(_: User = Depends(require_admin)) -> list[dict[str, Any]]:
     # 不返回 client_secret
     result: list[dict[str, Any]] = []
     for provider_type, template in FIXED_PROVIDERS.items():
@@ -216,6 +217,7 @@ async def start_oauth(
     key_id: str,
     request: Request,
     db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> StartOAuthResponse:
     key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
     if not key:
@@ -295,6 +297,7 @@ async def complete_oauth(
     payload: CompleteOAuthRequest,
     request: Request,
     db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> CompleteOAuthResponse:
     redis = await get_redis_client(require_redis=True)
     assert redis is not None
@@ -428,6 +431,7 @@ async def refresh_oauth(
     key_id: str,
     request: Request,
     db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> CompleteOAuthResponse:
     key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
     if not key:
@@ -586,6 +590,7 @@ async def start_provider_oauth(
     provider_id: str,
     request: Request,
     db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> StartOAuthResponse:
     """基于 Provider 启动 OAuth（不需要预先创建 key）。"""
     provider = db.query(Provider).filter(Provider.id == provider_id).first()
@@ -659,6 +664,7 @@ async def complete_provider_oauth(
     payload: ProviderCompleteOAuthRequest,
     request: Request,
     db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> ProviderCompleteOAuthResponse:
     """完成 Provider OAuth 并创建 key。"""
     redis = await get_redis_client(require_redis=True)
@@ -797,5 +803,157 @@ async def complete_provider_oauth(
         provider_type=provider_type,
         expires_at=expires_at,
         has_refresh_token=bool(refresh_token),
+        email=auth_config.get("email"),
+    )
+
+
+# ==============================================================================
+# Import Refresh Token (从导出文件导入)
+# ==============================================================================
+
+
+class ImportRefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1, description="Refresh Token")
+    name: str | None = Field(None, max_length=100, description="账号名称（可选）")
+
+
+@router.post(
+    "/providers/{provider_id}/import-refresh-token",
+    response_model=ProviderCompleteOAuthResponse,
+)
+async def import_refresh_token(
+    provider_id: str,
+    payload: ImportRefreshTokenRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> ProviderCompleteOAuthResponse:
+    """通过 Refresh Token 导入 OAuth 账号。
+
+    使用导出的 Refresh Token 换取 Access Token 并创建新的 OAuth Key。
+    """
+    provider = db.query(Provider).filter(Provider.id == provider_id).first()
+    if not provider:
+        raise NotFoundException("Provider 不存在", "provider")
+    provider_type = _require_fixed_provider(provider)
+
+    try:
+        template = FIXED_PROVIDERS.get(ProviderType(provider_type))
+    except Exception:
+        template = None
+    if not template:
+        raise InvalidRequestException("不支持的 provider_type")
+
+    # 用 refresh_token 换取 access_token
+    refresh_token = payload.refresh_token.strip()
+    token_url = template.oauth.token_url
+    is_json = "anthropic.com" in token_url
+
+    if is_json:
+        body: dict[str, Any] = {
+            "grant_type": "refresh_token",
+            "client_id": template.oauth.client_id,
+            "refresh_token": refresh_token,
+        }
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        data = None
+        json_body = body
+    else:
+        form: dict[str, str] = {
+            "grant_type": "refresh_token",
+            "client_id": template.oauth.client_id,
+            "refresh_token": refresh_token,
+        }
+        if template.oauth.client_secret:
+            form["client_secret"] = template.oauth.client_secret
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        }
+        data = form
+        json_body = None
+
+    proxy_config = getattr(provider, "proxy", None)
+
+    resp = await post_oauth_token(
+        provider_type=provider_type,
+        token_url=token_url,
+        headers=headers,
+        data=data,
+        json_body=json_body,
+        proxy_config=proxy_config,
+        timeout_seconds=30.0,
+    )
+
+    if resp.status_code < 200 or resp.status_code >= 300:
+        error_reason = f"HTTP {resp.status_code}"
+        try:
+            error_body = resp.json()
+            if "error" in error_body:
+                error_reason = str(error_body.get("error_description") or error_body.get("error"))
+        except Exception:
+            error_reason = resp.text[:100] if resp.text else f"HTTP {resp.status_code}"
+        raise InvalidRequestException(f"Refresh Token 验证失败: {error_reason}")
+
+    token = resp.json()
+    access_token = str(token.get("access_token") or "")
+    new_refresh_token = str(token.get("refresh_token") or "") or refresh_token
+    expires_in = token.get("expires_in")
+    expires_at: int | None = None
+    try:
+        if expires_in is not None:
+            expires_at = int(time.time()) + int(expires_in)
+    except Exception:
+        expires_at = None
+
+    if not access_token:
+        raise InvalidRequestException("token refresh 返回缺少 access_token")
+
+    # 构建 auth_config
+    auth_config: dict[str, Any] = {
+        "provider_type": provider_type,
+        "token_type": token.get("token_type"),
+        "refresh_token": new_refresh_token or None,
+        "expires_at": expires_at,
+        "scope": token.get("scope"),
+        "updated_at": int(time.time()),
+    }
+
+    auth_config = await enrich_auth_config(
+        provider_type=provider_type,
+        auth_config=auth_config,
+        token_response=token,
+        access_token=access_token,
+        proxy_config=proxy_config,
+    )
+
+    # 确定账号名称
+    name = (payload.name or "").strip()
+    if not name:
+        name = auth_config.get("email") or f"账号_{int(time.time())}"
+
+    # 从 Provider 的 endpoints 中提取所有 api_format 作为 Key 的支持格式
+    api_formats = [ep.api_format for ep in provider.endpoints if ep.api_format and ep.is_active]
+
+    # 创建 key
+    from src.models.database import ProviderAPIKey as ProviderAPIKeyModel
+
+    new_key = ProviderAPIKeyModel(
+        provider_id=provider_id,
+        name=name,
+        api_key=crypto_service.encrypt(access_token),
+        auth_type="oauth",
+        auth_config=crypto_service.encrypt(json.dumps(auth_config)),
+        api_formats=api_formats,
+        is_active=True,
+    )
+    db.add(new_key)
+    db.commit()
+    db.refresh(new_key)
+
+    return ProviderCompleteOAuthResponse(
+        key_id=str(new_key.id),
+        provider_type=provider_type,
+        expires_at=expires_at,
+        has_refresh_token=bool(new_refresh_token),
         email=auth_config.get("email"),
     )

@@ -240,6 +240,19 @@ def _build_provider_summary(db: Session, provider: Provider) -> ProviderWithEndp
     total_models = model_stats.total or 0
     active_models = int(model_stats.active or 0)
 
+    # 活跃模型关联的全局模型 ID 列表
+    global_model_ids = [
+        row[0]
+        for row in db.query(Model.global_model_id)
+        .filter(
+            Model.provider_id == provider.id,
+            Model.is_active == True,
+            Model.global_model_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    ]
+
     api_formats = [e.api_format for e in endpoints]
 
     # 优化: 一次性加载 Provider 的 keys，避免 N+1 查询
@@ -328,6 +341,7 @@ def _build_provider_summary(db: Session, provider: Provider) -> ProviderWithEndp
         active_keys=active_keys,
         total_models=total_models,
         active_models=active_models,
+        global_model_ids=global_model_ids,
         avg_health_score=avg_health_score,
         unhealthy_endpoints=unhealthy_endpoints,
         api_formats=api_formats,

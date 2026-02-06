@@ -265,10 +265,21 @@
                               {{ key.auth_type === 'oauth' ? '[Refresh Token]' : (key.auth_type === 'vertex_ai' ? 'Vertex AI' : key.api_key_masked) }}
                             </span>
                             <Button
+                              v-if="key.auth_type === 'oauth'"
                               variant="ghost"
                               size="icon"
                               class="h-4 w-4 shrink-0"
-                              :title="key.auth_type === 'oauth' ? '复制 Refresh Token' : '复制密钥'"
+                              title="下载 Refresh Token 授权文件"
+                              @click.stop="downloadRefreshToken(key)"
+                            >
+                              <Download class="w-2.5 h-2.5" />
+                            </Button>
+                            <Button
+                              v-else
+                              variant="ghost"
+                              size="icon"
+                              class="h-4 w-4 shrink-0"
+                              title="复制密钥"
                               @click.stop="copyFullKey(key)"
                             >
                               <Copy class="w-2.5 h-2.5" />
@@ -524,14 +535,17 @@
                             />
                           </div>
                           <div
-                            v-if="group.resetSeconds !== null"
+                            v-if="group.resetSeconds !== null || group.usedPercent > 0"
                             class="text-[9px] text-muted-foreground/70 mt-0.5"
                           >
-                            <template v-if="group.resetSeconds > 0">
+                            <template v-if="group.resetSeconds !== null && group.resetSeconds > 0">
                               {{ formatResetTime(group.resetSeconds) }}后重置
                             </template>
-                            <template v-else>
+                            <template v-else-if="group.resetSeconds !== null && group.resetSeconds <= 0">
                               已重置
+                            </template>
+                            <template v-else>
+                              重置时间未知
                             </template>
                           </div>
                         </div>
@@ -764,6 +778,7 @@ import {
   Power,
   GripVertical,
   Copy,
+  Download,
   Shield,
   Shuffle,
   ExternalLink,
@@ -1131,6 +1146,48 @@ async function copyFullKey(key: EndpointAPIKey) {
     copyToClipboard(textToCopy)
   } catch (err: any) {
     showError(err.response?.data?.detail || '获取密钥失败', '错误')
+  }
+}
+
+// 下载 Refresh Token 授权文件
+async function downloadRefreshToken(key: EndpointAPIKey) {
+  try {
+    const result = await revealEndpointKey(key.id)
+    const refreshToken = result.refresh_token || ''
+    const accessToken = result.api_key || ''
+
+    if (!refreshToken) {
+      showError('该账号没有 Refresh Token，无法导出', '错误')
+      return
+    }
+
+    // 缓存 access_token 用于显示
+    if (accessToken) {
+      revealedKeys.value.set(key.id, accessToken)
+    }
+
+    const data = {
+      auth_type: 'oauth',
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      name: key.name || '',
+      oauth_email: key.oauth_email || '',
+      exported_at: new Date().toISOString(),
+    }
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const providerType = provider.value?.provider_type || 'unknown'
+    const safeName = (key.name || key.oauth_email || key.id.slice(0, 8)).replace(/[^a-zA-Z0-9_\-@.]/g, '_')
+    a.download = `aether_${providerType}_${safeName}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (err: any) {
+    showError(err.response?.data?.detail || '获取 Refresh Token 失败', '错误')
   }
 }
 
@@ -1843,7 +1900,6 @@ const ANTIGRAVITY_QUOTA_GROUPS: AntigravityQuotaGroup[] = [
   { key: 'gemini-3-pro', label: 'Gemini 3 Pro', match: m => m.includes('gemini-3-pro') && !m.includes('image') },
   { key: 'gemini-3-flash', label: 'Gemini 3 Flash', match: m => m.includes('gemini-3-flash') },
   { key: 'gemini-3-pro-image', label: 'Gemini 3 Pro Image', match: m => m.includes('gemini-3-pro-image') },
-  { key: 'other', label: 'Other', match: () => true },
 ]
 
 interface AntigravityQuotaSummaryItem {

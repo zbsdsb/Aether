@@ -59,6 +59,9 @@ python generate_keys.py  # 生成密钥, 并将生成的密钥填入 .env
 
 # 3. 部署 / 更新（自动执行数据库迁移）
 docker compose pull && docker compose up -d
+
+# 4. 升级前备份
+docker compose exec postgres pg_dump -U postgres aether | gzip > backup_$(date +%Y%m%d_%H%M%S).sql.gz
 ```
 
 ### Docker Compose（本地构建镜像）
@@ -148,9 +151,42 @@ cd frontend && npm install && npm run dev
 | **提供商优先** | 按 Provider 优先级排序, 同优先级内按 Key 优先级排序, 相同优先级哈希分散 | 优先使用特定供应商 |
 | **全局 Key 优先** | 忽略 Provider 层级, 所有 Key 按全局优先级统一排序, 相同优先级哈希分散 | 跨 Provider 统一调度, 最大化利用所有 Key |
 
-### Q: 提供商免费套餐的计费模式会计入成本吗?
+### Q: 更新出问题如何回滚？
 
-> **不会**。免费套餐的计费模式倍率为 0, 产生的记录不计入成本费用。
+**有备份的情况（推荐）：**
+
+```bash
+# 1. 停止应用
+docker compose stop app
+
+# 2. 恢复数据库（先清空再导入）
+docker compose exec -T postgres psql -U postgres -c "DROP DATABASE aether; CREATE DATABASE aether;"
+gunzip < backup_xxx.sql.gz | docker compose exec -T postgres psql -U postgres -d aether
+
+# 3. 拉取旧版本镜像并重启
+#    方式一：使用具体版本 tag（如果有发布版本号）
+#    将 docker-compose.yml 中 image 从 ghcr.io/fawney19/aether:latest 改为指定版本
+#    方式二：使用之前记录的镜像 digest
+#    将 image 改为 ghcr.io/fawney19/aether@sha256:xxxxx
+docker compose up -d app
+```
+
+> 可以在升级前通过 `docker inspect ghcr.io/fawney19/aether:latest --format '{{index .RepoDigests 0}}'` 记录当前镜像 digest，方便回滚时使用。
+
+**没有备份的情况：**
+
+```bash
+# 1. 用当前容器回退数据库迁移（回退 1 步，按需调整数字）
+docker compose exec app alembic downgrade -1
+
+# 2. 查看回退后的版本确认正确
+docker compose exec app alembic current
+
+# 3. 切回旧镜像并重启（同上方式修改 docker-compose.yml 中的 image）
+docker compose up -d app
+```
+
+> 注意：没有备份的回滚依赖 alembic downgrade，如果迁移涉及不可逆的数据变更（如删除列），可能无法完全恢复数据。因此强烈建议升级前备份。
 
 ---
 

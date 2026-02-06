@@ -6,70 +6,188 @@
     size="md"
     @update:model-value="handleDialogUpdate"
   >
-    <div class="space-y-5">
-      <!-- 加载中 -->
-      <div
-        v-if="oauth.starting && !oauth.authorization_url"
-        class="py-12 text-center"
-      >
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
-        <p class="text-sm text-muted-foreground">
-          正在准备授权...
-        </p>
+    <div class="space-y-4">
+      <!-- Tab 切换 -->
+      <div class="flex rounded-lg border border-border p-0.5 bg-muted/30">
+        <button
+          class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all"
+          :class="mode === 'oauth'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'"
+          @click="switchMode('oauth')"
+        >
+          获取授权
+        </button>
+        <button
+          class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all"
+          :class="mode === 'import'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'"
+          @click="switchMode('import')"
+        >
+          导入授权
+        </button>
       </div>
 
-      <!-- 授权流程 -->
-      <template v-else-if="oauth.authorization_url">
-        <!-- 步骤 1: 打开授权链接 -->
-        <div class="space-y-2">
-          <p class="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            第一步 · 前往授权
-          </p>
-          <p class="text-xs text-muted-foreground">
-            点击下方按钮在浏览器中完成登录授权
-          </p>
-          <div class="flex gap-2 pt-1">
-            <Button
-              size="sm"
-              :disabled="oauthBusy"
-              @click="openAuthorizationUrl"
-            >
-              <ExternalLink class="w-3.5 h-3.5 mr-1.5" />
-              前往授权
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              :disabled="oauthBusy"
-              @click="copyToClipboard(oauth.authorization_url)"
-            >
-              <Copy class="w-3.5 h-3.5 mr-1.5" />
-              复制链接
-            </Button>
+      <!-- Tab 内容：grid 叠放，高度取较高者 -->
+      <div class="grid [&>*]:col-start-1 [&>*]:row-start-1">
+        <!-- ===== 获取授权 ===== -->
+        <div
+          class="space-y-4 transition-opacity duration-150"
+          :class="mode === 'oauth' ? 'opacity-100' : 'opacity-0 pointer-events-none'"
+        >
+          <div
+            v-if="oauth.starting && !oauth.authorization_url"
+            class="flex items-center justify-center py-12"
+          >
+            <div class="text-center">
+              <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-3" />
+              <p class="text-xs text-muted-foreground">
+                正在准备授权...
+              </p>
+            </div>
           </div>
+
+          <template v-else-if="oauth.authorization_url">
+            <div class="space-y-2">
+              <div class="flex items-center gap-2">
+                <span class="flex items-center justify-center w-4 h-4 rounded-full bg-primary/10 text-primary text-[10px] font-semibold shrink-0">1</span>
+                <span class="text-xs font-medium">前往授权</span>
+              </div>
+              <div class="flex gap-2 pl-6">
+                <Button
+                  size="sm"
+                  :disabled="oauthBusy"
+                  @click="openAuthorizationUrl"
+                >
+                  <ExternalLink class="w-3 h-3 mr-1" />
+                  打开
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  :disabled="oauthBusy"
+                  @click="copyToClipboard(oauth.authorization_url)"
+                >
+                  <Copy class="w-3 h-3 mr-1" />
+                  复制
+                </Button>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <div class="flex items-center gap-2">
+                <span class="flex items-center justify-center w-4 h-4 rounded-full bg-primary/10 text-primary text-[10px] font-semibold shrink-0">2</span>
+                <span class="text-xs font-medium">粘贴回调 URL</span>
+              </div>
+              <div class="pl-6">
+                <Textarea
+                  v-model="oauth.callback_url"
+                  :disabled="oauthBusy"
+                  placeholder="http://localhost:xxx/callback?code=..."
+                  class="min-h-[120px] text-xs font-mono break-all !rounded-xl"
+                  spellcheck="false"
+                />
+              </div>
+            </div>
+          </template>
         </div>
 
-        <Separator />
+        <!-- ===== 导入授权 ===== -->
+        <div
+          class="flex flex-col gap-3 transition-opacity duration-150"
+          :class="mode === 'import' ? 'opacity-100' : 'opacity-0 pointer-events-none'"
+        >
+          <input
+            ref="fileInputRef"
+            type="file"
+            accept=".json"
+            class="hidden"
+            @change="handleFileSelect"
+          >
 
-        <!-- 步骤 2: 粘贴回调地址 -->
-        <div class="space-y-2">
-          <p class="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            第二步 · 粘贴回调
-          </p>
-          <p class="text-xs text-muted-foreground">
-            授权完成后，复制浏览器地址栏的完整 URL 并粘贴到下方
-          </p>
-          <div class="pt-1">
+          <!-- 主区域：拖拽 或 粘贴输入框（同一位置切换） -->
+          <div v-if="!importText" class="mt-3">
+            <!-- 拖拽模式 -->
+            <div
+              v-if="!showManualInput"
+              class="rounded-xl border-2 border-dashed transition-colors cursor-pointer"
+              :class="isDragging
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-muted-foreground/40'"
+              @click="fileInputRef?.click()"
+              @dragover.prevent="isDragging = true"
+              @dragleave.prevent="isDragging = false"
+              @drop.prevent="handleFileDrop"
+            >
+              <div class="flex flex-col items-center justify-center py-10 gap-2">
+                <div class="w-8 h-8 rounded-full bg-muted/60 flex items-center justify-center">
+                  <Upload class="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div class="text-center">
+                  <p class="text-xs font-medium">
+                    拖入授权文件或点击选择
+                  </p>
+                  <p class="text-[10px] text-muted-foreground mt-0.5">
+                    支持 .json 格式
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- 粘贴模式 -->
             <Textarea
-              v-model="oauth.callback_url"
-              :disabled="oauthBusy"
-              placeholder="http://localhost:xxx/callback?code=..."
-              class="min-h-[80px] text-xs font-mono break-all !rounded-xl"
+              v-else
+              v-model="manualPasteText"
+              :disabled="importing"
+              placeholder="粘贴 Refresh Token 或 JSON 内容"
+              class="min-h-[168px] text-xs font-mono break-all !rounded-xl"
+              spellcheck="false"
+            />
+          </div>
+
+          <!-- 底部切换链接：占满剩余空间居中 -->
+          <div
+            v-if="!importText"
+            class="flex-1 flex items-center justify-center"
+          >
+            <button
+              v-if="!showManualInput"
+              class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              @click="showManualInput = true"
+            >
+              或手动粘贴 Refresh Token
+            </button>
+            <button
+              v-else
+              class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              @click="showManualInput = false"
+            >
+              或选择 JSON 文件导入
+            </button>
+          </div>
+
+          <!-- 已有内容（文件导入后）：显示文本框 -->
+          <div v-if="importText" class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-muted-foreground">{{ importFileName || '已粘贴内容' }}</span>
+              <button
+                class="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                :disabled="importing"
+                @click="clearImport"
+              >
+                清除
+              </button>
+            </div>
+            <Textarea
+              v-model="importText"
+              :disabled="importing"
+              class="min-h-[160px] text-xs font-mono break-all !rounded-xl"
               spellcheck="false"
             />
           </div>
         </div>
-      </template>
+      </div>
     </div>
 
     <template #footer>
@@ -80,10 +198,18 @@
         取消
       </Button>
       <Button
+        v-if="mode === 'oauth'"
         :disabled="!canCompleteOAuth"
         @click="handleCompleteOAuth"
       >
         {{ oauth.completing ? '验证中...' : '验证' }}
+      </Button>
+      <Button
+        v-else
+        :disabled="!canImport"
+        @click="handleImport"
+      >
+        {{ importing ? '导入中...' : '导入' }}
       </Button>
     </template>
   </Dialog>
@@ -91,14 +217,15 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { Dialog, Button, Textarea, Separator } from '@/components/ui'
-import { UserPlus, Copy, ExternalLink } from 'lucide-vue-next'
+import { Dialog, Button, Textarea } from '@/components/ui'
+import { UserPlus, Copy, ExternalLink, Upload } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { useClipboard } from '@/composables/useClipboard'
 import { parseApiError } from '@/utils/errorParser'
 import {
   startProviderLevelOAuth,
   completeProviderLevelOAuth,
+  importProviderRefreshToken,
 } from '@/api/endpoints'
 
 const props = defineProps<{
@@ -113,6 +240,10 @@ const emit = defineEmits<{
 
 const { success, error: showError } = useToast()
 const { copyToClipboard } = useClipboard()
+
+// 模式
+type DialogMode = 'oauth' | 'import'
+const mode = ref<DialogMode>('oauth')
 
 // OAuth 状态
 interface OAuthState {
@@ -139,6 +270,15 @@ function createInitialOAuthState(): OAuthState {
 
 const oauth = ref<OAuthState>(createInitialOAuthState())
 
+// 导入状态
+const importText = ref('')
+const importFileName = ref('')
+const manualPasteText = ref('')
+const importing = ref(false)
+const isDragging = ref(false)
+const showManualInput = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
 const isOpen = computed(() => props.open)
 
 const oauthBusy = computed(() =>
@@ -151,8 +291,41 @@ const canCompleteOAuth = computed(() => {
   return !oauthBusy.value
 })
 
+const canImport = computed(() => {
+  const text = importText.value || manualPasteText.value
+  return text.trim().length > 0 && !importing.value
+})
+
 function resetForm() {
   oauth.value = createInitialOAuthState()
+  importText.value = ''
+  importFileName.value = ''
+  manualPasteText.value = ''
+  importing.value = false
+  isDragging.value = false
+  showManualInput.value = false
+  mode.value = 'oauth'
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+}
+
+function clearImport() {
+  importText.value = ''
+  importFileName.value = ''
+  manualPasteText.value = ''
+  showManualInput.value = false
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+}
+
+function switchMode(newMode: DialogMode) {
+  if (mode.value === newMode) return
+  mode.value = newMode
+  if (newMode === 'oauth' && !oauth.value.authorization_url && !oauth.value.starting) {
+    initOAuth()
+  }
 }
 
 function handleDialogUpdate(value: boolean) {
@@ -172,7 +345,6 @@ function openAuthorizationUrl() {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-// 对话框打开时获取授权 URL（不创建 key）
 async function initOAuth() {
   if (!props.providerId) return
 
@@ -192,7 +364,6 @@ async function initOAuth() {
   }
 }
 
-// 完成授权（此时才创建 key）
 async function handleCompleteOAuth() {
   if (!canCompleteOAuth.value || !props.providerId) return
   oauth.value.completing = true
@@ -211,7 +382,80 @@ async function handleCompleteOAuth() {
   }
 }
 
-// 监听对话框打开
+function parseImportText(text: string): { refresh_token: string; name?: string } | null {
+  const trimmed = text.trim()
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (typeof parsed === 'object' && parsed !== null) {
+      const refreshToken = parsed.refresh_token
+      if (typeof refreshToken === 'string' && refreshToken.trim()) {
+        return {
+          refresh_token: refreshToken.trim(),
+          name: parsed.name || parsed.oauth_email || undefined,
+        }
+      }
+    }
+  } catch {
+    // 不是 JSON
+  }
+  if (trimmed) {
+    return { refresh_token: trimmed }
+  }
+  return null
+}
+
+function readFile(file: File) {
+  if (!file.name.endsWith('.json') && file.type !== 'application/json') {
+    showError('仅支持 .json 文件', '格式错误')
+    return
+  }
+  importFileName.value = file.name
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const content = e.target?.result
+    if (typeof content === 'string') {
+      importText.value = content
+    }
+  }
+  reader.readAsText(file)
+}
+
+function handleFileSelect(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (file) readFile(file)
+}
+
+function handleFileDrop(event: DragEvent) {
+  isDragging.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) readFile(file)
+}
+
+async function handleImport() {
+  if (!canImport.value || !props.providerId) return
+
+  const inputText = importText.value || manualPasteText.value
+  const parsed = parseImportText(inputText)
+  if (!parsed) {
+    showError('无法解析输入内容，请检查格式', '格式错误')
+    return
+  }
+
+  importing.value = true
+  try {
+    await importProviderRefreshToken(props.providerId, parsed)
+    success('导入成功，账号已添加')
+    emit('saved')
+    handleClose()
+  } catch (err: any) {
+    const errorMessage = parseApiError(err, '导入失败')
+    showError(errorMessage, '错误')
+  } finally {
+    importing.value = false
+  }
+}
+
 watch(() => props.open, (newOpen) => {
   if (newOpen) {
     initOAuth()

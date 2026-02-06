@@ -58,6 +58,7 @@ export async function getModelCapabilities(modelName: string): Promise<ModelCapa
 export interface RevealKeyResult {
   auth_type: 'api_key' | 'vertex_ai' | 'oauth'
   api_key?: string
+  refresh_token?: string
   auth_config?: string | Record<string, any>
 }
 

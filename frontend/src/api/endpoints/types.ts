@@ -447,6 +447,7 @@ export interface ProviderWithEndpointsSummary {
   active_keys: number
   total_models: number
   active_models: number
+  global_model_ids: string[]
   avg_health_score: number
   unhealthy_endpoints: number
   api_formats: string[]

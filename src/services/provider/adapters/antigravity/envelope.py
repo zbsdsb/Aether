@@ -345,31 +345,45 @@ def wrap_v1internal_request(
     1. 移除 model（移到顶层）
     2. 移除 safetySettings（v1internal 不支持）
     3. 深度清理 [undefined] 字符串
-    4. Claude model tool ID 注入
-    5. Thinking budget 处理（自动注入 + Auto Cap）
-    6. 工具声明清洗（schema 清理 + 字段重命名）
-    7. System Instruction 注入
+    4. Claude model tool ID 注入（图像生成模型跳过）
+    5. Thinking budget 处理
+    6. 工具声明清洗（图像生成模型跳过）
+    7. System Instruction 注入（图像生成模型跳过）
     8. 注入 sessionId（对齐 CLIProxyAPI）
     9. 构建 v1internal 信封
     """
+    from src.api.handlers.gemini.image_gen import is_image_gen_model
+
     inner_request = dict(gemini_request)
     inner_request.pop("model", None)
     inner_request.pop("safetySettings", None)
 
+    is_image_gen = is_image_gen_model(model)
+
     # 1. 深度清理 [undefined]
     _deep_clean_undefined(inner_request)
 
-    # 2. Claude tool ID 注入
-    _inject_claude_tool_ids_request(inner_request, model)
+    if not is_image_gen:
+        # 2. Claude tool ID 注入
+        _inject_claude_tool_ids_request(inner_request, model)
 
     # 3. Thinking budget 处理
     _process_thinking_budget(inner_request, model)
 
-    # 4. 工具声明清洗
-    _clean_tool_declarations(inner_request)
+    if not is_image_gen:
+        # 4. 工具声明清洗
+        _clean_tool_declarations(inner_request)
 
-    # 5. System Instruction 注入
-    _inject_system_instruction(inner_request)
+        # 5. System Instruction 注入
+        _inject_system_instruction(inner_request)
+    else:
+        # 图像生成模型：对齐 AM wrapper.rs，移除不兼容字段
+        inner_request.pop("tools", None)
+        inner_request.pop("toolConfig", None)
+        inner_request.pop("tool_config", None)
+        inner_request.pop("systemInstruction", None)
+        inner_request.pop("system_instruction", None)
+        request_type = "image_gen"
 
     # 6. 注入 sessionId（对齐 CLIProxyAPI/sub2api）
     if "sessionId" not in inner_request:
