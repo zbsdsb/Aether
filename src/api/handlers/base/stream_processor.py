@@ -426,6 +426,7 @@ class StreamProcessor:
         try:
             sse_parser = SSEEventParser()
             streaming_started = False
+            yielded_any = False
             buffer = b""
             # 使用增量解码器处理跨 chunk 的 UTF-8 字符
             decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
@@ -464,7 +465,8 @@ class StreamProcessor:
                 ctx.needs_conversion = False
 
             def _mark_stream_started() -> None:
-                nonlocal start_time, streaming_started
+                nonlocal start_time, streaming_started, yielded_any
+                yielded_any = True
                 # 记录首字时间 (TTFB) - 在 yield 之前记录
                 if start_time is not None:
                     ctx.record_first_byte_time(start_time)
@@ -808,6 +810,37 @@ class StreamProcessor:
 
         except GeneratorExit:
             raise
+        except (httpx.StreamClosed, httpx.HTTPError) as exc:
+            # 连接关闭/协议错误：best-effort flush 残留 SSE，避免丢失尾部 usage。
+            try:
+                if buffer:
+                    remaining = decoder.decode(buffer, True)
+                    buffer = b""
+                    for line in remaining.split("\n"):
+                        self._process_line(ctx, sse_parser, line, skip_record=needs_conversion)
+
+                # flush SSE parser 内部累积的未完成事件
+                for event in sse_parser.flush():
+                    self.handle_sse_event(
+                        ctx,
+                        event.get("event"),
+                        event.get("data") or "",
+                        skip_record=needs_conversion,
+                    )
+            except Exception:
+                # best-effort: 不应因 flush 失败影响后续流程
+                pass
+
+            # 若尚未向客户端输出任何数据，抛出异常以触发上层 failover。
+            if not yielded_any:
+                raise
+
+            # 已输出过数据：不要继续抛异常（否则 StreamingResponse 背景任务不会执行，
+            # usage/telemetry 可能无法落库）。标记为上游错误并结束流。
+            if not ctx.has_completion:
+                ctx.status_code = 502
+                ctx.error_message = f"upstream_stream_error:{type(exc).__name__}"
+            return
         finally:
             if metrics_enabled:
                 labels = {

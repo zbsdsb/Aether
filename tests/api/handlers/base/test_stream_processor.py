@@ -1,5 +1,8 @@
 import json
-from typing import Any
+from typing import Any, AsyncIterator
+
+import httpx
+import pytest
 
 from src.api.handlers.base.response_parser import (
     ParsedChunk,
@@ -78,3 +81,49 @@ def test_process_line_handles_openai_usage_chunk_followed_by_done_without_blank_
     assert ctx.input_tokens == 7
     assert ctx.output_tokens == 3
     assert ctx.has_completion is True
+
+
+class _DummyResponseCtx:
+    async def __aexit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        return None
+
+
+class _DummyHTTPClient:
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_create_response_stream_flushes_usage_on_remote_protocol_error() -> None:
+    ctx = StreamContext(model="test-model", api_format="openai:chat")
+    ctx.provider_api_format = "openai:chat"
+    processor = StreamProcessor(request_id="test-request", default_parser=DummyParser())
+
+    usage_chunk = {
+        "id": "chatcmpl_test",
+        "object": "chat.completion.chunk",
+        "choices": [],
+        "usage": {"prompt_tokens": 11, "completion_tokens": 4, "total_tokens": 15},
+    }
+
+    async def _iter_bytes_then_remote_protocol_error() -> AsyncIterator[bytes]:
+        yield f"data: {json.dumps(usage_chunk)}\n".encode("utf-8")
+        raise httpx.RemoteProtocolError("boom")
+
+    out = b""
+    async for b in processor.create_response_stream(
+        ctx=ctx,
+        byte_iterator=_iter_bytes_then_remote_protocol_error(),
+        response_ctx=_DummyResponseCtx(),
+        http_client=_DummyHTTPClient(),  # type: ignore[arg-type]
+        prefetched_chunks=[],
+        start_time=None,
+    ):
+        out += b
+
+    # Stream ends gracefully (no exception), but usage is best-effort captured and request is marked failed.
+    assert b"data:" in out
+    assert ctx.input_tokens == 11
+    assert ctx.output_tokens == 4
+    assert ctx.status_code == 502
+    assert (ctx.error_message or "").startswith("upstream_stream_error:")
