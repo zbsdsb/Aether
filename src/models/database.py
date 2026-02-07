@@ -792,6 +792,63 @@ class ProviderEndpoint(Base):
     )
 
 
+class ProxyNodeStatus(PyEnum):
+    """代理节点状态"""
+
+    ONLINE = "online"
+    UNHEALTHY = "unhealthy"
+    OFFLINE = "offline"
+
+
+class ProxyNode(Base):
+    """代理节点表（用于 aether-proxy 注册/心跳）"""
+
+    __tablename__ = "proxy_nodes"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
+    name = Column(String(100), nullable=False)  # 节点名
+    ip = Column(String(45), nullable=False)  # 公网 IP（IPv6 最长 39 + 冗余）
+    port = Column(Integer, nullable=False)  # 代理端口
+    region = Column(String(100), nullable=True)  # 区域标签
+
+    status = Column(
+        Enum(
+            ProxyNodeStatus,
+            name="proxynodestatus",
+            create_type=False,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=ProxyNodeStatus.ONLINE,
+        nullable=False,
+    )
+
+    registered_by = Column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="注册该节点的管理员用户 ID（可空）",
+    )
+    last_heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    heartbeat_interval = Column(Integer, default=30, nullable=False)
+
+    # 性能指标（心跳上报）
+    active_connections = Column(Integer, default=0, nullable=False)
+    total_requests = Column(BigInteger, default=0, nullable=False)
+    avg_latency_ms = Column(Float, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (UniqueConstraint("ip", "port", name="uq_proxy_node_ip_port"),)
+
+
 class GlobalModel(Base):
     """全局统一模型定义 - 包含价格和能力配置
 

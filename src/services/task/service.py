@@ -704,6 +704,7 @@ class TaskService:
         from src.core.exceptions import (
             ConcurrencyLimitError,
             EmbeddedErrorException,
+            ProxyNodeUnavailableError,
             ThinkingSignatureException,
             UpstreamClientException,
         )
@@ -741,6 +742,20 @@ class TaskService:
                 db=self.db,
                 candidate_id=candidate_record_id,
                 skip_reason=f"并发限制: {str(cause)}",
+            )
+            return "break"
+
+        if isinstance(cause, ProxyNodeUnavailableError):
+            # ProxyNode 不可用属于“配置明确指定但不可达/不可用”的情况，
+            # 在当前候选上重试通常没有意义，直接切换到下一个候选更合理。
+            logger.warning("  [{}] 代理节点不可用，切换候选: {}", request_id, str(cause))
+            RequestCandidateService.mark_candidate_failed(
+                db=self.db,
+                candidate_id=candidate_record_id,
+                error_type=type(cause).__name__,
+                error_message=extract_error_message(cause),
+                latency_ms=elapsed_ms,
+                concurrent_requests=captured_key_concurrent,
             )
             return "break"
 

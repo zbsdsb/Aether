@@ -11,6 +11,7 @@ from src.modules.gemini_files import gemini_files_module
 from src.modules.ldap import ldap_module
 from src.modules.management_tokens import management_tokens_module
 from src.modules.oauth import oauth_module
+from src.modules.proxy_nodes import proxy_nodes_module
 
 # 所有模块列表
 ALL_MODULES: list[ModuleDefinition] = [
@@ -18,6 +19,7 @@ ALL_MODULES: list[ModuleDefinition] = [
     oauth_module,
     gemini_files_module,
     management_tokens_module,
+    proxy_nodes_module,
 ]
 
 __all__ = ["ALL_MODULES"]

@@ -231,6 +231,12 @@ const routes: RouteRecordRaw[] = [
         component: () => importWithRetry(() => import('@/views/admin/AsyncTasks.vue'))
       },
       {
+        path: 'proxy-nodes',
+        name: 'ProxyNodes',
+        component: () => importWithRetry(() => import('@/views/admin/ProxyNodes.vue')),
+        meta: { module: 'proxy_nodes' }
+      },
+      {
         path: 'gemini-files',
         name: 'GeminiFilesManagement',
         component: () => importWithRetry(() => import('@/views/admin/GeminiFilesManagement.vue'))

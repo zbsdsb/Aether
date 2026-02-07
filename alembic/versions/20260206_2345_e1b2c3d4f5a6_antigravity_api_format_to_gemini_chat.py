@@ -1,4 +1,4 @@
-"""Update Antigravity endpoint signature to gemini:chat
+"""Antigravity endpoint signature to gemini:chat & add proxy_nodes table
 
 Revision ID: e1b2c3d4f5a6
 Revises: b5c6d7e8f9a0
@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import text
+import sqlalchemy as sa
+from sqlalchemy import inspect, text
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -21,8 +23,18 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def table_exists(table_name: str) -> bool:
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    return table_name in inspector.get_table_names()
+
+
 def upgrade() -> None:
     conn = op.get_bind()
+
+    # =========================================================================
+    # Part 1: Antigravity endpoint signature migration (gemini:cli -> gemini:chat)
+    # =========================================================================
 
     # --- provider_endpoints ---
     # Update only when there is no conflicting gemini:chat endpoint for the same provider
@@ -58,7 +70,7 @@ def upgrade() -> None:
 
     # --- provider_api_keys.api_formats (JSON array) ---
     # Replace "gemini:cli" with "gemini:chat" in the JSON array for Antigravity keys.
-    # Uses text-level replace on the serialized JSON — safe because the value is a
+    # Uses text-level replace on the serialized JSON -- safe because the value is a
     # simple string with no special characters that could cause ambiguous replacements.
     conn.execute(text("""
             UPDATE provider_api_keys pak
@@ -70,9 +82,82 @@ def upgrade() -> None:
               AND pak.api_formats::text LIKE '%"gemini:cli"%'
             """))
 
+    # =========================================================================
+    # Part 2: Create proxy_nodes table (idempotent)
+    # =========================================================================
+
+    # Create ENUM type (idempotent)
+    op.execute(
+        "DO $$ BEGIN "
+        "CREATE TYPE proxynodestatus AS ENUM ('online', 'unhealthy', 'offline'); "
+        "EXCEPTION WHEN duplicate_object THEN NULL; "
+        "END $$"
+    )
+
+    if table_exists("proxy_nodes"):
+        return
+
+    op.create_table(
+        "proxy_nodes",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("name", sa.String(100), nullable=False),
+        sa.Column("ip", sa.String(45), nullable=False),
+        sa.Column("port", sa.Integer(), nullable=False),
+        sa.Column("region", sa.String(100), nullable=True),
+        sa.Column(
+            "status",
+            postgresql.ENUM(
+                "online",
+                "unhealthy",
+                "offline",
+                name="proxynodestatus",
+                create_type=False,
+            ),
+            nullable=False,
+            server_default=sa.text("'online'"),
+        ),
+        sa.Column(
+            "registered_by",
+            sa.String(36),
+            sa.ForeignKey("users.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        sa.Column("last_heartbeat_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("heartbeat_interval", sa.Integer(), nullable=False, server_default=sa.text("30")),
+        sa.Column("active_connections", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column("total_requests", sa.BigInteger(), nullable=False, server_default=sa.text("0")),
+        sa.Column("avg_latency_ms", sa.Float(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        ),
+        sa.UniqueConstraint("ip", "port", name="uq_proxy_node_ip_port"),
+    )
+
 
 def downgrade() -> None:
     conn = op.get_bind()
+
+    # =========================================================================
+    # Part 2 rollback: Drop proxy_nodes table
+    # =========================================================================
+    if table_exists("proxy_nodes"):
+        op.drop_table("proxy_nodes")
+
+    # Best-effort: drop type (only used by proxy_nodes)
+    op.execute("DROP TYPE IF EXISTS proxynodestatus")
+
+    # =========================================================================
+    # Part 1 rollback: Revert Antigravity endpoint signature (gemini:chat -> gemini:cli)
+    # =========================================================================
 
     # --- provider_endpoints ---
     conn.execute(text("""

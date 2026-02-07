@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -20,12 +21,77 @@ from urllib.parse import quote, urlparse
 import httpx
 
 from src.config import config
+from src.core.exceptions import ProxyNodeUnavailableError
 from src.core.logger import logger
 from src.utils.ssl_utils import get_ssl_context
 
 # 模块级锁，避免类属性延迟初始化的竞态条件
 _proxy_clients_lock = asyncio.Lock()
 _default_client_lock = asyncio.Lock()
+
+# ProxyNode 信息缓存（降低高频 DB 查询开销）
+_proxy_node_cache: dict[str, tuple[dict[str, Any] | None, float]] = {}
+_PROXY_NODE_CACHE_TTL_SECONDS = 60.0
+_PROXY_NODE_CACHE_MAX_SIZE = 256
+
+
+def _get_proxy_node_info(node_id: str) -> dict[str, Any] | None:
+    """
+    读取 ProxyNode 信息（带内存 TTL 缓存）
+
+    Returns:
+        {"ip": str, "port": int} 或 None（不存在/非在线）
+    """
+    now = time.time()
+    cached = _proxy_node_cache.get(node_id)
+    if cached:
+        value, expires_at = cached
+        if now < expires_at:
+            return value
+
+    # 防止无效 node_id 导致缓存无限膨胀
+    if len(_proxy_node_cache) >= _PROXY_NODE_CACHE_MAX_SIZE:
+        _proxy_node_cache.clear()
+
+    from src.database import create_session
+    from src.models.database import ProxyNode, ProxyNodeStatus
+
+    db = create_session()
+    try:
+        node = db.query(ProxyNode).filter(ProxyNode.id == node_id).first()
+        if not node or node.status != ProxyNodeStatus.ONLINE:
+            _proxy_node_cache[node_id] = (None, now + _PROXY_NODE_CACHE_TTL_SECONDS)
+            return None
+
+        value = {"ip": node.ip, "port": node.port}
+        _proxy_node_cache[node_id] = (value, now + _PROXY_NODE_CACHE_TTL_SECONDS)
+        return value
+    finally:
+        db.close()
+
+
+def _build_hmac_proxy_url(ip: str, port: int, node_id: str) -> str:
+    """
+    构建带 HMAC BasicAuth 的 httpx proxy URL
+
+    格式: http://hmac:{timestamp}.{signature}@{ip}:{port}
+    signature = HMAC-SHA256(PROXY_HMAC_KEY, "{timestamp}\\n{node_id}") 的 hex
+    """
+    if not config.proxy_hmac_key:
+        raise ProxyNodeUnavailableError(
+            "PROXY_HMAC_KEY 未配置，无法使用 ProxyNode 代理", node_id=node_id
+        )
+
+    timestamp = str(int(time.time()))
+    payload = f"{timestamp}\n{node_id}".encode("utf-8")
+    signature = hmac.new(
+        config.proxy_hmac_key.encode("utf-8"),
+        payload,
+        hashlib.sha256,
+    ).hexdigest()
+
+    host = f"[{ip}]" if ":" in ip else ip
+    return f"http://hmac:{timestamp}.{signature}@{host}:{int(port)}"
 
 
 def _compute_proxy_cache_key(proxy_config: dict[str, Any] | None) -> str:
@@ -41,6 +107,16 @@ def _compute_proxy_cache_key(proxy_config: dict[str, Any] | None) -> str:
     if not proxy_config:
         return "__no_proxy__"
 
+    # enabled=False 时视为无代理（兼容旧数据）
+    if not proxy_config.get("enabled", True):
+        return "__no_proxy__"
+
+    # ProxyNode 模式：基于 node_id + 时间桶缓存，避免签名随时间变化导致 cache key 爆炸
+    node_id = proxy_config.get("node_id")
+    if isinstance(node_id, str) and node_id.strip():
+        time_bucket = int(time.time() / 120)  # 120 秒一个桶
+        return f"proxy_node:{node_id.strip()}:{time_bucket}"
+
     # 构建代理 URL 作为缓存键的基础
     proxy_url = build_proxy_url(proxy_config)
     if not proxy_url:
@@ -55,7 +131,9 @@ def build_proxy_url(proxy_config: dict[str, Any]) -> str | None:
     根据代理配置构建完整的代理 URL
 
     Args:
-        proxy_config: 代理配置字典，包含 url, username, password, enabled
+        proxy_config: 代理配置字典，支持两种模式：
+            - 手动 URL 模式: {url, username, password, enabled}
+            - ProxyNode 模式: {node_id, enabled}
 
     Returns:
         完整的代理 URL，如 socks5://user:pass@host:port
@@ -67,6 +145,15 @@ def build_proxy_url(proxy_config: dict[str, Any]) -> str | None:
     # 检查 enabled 字段，默认为 True（兼容旧数据）
     if not proxy_config.get("enabled", True):
         return None
+
+    # ProxyNode 模式（aether-proxy）
+    node_id = proxy_config.get("node_id")
+    if isinstance(node_id, str) and node_id.strip():
+        node_id = node_id.strip()
+        node_info = _get_proxy_node_info(node_id)
+        if not node_info:
+            raise ProxyNodeUnavailableError(f"代理节点 {node_id} 不可用", node_id=node_id)
+        return _build_hmac_proxy_url(node_info["ip"], node_info["port"], node_id)
 
     proxy_url: str | None = proxy_config.get("url")
     if not proxy_url:
@@ -307,9 +394,13 @@ class HTTPClientPool:
             client = httpx.AsyncClient(**client_config)  # type: ignore[arg-type]
             cls._proxy_clients[cache_key] = (client, time.time())
 
+            proxy_label = "none"
+            if proxy_config:
+                proxy_label = str(
+                    proxy_config.get("node_id") or proxy_config.get("url") or "unknown"
+                )
             logger.debug(
-                f"创建代理客户端(缓存): {proxy_config.get('url', 'unknown') if proxy_config else 'none'}, "
-                f"缓存数量: {len(cls._proxy_clients)}"
+                f"创建代理客户端(缓存): {proxy_label}, " f"缓存数量: {len(cls._proxy_clients)}"
             )
 
             return client

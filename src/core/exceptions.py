@@ -209,6 +209,17 @@ class ProviderNotAvailableException(ProviderException):
         self.upstream_response = upstream_response
 
 
+class ProxyNodeUnavailableError(ProviderException):
+    """代理节点不可用（ProxyNode 离线/不存在/不健康）"""
+
+    def __init__(self, message: str, node_id: str | None = None):
+        super().__init__(
+            message=message,
+            provider_name=None,
+            proxy_node_id=node_id,
+        )
+
+
 class ProviderTimeoutException(ProviderException):
     """提供商请求超时"""
 

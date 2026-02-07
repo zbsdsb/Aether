@@ -241,12 +241,144 @@ class OpenAIResponseParser(ResponseParser):
 
 
 class OpenAICliResponseParser(OpenAIResponseParser):
-    """OpenAI CLI 格式响应解析器"""
+    """OpenAI CLI / Responses API 格式响应解析器
+
+    OpenAI Responses API 与 Chat Completions API 的关键差异：
+    - Usage 字段: input_tokens/output_tokens（而非 prompt_tokens/completion_tokens）
+    - 响应结构: output[].content[].text（而非 choices[].message.content）
+    - 流式事件: response.completed 事件中 usage 嵌套在 response 对象内
+    """
 
     def __init__(self) -> None:
         super().__init__()
         self.name = "openai:cli"
         self.api_format = "openai:cli"
+
+    def parse_response(self, response: dict[str, Any], status_code: int) -> ParsedResponse:
+        result = ParsedResponse(
+            raw_response=response,
+            status_code=status_code,
+        )
+
+        # Responses API: 文本在 output[].content[].text 中
+        result.text_content = self._extract_responses_api_text(response)
+        result.response_id = response.get("id")
+
+        # Responses API usage: input_tokens / output_tokens
+        usage = self._extract_responses_api_usage(response)
+        result.input_tokens = usage.get("input_tokens", 0)
+        result.output_tokens = usage.get("output_tokens", 0)
+        result.cache_creation_tokens = usage.get("cache_creation_tokens", 0)
+        result.cache_read_tokens = usage.get("cache_read_tokens", 0)
+
+        # 检查错误（支持嵌套错误格式）
+        is_error, error_info = _check_nested_error(response)
+        if is_error and error_info:
+            result.is_error = True
+            result.error_type = error_info.get("type")
+            result.error_message = error_info.get("message")
+            result.embedded_status_code = _extract_embedded_status_code(error_info)
+
+        return result
+
+    def extract_usage_from_response(self, response: dict[str, Any]) -> dict[str, int]:
+        usage = self._extract_responses_api_usage(response)
+        return usage
+
+    def extract_text_content(self, response: dict[str, Any]) -> str:
+        return self._extract_responses_api_text(response)
+
+    @staticmethod
+    def _extract_responses_api_usage(response: dict[str, Any]) -> dict[str, int]:
+        """从 Responses API 响应或流式事件中提取 usage
+
+        支持多种结构：
+        1. 顶层 usage（非流式响应 / 部分转换后的响应）
+        2. response.usage（流式 response.completed 事件）
+        3. 兼容 Chat Completions 字段名（prompt_tokens/completion_tokens）
+        """
+        usage: dict[str, Any] = {}
+
+        # 优先从顶层 usage 提取
+        top_usage = response.get("usage")
+        if isinstance(top_usage, dict):
+            usage = top_usage
+        else:
+            # 流式事件: response.completed 中 usage 嵌套在 response 对象内
+            resp_obj = response.get("response")
+            if isinstance(resp_obj, dict):
+                nested_usage = resp_obj.get("usage")
+                if isinstance(nested_usage, dict):
+                    usage = nested_usage
+
+        if not usage:
+            return {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_creation_tokens": 0,
+                "cache_read_tokens": 0,
+            }
+
+        # Responses API 使用 input_tokens/output_tokens
+        # 兼容 Chat Completions 的 prompt_tokens/completion_tokens（以防转换后的响应）
+        input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
+        output_tokens = usage.get("output_tokens") or usage.get("completion_tokens") or 0
+
+        return {
+            "input_tokens": int(input_tokens),
+            "output_tokens": int(output_tokens),
+            "cache_creation_tokens": int(
+                usage.get("cache_creation_input_tokens") or usage.get("cache_creation_tokens") or 0
+            ),
+            "cache_read_tokens": int(
+                usage.get("cache_read_input_tokens") or usage.get("cache_read_tokens") or 0
+            ),
+        }
+
+    @staticmethod
+    def _extract_responses_api_text(response: dict[str, Any]) -> str:
+        """从 Responses API 响应中提取文本内容
+
+        支持结构: output[].content[].text 或 output[].text
+        """
+        text_parts: list[str] = []
+
+        output = response.get("output")
+        if isinstance(output, list):
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                # message 类型: output[].content[].text
+                if item.get("type") == "message":
+                    content = item.get("content")
+                    if isinstance(content, list):
+                        for part in content:
+                            if isinstance(part, dict):
+                                ptype = str(part.get("type") or "")
+                                if ptype in ("output_text", "text") and isinstance(
+                                    part.get("text"), str
+                                ):
+                                    text_parts.append(part["text"])
+                # 直接文本类型: output[].text
+                elif item.get("type") in ("output_text", "text") and isinstance(
+                    item.get("text"), str
+                ):
+                    text_parts.append(item["text"])
+
+        # 兼容: 部分实现可能直接给 output_text
+        if not text_parts and isinstance(response.get("output_text"), str):
+            text_parts.append(response["output_text"])
+
+        # 兼容: 如果是 Chat Completions 格式（可能来自转换后的响应），回退到 choices 结构
+        if not text_parts:
+            choices = response.get("choices", [])
+            if isinstance(choices, list) and choices:
+                message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+                content = message.get("content") if isinstance(message, dict) else None
+                if isinstance(content, str):
+                    text_parts.append(content)
+
+        return "".join(text_parts)
 
 
 class ClaudeResponseParser(ResponseParser):

@@ -368,6 +368,7 @@ import {
   Video,
   Zap,
   FileUp,
+  Server,
   type LucideIcon,
 } from 'lucide-vue-next'
 
@@ -520,6 +521,7 @@ const navigation = computed(() => {
     FileUp,
     Shield,
     Puzzle,
+    Server,
   }
 
   // 添加模块菜单项（按 admin_menu_order 排序，只显示已激活的）

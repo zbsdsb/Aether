@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.core.enums import ProviderBillingType
 
@@ -18,18 +18,26 @@ from src.core.enums import ProviderBillingType
 class ProxyConfig(BaseModel):
     """代理配置"""
 
-    url: str = Field(..., description="代理 URL (http://, https://, socks5://)")
+    # 模式 1: 手动配置代理 URL（原有）
+    url: str | None = Field(None, description="代理 URL (http://, https://, socks5://)")
     username: str | None = Field(None, max_length=255, description="代理用户名")
     password: str | None = Field(None, max_length=500, description="代理密码")
+    # 模式 2: ProxyNode（aether-proxy 注册的节点）
+    node_id: str | None = Field(None, description="代理节点 ID")
     enabled: bool = Field(True, description="是否启用代理（false 时保留配置但不使用）")
 
     @field_validator("url")
     @classmethod
-    def validate_proxy_url(cls, v: str) -> str:
+    def validate_proxy_url(cls, v: str | None) -> str | None:
         """验证代理 URL 格式"""
+        if v is None:
+            return None
+
         from urllib.parse import urlparse
 
         v = v.strip()
+        if not v:
+            return None
 
         # 检查禁止的字符（防止注入）
         if "\n" in v or "\r" in v:
@@ -49,6 +57,27 @@ class ProxyConfig(BaseModel):
             raise ValueError("请勿在 URL 中包含用户名和密码，请使用独立的认证字段")
 
         return v
+
+    @field_validator("node_id")
+    @classmethod
+    def validate_node_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
+    @model_validator(mode="after")
+    def validate_proxy_mode(self) -> "ProxyConfig":
+        if not self.enabled:
+            return self
+
+        if not self.url and not self.node_id:
+            raise ValueError("启用代理时，必须提供 url 或 node_id")
+
+        if self.url and self.node_id:
+            raise ValueError("url 和 node_id 不能同时设置")
+
+        return self
 
 
 class CreateProviderRequest(BaseModel):

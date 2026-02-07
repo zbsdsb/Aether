@@ -44,5 +44,6 @@ router.include_router(video_tasks_router)
 # 注意：以下路由已迁移到模块系统，由 ModuleRegistry 动态注册
 # - ldap_router: 当 LDAP_AVAILABLE=true 时注册
 # - management_tokens_router: 当 MANAGEMENT_TOKENS_AVAILABLE=true 时注册
+# - proxy_nodes_router: 当 PROXY_NODES_AVAILABLE=true 时注册
 
 __all__ = ["router"]

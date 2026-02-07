@@ -2182,7 +2182,15 @@ class CliMessageHandlerBase(BaseMessageHandler):
             message = evt.get("message", {})
             if isinstance(message, dict):
                 usage = message.get("usage")
-        # OpenAI 格式: 直接在 chunk 中
+        # OpenAI Responses API (openai:cli) 格式: response.completed 中 usage 嵌套在 response 对象内
+        elif event_type == "response.completed":
+            resp_obj = evt.get("response")
+            if isinstance(resp_obj, dict):
+                usage = resp_obj.get("usage")
+            # 兼容: 部分实现可能在顶层也有 usage
+            if not usage:
+                usage = evt.get("usage")
+        # OpenAI Chat 格式: 直接在 chunk 中
         elif "usage" in evt:
             usage = evt.get("usage")
         # Gemini 格式: usageMetadata
