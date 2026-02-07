@@ -21,6 +21,7 @@ pub async fn run(
     node_id: Arc<RwLock<String>>,
     config: Arc<Config>,
     public_ip: String,
+    tls_fingerprint: Option<String>,
     dynamic: SharedDynamicConfig,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
@@ -59,7 +60,12 @@ pub async fn run(
                     old_node_id = %current_node_id,
                     "node not found, re-registering"
                 );
-                match client.register(&config, &public_ip).await {
+                match client.register(
+                    &config,
+                    &public_ip,
+                    config.enable_tls,
+                    tls_fingerprint.as_deref(),
+                ).await {
                     Ok(new_id) => {
                         info!(
                             old_node_id = %current_node_id,

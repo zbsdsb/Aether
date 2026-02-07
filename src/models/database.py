@@ -842,6 +842,12 @@ class ProxyNode(Base):
     total_requests = Column(BigInteger, default=0, nullable=False)
     avg_latency_ms = Column(Float, nullable=True)
 
+    # TLS 加密
+    tls_enabled = Column(Boolean, default=False, nullable=False, comment="是否启用 TLS 加密")
+    tls_cert_fingerprint = Column(
+        String(128), nullable=True, comment="TLS 证书 SHA-256 指纹（hex）"
+    )
+
     # 管理端远程配置（通过心跳下发给 aether-proxy）
     remote_config = Column(
         JSON,

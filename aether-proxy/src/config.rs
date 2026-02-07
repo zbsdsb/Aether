@@ -58,6 +58,18 @@ pub struct Config {
     /// Output logs as JSON
     #[arg(long, env = "AETHER_PROXY_LOG_JSON", default_value_t = false)]
     pub log_json: bool,
+
+    /// Enable TLS encryption (dual-stack: accepts both HTTP and TLS on same port)
+    #[arg(long, env = "AETHER_PROXY_ENABLE_TLS", default_value_t = true)]
+    pub enable_tls: bool,
+
+    /// Path to TLS certificate PEM file
+    #[arg(long, env = "AETHER_PROXY_TLS_CERT", default_value = "aether-proxy-cert.pem")]
+    pub tls_cert: String,
+
+    /// Path to TLS private key PEM file
+    #[arg(long, env = "AETHER_PROXY_TLS_KEY", default_value = "aether-proxy-key.pem")]
+    pub tls_key: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +104,12 @@ pub struct ConfigFile {
     pub log_level: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_json: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_tls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_cert: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_key: Option<String>,
 }
 
 impl ConfigFile {
@@ -133,6 +151,9 @@ impl ConfigFile {
         set!("AETHER_PROXY_TIMESTAMP_TOLERANCE", self.timestamp_tolerance);
         set!("AETHER_PROXY_LOG_LEVEL", self.log_level);
         set!("AETHER_PROXY_LOG_JSON", self.log_json);
+        set!("AETHER_PROXY_ENABLE_TLS", self.enable_tls);
+        set!("AETHER_PROXY_TLS_CERT", self.tls_cert);
+        set!("AETHER_PROXY_TLS_KEY", self.tls_key);
 
         // allowed_ports needs special handling (comma-separated)
         if let Some(ref ports) = self.allowed_ports {

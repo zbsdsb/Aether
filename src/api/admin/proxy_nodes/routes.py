@@ -50,6 +50,8 @@ def _node_to_dict(node: ProxyNode) -> dict[str, Any]:
         "active_connections": node.active_connections,
         "total_requests": node.total_requests,
         "avg_latency_ms": node.avg_latency_ms,
+        "tls_enabled": bool(node.tls_enabled),
+        "tls_cert_fingerprint": node.tls_cert_fingerprint,
         "remote_config": node.remote_config,
         "config_version": node.config_version,
         "created_at": node.created_at,
@@ -74,6 +76,12 @@ class ProxyNodeRegisterRequest(BaseModel):
     active_connections: int | None = Field(None, ge=0, description="当前活跃连接数")
     total_requests: int | None = Field(None, ge=0, description="累计请求数")
     avg_latency_ms: float | None = Field(None, ge=0, description="平均延迟（毫秒）")
+
+    # TLS
+    tls_enabled: bool = Field(False, description="是否启用 TLS 加密")
+    tls_cert_fingerprint: str | None = Field(
+        None, max_length=128, description="TLS 证书 SHA-256 指纹"
+    )
 
     @field_validator("ip")
     @classmethod
@@ -275,6 +283,8 @@ class AdminRegisterProxyNodeAdapter(AdminApiAdapter):
             node.status = ProxyNodeStatus.ONLINE
             node.last_heartbeat_at = now
             node.heartbeat_interval = req.heartbeat_interval
+            node.tls_enabled = req.tls_enabled
+            node.tls_cert_fingerprint = req.tls_cert_fingerprint
             if req.active_connections is not None:
                 node.active_connections = req.active_connections
             if req.total_requests is not None:
@@ -295,6 +305,8 @@ class AdminRegisterProxyNodeAdapter(AdminApiAdapter):
                 active_connections=req.active_connections or 0,
                 total_requests=req.total_requests or 0,
                 avg_latency_ms=req.avg_latency_ms,
+                tls_enabled=req.tls_enabled,
+                tls_cert_fingerprint=req.tls_cert_fingerprint,
                 created_at=now,
                 updated_at=now,
             )
@@ -496,7 +508,9 @@ def _build_test_proxy_url(node: ProxyNode) -> str:
         # aether-proxy: 使用 HMAC 认证构建代理 URL
         from src.clients.http_client import _build_hmac_proxy_url
 
-        return _build_hmac_proxy_url(node.ip, node.port, node.id)
+        return _build_hmac_proxy_url(
+            node.ip, node.port, node.id, tls_enabled=bool(node.tls_enabled)
+        )
 
 
 @dataclass
@@ -634,9 +648,14 @@ class AdminTestProxyNodeAdapter(AdminApiAdapter):
         test_url = "https://1.1.1.1/cdn-cgi/trace"
         start = _time.monotonic()
 
+        # TLS 代理需要 proxy_ssl_context
+        from src.clients.http_client import _make_proxy_param
+
+        proxy_param = _make_proxy_param(proxy_url)
+
         try:
             async with httpx.AsyncClient(
-                proxy=proxy_url,
+                proxy=proxy_param,
                 timeout=httpx.Timeout(15.0, connect=10.0),
             ) as client:
                 response = await client.get(test_url)

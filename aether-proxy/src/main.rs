@@ -73,7 +73,26 @@ async fn main() -> anyhow::Result<()> {
 
     // Register with Aether
     let aether_client = Arc::new(AetherClient::new(&config));
-    let node_id = aether_client.register(&config, &public_ip).await?;
+
+    // Initialize TLS if enabled
+    let (tls_acceptor, tls_fingerprint) = if config.enable_tls {
+        let cert_path = std::path::PathBuf::from(&config.tls_cert);
+        let key_path = std::path::PathBuf::from(&config.tls_key);
+
+        proxy::tls::ensure_self_signed_cert(&cert_path, &key_path)?;
+        let acceptor = proxy::tls::build_tls_acceptor(&cert_path, &key_path)?;
+        let fingerprint = proxy::tls::cert_sha256_fingerprint(&cert_path)?;
+
+        info!(fingerprint = %fingerprint, "TLS enabled");
+        (Some(acceptor), Some(fingerprint))
+    } else {
+        info!("TLS disabled");
+        (None, None)
+    };
+
+    let node_id = aether_client
+        .register(&config, &public_ip, config.enable_tls, tls_fingerprint.as_deref())
+        .await?;
 
     info!(node_id = %node_id, "node registered");
 
@@ -94,9 +113,10 @@ async fn main() -> anyhow::Result<()> {
         let config = Arc::clone(&config);
         let dynamic = Arc::clone(&dynamic);
         let public_ip = public_ip.clone();
+        let fingerprint = tls_fingerprint.clone();
         let rx = shutdown_rx.clone();
         tokio::spawn(async move {
-            registration::heartbeat::run(client, node_id, config, public_ip, dynamic, rx).await;
+            registration::heartbeat::run(client, node_id, config, public_ip, fingerprint, dynamic, rx).await;
         })
     };
 
@@ -106,8 +126,9 @@ async fn main() -> anyhow::Result<()> {
         let node_id = Arc::clone(&node_id);
         let dynamic = Arc::clone(&dynamic);
         let rx = shutdown_rx.clone();
+        let tls = tls_acceptor.clone();
         tokio::spawn(async move {
-            if let Err(e) = proxy::server::run(config, node_id, dynamic, rx).await {
+            if let Err(e) = proxy::server::run(config, node_id, dynamic, tls, rx).await {
                 error!(error = %e, "proxy server error");
             }
         })

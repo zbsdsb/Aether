@@ -53,7 +53,7 @@ class ProviderConnector(ABC):
         # 代理配置（支持 proxy_node_id 和旧的 proxy URL）
         from src.clients.http_client import resolve_ops_proxy
 
-        self._proxy: str | None = resolve_ops_proxy(self.config)
+        self._proxy: str | httpx.Proxy | None = resolve_ops_proxy(self.config)
 
         # HTTP 客户端配置
         self._timeout = self.config.get("timeout", 30)

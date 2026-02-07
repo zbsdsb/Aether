@@ -31,6 +31,10 @@ struct RegisterRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     region: Option<String>,
     heartbeat_interval: u64,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    tls_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tls_cert_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,6 +117,8 @@ impl AetherClient {
         &self,
         config: &Config,
         public_ip: &str,
+        tls_enabled: bool,
+        tls_cert_fingerprint: Option<&str>,
     ) -> anyhow::Result<String> {
         let url = format!("{}/api/admin/proxy-nodes/register", self.base_url);
         let body = RegisterRequest {
@@ -121,6 +127,8 @@ impl AetherClient {
             port: config.listen_port,
             region: config.node_region.clone(),
             heartbeat_interval: config.heartbeat_interval,
+            tls_enabled,
+            tls_cert_fingerprint: tls_cert_fingerprint.map(|s| s.to_string()),
         };
 
         info!(

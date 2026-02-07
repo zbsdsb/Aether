@@ -213,7 +213,7 @@ def _parse_session_user_id(cookie_input: str) -> tuple[str | None, str | None]:
 
 
 async def _get_acw_cookie(
-    base_url: str, timeout: float = 10, proxy: str | None = None
+    base_url: str, timeout: float = 10, proxy: str | httpx.Proxy | None = None
 ) -> str | None:
     """
     获取 acw_sc__v2 Cookie

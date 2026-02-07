@@ -151,6 +151,14 @@ impl App {
                     help: "HMAC 时间戳容差窗口 (秒)",
                 },
                 Field {
+                    label: "Enable TLS",
+                    key: "enable_tls",
+                    value: "true".into(),
+                    kind: FieldKind::Bool,
+                    required: true,
+                    help: "启用 TLS 加密 (双栈模式, 同时接受 HTTP 和 TLS)",
+                },
+                Field {
                     label: "Log Level",
                     key: "log_level",
                     value: "info".into(),
@@ -204,6 +212,7 @@ impl App {
                 "timestamp_tolerance" => cfg.timestamp_tolerance.map(|v| v.to_string()),
                 "log_level" => cfg.log_level.clone(),
                 "log_json" => cfg.log_json.map(|v| v.to_string()),
+                "enable_tls" => cfg.enable_tls.map(|v| v.to_string()),
                 _ => None,
             };
             if let Some(v) = val {
@@ -238,6 +247,9 @@ impl App {
             timestamp_tolerance: get("timestamp_tolerance").and_then(|v| v.parse().ok()),
             log_level: get("log_level"),
             log_json: get("log_json").and_then(|v| v.parse().ok()),
+            enable_tls: get("enable_tls").and_then(|v| v.parse().ok()),
+            tls_cert: None,
+            tls_key: None,
         }
     }
 

@@ -73,7 +73,12 @@ def _get_proxy_node_info(node_id: str) -> dict[str, Any] | None:
                 "password": node.proxy_password,
             }
         else:
-            value = {"ip": node.ip, "port": node.port}
+            value = {
+                "ip": node.ip,
+                "port": node.port,
+                "tls_enabled": bool(node.tls_enabled),
+                "tls_cert_fingerprint": node.tls_cert_fingerprint,
+            }
 
         _proxy_node_cache[node_id] = (value, now + _PROXY_NODE_CACHE_TTL_SECONDS)
         return value
@@ -81,12 +86,14 @@ def _get_proxy_node_info(node_id: str) -> dict[str, Any] | None:
         db.close()
 
 
-def _build_hmac_proxy_url(ip: str, port: int, node_id: str) -> str:
+def _build_hmac_proxy_url(ip: str, port: int, node_id: str, *, tls_enabled: bool = False) -> str:
     """
     构建带 HMAC BasicAuth 的 httpx proxy URL
 
-    格式: http://hmac:{timestamp}.{signature}@{ip}:{port}
+    格式: http(s)://hmac:{timestamp}.{signature}@{ip}:{port}
     signature = HMAC-SHA256(PROXY_HMAC_KEY, "{timestamp}\\n{node_id}") 的 hex
+
+    当 tls_enabled=True 时使用 https:// scheme。
     """
     if not config.proxy_hmac_key:
         raise ProxyNodeUnavailableError(
@@ -102,7 +109,8 @@ def _build_hmac_proxy_url(ip: str, port: int, node_id: str) -> str:
     ).hexdigest()
 
     host = f"[{ip}]" if ":" in ip else ip
-    return f"http://hmac:{timestamp}.{signature}@{host}:{int(port)}"
+    scheme = "https" if tls_enabled else "http"
+    return f"{scheme}://hmac:{timestamp}.{signature}@{host}:{int(port)}"
 
 
 # 系统默认代理缓存
@@ -150,9 +158,11 @@ def get_system_proxy_config() -> dict[str, Any] | None:
         db.close()
 
 
-def resolve_ops_proxy(connector_config: dict[str, Any] | None) -> str | None:
+def resolve_ops_proxy(
+    connector_config: dict[str, Any] | None,
+) -> str | httpx.Proxy | None:
     """
-    从 ops connector.config 中解析代理 URL（含系统默认回退）
+    从 ops connector.config 中解析代理参数（含系统默认回退）
 
     优先级：
     1. connector_config.proxy_node_id（新格式）
@@ -163,14 +173,15 @@ def resolve_ops_proxy(connector_config: dict[str, Any] | None) -> str | None:
         connector_config: connector 的 config 字典
 
     Returns:
-        代理 URL 字符串，或 None
+        httpx 可接受的代理参数（str 或 httpx.Proxy），或 None
     """
     if connector_config:
         # 新格式：proxy_node_id → 通过 build_proxy_url 解析
         node_id = connector_config.get("proxy_node_id")
         if isinstance(node_id, str) and node_id.strip():
             try:
-                return build_proxy_url({"node_id": node_id.strip(), "enabled": True})
+                url = build_proxy_url({"node_id": node_id.strip(), "enabled": True})
+                return _make_proxy_param(url)
             except Exception as exc:
                 logger.warning("解析 proxy_node_id={} 失败，回退到直连: {}", node_id, exc)
                 return None
@@ -184,7 +195,8 @@ def resolve_ops_proxy(connector_config: dict[str, Any] | None) -> str | None:
     system_proxy = get_system_proxy_config()
     if system_proxy:
         try:
-            return build_proxy_url(system_proxy)
+            url = build_proxy_url(system_proxy)
+            return _make_proxy_param(url)
         except Exception as exc:
             logger.warning("构建系统默认代理 URL 失败: {}", exc)
             return None
@@ -281,7 +293,12 @@ def build_proxy_url(proxy_config: dict[str, Any]) -> str | None:
             return manual_url
 
         # aether-proxy 节点：使用 HMAC 认证
-        return _build_hmac_proxy_url(node_info["ip"], node_info["port"], node_id)
+        return _build_hmac_proxy_url(
+            node_info["ip"],
+            node_info["port"],
+            node_id,
+            tls_enabled=node_info.get("tls_enabled", False),
+        )
 
     proxy_url: str | None = proxy_config.get("url")
     if not proxy_url:
@@ -304,6 +321,26 @@ def build_proxy_url(proxy_config: dict[str, Any]) -> str | None:
         if parsed.path:
             auth_proxy += parsed.path
         return auth_proxy
+
+    return proxy_url
+
+
+def _make_proxy_param(proxy_url: str | None) -> str | httpx.Proxy | None:
+    """
+    根据代理 URL 返回 httpx 可接受的 proxy 参数。
+
+    对于 https:// scheme 的代理 URL（TLS aether-proxy 节点），返回 httpx.Proxy
+    并附带 proxy_ssl_context（CERT_NONE，因为使用自签名证书）。
+    其他情况返回普通 URL 字符串。
+    """
+    if not proxy_url:
+        return None
+
+    # https:// 代理需要 ssl_context（自签名证书场景）
+    if proxy_url.startswith("https://"):
+        from src.utils.ssl_utils import get_proxy_ssl_context
+
+        return httpx.Proxy(url=proxy_url, ssl_context=get_proxy_ssl_context())
 
     return proxy_url
 
@@ -521,8 +558,9 @@ class HTTPClientPool:
 
             # 添加代理配置
             proxy_url = build_proxy_url(proxy_config) if proxy_config else None
-            if proxy_url:
-                client_config["proxy"] = proxy_url
+            proxy_param = _make_proxy_param(proxy_url)
+            if proxy_param:
+                client_config["proxy"] = proxy_param
 
             client = httpx.AsyncClient(**client_config)  # type: ignore[arg-type]
             cls._proxy_clients[cache_key] = (client, time.time())
@@ -629,10 +667,15 @@ class HTTPClientPool:
                 pool=config.http_pool_timeout,
             )
 
+        # 无特定代理时，回退到系统默认代理（与 get_proxy_client 行为一致）
+        if proxy_config is None:
+            proxy_config = get_system_proxy_config()
+
         # 添加代理配置
         proxy_url = build_proxy_url(proxy_config) if proxy_config else None
-        if proxy_url:
-            client_config["proxy"] = proxy_url
+        proxy_param = _make_proxy_param(proxy_url)
+        if proxy_param:
+            client_config["proxy"] = proxy_param
             logger.debug(f"创建带代理的HTTP客户端(一次性): {proxy_config.get('url', 'unknown')}")
 
         client_config.update(kwargs)
