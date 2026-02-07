@@ -27,10 +27,10 @@ pipeline = ApiRequestPipeline()
 
 
 def _mask_password(password: str | None) -> str | None:
-    """脱敏密码，仅显示前2位和后2位"""
+    """脱敏密码，仅显示前2位和后2位（长度不足 8 时全部遮蔽）"""
     if not password:
         return None
-    if len(password) <= 4:
+    if len(password) < 8:
         return "****"
     return password[:2] + "****" + password[-2:]
 

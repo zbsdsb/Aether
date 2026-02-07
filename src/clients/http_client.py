@@ -142,7 +142,8 @@ def get_system_proxy_config() -> dict[str, Any] | None:
             result = None
         _system_proxy_cache = (result, now + _SYSTEM_PROXY_CACHE_TTL)
         return result
-    except Exception:
+    except Exception as exc:
+        logger.warning("获取系统默认代理配置失败: {}", exc)
         _system_proxy_cache = (None, now + _SYSTEM_PROXY_CACHE_TTL)
         return None
     finally:
@@ -170,7 +171,8 @@ def resolve_ops_proxy(connector_config: dict[str, Any] | None) -> str | None:
         if isinstance(node_id, str) and node_id.strip():
             try:
                 return build_proxy_url({"node_id": node_id.strip(), "enabled": True})
-            except Exception:
+            except Exception as exc:
+                logger.warning("解析 proxy_node_id={} 失败，回退到直连: {}", node_id, exc)
                 return None
 
         # 旧格式：直接返回 proxy URL 字符串
@@ -183,7 +185,8 @@ def resolve_ops_proxy(connector_config: dict[str, Any] | None) -> str | None:
     if system_proxy:
         try:
             return build_proxy_url(system_proxy)
-        except Exception:
+        except Exception as exc:
+            logger.warning("构建系统默认代理 URL 失败: {}", exc)
             return None
 
     return None
