@@ -153,6 +153,17 @@
               <TableCell class="py-4 text-center">
                 <div class="flex items-center justify-center gap-0.5">
                   <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                    :title="testingNodes.has(node.id) ? '测试中...' : '测试连通性'"
+                    :disabled="testingNodes.has(node.id)"
+                    @click="handleTest(node)"
+                  >
+                    <Loader2 v-if="testingNodes.has(node.id)" class="h-4 w-4 animate-spin" />
+                    <Activity v-else class="h-4 w-4" />
+                  </Button>
+                  <Button
                     v-if="node.is_manual"
                     variant="ghost"
                     size="icon"
@@ -161,6 +172,16 @@
                     @click="handleEdit(node)"
                   >
                     <SquarePen class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    v-if="!node.is_manual"
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                    title="远程配置"
+                    @click="handleConfig(node)"
+                  >
+                    <Settings class="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -226,6 +247,17 @@
             <span class="text-xs text-muted-foreground">{{ formatTime(node.last_heartbeat_at) }}</span>
             <div class="flex items-center gap-1">
               <Button
+                variant="ghost"
+                size="sm"
+                class="h-7 px-2 text-xs"
+                :disabled="testingNodes.has(node.id)"
+                @click="handleTest(node)"
+              >
+                <Loader2 v-if="testingNodes.has(node.id)" class="h-3 w-3 mr-1 animate-spin" />
+                <Activity v-else class="h-3 w-3 mr-1" />
+                {{ testingNodes.has(node.id) ? '测试中' : '测试' }}
+              </Button>
+              <Button
                 v-if="node.is_manual"
                 variant="ghost"
                 size="sm"
@@ -234,6 +266,16 @@
               >
                 <SquarePen class="h-3 w-3 mr-1" />
                 编辑
+              </Button>
+              <Button
+                v-if="!node.is_manual"
+                variant="ghost"
+                size="sm"
+                class="h-7 px-2 text-xs"
+                @click="handleConfig(node)"
+              >
+                <Settings class="h-3 w-3 mr-1" />
+                配置
               </Button>
               <Button
                 variant="ghost"
@@ -338,6 +380,77 @@
         </Button>
       </template>
     </Dialog>
+
+    <!-- 远程配置对话框 (aether-proxy 节点) -->
+    <Dialog
+      :model-value="showConfigDialog"
+      title="远程配置"
+      description="修改后将在下次心跳时自动下发到 aether-proxy 节点"
+      :icon="Settings"
+      size="md"
+      @update:model-value="handleConfigDialogClose"
+    >
+      <form class="space-y-4" @submit.prevent>
+        <div class="space-y-1.5">
+          <Label>允许的端口</Label>
+          <Input
+            v-model="configForm.allowed_ports"
+            placeholder="80, 443, 8080, 8443"
+          />
+          <p class="text-xs text-muted-foreground">逗号分隔的目标端口白名单</p>
+        </div>
+        <div class="space-y-1.5">
+          <Label>日志级别</Label>
+          <Select v-model="configForm.log_level">
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="trace">trace</SelectItem>
+              <SelectItem value="debug">debug</SelectItem>
+              <SelectItem value="info">info</SelectItem>
+              <SelectItem value="warn">warn</SelectItem>
+              <SelectItem value="error">error</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <Label>心跳间隔 (秒)</Label>
+            <Input
+              v-model="configForm.heartbeat_interval"
+              type="number"
+              min="5"
+              max="600"
+            />
+          </div>
+          <div class="space-y-1.5">
+            <Label>时间戳容差 (秒)</Label>
+            <Input
+              v-model="configForm.timestamp_tolerance"
+              type="number"
+              min="10"
+              max="3600"
+            />
+          </div>
+        </div>
+        <div v-if="configNode" class="text-xs text-muted-foreground">
+          配置版本: v{{ configNode.config_version }}
+        </div>
+      </form>
+      <template #footer>
+        <Button
+          variant="outline"
+          @click="handleConfigDialogClose(false)"
+        >
+          取消
+        </Button>
+        <Button
+          :disabled="savingConfig"
+          @click="handleSaveConfig"
+        >
+          {{ savingConfig ? '保存中...' : '保存' }}
+        </Button>
+      </template>
+    </Dialog>
   </div>
 </template>
 
@@ -346,7 +459,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useProxyNodesStore } from '@/stores/proxy-nodes'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
-import { proxyNodesApi, type ProxyNode } from '@/api/proxy-nodes'
+import { proxyNodesApi, type ProxyNode, type ProxyNodeRemoteConfig } from '@/api/proxy-nodes'
 
 import {
   Card,
@@ -370,7 +483,7 @@ import {
   Dialog,
 } from '@/components/ui'
 
-import { Search, Trash2, Plus, SquarePen } from 'lucide-vue-next'
+import { Search, Trash2, Plus, SquarePen, Activity, Loader2, Settings } from 'lucide-vue-next'
 
 const { success, error: toastError } = useToast()
 const { confirmDanger } = useConfirm()
@@ -392,6 +505,20 @@ const addForm = ref({
   password: '',
   region: '',
 })
+
+// 远程配置对话框 (aether-proxy 节点)
+const showConfigDialog = ref(false)
+const savingConfig = ref(false)
+const configNode = ref<ProxyNode | null>(null)
+const configForm = ref({
+  allowed_ports: '',
+  log_level: 'info',
+  heartbeat_interval: '30',
+  timestamp_tolerance: '300',
+})
+
+// 测试连通性
+const testingNodes = ref(new Set<string>())
 
 const filteredNodes = computed(() => {
   let filtered = [...store.nodes]
@@ -492,6 +619,62 @@ async function handleAddManualNode() {
   }
 }
 
+function handleConfig(node: ProxyNode) {
+  configNode.value = node
+  const rc: ProxyNodeRemoteConfig = node.remote_config ?? {}
+  configForm.value = {
+    allowed_ports: rc.allowed_ports?.join(', ') || '',
+    log_level: rc.log_level || 'info',
+    heartbeat_interval: String(rc.heartbeat_interval || node.heartbeat_interval || 30),
+    timestamp_tolerance: String(rc.timestamp_tolerance || 300),
+  }
+  showConfigDialog.value = true
+}
+
+function handleConfigDialogClose(open: boolean) {
+  if (!open) {
+    showConfigDialog.value = false
+    configNode.value = null
+  }
+}
+
+async function handleSaveConfig() {
+  if (!configNode.value) return
+  savingConfig.value = true
+  try {
+    const data: Partial<ProxyNodeRemoteConfig> = {}
+    const portsInput = configForm.value.allowed_ports.trim()
+    if (portsInput) {
+      data.allowed_ports = portsInput
+        .split(',')
+        .map((s: string) => parseInt(s.trim()))
+        .filter((n: number) => !isNaN(n) && n >= 1 && n <= 65535)
+    } else if (configNode.value.remote_config?.allowed_ports) {
+      // 输入清空 → 显式发送空数组以清除已有端口白名单
+      data.allowed_ports = []
+    }
+    if (configForm.value.log_level) {
+      data.log_level = configForm.value.log_level
+    }
+    const hb = parseInt(configForm.value.heartbeat_interval)
+    if (!isNaN(hb) && hb >= 5) {
+      data.heartbeat_interval = hb
+    }
+    const tt = parseInt(configForm.value.timestamp_tolerance)
+    if (!isNaN(tt) && tt >= 10) {
+      data.timestamp_tolerance = tt
+    }
+    await proxyNodesApi.updateNodeConfig(configNode.value.id, data)
+    success('远程配置已保存，将在下次心跳时生效')
+    handleConfigDialogClose(false)
+    await store.fetchNodes()
+  } catch (err: any) {
+    toastError(err.response?.data?.error?.message || err.response?.data?.detail || '保存失败')
+  } finally {
+    savingConfig.value = false
+  }
+}
+
 async function handleDelete(node: ProxyNode) {
   const confirmed = await confirmDanger(
     `确定要删除代理节点 "${node.name}" (${node.ip}:${node.port}) 吗？`,
@@ -510,6 +693,26 @@ async function handleDelete(node: ProxyNode) {
     }
   } catch (err: any) {
     toastError(err.response?.data?.error?.message || '删除失败')
+  }
+}
+
+async function handleTest(node: ProxyNode) {
+  if (testingNodes.value.has(node.id)) return
+
+  testingNodes.value.add(node.id)
+  try {
+    const result = await proxyNodesApi.testNode(node.id)
+    if (result.success) {
+      const parts = [`延迟: ${result.latency_ms}ms`]
+      if (result.exit_ip) parts.push(`出口IP: ${result.exit_ip}`)
+      success(`连通性测试通过，${parts.join('，')}`)
+    } else {
+      toastError(`连通性测试失败: ${result.error || '未知错误'}`)
+    }
+  } catch (err: any) {
+    toastError(err.response?.data?.error?.message || '测试请求失败')
+  } finally {
+    testingNodes.value.delete(node.id)
   }
 }
 

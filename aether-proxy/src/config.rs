@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 
 /// Aether forward proxy with HMAC authentication.
 ///
@@ -55,4 +58,92 @@ pub struct Config {
     /// Output logs as JSON
     #[arg(long, env = "AETHER_PROXY_LOG_JSON", default_value_t = false)]
     pub log_json: bool,
+}
+
+// ---------------------------------------------------------------------------
+// TOML config file support
+// ---------------------------------------------------------------------------
+
+/// Serializable config for TOML file persistence.
+/// All fields are optional — only populated values are written.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ConfigFile {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aether_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub management_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hmac_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listen_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_interval: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_ports: Option<Vec<u16>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp_tolerance: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_json: Option<bool>,
+}
+
+impl ConfigFile {
+    /// Load from a TOML file.
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        Ok(toml::from_str(&content)?)
+    }
+
+    /// Save to a TOML file.
+    pub fn save(&self, path: &Path) -> anyhow::Result<()> {
+        let content = toml::to_string_pretty(self)?;
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    /// Inject values as environment variables so clap picks them up.
+    ///
+    /// Only sets variables that are **not** already present in the
+    /// environment, preserving the precedence: CLI > env > config file.
+    pub fn inject_env(&self) {
+        macro_rules! set {
+            ($env:expr, $val:expr) => {
+                if let Some(ref v) = $val {
+                    if std::env::var($env).is_err() {
+                        std::env::set_var($env, v.to_string());
+                    }
+                }
+            };
+        }
+        set!("AETHER_PROXY_AETHER_URL", self.aether_url);
+        set!("AETHER_PROXY_MANAGEMENT_TOKEN", self.management_token);
+        set!("AETHER_PROXY_HMAC_KEY", self.hmac_key);
+        set!("AETHER_PROXY_LISTEN_PORT", self.listen_port);
+        set!("AETHER_PROXY_PUBLIC_IP", self.public_ip);
+        set!("AETHER_PROXY_NODE_NAME", self.node_name);
+        set!("AETHER_PROXY_NODE_REGION", self.node_region);
+        set!("AETHER_PROXY_HEARTBEAT_INTERVAL", self.heartbeat_interval);
+        set!("AETHER_PROXY_TIMESTAMP_TOLERANCE", self.timestamp_tolerance);
+        set!("AETHER_PROXY_LOG_LEVEL", self.log_level);
+        set!("AETHER_PROXY_LOG_JSON", self.log_json);
+
+        // allowed_ports needs special handling (comma-separated)
+        if let Some(ref ports) = self.allowed_ports {
+            if std::env::var("AETHER_PROXY_ALLOWED_PORTS").is_err() {
+                let s: String = ports
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                std::env::set_var("AETHER_PROXY_ALLOWED_PORTS", s);
+            }
+        }
+    }
 }

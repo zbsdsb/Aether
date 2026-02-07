@@ -1,6 +1,5 @@
-use std::collections::HashSet;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
@@ -14,6 +13,7 @@ use tracing::{debug, info, warn};
 
 use crate::config::Config;
 use crate::proxy::{connect, plain};
+use crate::runtime::SharedDynamicConfig;
 
 /// Start the proxy server.
 ///
@@ -22,14 +22,13 @@ use crate::proxy::{connect, plain};
 /// - Other HTTP requests -> plain forward proxy handler
 pub async fn run(
     config: Arc<Config>,
-    node_id: Arc<String>,
+    node_id: Arc<RwLock<String>>,
+    dynamic: SharedDynamicConfig,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], config.listen_port));
     let listener = TcpListener::bind(addr).await?;
     info!(addr = %addr, "proxy server listening");
-
-    let allowed_ports: Arc<HashSet<u16>> = Arc::new(config.allowed_ports.iter().copied().collect());
 
     loop {
         tokio::select! {
@@ -46,28 +45,33 @@ pub async fn run(
 
                 let config = Arc::clone(&config);
                 let node_id = Arc::clone(&node_id);
-                let allowed_ports = Arc::clone(&allowed_ports);
+                let dynamic = Arc::clone(&dynamic);
 
                 tokio::task::spawn(async move {
                     let io = TokioIo::new(stream);
-                    let config = config;
-                    let node_id = node_id;
-                    let allowed_ports = allowed_ports;
 
                     let service = service_fn(move |req: Request<Incoming>| {
                         let config = Arc::clone(&config);
                         let node_id = Arc::clone(&node_id);
-                        let allowed_ports = Arc::clone(&allowed_ports);
+                        let dynamic = Arc::clone(&dynamic);
 
                         async move {
                             type BoxBody = http_body_util::combinators::BoxBody<bytes::Bytes, Box<dyn std::error::Error + Send + Sync>>;
+
+                            // Snapshot current dynamic values (may be updated by remote config)
+                            let current_node_id = node_id.read().unwrap().clone();
+                            let (allowed_ports, timestamp_tolerance) = {
+                                let d = dynamic.read().unwrap();
+                                (d.allowed_ports.clone(), d.timestamp_tolerance)
+                            };
 
                             if req.method() == Method::CONNECT {
                                 let resp = connect::handle_connect(
                                     req,
                                     config,
-                                    &node_id,
+                                    &current_node_id,
                                     &allowed_ports,
+                                    timestamp_tolerance,
                                 )
                                 .await;
                                 let resp = resp.map(|_| -> BoxBody {
@@ -80,14 +84,12 @@ pub async fn run(
                                 let resp = plain::handle_plain(
                                     req,
                                     config,
-                                    &node_id,
+                                    &current_node_id,
                                     &allowed_ports,
+                                    timestamp_tolerance,
                                 )
                                 .await;
-                                let resp = resp.map(|body| -> BoxBody {
-                                    body.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { match e {} })
-                                        .boxed()
-                                });
+                                // plain::handle_plain already returns BoxBody (streaming)
                                 Ok(resp)
                             }
                         }

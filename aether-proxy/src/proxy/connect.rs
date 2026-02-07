@@ -18,6 +18,7 @@ pub async fn handle_connect(
     config: Arc<Config>,
     node_id: &str,
     allowed_ports: &HashSet<u16>,
+    timestamp_tolerance: u64,
 ) -> Response<http_body_util::Empty<bytes::Bytes>> {
     // Extract Proxy-Authorization header
     let proxy_auth = req
@@ -26,7 +27,7 @@ pub async fn handle_connect(
         .and_then(|v| v.to_str().ok());
 
     // HMAC authentication
-    if let Err(e) = auth::validate_proxy_auth(proxy_auth, &config, node_id) {
+    if let Err(e) = auth::validate_proxy_auth(proxy_auth, &config, node_id, timestamp_tolerance) {
         warn!(error = %e, "CONNECT auth failed");
         return proxy_auth_required(&e.to_string());
     }

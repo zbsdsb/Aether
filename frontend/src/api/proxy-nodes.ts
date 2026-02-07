@@ -1,5 +1,12 @@
 import apiClient from './client'
 
+export interface ProxyNodeRemoteConfig {
+  allowed_ports?: number[]
+  log_level?: string
+  heartbeat_interval?: number
+  timestamp_tolerance?: number
+}
+
 export interface ProxyNode {
   id: string
   name: string
@@ -12,6 +19,9 @@ export interface ProxyNode {
   proxy_url?: string
   proxy_username?: string
   proxy_password?: string  // 脱敏后的密码
+  // 远程配置（aether-proxy 节点）
+  remote_config: ProxyNodeRemoteConfig | null
+  config_version: number
   registered_by: string | null
   last_heartbeat_at: string | null
   heartbeat_interval: number
@@ -45,6 +55,13 @@ export interface ManualProxyNodeUpdateRequest {
   region?: string
 }
 
+export interface ProxyNodeTestResult {
+  success: boolean
+  latency_ms: number | null
+  exit_ip: string | null
+  error: string | null
+}
+
 export const proxyNodesApi = {
   async listProxyNodes(params?: { status?: string; skip?: number; limit?: number }): Promise<ProxyNodeListResponse> {
     const response = await apiClient.get<ProxyNodeListResponse>('/api/admin/proxy-nodes', { params })
@@ -63,6 +80,16 @@ export const proxyNodesApi = {
 
   async deleteProxyNode(nodeId: string): Promise<{ message: string; node_id: string; cleared_system_proxy: boolean }> {
     const response = await apiClient.delete<{ message: string; node_id: string; cleared_system_proxy: boolean }>(`/api/admin/proxy-nodes/${nodeId}`)
+    return response.data
+  },
+
+  async testNode(nodeId: string): Promise<ProxyNodeTestResult> {
+    const response = await apiClient.post<ProxyNodeTestResult>(`/api/admin/proxy-nodes/${nodeId}/test`)
+    return response.data
+  },
+
+  async updateNodeConfig(nodeId: string, data: ProxyNodeRemoteConfig): Promise<{ node_id: string; config_version: number; remote_config: ProxyNodeRemoteConfig; node: ProxyNode }> {
+    const response = await apiClient.put<{ node_id: string; config_version: number; remote_config: ProxyNodeRemoteConfig; node: ProxyNode }>(`/api/admin/proxy-nodes/${nodeId}/config`, data)
     return response.data
   },
 }

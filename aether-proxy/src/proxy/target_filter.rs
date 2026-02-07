@@ -68,7 +68,6 @@ pub enum FilterError {
     PrivateIp(IpAddr),
     PortNotAllowed(u16),
     DnsResolutionFailed(String),
-    AllAddressesPrivate(String),
 }
 
 impl std::fmt::Display for FilterError {
@@ -77,9 +76,6 @@ impl std::fmt::Display for FilterError {
             Self::PrivateIp(ip) => write!(f, "target IP {} is in private/reserved range", ip),
             Self::PortNotAllowed(port) => write!(f, "port {} not in allowed list", port),
             Self::DnsResolutionFailed(host) => write!(f, "DNS resolution failed for {}", host),
-            Self::AllAddressesPrivate(host) => {
-                write!(f, "all resolved addresses for {} are private", host)
-            }
         }
     }
 }

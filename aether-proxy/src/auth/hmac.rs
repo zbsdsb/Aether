@@ -36,10 +36,15 @@ impl std::fmt::Display for AuthError {
 ///
 /// Expected format: `Basic base64(hmac:{timestamp}.{signature})`
 /// where signature = hex(HMAC-SHA256(hmac_key, "{timestamp}\n{node_id}"))
+///
+/// `timestamp_tolerance` is accepted separately so the caller can supply
+/// the value from [`DynamicConfig`](crate::runtime::DynamicConfig) (which
+/// may be updated remotely).
 pub fn validate_proxy_auth(
     proxy_auth_header: Option<&str>,
     config: &Config,
     node_id: &str,
+    timestamp_tolerance: u64,
 ) -> Result<(), AuthError> {
     let header = proxy_auth_header.ok_or(AuthError::MissingHeader)?;
 
@@ -83,7 +88,7 @@ pub fn validate_proxy_auth(
         timestamp - now
     };
 
-    if diff > config.timestamp_tolerance {
+    if diff > timestamp_tolerance {
         return Err(AuthError::TimestampExpired);
     }
 
@@ -146,7 +151,7 @@ mod tests {
     fn test_valid_auth() {
         let config = make_config();
         let header = make_valid_auth(&config, "node-1");
-        assert!(validate_proxy_auth(Some(&header), &config, "node-1").is_ok());
+        assert!(validate_proxy_auth(Some(&header), &config, "node-1", config.timestamp_tolerance).is_ok());
     }
 
     #[test]
@@ -154,7 +159,7 @@ mod tests {
         let config = make_config();
         let header = make_valid_auth(&config, "node-1");
         assert!(matches!(
-            validate_proxy_auth(Some(&header), &config, "node-2"),
+            validate_proxy_auth(Some(&header), &config, "node-2", config.timestamp_tolerance),
             Err(AuthError::SignatureMismatch)
         ));
     }
@@ -163,7 +168,7 @@ mod tests {
     fn test_missing_header() {
         let config = make_config();
         assert!(matches!(
-            validate_proxy_auth(None, &config, "node-1"),
+            validate_proxy_auth(None, &config, "node-1", config.timestamp_tolerance),
             Err(AuthError::MissingHeader)
         ));
     }
@@ -175,7 +180,7 @@ mod tests {
         let header = format!("Basic {}", encoded);
         let config = make_config();
         assert!(matches!(
-            validate_proxy_auth(Some(&header), &config, "node-1"),
+            validate_proxy_auth(Some(&header), &config, "node-1", config.timestamp_tolerance),
             Err(AuthError::InvalidUsername)
         ));
     }

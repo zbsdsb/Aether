@@ -50,6 +50,8 @@ def _node_to_dict(node: ProxyNode) -> dict[str, Any]:
         "active_connections": node.active_connections,
         "total_requests": node.total_requests,
         "avg_latency_ms": node.avg_latency_ms,
+        "remote_config": node.remote_config,
+        "config_version": node.config_version,
         "created_at": node.created_at,
         "updated_at": node.updated_at,
     }
@@ -95,6 +97,33 @@ class ProxyNodeHeartbeatRequest(BaseModel):
 
 class ProxyNodeUnregisterRequest(BaseModel):
     node_id: str = Field(..., min_length=1, max_length=36, description="节点 ID")
+
+
+class ProxyNodeRemoteConfigRequest(BaseModel):
+    """管理端远程配置 — 通过心跳下发给 aether-proxy"""
+
+    allowed_ports: list[int] | None = Field(None, description="允许代理的目标端口")
+    log_level: str | None = Field(None, description="日志级别 (trace/debug/info/warn/error)")
+    heartbeat_interval: int | None = Field(None, ge=5, le=600, description="心跳间隔（秒）")
+    timestamp_tolerance: int | None = Field(
+        None, ge=10, le=3600, description="HMAC 时间戳容差（秒）"
+    )
+
+    @field_validator("allowed_ports")
+    @classmethod
+    def validate_ports(cls, v: list[int] | None) -> list[int] | None:
+        if v is not None:
+            for port in v:
+                if not 1 <= port <= 65535:
+                    raise ValueError(f"端口 {port} 不在有效范围 (1-65535)")
+        return v
+
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("trace", "debug", "info", "warn", "error"):
+            raise ValueError("log_level 必须是 trace/debug/info/warn/error 之一")
+        return v
 
 
 class ManualProxyNodeCreateRequest(BaseModel):
@@ -196,6 +225,20 @@ async def update_manual_proxy_node(
 @router.delete("/{node_id}")
 async def delete_proxy_node(node_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
     adapter = AdminDeleteProxyNodeAdapter(node_id=node_id)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post("/{node_id}/test")
+async def test_proxy_node(node_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+    adapter = AdminTestProxyNodeAdapter(node_id=node_id)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.put("/{node_id}/config")
+async def update_proxy_node_config(
+    node_id: str, request: Request, db: Session = Depends(get_db)
+) -> Any:
+    adapter = AdminUpdateProxyNodeConfigAdapter(node_id=node_id)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -420,6 +463,42 @@ def _parse_host_port(proxy_url: str) -> tuple[str, int]:
     return host, port
 
 
+def _sanitize_proxy_error(err: Exception) -> str:
+    """去除异常消息中可能包含的代理 URL 凭据（如 HMAC 签名）"""
+    import re
+
+    return re.sub(r"://[^@/]+@", "://***@", str(err))
+
+
+def _build_test_proxy_url(node: ProxyNode) -> str:
+    """为测试连通性构建代理 URL（无需节点在线）"""
+    if node.is_manual:
+        proxy_url = node.proxy_url
+        if not proxy_url:
+            raise InvalidRequestException("手动节点缺少 proxy_url")
+        if node.proxy_username:
+            from urllib.parse import quote, urlparse
+
+            parsed = urlparse(proxy_url)
+            encoded_username = quote(node.proxy_username, safe="")
+            encoded_password = quote(node.proxy_password, safe="") if node.proxy_password else ""
+            host_part = parsed.hostname or "localhost"
+            if parsed.port:
+                host_part = f"{host_part}:{parsed.port}"
+            if encoded_password:
+                proxy_url = f"{parsed.scheme}://{encoded_username}:{encoded_password}@{host_part}"
+            else:
+                proxy_url = f"{parsed.scheme}://{encoded_username}@{host_part}"
+            if parsed.path:
+                proxy_url += parsed.path
+        return proxy_url
+    else:
+        # aether-proxy: 使用 HMAC 认证构建代理 URL
+        from src.clients.http_client import _build_hmac_proxy_url
+
+        return _build_hmac_proxy_url(node.ip, node.port, node.id)
+
+
 @dataclass
 class AdminCreateManualProxyNodeAdapter(AdminApiAdapter):
     name: str = "admin_create_manual_proxy_node"
@@ -528,3 +607,140 @@ class AdminUpdateManualProxyNodeAdapter(AdminApiAdapter):
         )
 
         return {"node_id": node.id, "node": _node_to_dict(node)}
+
+
+@dataclass
+class AdminTestProxyNodeAdapter(AdminApiAdapter):
+    """测试代理节点连通性和延迟"""
+
+    name: str = "admin_test_proxy_node"
+    node_id: str = ""
+
+    async def handle(self, context: ApiRequestContext) -> Any:
+        import time as _time
+
+        import httpx
+
+        node = context.db.query(ProxyNode).filter(ProxyNode.id == self.node_id).first()
+        if not node:
+            raise NotFoundException(f"ProxyNode {self.node_id} 不存在", "proxy_node")
+
+        # 构建代理 URL
+        try:
+            proxy_url = _build_test_proxy_url(node)
+        except Exception as exc:
+            return {"success": False, "latency_ms": None, "exit_ip": None, "error": str(exc)}
+
+        test_url = "https://1.1.1.1/cdn-cgi/trace"
+        start = _time.monotonic()
+
+        try:
+            async with httpx.AsyncClient(
+                proxy=proxy_url,
+                timeout=httpx.Timeout(15.0, connect=10.0),
+            ) as client:
+                response = await client.get(test_url)
+                elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
+
+                exit_ip = None
+                if response.status_code == 200:
+                    for line in response.text.splitlines():
+                        if line.startswith("ip="):
+                            exit_ip = line.split("=", 1)[1].strip()
+                            break
+
+                return {
+                    "success": True,
+                    "latency_ms": elapsed_ms,
+                    "exit_ip": exit_ip,
+                    "error": None,
+                }
+        except httpx.ProxyError as exc:
+            elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
+            return {
+                "success": False,
+                "latency_ms": elapsed_ms,
+                "exit_ip": None,
+                "error": f"代理连接失败: {_sanitize_proxy_error(exc)}",
+            }
+        except httpx.ConnectError as exc:
+            elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
+            return {
+                "success": False,
+                "latency_ms": elapsed_ms,
+                "exit_ip": None,
+                "error": f"连接失败: {_sanitize_proxy_error(exc)}",
+            }
+        except httpx.TimeoutException:
+            elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
+            return {
+                "success": False,
+                "latency_ms": elapsed_ms,
+                "exit_ip": None,
+                "error": "连接超时（15秒）",
+            }
+        except Exception as exc:
+            elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
+            return {
+                "success": False,
+                "latency_ms": elapsed_ms,
+                "exit_ip": None,
+                "error": _sanitize_proxy_error(exc),
+            }
+
+
+@dataclass
+class AdminUpdateProxyNodeConfigAdapter(AdminApiAdapter):
+    """更新 aether-proxy 节点的远程配置（通过下次心跳下发）"""
+
+    name: str = "admin_update_proxy_node_config"
+    node_id: str = ""
+
+    async def handle(self, context: ApiRequestContext) -> Any:
+        node = context.db.query(ProxyNode).filter(ProxyNode.id == self.node_id).first()
+        if not node:
+            raise NotFoundException(f"ProxyNode {self.node_id} 不存在", "proxy_node")
+        if node.is_manual:
+            raise InvalidRequestException("手动节点不支持远程配置下发")
+
+        payload = context.ensure_json_body()
+        try:
+            req = ProxyNodeRemoteConfigRequest.model_validate(payload)
+        except ValidationError as exc:
+            raise InvalidRequestException("输入验证失败: " + _format_validation_error(exc))
+
+        # Build config dict with only the supplied fields
+        config: dict[str, Any] = {}
+        if req.allowed_ports is not None:
+            config["allowed_ports"] = req.allowed_ports
+        if req.log_level is not None:
+            config["log_level"] = req.log_level
+        if req.heartbeat_interval is not None:
+            config["heartbeat_interval"] = req.heartbeat_interval
+        if req.timestamp_tolerance is not None:
+            config["timestamp_tolerance"] = req.timestamp_tolerance
+
+        # Merge with existing config (so partial updates are preserved)
+        # Copy to a new dict so SQLAlchemy detects the change on the JSON column
+        existing = dict(node.remote_config) if node.remote_config else {}
+        existing.update(config)
+
+        node.remote_config = existing
+        node.config_version = (node.config_version or 0) + 1
+        node.updated_at = datetime.now(timezone.utc)
+
+        context.db.commit()
+        context.db.refresh(node)
+
+        context.add_audit_metadata(
+            action="proxy_node_config_update",
+            proxy_node_id=node.id,
+            config_version=node.config_version,
+        )
+
+        return {
+            "node_id": node.id,
+            "config_version": node.config_version,
+            "remote_config": node.remote_config,
+            "node": _node_to_dict(node),
+        }

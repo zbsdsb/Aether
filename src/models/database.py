@@ -842,6 +842,16 @@ class ProxyNode(Base):
     total_requests = Column(BigInteger, default=0, nullable=False)
     avg_latency_ms = Column(Float, nullable=True)
 
+    # 管理端远程配置（通过心跳下发给 aether-proxy）
+    remote_config = Column(
+        JSON,
+        nullable=True,
+        comment="管理端下发的远程配置 (allowed_ports, log_level, heartbeat_interval, timestamp_tolerance)",
+    )
+    config_version = Column(
+        Integer, default=0, nullable=False, comment="远程配置版本号，每次更新 +1"
+    )
+
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

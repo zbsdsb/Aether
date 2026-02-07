@@ -10,15 +10,20 @@ use crate::auth;
 use crate::config::Config;
 use crate::proxy::target_filter;
 
+/// Boxed body that unifies `Full` (error responses) and `Incoming` (streamed upstream).
+pub type BoxBody =
+    http_body_util::combinators::BoxBody<bytes::Bytes, Box<dyn std::error::Error + Send + Sync>>;
+
 /// Handle plain HTTP forward proxy requests (non-CONNECT).
 ///
-/// Flow: validate auth -> check target filter -> forward request -> return response
+/// Flow: validate auth -> check target filter -> forward request -> **stream** response
 pub async fn handle_plain(
     req: Request<Incoming>,
     config: Arc<Config>,
     node_id: &str,
     allowed_ports: &HashSet<u16>,
-) -> Response<Full<bytes::Bytes>> {
+    timestamp_tolerance: u64,
+) -> Response<BoxBody> {
     // Extract Proxy-Authorization header
     let proxy_auth = req
         .headers()
@@ -26,7 +31,7 @@ pub async fn handle_plain(
         .and_then(|v| v.to_str().ok());
 
     // HMAC authentication
-    if let Err(e) = auth::validate_proxy_auth(proxy_auth, &config, node_id) {
+    if let Err(e) = auth::validate_proxy_auth(proxy_auth, &config, node_id, timestamp_tolerance) {
         warn!(error = %e, "HTTP proxy auth failed");
         return proxy_auth_required(&e.to_string());
     }
@@ -72,7 +77,7 @@ pub async fn handle_plain(
         builder = builder.header(name, value);
     }
 
-    // Collect the incoming body
+    // Collect the incoming request body (client payloads are small)
     let body_bytes = match req.into_body().collect().await {
         Ok(collected) => collected.to_bytes(),
         Err(e) => {
@@ -111,15 +116,12 @@ pub async fn handle_plain(
 
     match sender.send_request(outgoing).await {
         Ok(resp) => {
+            // Stream the response body directly — no buffering
             let (parts, body) = resp.into_parts();
-            let body_bytes = match body.collect().await {
-                Ok(collected) => collected.to_bytes(),
-                Err(e) => {
-                    warn!(error = %e, "failed to read response body");
-                    return bad_gateway("failed to read response body");
-                }
-            };
-            Response::from_parts(parts, Full::new(body_bytes))
+            let body: BoxBody = body
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
+                .boxed();
+            Response::from_parts(parts, body)
         }
         Err(e) => {
             warn!(error = %e, "HTTP proxy request failed");
@@ -128,35 +130,43 @@ pub async fn handle_plain(
     }
 }
 
-fn proxy_auth_required(msg: &str) -> Response<Full<bytes::Bytes>> {
+// ── Error response helpers ───────────────────────────────────────────────────
+
+fn empty_box() -> BoxBody {
+    Full::new(bytes::Bytes::new())
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { match e {} })
+        .boxed()
+}
+
+fn proxy_auth_required(msg: &str) -> Response<BoxBody> {
     Response::builder()
         .status(407)
         .header("Proxy-Authenticate", "HMAC-SHA256")
         .header("X-Error", msg)
-        .body(Full::new(bytes::Bytes::new()))
+        .body(empty_box())
         .unwrap()
 }
 
-fn forbidden(msg: &str) -> Response<Full<bytes::Bytes>> {
+fn forbidden(msg: &str) -> Response<BoxBody> {
     Response::builder()
         .status(403)
         .header("X-Error", msg)
-        .body(Full::new(bytes::Bytes::new()))
+        .body(empty_box())
         .unwrap()
 }
 
-fn bad_request(msg: &str) -> Response<Full<bytes::Bytes>> {
+fn bad_request(msg: &str) -> Response<BoxBody> {
     Response::builder()
         .status(400)
         .header("X-Error", msg)
-        .body(Full::new(bytes::Bytes::new()))
+        .body(empty_box())
         .unwrap()
 }
 
-fn bad_gateway(msg: &str) -> Response<Full<bytes::Bytes>> {
+fn bad_gateway(msg: &str) -> Response<BoxBody> {
     Response::builder()
         .status(502)
         .header("X-Error", msg)
-        .body(Full::new(bytes::Bytes::new()))
+        .body(empty_box())
         .unwrap()
 }
