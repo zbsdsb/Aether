@@ -63,8 +63,9 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Warn if systemd service is already running (would cause port conflict)
-    if setup::service::is_service_active() {
+    // Warn if systemd service is already running (would cause port conflict).
+    // Skip this check when we ARE the systemd service (INVOCATION_ID is set by systemd).
+    if std::env::var_os("INVOCATION_ID").is_none() && setup::service::is_service_active() {
         eprintln!("Warning: systemd service is already running.");
         eprintln!("Use `aether-proxy stop` to stop it first, or manage via subcommands:");
         eprintln!("  aether-proxy status / logs / restart / stop");
