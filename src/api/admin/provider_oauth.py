@@ -1243,6 +1243,10 @@ async def import_refresh_token(
             email = await _fetch_kiro_email(new_cfg.to_dict(), proxy_config=proxy_config)
             name = email or f"账号_{int(time.time())}"
 
+        # 将获取到的 email 写回 auth_config，确保持久化
+        if email and not new_cfg.email:
+            new_cfg.email = email
+
         new_key = _create_oauth_key(
             db,
             provider_id=provider_id,
@@ -1738,6 +1742,10 @@ async def _batch_import_kiro_internal(
             # Kiro 确定账号名称（与 Codex/Antigravity 保持一致，使用 email）
             email = await _fetch_kiro_email(new_cfg.to_dict(), proxy_config=proxy_config)
             name = email or f"账号_{int(time.time())}"
+
+            # 将获取到的 email 写回 auth_config，确保持久化
+            if email and not new_cfg.email:
+                new_cfg.email = email
 
             new_key = _create_oauth_key(
                 db,
