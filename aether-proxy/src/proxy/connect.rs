@@ -16,7 +16,6 @@ use crate::proxy::target_filter;
 pub async fn handle_connect(
     req: Request<Incoming>,
     config: Arc<Config>,
-    node_id: &str,
     allowed_ports: &HashSet<u16>,
     timestamp_tolerance: u64,
 ) -> Response<http_body_util::Empty<bytes::Bytes>> {
@@ -27,7 +26,7 @@ pub async fn handle_connect(
         .and_then(|v| v.to_str().ok());
 
     // HMAC authentication
-    if let Err(e) = auth::validate_proxy_auth(proxy_auth, &config, node_id, timestamp_tolerance) {
+    if let Err(e) = auth::validate_proxy_auth(proxy_auth, &config, timestamp_tolerance) {
         warn!(error = %e, "CONNECT auth failed");
         return proxy_auth_required(&e.to_string());
     }
@@ -45,7 +44,7 @@ pub async fn handle_connect(
     let port = authority.port_u16().unwrap_or(443);
 
     // Target filter: private IP + port whitelist
-    let target_addr = match target_filter::validate_target(&host, port, allowed_ports) {
+    let target_addr = match target_filter::validate_target(&host, port, allowed_ports).await {
         Ok(addr) => addr,
         Err(e) => {
             warn!(host = %host, port, error = %e, "CONNECT target rejected");

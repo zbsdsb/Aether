@@ -37,7 +37,11 @@ impl std::fmt::Display for AuthError {
 /// Validate Proxy-Authorization header.
 ///
 /// Expected format: `Basic base64(hmac:{timestamp}.{signature})`
-/// where signature = hex(HMAC-SHA256(hmac_key, "{timestamp}\n{node_id}"))
+/// where signature = hex(HMAC-SHA256(hmac_key, "{timestamp}"))
+///
+/// The signature no longer includes `node_id`, eliminating race conditions
+/// during re-registration where the Aether server's cached `node_id` could
+/// differ from the proxy's freshly assigned `node_id`.
 ///
 /// `timestamp_tolerance` is accepted separately so the caller can supply
 /// the value from [`DynamicConfig`](crate::runtime::DynamicConfig) (which
@@ -45,7 +49,6 @@ impl std::fmt::Display for AuthError {
 pub fn validate_proxy_auth(
     proxy_auth_header: Option<&str>,
     config: &Config,
-    node_id: &str,
     timestamp_tolerance: u64,
 ) -> Result<(), AuthError> {
     let header = proxy_auth_header.ok_or(AuthError::MissingHeader)?;
@@ -88,11 +91,10 @@ pub fn validate_proxy_auth(
         return Err(AuthError::TimestampExpired);
     }
 
-    // Recompute signature
-    let payload = format!("{}\n{}", timestamp_str, node_id);
+    // Recompute signature: HMAC-SHA256(key, timestamp)
     let mut mac =
         HmacSha256::new_from_slice(config.hmac_key.as_bytes()).expect("HMAC accepts any key size");
-    mac.update(payload.as_bytes());
+    mac.update(timestamp_str.as_bytes());
     let expected = mac.finalize().into_bytes();
     let expected_hex = hex::encode(expected);
 
@@ -131,14 +133,13 @@ mod tests {
         }
     }
 
-    fn make_valid_auth(config: &Config, node_id: &str) -> String {
+    fn make_valid_auth(config: &Config) -> String {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let payload = format!("{}\n{}", now, node_id);
         let mut mac = HmacSha256::new_from_slice(config.hmac_key.as_bytes()).unwrap();
-        mac.update(payload.as_bytes());
+        mac.update(now.to_string().as_bytes());
         let sig = hex::encode(mac.finalize().into_bytes());
         let cred = format!("hmac:{}.{}", now, sig);
         let encoded = base64::engine::general_purpose::STANDARD.encode(cred);
@@ -148,28 +149,15 @@ mod tests {
     #[test]
     fn test_valid_auth() {
         let config = make_config();
-        let header = make_valid_auth(&config, "node-1");
-        assert!(
-            validate_proxy_auth(Some(&header), &config, "node-1", config.timestamp_tolerance)
-                .is_ok()
-        );
-    }
-
-    #[test]
-    fn test_wrong_node_id() {
-        let config = make_config();
-        let header = make_valid_auth(&config, "node-1");
-        assert!(matches!(
-            validate_proxy_auth(Some(&header), &config, "node-2", config.timestamp_tolerance),
-            Err(AuthError::SignatureMismatch)
-        ));
+        let header = make_valid_auth(&config);
+        assert!(validate_proxy_auth(Some(&header), &config, config.timestamp_tolerance).is_ok());
     }
 
     #[test]
     fn test_missing_header() {
         let config = make_config();
         assert!(matches!(
-            validate_proxy_auth(None, &config, "node-1", config.timestamp_tolerance),
+            validate_proxy_auth(None, &config, config.timestamp_tolerance),
             Err(AuthError::MissingHeader)
         ));
     }
@@ -181,7 +169,7 @@ mod tests {
         let header = format!("Basic {}", encoded);
         let config = make_config();
         assert!(matches!(
-            validate_proxy_auth(Some(&header), &config, "node-1", config.timestamp_tolerance),
+            validate_proxy_auth(Some(&header), &config, config.timestamp_tolerance),
             Err(AuthError::InvalidUsername)
         ));
     }

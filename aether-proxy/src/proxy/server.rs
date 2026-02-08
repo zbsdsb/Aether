@@ -7,20 +7,21 @@ use hyper::body::Incoming;
 use hyper::rt::{Read, Write};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::{Method, Request};
+use hyper::{Method, Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
-use crate::proxy::{connect, delegate, plain, tls};
+use crate::proxy::{connect, delegate, tls, BoxBody};
 use crate::state::AppState;
 
 /// Start the proxy server.
 ///
 /// Listens for incoming TCP connections and dispatches:
 /// - CONNECT requests -> tunnel handler
-/// - Other HTTP requests -> plain forward proxy handler
+/// - POST /_aether/delegate -> delegate handler
+/// - Other requests -> 405 Method Not Allowed
 ///
 /// When TLS is configured, the server operates in dual-stack mode:
 /// it peeks at the first byte of each connection to distinguish TLS ClientHello
@@ -104,38 +105,24 @@ where
     I: Read + Write + Unpin + Send + 'static,
 {
     let config = Arc::clone(&state.config);
-    let node_id = Arc::clone(&state.node_id);
     let dynamic = Arc::clone(&state.dynamic);
     let delegate_client = state.delegate_client.clone();
 
     let service = service_fn(move |req: Request<Incoming>| {
         let config = Arc::clone(&config);
-        let node_id = Arc::clone(&node_id);
         let dynamic = Arc::clone(&dynamic);
         let delegate_client = delegate_client.clone();
 
         async move {
-            type BoxBody = http_body_util::combinators::BoxBody<
-                bytes::Bytes,
-                Box<dyn std::error::Error + Send + Sync>,
-            >;
-
             // Snapshot current dynamic values (may be updated by remote config)
-            let current_node_id = node_id.read().unwrap().clone();
             let (allowed_ports, timestamp_tolerance) = {
                 let d = dynamic.read().unwrap();
                 (d.allowed_ports.clone(), d.timestamp_tolerance)
             };
 
             if req.method() == Method::CONNECT {
-                let resp = connect::handle_connect(
-                    req,
-                    config,
-                    &current_node_id,
-                    &allowed_ports,
-                    timestamp_tolerance,
-                )
-                .await;
+                let resp =
+                    connect::handle_connect(req, config, &allowed_ports, timestamp_tolerance).await;
                 let resp = resp.map(|_| -> BoxBody {
                     http_body_util::Empty::new()
                         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { match e {} })
@@ -147,7 +134,6 @@ where
                 let resp = delegate::handle_delegate(
                     req,
                     config,
-                    &current_node_id,
                     &allowed_ports,
                     timestamp_tolerance,
                     &delegate_client,
@@ -155,15 +141,14 @@ where
                 .await;
                 Ok(resp)
             } else {
-                let resp = plain::handle_plain(
-                    req,
-                    config,
-                    &current_node_id,
-                    &allowed_ports,
-                    timestamp_tolerance,
-                )
-                .await;
-                Ok(resp)
+                // Only CONNECT tunnels and /_aether/delegate are supported;
+                // plain HTTP forward proxy was removed (all API traffic is HTTPS).
+                Ok(Response::builder()
+                    .status(405)
+                    .header("Allow", "CONNECT")
+                    .header("Content-Length", "0")
+                    .body(crate::proxy::empty_box_body())
+                    .unwrap())
             }
         }
     });

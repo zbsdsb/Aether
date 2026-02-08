@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 /// Check if an IP address belongs to a private/reserved network.
 fn is_private_ip(ip: &IpAddr) -> bool {
@@ -82,8 +82,11 @@ impl std::fmt::Display for FilterError {
 
 /// Validate that the target host:port is allowed.
 ///
+/// Uses async DNS resolution (via `tokio::net::lookup_host`) to avoid
+/// blocking the async runtime on potentially slow DNS lookups.
+///
 /// Returns the resolved socket address to connect to.
-pub fn validate_target(
+pub async fn validate_target(
     host: &str,
     port: u16,
     allowed_ports: &HashSet<u16>,
@@ -93,7 +96,7 @@ pub fn validate_target(
         return Err(FilterError::PortNotAllowed(port));
     }
 
-    // Try parsing as IP directly
+    // Try parsing as IP directly (no DNS needed)
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_private_ip(&ip) {
             return Err(FilterError::PrivateIp(ip));
@@ -101,10 +104,10 @@ pub fn validate_target(
         return Ok(SocketAddr::new(ip, port));
     }
 
-    // DNS resolution with private IP check (DNS rebinding protection)
+    // Async DNS resolution with private IP check (DNS rebinding protection)
     let addr_str = format!("{}:{}", host, port);
-    let addrs: Vec<SocketAddr> = addr_str
-        .to_socket_addrs()
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(&addr_str)
+        .await
         .map_err(|_| FilterError::DnsResolutionFailed(host.to_string()))?
         .collect();
 
@@ -157,21 +160,21 @@ mod tests {
         ))));
     }
 
-    #[test]
-    fn test_port_not_allowed() {
-        let result = validate_target("8.8.8.8", 22, &ports());
+    #[tokio::test]
+    async fn test_port_not_allowed() {
+        let result = validate_target("8.8.8.8", 22, &ports()).await;
         assert!(matches!(result, Err(FilterError::PortNotAllowed(22))));
     }
 
-    #[test]
-    fn test_private_ip_blocked() {
-        let result = validate_target("127.0.0.1", 80, &ports());
+    #[tokio::test]
+    async fn test_private_ip_blocked() {
+        let result = validate_target("127.0.0.1", 80, &ports()).await;
         assert!(matches!(result, Err(FilterError::PrivateIp(_))));
     }
 
-    #[test]
-    fn test_public_ip_allowed() {
-        let result = validate_target("8.8.8.8", 443, &ports());
+    #[tokio::test]
+    async fn test_public_ip_allowed() {
+        let result = validate_target("8.8.8.8", 443, &ports()).await;
         assert!(result.is_ok());
     }
 }

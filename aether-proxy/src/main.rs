@@ -11,42 +11,49 @@ mod state;
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser};
 
 use config::Config;
 
 /// Default config file name.
 const DEFAULT_CONFIG: &str = "aether-proxy.toml";
 
+/// Build the full clap command: Config args + discoverable subcommands.
+///
+/// `subcommand_negates_reqs` lets subcommands bypass the required Config
+/// flags so that e.g. `aether-proxy setup` doesn't demand `--aether-url`.
+fn build_command() -> clap::Command {
+    Config::command()
+        .subcommand(
+            clap::Command::new("setup")
+                .about("Interactive setup wizard (TUI)")
+                .arg(
+                    clap::Arg::new("config_path")
+                        .help("Path to config file")
+                        .default_value(DEFAULT_CONFIG),
+                ),
+        )
+        .subcommand(clap::Command::new("start").about("Start the systemd service"))
+        .subcommand(clap::Command::new("status").about("Show service status"))
+        .subcommand(clap::Command::new("logs").about("Tail service logs"))
+        .subcommand(clap::Command::new("restart").about("Restart the systemd service"))
+        .subcommand(clap::Command::new("stop").about("Stop the systemd service"))
+        .subcommand(clap::Command::new("uninstall").about("Uninstall the systemd service"))
+        .subcommand(
+            clap::Command::new("upgrade")
+                .about("Self-upgrade from GitHub releases")
+                .arg(clap::Arg::new("version").help("Target version (e.g. 0.2.0)")),
+        )
+        .subcommand_negates_reqs(true)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .map_err(|_| anyhow::anyhow!("Failed to install rustls CryptoProvider"))?;
 
-    // Handle subcommands before clap parsing (these don't need Config)
-    if args.len() > 1 {
-        match args[1].as_str() {
-            "setup" => {
-                let path = args
-                    .get(2)
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG));
-                return setup::run(path);
-            }
-            "start" => return setup::service::cmd_start(),
-            "status" => return setup::service::cmd_status(),
-            "logs" => return setup::service::cmd_logs(),
-            "restart" => return setup::service::cmd_restart(),
-            "stop" => return setup::service::cmd_stop(),
-            "uninstall" => return setup::service::cmd_uninstall(),
-            "upgrade" => {
-                let version = args.get(2).cloned();
-                return setup::upgrade::cmd_upgrade(version).await;
-            }
-            _ => {} // fall through to clap (--help, --version, config args)
-        }
-    }
-
-    // Load config file as env-var defaults (before clap)
+    // Load config file as env-var defaults (before clap parsing)
     let config_file_path =
         std::env::var("AETHER_PROXY_CONFIG").unwrap_or_else(|_| DEFAULT_CONFIG.to_string());
     if std::path::Path::new(&config_file_path).exists() {
@@ -55,18 +62,70 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Parse config; fall back to setup TUI if required args are missing
-    let config = match Config::try_parse() {
-        Ok(c) => c,
+    // Parse CLI (subcommands + config args in one pass)
+    match build_command().try_get_matches() {
+        Ok(matches) => match matches.subcommand() {
+            Some(("setup", sub_m)) => {
+                let path = sub_m
+                    .get_one::<String>("config_path")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG));
+                handle_setup_result(setup::run(path)?).await
+            }
+            Some(("start", _)) => setup::service::cmd_start(),
+            Some(("status", _)) => setup::service::cmd_status(),
+            Some(("logs", _)) => setup::service::cmd_logs(),
+            Some(("restart", _)) => setup::service::cmd_restart(),
+            Some(("stop", _)) => setup::service::cmd_stop(),
+            Some(("uninstall", _)) => setup::service::cmd_uninstall(),
+            Some(("upgrade", sub_m)) => {
+                let version = sub_m.get_one::<String>("version").cloned();
+                setup::upgrade::cmd_upgrade(version).await
+            }
+            Some(_) => unreachable!(),
+            None => {
+                // No subcommand — run the proxy with parsed config.
+                let config = Config::from_arg_matches(&matches)?;
+                run_proxy(config).await
+            }
+        },
         Err(e) => {
             if e.kind() == clap::error::ErrorKind::MissingRequiredArgument {
                 eprintln!("Missing required config, launching setup wizard...\n");
-                return setup::run(PathBuf::from(&config_file_path));
+                handle_setup_result(setup::run(PathBuf::from(&config_file_path))?).await
+            } else {
+                e.exit();
             }
-            e.exit();
         }
-    };
+    }
+}
 
+/// Decide what to do after the setup wizard completes.
+async fn handle_setup_result(outcome: setup::SetupOutcome) -> anyhow::Result<()> {
+    match outcome {
+        setup::SetupOutcome::ServiceInstalled => Ok(()),
+        setup::SetupOutcome::ReadyToRun(config_path) => {
+            // Reload config from the file that setup just wrote, overriding
+            // any stale env vars from a previous config.
+            match config::ConfigFile::load(&config_path) {
+                Ok(file_cfg) => file_cfg.inject_env_override(),
+                Err(e) => anyhow::bail!("failed to reload config after setup: {}", e),
+            }
+            // Parse from env-only (argv may still contain "setup" etc.)
+            let config = Config::try_parse_from(["aether-proxy"])
+                .map_err(|e| anyhow::anyhow!("config invalid after setup: {}", e))?;
+            eprintln!("  Starting proxy...\n");
+            run_proxy(config).await
+        }
+        setup::SetupOutcome::Cancelled => {
+            eprintln!("  Setup cancelled.");
+            Ok(())
+        }
+    }
+}
+
+/// Start the proxy server, checking for systemd conflicts first.
+async fn run_proxy(config: Config) -> anyhow::Result<()> {
     // Warn if systemd service is already running (would cause port conflict).
     // Skip this check when we ARE the systemd service (INVOCATION_ID is set by systemd).
     if std::env::var_os("INVOCATION_ID").is_none() && setup::service::is_service_active() {

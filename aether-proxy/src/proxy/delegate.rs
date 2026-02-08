@@ -10,9 +10,9 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 use url::Url;
 
+use super::BoxBody;
 use crate::auth;
 use crate::config::Config;
-use crate::proxy::plain::BoxBody;
 use crate::proxy::target_filter;
 
 /// Delegation request payload sent by Aether.
@@ -34,7 +34,6 @@ struct DelegateRequest {
 pub async fn handle_delegate(
     req: Request<Incoming>,
     config: Arc<Config>,
-    node_id: &str,
     allowed_ports: &HashSet<u16>,
     timestamp_tolerance: u64,
     http_client: &reqwest::Client,
@@ -45,7 +44,7 @@ pub async fn handle_delegate(
         .get("authorization")
         .and_then(|v| v.to_str().ok());
 
-    if let Err(e) = auth::validate_proxy_auth(auth_header, &config, node_id, timestamp_tolerance) {
+    if let Err(e) = auth::validate_proxy_auth(auth_header, &config, timestamp_tolerance) {
         warn!(error = %e, "delegate auth failed");
         return error_response(401, "authentication_failed", &e.to_string());
     }
@@ -87,7 +86,7 @@ pub async fn handle_delegate(
 
     let port = parsed_url.port_or_known_default().unwrap_or(443);
 
-    if let Err(e) = target_filter::validate_target(&host, port, allowed_ports) {
+    if let Err(e) = target_filter::validate_target(&host, port, allowed_ports).await {
         warn!(host = %host, port, error = %e, "delegate target rejected");
         return error_response(403, "target_not_allowed", &e.to_string());
     }
@@ -165,7 +164,7 @@ pub async fn handle_delegate(
 
     builder
         .body(stream_body)
-        .unwrap_or_else(|_| Response::builder().status(500).body(empty_box()).unwrap())
+        .unwrap_or_else(|_| Response::builder().status(500).body(super::empty_box_body()).unwrap())
 }
 
 // ── Sanitisation ─────────────────────────────────────────────────────────────
@@ -194,12 +193,6 @@ fn sanitize_upstream_error(msg: &str) -> String {
 }
 
 // ── Error response helpers ───────────────────────────────────────────────────
-
-fn empty_box() -> BoxBody {
-    Full::new(bytes::Bytes::new())
-        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { match e {} })
-        .boxed()
-}
 
 fn error_response(status: u16, error: &str, detail: &str) -> Response<BoxBody> {
     let body = serde_json::json!({

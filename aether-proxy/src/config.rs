@@ -139,10 +139,21 @@ impl ConfigFile {
     /// Only sets variables that are **not** already present in the
     /// environment, preserving the precedence: CLI > env > config file.
     pub fn inject_env(&self) {
+        self.inject_env_inner(false);
+    }
+
+    /// Inject values as environment variables, **overriding** any existing
+    /// values.  Used after setup to ensure the freshly-saved config takes
+    /// effect before re-parsing.
+    pub fn inject_env_override(&self) {
+        self.inject_env_inner(true);
+    }
+
+    fn inject_env_inner(&self, force: bool) {
         macro_rules! set {
             ($env:expr, $val:expr) => {
                 if let Some(ref v) = $val {
-                    if std::env::var($env).is_err() {
+                    if force || std::env::var($env).is_err() {
                         std::env::set_var($env, v.to_string());
                     }
                 }
@@ -165,7 +176,7 @@ impl ConfigFile {
 
         // allowed_ports needs special handling (comma-separated)
         if let Some(ref ports) = self.allowed_ports {
-            if std::env::var("AETHER_PROXY_ALLOWED_PORTS").is_err() {
+            if force || std::env::var("AETHER_PROXY_ALLOWED_PORTS").is_err() {
                 let s: String = ports
                     .iter()
                     .map(|p| p.to_string())

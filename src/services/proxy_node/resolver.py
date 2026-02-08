@@ -94,23 +94,24 @@ def _get_proxy_node_info(node_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-def build_hmac_proxy_url(ip: str, port: int, node_id: str, *, tls_enabled: bool = False) -> str:
+def build_hmac_proxy_url(ip: str, port: int, *, tls_enabled: bool = False) -> str:
     """
     构建带 HMAC BasicAuth 的 httpx proxy URL
 
     格式: http(s)://hmac:{timestamp}.{signature}@{ip}:{port}
-    signature = HMAC-SHA256(PROXY_HMAC_KEY, "{timestamp}\\n{node_id}") 的 hex
+    signature = HMAC-SHA256(PROXY_HMAC_KEY, "{timestamp}") 的 hex
+
+    签名不再包含 node_id，避免 proxy 重新注册后 Aether 端缓存的旧 node_id
+    与 proxy 端新 node_id 不一致导致的认证失败窗口。
 
     当 tls_enabled=True 时使用 https:// scheme。
     """
     if not config.proxy_hmac_key:
-        logger.error("PROXY_HMAC_KEY 未配置，无法使用 ProxyNode 代理 (node_id={})", node_id)
-        raise ProxyNodeUnavailableError(
-            "PROXY_HMAC_KEY 未配置，无法使用 ProxyNode 代理", node_id=node_id
-        )
+        logger.error("PROXY_HMAC_KEY 未配置，无法使用 ProxyNode 代理")
+        raise ProxyNodeUnavailableError("PROXY_HMAC_KEY 未配置，无法使用 ProxyNode 代理")
 
     timestamp = str(int(time.time()))
-    payload = f"{timestamp}\n{node_id}".encode("utf-8")
+    payload = timestamp.encode("utf-8")
     signature = _hmac.new(
         config.proxy_hmac_key.encode("utf-8"),
         payload,
@@ -318,7 +319,6 @@ def build_proxy_url(proxy_config: dict[str, Any]) -> str | None:
         return build_hmac_proxy_url(
             node_info["ip"],
             node_info["port"],
-            node_id,
             tls_enabled=node_info.get("tls_enabled", False),
         )
 
@@ -421,7 +421,7 @@ def compute_proxy_cache_key(proxy_config: dict[str, Any] | None) -> str:
     # ProxyNode 模式：基于 node_id + 时间桶缓存，避免签名随时间变化导致 cache key 爆炸
     node_id = proxy_config.get("node_id")
     if isinstance(node_id, str) and node_id.strip():
-        time_bucket = int(time.time() / 120)  # 120 秒一个桶
+        time_bucket = int(time.time() / 240)  # 240s bucket, within 300s HMAC tolerance
         return f"proxy_node:{node_id.strip()}:{time_bucket}"
 
     # 构建代理 URL 作为缓存键的基础
@@ -438,18 +438,18 @@ def compute_proxy_cache_key(proxy_config: dict[str, Any] | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _build_hmac_auth_header(node_id: str) -> str:
+def _build_hmac_auth_header() -> str:
     """
     构建代发请求的 Authorization 头
 
     格式: Basic base64(hmac:{timestamp}.{signature})
-    签名算法与 build_hmac_proxy_url 相同。
+    签名算法与 build_hmac_proxy_url 相同（仅使用 timestamp，不含 node_id）。
     """
     if not config.proxy_hmac_key:
-        raise ProxyNodeUnavailableError("PROXY_HMAC_KEY 未配置，无法使用代发模式", node_id=node_id)
+        raise ProxyNodeUnavailableError("PROXY_HMAC_KEY 未配置，无法使用代发模式")
 
     timestamp = str(int(time.time()))
-    payload = f"{timestamp}\n{node_id}".encode("utf-8")
+    payload = timestamp.encode("utf-8")
     signature = _hmac.new(
         config.proxy_hmac_key.encode("utf-8"),
         payload,
@@ -497,9 +497,9 @@ def resolve_delegate_config(proxy_config: dict[str, Any] | None) -> dict[str, An
     scheme = "https" if tls_enabled else "http"
     delegate_url = f"{scheme}://{host}:{int(node_info['port'])}/_aether/delegate"
 
-    # 闭包捕获 node_id，每次调用生成新鲜签名
+    # 每次调用生成新鲜签名（避免长连接内时间戳过期）
     def _fresh() -> str:
-        return _build_hmac_auth_header(node_id)
+        return _build_hmac_auth_header()
 
     return {
         "delegate_url": delegate_url,

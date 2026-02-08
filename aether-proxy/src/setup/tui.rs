@@ -21,6 +21,16 @@ use ratatui::Terminal;
 
 use crate::config::ConfigFile;
 
+/// Outcome of the setup wizard, returned to the caller.
+pub enum SetupOutcome {
+    /// Config saved; systemd service installed and started.
+    ServiceInstalled,
+    /// Config saved; no service — caller should start the proxy directly.
+    ReadyToRun(PathBuf),
+    /// User quit without saving.
+    Cancelled,
+}
+
 /// Column width reserved for the field label (chars).
 const LABEL_WIDTH: usize = 22;
 
@@ -63,6 +73,7 @@ struct App {
     message: Option<(String, Instant, bool)>, // (text, when, is_error)
     scroll_offset: usize,
     saved_once: bool,
+    pending_quit: bool, // true after first q/Esc with unsaved changes
 }
 
 impl App {
@@ -148,6 +159,7 @@ impl App {
             message: None,
             scroll_offset: 0,
             saved_once: false,
+            pending_quit: false,
         }
     }
 
@@ -235,9 +247,9 @@ impl App {
 
     /// Returns `true` when the app should exit.
     fn handle_key(&mut self, key: KeyEvent) -> bool {
-        // Expire old messages
+        // Expire old messages (but keep quit-confirmation messages alive)
         if let Some((_, when, _)) = &self.message {
-            if when.elapsed() > Duration::from_secs(4) {
+            if !self.pending_quit && when.elapsed() > Duration::from_secs(4) {
                 self.message = None;
             }
         }
@@ -252,8 +264,29 @@ impl App {
     }
 
     fn handle_normal(&mut self, key: KeyEvent) -> bool {
+        // ── Quit handling (with unsaved-changes confirmation) ─────────
+        let is_quit_key = matches!(key.code, KeyCode::Char('q') | KeyCode::Esc);
+
+        if is_quit_key {
+            if !self.modified || self.pending_quit {
+                return true;
+            }
+            self.pending_quit = true;
+            self.message = Some((
+                "unsaved changes! q again to discard, ^S to save".into(),
+                Instant::now(),
+                true,
+            ));
+            return false;
+        }
+
+        // Any other key cancels the pending quit
+        if self.pending_quit {
+            self.pending_quit = false;
+            self.message = None;
+        }
+
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => return true,
             KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Err(e) = self.save() {
                     self.message = Some((format!("error: {}", e), Instant::now(), true));
@@ -564,7 +597,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
-pub fn run(config_path: PathBuf) -> anyhow::Result<()> {
+pub fn run(config_path: PathBuf) -> anyhow::Result<SetupOutcome> {
     // Setup terminal
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -584,46 +617,42 @@ pub fn run(config_path: PathBuf) -> anyhow::Result<()> {
 
     result?;
 
-    // Post-TUI message
-    if app.saved_once {
-        eprintln!();
-        eprintln!("  Config saved to {}", config_path.display());
-        eprintln!();
+    // ── Post-TUI: decide outcome ─────────────────────────────────────
 
-        let wants_service = app
-            .fields
-            .iter()
-            .find(|f| f.key == "install_service")
-            .map(|f| f.value == "true")
-            .unwrap_or(false);
+    if !app.saved_once {
+        return Ok(SetupOutcome::Cancelled);
+    }
 
-        if wants_service {
-            match super::service::install_service(&config_path) {
-                Ok(()) => {}
-                Err(e) => {
-                    eprintln!("  Service install failed: {}", e);
-                    eprintln!();
-                }
+    eprintln!();
+    eprintln!("  Config saved to {}", config_path.display());
+    eprintln!();
+
+    let wants_service = app
+        .fields
+        .iter()
+        .find(|f| f.key == "install_service")
+        .map(|f| f.value == "true")
+        .unwrap_or(false);
+
+    if wants_service {
+        match super::service::install_service(&config_path) {
+            Ok(()) => return Ok(SetupOutcome::ServiceInstalled),
+            Err(e) => {
+                eprintln!("  Service install failed: {}", e);
+                eprintln!("  Starting proxy directly instead.\n");
             }
-        } else {
-            // Uninstall service if it was previously installed
-            if super::service::is_installed() {
-                if let Err(e) = super::service::uninstall_service() {
-                    eprintln!("  Service uninstall failed: {}", e);
-                    eprintln!();
-                }
+        }
+    } else {
+        // Uninstall service if it was previously installed but toggled off
+        if super::service::is_installed() {
+            if let Err(e) = super::service::uninstall_service() {
+                eprintln!("  Service uninstall failed: {}", e);
+                eprintln!();
             }
-
-            eprintln!("  Run with:");
-            eprintln!(
-                "    aether-proxy              (auto-reads {})",
-                config_path.display()
-            );
-            eprintln!();
         }
     }
 
-    Ok(())
+    Ok(SetupOutcome::ReadyToRun(config_path))
 }
 
 fn event_loop(

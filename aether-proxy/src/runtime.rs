@@ -44,10 +44,12 @@ pub type SharedDynamicConfig = Arc<RwLock<DynamicConfig>>;
 // ── Log-level hot-reload ─────────────────────────────────────────────────────
 
 /// Global log-level reloader function, set during tracing init.
-static LOG_RELOADER: OnceLock<Box<dyn Fn(&str) + Send + Sync>> = OnceLock::new();
+type LogReloader = Box<dyn Fn(&str) + Send + Sync>;
+
+static LOG_RELOADER: OnceLock<LogReloader> = OnceLock::new();
 
 /// Register the log-level reload function (called once from `init_tracing`).
-pub fn set_log_reloader(f: Box<dyn Fn(&str) + Send + Sync>) {
+pub fn set_log_reloader(f: LogReloader) {
     let _ = LOG_RELOADER.set(f);
 }
 

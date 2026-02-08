@@ -93,9 +93,11 @@ pub fn install_service(config_path: &Path) -> anyhow::Result<()> {
 
     eprintln!();
     eprintln!("  Commands:");
-    eprintln!("    sudo systemctl status {}     # status", SERVICE_NAME);
-    eprintln!("    sudo systemctl restart {}    # restart", SERVICE_NAME);
-    eprintln!("    sudo journalctl -u {} -f     # logs", SERVICE_NAME);
+    eprintln!("    aether-proxy status          # service status");
+    eprintln!("    aether-proxy logs            # tail logs");
+    eprintln!("    sudo aether-proxy restart    # restart");
+    eprintln!("    sudo aether-proxy stop       # stop");
+    eprintln!("    sudo aether-proxy uninstall  # remove service");
     eprintln!();
 
     Ok(())
