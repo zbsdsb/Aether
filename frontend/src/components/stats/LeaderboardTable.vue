@@ -81,7 +81,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { EmptyState, LoadingState } from '@/components/common'
 import { TableCard } from '@/components/ui'
 import {

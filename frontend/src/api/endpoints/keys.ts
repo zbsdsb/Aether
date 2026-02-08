@@ -68,6 +68,14 @@ export async function revealEndpointKey(keyId: string): Promise<RevealKeyResult>
 }
 
 /**
+ * 导出 OAuth Key 凭据（扁平 JSON，用于跨实例迁移）
+ */
+export async function exportKey(keyId: string): Promise<Record<string, any>> {
+  const response = await client.get(`/api/admin/endpoints/keys/${keyId}/export`)
+  return response.data
+}
+
+/**
  * 删除 Key
  */
 export async function deleteEndpointKey(keyId: string): Promise<{ message: string }> {
@@ -140,6 +148,7 @@ export async function updateProviderKey(
     auto_fetch_models: boolean  // 是否启用自动获取模型
     model_include_patterns: string[]  // 模型包含规则
     model_exclude_patterns: string[]  // 模型排除规则
+    proxy: import('./types').ProxyConfig | null  // Key 级别代理配置
   }>
 ): Promise<EndpointAPIKey> {
   const response = await client.put(`/api/admin/endpoints/keys/${keyId}`, data)
@@ -174,5 +183,35 @@ export interface RefreshQuotaResult {
 
 export async function refreshProviderQuota(providerId: string): Promise<RefreshQuotaResult> {
   const response = await client.post(`/api/admin/endpoints/providers/${providerId}/refresh-quota`)
+  return response.data
+}
+
+/**
+ * 批量导入 OAuth 凭据（通用）
+ * 支持的 Provider 类型：Codex、Antigravity、GeminiCli、ClaudeCode、Kiro
+ */
+export interface BatchImportResultItem {
+  index: number
+  status: 'success' | 'error'
+  key_id?: string
+  key_name?: string
+  auth_method?: string
+  error?: string
+}
+
+export interface BatchImportResult {
+  total: number
+  success: number
+  failed: number
+  results: BatchImportResultItem[]
+}
+
+export async function batchImportOAuth(
+  providerId: string,
+  credentials: string
+): Promise<BatchImportResult> {
+  const response = await client.post(`/api/admin/provider-oauth/providers/${providerId}/batch-import`, {
+    credentials,
+  })
   return response.data
 }

@@ -872,6 +872,28 @@ class AdminUsageRecordsAdapter(AdminApiAdapter):
             elif self.status == "active":
                 # 活跃请求：pending 或 streaming 状态
                 query = query.filter(Usage.status.in_(["pending", "streaming"]))
+            elif self.status == "has_retry":
+                # 发生重试：存在 retry_index > 0 的已执行候选
+                retry_subq = (
+                    db.query(RequestCandidate.request_id)
+                    .filter(
+                        RequestCandidate.status.in_(["success", "failed"]),
+                        RequestCandidate.retry_index > 0,
+                    )
+                    .distinct()
+                    .subquery()
+                )
+                query = query.filter(Usage.request_id.in_(retry_subq))
+            elif self.status == "has_fallback":
+                # 发生转移：同一请求有多个不同 candidate_index 的已执行候选
+                fallback_subq = (
+                    db.query(RequestCandidate.request_id)
+                    .filter(RequestCandidate.status.in_(["success", "failed"]))
+                    .group_by(RequestCandidate.request_id)
+                    .having(func.count(func.distinct(RequestCandidate.candidate_index)) > 1)
+                    .subquery()
+                )
+                query = query.filter(Usage.request_id.in_(fallback_subq))
         if self.time_range:
             start_utc, end_utc = self.time_range.to_utc_datetime_range()
             query = query.filter(Usage.created_at >= start_utc, Usage.created_at < end_utc)

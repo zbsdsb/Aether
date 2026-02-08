@@ -512,7 +512,7 @@ function fillVideoResolutionPricePreset(preset: 'common' | 'sora' | 'veo') {
   }))
 }
 
-function copyVideoPricingFromSelectedGlobal() {
+function _copyVideoPricingFromSelectedGlobal() {
   const gm = availableGlobalModels.value.find(m => m.id === form.value.global_model_id)
   const cfg = gm?.config || {}
   if (cfg && typeof cfg === 'object') {

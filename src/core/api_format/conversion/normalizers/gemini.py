@@ -60,6 +60,74 @@ from src.core.api_format.conversion.stream_events import (
     ToolCallDeltaEvent,
 )
 from src.core.api_format.conversion.stream_state import StreamState
+from src.core.api_format.schema_utils import clean_gemini_schema as _clean_gemini_schema
+
+# Valid Gemini Part data-oneof field names (camelCase + snake_case).
+_VALID_PART_DATA_FIELDS = frozenset(
+    {
+        "text",
+        "inlineData",
+        "inline_data",
+        "functionCall",
+        "function_call",
+        "functionResponse",
+        "function_response",
+        "fileData",
+        "file_data",
+        "executableCode",
+        "executable_code",
+        "codeExecutionResult",
+        "code_execution_result",
+        "videoMetadata",
+        "video_metadata",
+    }
+)
+
+
+def _is_valid_gemini_part(part: Any) -> bool:
+    """Return True if *part* has at least one recognised Gemini data field."""
+    if not isinstance(part, dict) or not part:
+        return False
+    return bool(part.keys() & _VALID_PART_DATA_FIELDS)
+
+
+def compact_gemini_contents(contents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Strip invalid parts, drop empty contents, merge consecutive same-role.
+
+    Gemini requires every content to have at least one valid part (with a
+    recognised data-oneof field), and strictly alternating user/model roles.
+    Cross-format conversions (e.g. Responses API reasoning items) may produce
+    contents with no Gemini-compatible parts, or consecutive same-role entries
+    after filtering.
+    """
+    # 1. Strip invalid parts, then drop contents with no valid parts remaining.
+    #    Use shallow copy to avoid mutating the caller's original dicts.
+    non_empty: list[dict[str, Any]] = []
+    for c in contents:
+        parts = c.get("parts")
+        if not isinstance(parts, list):
+            continue
+        valid_parts = [p for p in parts if _is_valid_gemini_part(p)]
+        if valid_parts:
+            c = {**c, "parts": valid_parts}
+            non_empty.append(c)
+
+    # 2. Merge consecutive same-role entries.
+    if not non_empty:
+        return non_empty
+
+    merged: list[dict[str, Any]] = [non_empty[0]]
+    for c in non_empty[1:]:
+        if c.get("role") == merged[-1].get("role"):
+            prev_parts = merged[-1].get("parts")
+            if isinstance(prev_parts, list):
+                prev_parts.extend(c.get("parts") or [])
+            else:
+                merged[-1]["parts"] = list(c.get("parts") or [])
+        else:
+            merged.append(c)
+
+    return merged
 
 
 class GeminiNormalizer(FormatNormalizer):
@@ -206,22 +274,22 @@ class GeminiNormalizer(FormatNormalizer):
             self._is_antigravity_thinking_enabled(internal) if is_antigravity else False
         )
 
-        # tools/tool_choice
+        # tools/tool_choice — clean unsupported JSON Schema fields from parameters
         tools = None
         if internal.tools:
-            tools = [
-                {
-                    "function_declarations": [
-                        {
-                            "name": t.name,
-                            "description": t.description,
-                            "parameters": t.parameters or {},
-                            **(t.extra.get("gemini_function_declaration") or {}),
-                        }
-                        for t in internal.tools
-                    ]
+            func_decls: list[dict[str, Any]] = []
+            for t in internal.tools:
+                params = dict(t.parameters) if t.parameters else {}
+                if params:
+                    _clean_gemini_schema(params)
+                decl: dict[str, Any] = {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": params,
+                    **(t.extra.get("gemini_function_declaration") or {}),
                 }
-            ]
+                func_decls.append(decl)
+            tools = [{"function_declarations": func_decls}]
 
         tool_config = None
         if internal.tool_choice:
@@ -286,7 +354,7 @@ class GeminiNormalizer(FormatNormalizer):
                 if "thinking_config" in orig_gc and "thinkingConfig" not in generation_config:
                     generation_config["thinkingConfig"] = orig_gc["thinking_config"]
 
-        contents: list[dict[str, Any]] = []
+        raw_contents: list[dict[str, Any]] = []
         last_idx = len(internal.messages) - 1
         for idx, msg in enumerate(internal.messages):
             content = self._internal_message_to_content(
@@ -327,7 +395,12 @@ class GeminiNormalizer(FormatNormalizer):
                         content = dict(content)
                         content["parts"] = [dummy_part, *parts]
 
-            contents.append(content)
+            raw_contents.append(content)
+
+        # Drop contents with empty parts (e.g. reasoning-only messages that have
+        # no Gemini-compatible representation) and merge consecutive same-role
+        # contents — Gemini requires strictly alternating user/model turns.
+        contents = compact_gemini_contents(raw_contents)
 
         result: dict[str, Any] = {
             "contents": contents,

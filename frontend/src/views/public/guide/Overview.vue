@@ -3,7 +3,7 @@ import { RouterLink } from 'vue-router'
 import { ArrowRight, Server, Layers, Key, Box, ChevronRight } from 'lucide-vue-next'
 import { coreConcepts, apiFormats, configSteps, panelClasses } from './guide-config'
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     baseUrl?: string
   }>(),

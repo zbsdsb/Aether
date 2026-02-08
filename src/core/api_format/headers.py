@@ -21,12 +21,13 @@ from src.core.api_format.metadata import (
     get_protected_keys_for_endpoint,
 )
 from src.core.api_format.signature import EndpointSignature, parse_signature_key
+from src.core.logger import logger
 
 # =============================================================================
 # 头部常量定义
 # =============================================================================
 
-# 转发给上游时需要剔除的头部（系统管理 + 认证替换）
+# 转发给上游时需要剔除的头部（系统管理 + 认证替换 + 客户端/代理元数据）
 UPSTREAM_DROP_HEADERS: frozenset[str] = frozenset(
     {
         # 认证头 - 会被替换为 Provider 的认证
@@ -40,6 +41,13 @@ UPSTREAM_DROP_HEADERS: frozenset[str] = frozenset(
         "connection",
         # 编码头 - 避免客户端请求 brotli/zstd 但 httpx 不支持
         "accept-encoding",
+        # 反向代理 / 网关注入的头部 - 属于本站基础设施，不应泄露给上游
+        "x-real-ip",
+        "x-real-proto",
+        "x-forwarded-for",
+        "x-forwarded-proto",
+        "x-forwarded-host",
+        "x-forwarded-port",
     }
 )
 
@@ -324,8 +332,23 @@ class HeaderBuilder:
         return self
 
     def build(self) -> dict[str, str]:
-        """构建最终的头部字典"""
-        return {original_key: value for original_key, value in self._headers.values()}
+        """构建最终的头部字典
+
+        Safety net: 跳过值中包含非 ASCII 字符的头部并记录警告，
+        防止 httpx 发送时抛出 ``UnicodeEncodeError``。
+        """
+        result: dict[str, str] = {}
+        for original_key, value in self._headers.values():
+            try:
+                value.encode("ascii")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                logger.warning(
+                    "Dropping non-ASCII header before upstream request: {}",
+                    original_key,
+                )
+                continue
+            result[original_key] = value
+        return result
 
 
 def build_upstream_headers_for_endpoint(
@@ -565,3 +588,18 @@ def get_extra_headers_from_endpoint(endpoint: Any) -> dict[str, str] | None:
     """
     header_rules = getattr(endpoint, "header_rules", None)
     return extract_set_headers_from_rules(header_rules)
+
+
+# =============================================================================
+# 请求头辅助工具
+# =============================================================================
+
+
+def set_accept_if_absent(headers: dict[str, str], value: str = "text/event-stream") -> None:
+    """Set the ``Accept`` header only if not already present (case-insensitive check).
+
+    Used by stream handlers to request SSE format from upstream without overriding
+    provider-specific Accept headers (e.g. Kiro's ``application/vnd.amazon.eventstream``).
+    """
+    if not any(k.lower() == "accept" for k in headers):
+        headers["Accept"] = value

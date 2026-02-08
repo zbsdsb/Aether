@@ -78,6 +78,11 @@ async def fetch_models_for_key(
     timeout_seconds: float = 30.0,
 ) -> tuple[list[dict], list[str], bool, dict[str, Any] | None]:
     """统一入口：按 provider_type 选择策略获取模型列表（可附带 upstream_metadata）。"""
+    # Ensure provider plugins (including custom model fetchers) are registered.
+    from src.services.provider.envelope import ensure_providers_bootstrapped
+
+    ensure_providers_bootstrapped()
+
     fetcher = UpstreamModelsFetcherRegistry.get(ctx.provider_type) or _fetch_models_default
     return await fetcher(ctx, timeout_seconds)
 

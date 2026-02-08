@@ -169,6 +169,41 @@ export const {
   listAffinities
 } = cacheApi
 
+// ==================== Redis 缓存分类管理 API ====================
+
+export interface RedisCacheCategory {
+  key: string
+  name: string
+  pattern: string
+  description: string
+  count: number
+}
+
+export interface RedisCacheCategoriesResponse {
+  available: boolean
+  message?: string
+  categories: RedisCacheCategory[]
+  total_keys: number
+}
+
+export const redisCacheApi = {
+  /**
+   * 获取 Redis 缓存分类概览
+   */
+  async getCategories(): Promise<RedisCacheCategoriesResponse> {
+    const response = await api.get('/api/admin/monitoring/cache/redis-keys')
+    return response.data.data
+  },
+
+  /**
+   * 清除指定分类的 Redis 缓存
+   */
+  async clearCategory(category: string): Promise<{ status: string; message: string; category: string; deleted_count: number }> {
+    const response = await api.delete(`/api/admin/monitoring/cache/redis-keys/${category}`)
+    return response.data
+  }
+}
+
 // ==================== 缓存亲和性分析 API ====================
 
 export interface TTLAnalysisUser {

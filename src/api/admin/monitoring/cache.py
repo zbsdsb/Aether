@@ -1540,6 +1540,224 @@ class AdminModelMappingCacheStatsAdapter(AdminApiAdapter):
             raise HTTPException(status_code=500, detail=f"获取统计失败: {exc}")
 
 
+# ==================== Redis 缓存分类管理 ====================
+
+# 所有已知的 Redis 缓存分类
+# 格式: (category_key, display_name, redis_pattern, description)
+# 注意: redis_pattern 必须与各模块实际使用的 key 前缀保持一致。
+# 新增或修改缓存 key 前缀时，请同步更新此列表。
+_CACHE_CATEGORIES: list[tuple[str, str, str, str]] = [
+    ("upstream_models", "上游模型", "upstream_models:*", "Provider 上游获取的模型列表缓存"),
+    ("model_id", "模型 ID", "model:id:*", "Model 按 ID 缓存"),
+    (
+        "model_provider_global",
+        "模型映射",
+        "model:provider_global:*",
+        "Provider-GlobalModel 模型映射缓存",
+    ),
+    ("global_model", "全局模型", "global_model:*", "GlobalModel 缓存（ID/名称/解析）"),
+    ("models_list", "模型列表", "models:list:*", "/v1/models 端点模型列表缓存"),
+    ("user", "用户", "user:*", "用户信息缓存（ID/Email）"),
+    ("apikey", "API Key", "apikey:*", "API Key 认证缓存（Hash/Auth）"),
+    ("api_key_id", "API Key ID", "api_key:id:*", "API Key 按 ID 缓存"),
+    ("cache_affinity", "缓存亲和性", "cache_affinity:*", "请求路由亲和性缓存"),
+    ("provider_billing", "Provider 计费", "provider:billing_type:*", "Provider 计费类型缓存"),
+    (
+        "provider_rate",
+        "Provider 费率",
+        "provider_api_key:rate_multiplier:*",
+        "ProviderAPIKey 费率倍数缓存",
+    ),
+    ("provider_balance", "Provider 余额", "provider_ops:balance:*", "Provider 余额查询缓存"),
+    ("health", "健康检查", "health:*", "端点健康状态缓存"),
+    ("endpoint_status", "端点状态", "endpoint_status:*", "用户端点状态缓存"),
+    ("dashboard", "仪表盘", "dashboard:*", "仪表盘统计缓存"),
+    ("activity_heatmap", "活动热力图", "activity_heatmap:*", "用户活动热力图缓存"),
+    ("gemini_files", "Gemini 文件映射", "gemini_files:*", "Gemini Files API 文件-Key 映射缓存"),
+    ("provider_oauth", "OAuth 状态", "provider_oauth_state:*", "Provider OAuth 授权流程临时状态"),
+    (
+        "oauth_refresh_lock",
+        "OAuth 刷新锁",
+        "provider_oauth_refresh_lock:*",
+        "OAuth Token 刷新分布式锁",
+    ),
+    ("concurrency_lock", "并发锁", "concurrency:*", "请求并发控制锁"),
+]
+
+
+@router.get("/redis-keys")
+async def get_redis_cache_categories(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Any:
+    """
+    获取 Redis 缓存分类概览
+
+    扫描 Redis 中所有已知的缓存键模式，返回各分类的键数量。
+    用于管理员全局了解缓存使用情况。
+
+    **返回字段**:
+    - `status`: 状态（ok）
+    - `data`: 分类列表
+      - `categories`: 各分类信息数组
+        - `key`: 分类标识
+        - `name`: 显示名称
+        - `pattern`: Redis 键模式
+        - `description`: 描述
+        - `count`: 键数量
+      - `total_keys`: 总键数
+    """
+    adapter = AdminRedisCacheCategoriesAdapter()
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.delete("/redis-keys/{category}")
+async def clear_redis_cache_category(
+    category: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Any:
+    """
+    清除指定分类的 Redis 缓存
+
+    根据分类标识清除该分类下的所有缓存键。
+
+    **路径参数**:
+    - `category`: 分类标识（如 upstream_models、user、dashboard 等）
+
+    **返回字段**:
+    - `status`: 状态（ok）
+    - `message`: 操作结果消息
+    - `category`: 分类标识
+    - `deleted_count`: 删除的键数量
+    """
+    adapter = AdminClearRedisCacheCategoryAdapter(category=category)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+class AdminRedisCacheCategoriesAdapter(AdminApiAdapter):
+    async def handle(self, context: ApiRequestContext) -> dict[str, Any]:  # type: ignore[override]
+        import asyncio
+
+        from src.clients.redis_client import get_redis_client
+
+        try:
+            redis = await get_redis_client(require_redis=False)
+            if not redis:
+                return {
+                    "status": "ok",
+                    "data": {"available": False, "message": "Redis 未启用"},
+                }
+
+            async def _count_keys(pattern: str) -> int:
+                count = 0
+                async for _ in redis.scan_iter(match=pattern, count=500):
+                    count += 1
+                return count
+
+            # 并行扫描所有分类的 key 数量，避免串行 20 次 SCAN
+            counts = await asyncio.gather(
+                *[_count_keys(pattern) for _, _, pattern, _ in _CACHE_CATEGORIES]
+            )
+
+            categories = []
+            total_keys = 0
+            for (cat_key, name, pattern, description), count in zip(_CACHE_CATEGORIES, counts):
+                categories.append(
+                    {
+                        "key": cat_key,
+                        "name": name,
+                        "pattern": pattern,
+                        "description": description,
+                        "count": count,
+                    }
+                )
+                total_keys += count
+
+            context.add_audit_metadata(
+                action="redis_cache_categories",
+                total_keys=total_keys,
+                category_count=len(categories),
+            )
+            return {
+                "status": "ok",
+                "data": {
+                    "available": True,
+                    "categories": categories,
+                    "total_keys": total_keys,
+                },
+            }
+
+        except Exception as exc:
+            logger.exception("获取 Redis 缓存分类失败: {}", exc)
+            raise HTTPException(status_code=500, detail="获取缓存分类失败，请检查 Redis 连接")
+
+
+@dataclass
+class AdminClearRedisCacheCategoryAdapter(AdminApiAdapter):
+    category: str
+
+    async def handle(self, context: ApiRequestContext) -> dict[str, Any]:  # type: ignore[override]
+        from src.clients.redis_client import get_redis_client
+
+        try:
+            # 查找分类
+            target = None
+            for cat_key, name, pattern, _desc in _CACHE_CATEGORIES:
+                if cat_key == self.category:
+                    target = (cat_key, name, pattern)
+                    break
+
+            if not target:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"未知的缓存分类: {self.category}",
+                )
+
+            cat_key, name, pattern = target
+            redis = await get_redis_client(require_redis=False)
+            if not redis:
+                raise HTTPException(status_code=503, detail="Redis 未启用")
+
+            keys_to_delete: list[str] = []
+            async for key in redis.scan_iter(match=pattern, count=200):
+                keys_to_delete.append(key)
+
+            deleted_count = 0
+            # 分批删除，避免单次 DELETE 命令阻塞 Redis 事件循环
+            batch_size = 1000
+            for i in range(0, len(keys_to_delete), batch_size):
+                batch = keys_to_delete[i : i + batch_size]
+                deleted_count += await redis.delete(*batch)
+
+            logger.warning(
+                "已清除 Redis 缓存分类（管理员操作）: {} ({}), pattern={}, deleted={}",
+                name,
+                cat_key,
+                pattern,
+                deleted_count,
+            )
+            context.add_audit_metadata(
+                action="redis_cache_clear_category",
+                category=cat_key,
+                category_name=name,
+                pattern=pattern,
+                deleted_count=deleted_count,
+            )
+            return {
+                "status": "ok",
+                "message": f"已清除 {name} 缓存",
+                "category": cat_key,
+                "deleted_count": deleted_count,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("清除 Redis 缓存分类失败: {}", exc)
+            raise HTTPException(status_code=500, detail="清除缓存失败，请检查 Redis 连接")
+
+
 class AdminClearAllModelMappingCacheAdapter(AdminApiAdapter):
     async def handle(self, context: ApiRequestContext) -> dict[str, Any]:  # type: ignore[override]
         from src.clients.redis_client import get_redis_client

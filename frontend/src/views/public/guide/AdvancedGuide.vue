@@ -3,7 +3,7 @@ import { RouterLink } from 'vue-router'
 import { ArrowRight, Shuffle, FileCode, Globe, Shield, Check, Info, AlertTriangle, Settings } from 'lucide-vue-next'
 import { panelClasses } from './guide-config'
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     baseUrl?: string
   }>(),

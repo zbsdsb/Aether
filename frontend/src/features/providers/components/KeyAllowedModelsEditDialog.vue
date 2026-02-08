@@ -372,7 +372,7 @@ import {
 } from '@/api/endpoints'
 import { getGlobalModels, type GlobalModelResponse } from '@/api/global-models'
 import { useUpstreamModelsCache } from '../composables/useUpstreamModelsCache'
-import { API_FORMAT_SHORT, sortApiFormats, type UpstreamModel } from '@/api/endpoints/types'
+import { API_FORMAT_SHORT, type UpstreamModel } from '@/api/endpoints/types'
 
 interface AvailableModel {
   name: string
@@ -505,7 +505,7 @@ function toggleAllUpstreamModels() {
 }
 
 // 处理上游模型点击（自动同步模式下禁用）
-function handleUpstreamModelClick(model: UpstreamModelInfo) {
+function handleUpstreamModelClick(model: UpstreamModel) {
   if (!isAutoFetchMode.value) {
     toggleModel(model.id)
   }

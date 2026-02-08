@@ -278,19 +278,26 @@ export interface EndpointAPIKey {
   oauth_invalid_reason?: string | null  // OAuth Token 失效原因
   // 上游元数据（由上游响应采集，如 Codex 额度信息 / Antigravity 配额信息）
   upstream_metadata?: UpstreamMetadata | null
+  // Key 级别代理配置（覆盖 Provider 级别代理）
+  proxy?: ProxyConfig | null
 }
 
 // Codex 上游元数据类型
 export interface CodexUpstreamMetadata {
+  updated_at?: number  // 更新时间（Unix 时间戳）
   plan_type?: string  // 套餐类型
-  primary_used_percent?: number  // 主限额窗口使用百分比
-  primary_reset_seconds?: number  // 主限额重置剩余秒数
-  primary_reset_at?: number  // 主限额重置时间（Unix 时间戳）
-  primary_window_minutes?: number  // 主限额窗口大小（分钟）
-  secondary_used_percent?: number  // 次级限额窗口使用百分比
-  secondary_reset_seconds?: number  // 次级限额重置剩余秒数
-  secondary_reset_at?: number  // 次级限额重置时间（Unix 时间戳）
-  secondary_window_minutes?: number  // 次级限额窗口大小（分钟）
+  primary_used_percent?: number  // 周限额窗口使用百分比
+  primary_reset_seconds?: number  // 周限额重置剩余秒数
+  primary_reset_at?: number  // 周限额重置时间（Unix 时间戳）
+  primary_window_minutes?: number  // 周限额窗口大小（分钟）
+  secondary_used_percent?: number  // 5H限额窗口使用百分比
+  secondary_reset_seconds?: number  // 5H限额重置剩余秒数
+  secondary_reset_at?: number  // 5H限额重置时间（Unix 时间戳）
+  secondary_window_minutes?: number  // 5H限额窗口大小（分钟）
+  code_review_used_percent?: number  // 代码审查限额使用百分比
+  code_review_reset_seconds?: number  // 代码审查限额重置剩余秒数
+  code_review_reset_at?: number  // 代码审查限额重置时间（Unix 时间戳）
+  code_review_window_minutes?: number  // 代码审查限额窗口大小（分钟）
   has_credits?: boolean  // 是否有积分
   credits_balance?: number  // 积分余额
 }
@@ -306,8 +313,22 @@ export interface AntigravityUpstreamMetadata {
   quota_by_model?: Record<string, AntigravityModelQuota>
 }
 
-export interface UpstreamMetadata extends CodexUpstreamMetadata {
+// Kiro 上游配额信息
+export interface KiroUpstreamMetadata {
+  subscription_title?: string  // 订阅类型 (如 "KIRO PRO+")
+  current_usage?: number  // 当前使用量
+  usage_limit?: number  // 使用限额
+  remaining?: number  // 剩余额度
+  usage_percentage?: number  // 使用百分比 (0-100)
+  next_reset_at?: number  // 下次重置时间（Unix 时间戳，毫秒）
+  email?: string  // 用户邮箱
+  updated_at?: number  // Unix 时间戳（秒）
+}
+
+export interface UpstreamMetadata {
+  codex?: CodexUpstreamMetadata
   antigravity?: AntigravityUpstreamMetadata
+  kiro?: KiroUpstreamMetadata
 }
 
 // 按格式的健康度数据
@@ -351,6 +372,8 @@ export interface EndpointAPIKeyUpdate {
   // 模型过滤规则（仅当 auto_fetch_models=true 时生效）
   model_include_patterns?: string[]  // 模型包含规则（支持 * 和 ? 通配符）
   model_exclude_patterns?: string[]  // 模型排除规则（支持 * 和 ? 通配符）
+  // Key 级别代理配置（覆盖 Provider 级别代理），null=清除
+  proxy?: ProxyConfig | null
 }
 
 export interface EndpointHealthDetail {
@@ -421,7 +444,7 @@ export interface PublicEndpointStatusMonitorResponse {
   formats: PublicEndpointStatusMonitor[]
 }
 
-export type ProviderType = 'custom' | 'claude_code' | 'codex' | 'gemini_cli' | 'antigravity'
+export type ProviderType = 'custom' | 'claude_code' | 'codex' | 'gemini_cli' | 'antigravity' | 'kiro'
 
 export interface ProviderWithEndpointsSummary {
   id: string

@@ -105,22 +105,10 @@ ANTIGRAVITY_SYSTEM_INSTRUCTION = (
     "**Proactiveness**"
 )
 
-# ============== JSON Schema 禁止字段 ==============
-FORBIDDEN_SCHEMA_FIELDS = frozenset(
-    {
-        "multipleOf",
-        "exclusiveMinimum",
-        "exclusiveMaximum",
-        "contentEncoding",
-        "contentMediaType",
-    }
-)
-
 __all__ = [
     "ANTIGRAVITY_SYSTEM_INSTRUCTION",
     "DAILY_BASE_URL",
     "DUMMY_THOUGHT_SIGNATURE",
-    "FORBIDDEN_SCHEMA_FIELDS",
     "HTTP_USER_AGENT",
     "MIN_SIGNATURE_LENGTH",
     "PROD_BASE_URL",

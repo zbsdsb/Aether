@@ -310,6 +310,31 @@ async def fetch_models_antigravity(
 
 
 # ---------------------------------------------------------------------------
+# Export builder
+# ---------------------------------------------------------------------------
+
+_AG_SKIP_KEYS = frozenset(
+    {
+        "access_token",
+        "expires_at",
+        "updated_at",
+        "token_type",
+        "scope",
+    }
+)
+
+
+def antigravity_export_builder(
+    auth_config: dict[str, Any],
+    upstream_metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Antigravity 导出：保留 refresh_token / email / project_id / tier。"""
+    return {
+        k: v for k, v in auth_config.items() if k not in _AG_SKIP_KEYS and v is not None and v != ""
+    }
+
+
+# ---------------------------------------------------------------------------
 # Unified Registration
 # ---------------------------------------------------------------------------
 
@@ -321,6 +346,7 @@ def register_all() -> None:
     from src.services.provider.adapters.antigravity.envelope import antigravity_v1internal_envelope
     from src.services.provider.behavior import register_behavior_variant
     from src.services.provider.envelope import register_envelope
+    from src.services.provider.export import register_export_builder
     from src.services.provider.transport import register_transport_hook
 
     # Envelope
@@ -336,6 +362,9 @@ def register_all() -> None:
 
     # Auth
     register_auth_enricher("antigravity", enrich_antigravity)
+
+    # Export
+    register_export_builder("antigravity", antigravity_export_builder)
 
     # Model Fetcher
     UpstreamModelsFetcherRegistry.register(

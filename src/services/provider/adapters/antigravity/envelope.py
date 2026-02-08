@@ -22,7 +22,6 @@ from typing import Any
 
 from src.services.provider.adapters.antigravity.constants import (
     ANTIGRAVITY_SYSTEM_INSTRUCTION,
-    FORBIDDEN_SCHEMA_FIELDS,
 )
 from src.services.provider.adapters.antigravity.constants import (
     REQUEST_USER_AGENT as ANTIGRAVITY_REQUEST_USER_AGENT,
@@ -199,33 +198,27 @@ def _clean_tool_declarations(inner_request: dict[str, Any]) -> None:
 
 def _clean_json_schema(schema: dict[str, Any]) -> None:
     """递归移除 Gemini 不支持的 JSON Schema 字段。"""
-    for field in FORBIDDEN_SCHEMA_FIELDS:
-        schema.pop(field, None)
+    from src.core.api_format.schema_utils import clean_gemini_schema
 
-    # Recurse into properties
-    props = schema.get("properties")
-    if isinstance(props, dict):
-        for prop_schema in props.values():
-            if isinstance(prop_schema, dict):
-                _clean_json_schema(prop_schema)
+    clean_gemini_schema(schema)
 
-    # Recurse into items
-    items = schema.get("items")
-    if isinstance(items, dict):
-        _clean_json_schema(items)
 
-    # Recurse into additionalProperties
-    addl = schema.get("additionalProperties")
-    if isinstance(addl, dict):
-        _clean_json_schema(addl)
+def _compact_contents(inner_request: dict[str, Any]) -> None:
+    """Strip invalid parts, drop empty contents, merge consecutive same-role.
 
-    # Recurse into anyOf / oneOf / allOf
-    for combo_key in ("anyOf", "oneOf", "allOf"):
-        combo = schema.get(combo_key)
-        if isinstance(combo, list):
-            for sub_schema in combo:
-                if isinstance(sub_schema, dict):
-                    _clean_json_schema(sub_schema)
+    Delegates to :func:`compact_gemini_contents` from the Gemini normalizer to
+    avoid duplicating the validation logic.
+
+    This function modifies *inner_request* in-place.
+    """
+    from src.core.api_format.conversion.normalizers.gemini import compact_gemini_contents
+
+    contents = inner_request.get("contents")
+    if not isinstance(contents, list):
+        return
+
+    result = compact_gemini_contents(contents)
+    inner_request["contents"] = result
 
 
 def _inject_system_instruction(inner_request: dict[str, Any]) -> None:
@@ -349,8 +342,9 @@ def wrap_v1internal_request(
     5. Thinking budget 处理
     6. 工具声明清洗（图像生成模型跳过）
     7. System Instruction 注入（图像生成模型跳过）
-    8. 注入 sessionId（对齐 CLIProxyAPI）
-    9. 构建 v1internal 信封
+    8. 清理空 parts 的 contents 并合并连续同角色条目
+    9. 注入 sessionId（对齐 CLIProxyAPI）
+    10. 构建 v1internal 信封
     """
     from src.api.handlers.gemini.image_gen import is_image_gen_model
 
@@ -385,7 +379,12 @@ def wrap_v1internal_request(
         inner_request.pop("system_instruction", None)
         request_type = "image_gen"
 
-    # 6. 注入 sessionId（对齐 CLIProxyAPI/sub2api）
+    # 6. 清理空 parts 的 contents 并合并连续同角色条目
+    #    跨格式转换（如 Responses API reasoning 块）可能产生空 parts 的 content，
+    #    Gemini API 要求每个 content 至少有一个有效 part，并且严格交替 user/model 角色。
+    _compact_contents(inner_request)
+
+    # 7. 注入 sessionId（对齐 CLIProxyAPI/sub2api）
     if "sessionId" not in inner_request:
         inner_request["sessionId"] = _generate_stable_session_id(inner_request)
 

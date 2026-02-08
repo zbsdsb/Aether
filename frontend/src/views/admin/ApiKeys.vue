@@ -784,10 +784,10 @@ function clearFilters() {
 const skip = computed(() => (currentPage.value - 1) * limit.value)
 
 const activeKeyCount = computed(() => apiKeys.value.filter(key => key.is_active).length)
-const inactiveKeyCount = computed(() => Math.max(0, apiKeys.value.length - activeKeyCount.value))
+const _inactiveKeyCount = computed(() => Math.max(0, apiKeys.value.length - activeKeyCount.value))
 const limitedKeyCount = computed(() => apiKeys.value.filter(isBalanceLimited).length)
-const unlimitedKeyCount = computed(() => Math.max(0, apiKeys.value.length - limitedKeyCount.value))
-const expiringSoonCount = computed(() => apiKeys.value.filter(key => isExpiringSoon(key)).length)
+const _unlimitedKeyCount = computed(() => Math.max(0, apiKeys.value.length - limitedKeyCount.value))
+const _expiringSoonCount = computed(() => apiKeys.value.filter(key => isExpiringSoon(key)).length)
 
 // 筛选后的 API Keys
 const filteredApiKeys = computed(() => {

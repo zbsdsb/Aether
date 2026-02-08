@@ -262,9 +262,6 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import {
   Loader2,
-  Eye,
-  Wrench,
-  Brain,
   Search,
   Copy,
   Check,

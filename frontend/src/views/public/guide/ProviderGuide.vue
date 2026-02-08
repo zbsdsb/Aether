@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import { ArrowRight, Server, Plus, Settings, Check, AlertTriangle, Info } from 'lucide-vue-next'
+import { ArrowRight, Server, Settings, Check, AlertTriangle, Info } from 'lucide-vue-next'
 import { apiFormats, panelClasses } from './guide-config'
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     baseUrl?: string
   }>(),

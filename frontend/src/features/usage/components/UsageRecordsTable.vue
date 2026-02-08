@@ -143,6 +143,12 @@
           <SelectItem value="cancelled">
             已取消
           </SelectItem>
+          <SelectItem value="has_retry">
+            发生重试
+          </SelectItem>
+          <SelectItem value="has_fallback">
+            发生转移
+          </SelectItem>
         </SelectContent>
       </Select>
 

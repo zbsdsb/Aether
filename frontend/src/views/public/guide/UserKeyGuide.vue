@@ -3,7 +3,7 @@ import { RouterLink } from 'vue-router'
 import { ArrowRight, Users, Key, Shield, Check, Info, AlertTriangle, Clock } from 'lucide-vue-next'
 import { panelClasses } from './guide-config'
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     baseUrl?: string
   }>(),
@@ -11,14 +11,6 @@ const props = withDefaults(
     baseUrl: typeof window !== 'undefined' ? window.location.origin : 'https://your-aether.com'
   }
 )
-
-// 用户字段说明
-const userFields = [
-  { name: '用户名/邮箱', description: '用户的登录凭证', required: true },
-  { name: '角色', description: '普通用户或管理员', required: true },
-  { name: '状态', description: '启用/禁用用户', required: false },
-  { name: '默认配额', description: '该用户创建的 Key 默认继承的配额设置', required: false }
-]
 
 // API Key 字段说明
 const keyFields = [

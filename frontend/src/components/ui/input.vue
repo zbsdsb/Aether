@@ -146,7 +146,7 @@ const effectiveType = computed(() => {
 
 // 过滤掉 type 和 class 属性，因为我们会单独处理
 const filteredAttrs = computed(() => {
-  const { type, class: _, ...rest } = attrs
+  const { type: _type, class: _class, ...rest } = attrs
   return rest
 })
 

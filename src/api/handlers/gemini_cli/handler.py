@@ -90,6 +90,17 @@ class GeminiCliMessageHandler(CliMessageHandlerBase):
             is_image_gen_model,
         )
 
+        # Sanitize Gemini contents: strip parts without a valid data-oneof
+        # field and merge consecutive same-role entries.  This catches cases
+        # missed by the normalizer (passthrough) or the antigravity envelope.
+        from src.core.api_format.conversion.normalizers.gemini import (
+            compact_gemini_contents,
+        )
+
+        contents = request_body.get("contents")
+        if isinstance(contents, list):
+            request_body["contents"] = compact_gemini_contents(contents)
+
         if not is_image_gen_model(mapped_model):
             return request_body
         return adapt_request_for_image_gen(request_body)

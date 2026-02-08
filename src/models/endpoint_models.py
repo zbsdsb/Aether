@@ -418,6 +418,14 @@ class EndpointAPIKeyUpdate(BaseModel):
     model_exclude_patterns: list[str] | None = Field(
         default=None, description="模型排除规则（支持 * 和 ? 通配符），空表示不排除"
     )
+    # Key 级别代理配置（覆盖 Provider 级别代理）
+    # - 不提供：不更新
+    # - 提供 null：清除 Key 级别代理，回退到 Provider 级别代理
+    # - 提供 ProxyConfig：设置 Key 级别代理
+    proxy: ProxyConfig | None = Field(
+        default=None,
+        description="Key 级别代理配置（覆盖 Provider 级别代理），null=使用 Provider 级别代理",
+    )
 
     @field_validator("api_formats")
     @classmethod
@@ -588,6 +596,11 @@ class EndpointAPIKeyResponse(BaseModel):
     # 上游元数据（由响应头采集，如 Codex 额度信息）
     upstream_metadata: dict[str, Any] | None = Field(
         None, description="上游元数据（如 Codex 额度信息）"
+    )
+
+    # Key 级别代理配置
+    proxy: dict[str, Any] | None = Field(
+        None, description="Key 级别代理配置（覆盖 Provider 级别代理）"
     )
 
     # 时间戳

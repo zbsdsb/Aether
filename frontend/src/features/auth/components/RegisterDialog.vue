@@ -375,7 +375,7 @@ const sendCodeButtonText = computed(() => {
 })
 
 // 用户名验证
-const usernameRegex = /^[a-zA-Z0-9_.\-]+$/
+const usernameRegex = /^[a-zA-Z0-9_.-]+$/
 const usernameError = computed(() => {
   const username = formData.value.username.trim()
   if (!username) return ''

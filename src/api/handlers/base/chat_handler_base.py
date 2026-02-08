@@ -422,6 +422,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         用于根据目标模型的特性对请求体做最终调整，例如：
         - 图像生成模型需要移除不兼容的 tools/system_instruction 并注入 imageConfig
         - 特定模型需要注入/移除某些字段
+        - Gemini 格式：清理无效 parts 和合并连续同角色 contents
 
         此方法在流式和非流式路径中均会被调用，且 mapped_model 已确定。
 
@@ -433,6 +434,18 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         Returns:
             调整后的请求体
         """
+        # Gemini 格式请求：清理无效 parts 和合并连续同角色 contents
+        # 跨格式转换（如 Claude → Gemini）可能产生 thinking 等无法表示的块，
+        # 导致 parts 为空或缺少有效 data-oneof 字段，被 Google API 拒绝。
+        if provider_api_format and "gemini" in str(provider_api_format).lower():
+            contents = request_body.get("contents")
+            if isinstance(contents, list):
+                from src.core.api_format.conversion.normalizers.gemini import (
+                    compact_gemini_contents,
+                )
+
+                request_body["contents"] = compact_gemini_contents(contents)
+
         return request_body
 
     def _set_model_after_conversion(
@@ -896,8 +909,9 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             pre_computed_auth=auth_info.as_tuple() if auth_info else None,
         )
         if upstream_is_stream:
-            # Ensure upstream returns SSE payload when in streaming mode.
-            provider_headers["Accept"] = "text/event-stream"
+            from src.core.api_format.headers import set_accept_if_absent
+
+            set_accept_if_absent(provider_headers)
 
         ctx.provider_request_headers = provider_headers
         ctx.provider_request_body = provider_payload
@@ -913,10 +927,15 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         # Capture the selected base_url from transport (used by some envelopes for failover).
         ctx.selected_base_url = envelope.capture_selected_base_url() if envelope else None
 
-        # 记录代理信息
-        from src.services.proxy_node.resolver import get_proxy_label, resolve_proxy_info
+        # 解析有效代理（Key 级别优先于 Provider 级别）
+        from src.services.proxy_node.resolver import (
+            get_proxy_label,
+            resolve_effective_proxy,
+            resolve_proxy_info,
+        )
 
-        ctx.proxy_info = resolve_proxy_info(provider.proxy)
+        effective_proxy = resolve_effective_proxy(provider.proxy, getattr(key, "proxy", None))
+        ctx.proxy_info = resolve_proxy_info(effective_proxy)
         proxy_label = get_proxy_label(ctx.proxy_info)
 
         logger.debug(
@@ -931,9 +950,9 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             from src.services.proxy_node.resolver import build_post_kwargs, resolve_delegate_config
 
             request_timeout_sync = provider.request_timeout or config.http_request_timeout
-            delegate_cfg = resolve_delegate_config(provider.proxy)
+            delegate_cfg = resolve_delegate_config(effective_proxy)
             http_client = await HTTPClientPool.get_upstream_client(
-                delegate_cfg, proxy_config=provider.proxy
+                delegate_cfg, proxy_config=effective_proxy
             )
 
             try:
@@ -1125,13 +1144,13 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
         # 优先使用 Provider 配置，否则使用全局配置
         request_timeout = provider.stream_first_byte_timeout or config.stream_first_byte_timeout
 
-        # 创建 HTTP 客户端（支持代理配置，从 Provider 读取）
+        # 创建 HTTP 客户端（支持代理配置，Key 级别优先于 Provider 级别）
         from src.clients.http_client import HTTPClientPool
         from src.services.proxy_node.resolver import build_stream_kwargs, resolve_delegate_config
 
-        delegate_cfg = resolve_delegate_config(provider.proxy)
+        delegate_cfg = resolve_delegate_config(effective_proxy)
         http_client = HTTPClientPool.create_upstream_stream_client(
-            delegate_cfg, proxy_config=provider.proxy, timeout=timeout_config
+            delegate_cfg, proxy_config=effective_proxy, timeout=timeout_config
         )
 
         # 用于存储内部函数的结果（必须在函数定义前声明，供 nonlocal 使用）
@@ -1546,8 +1565,9 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 pre_computed_auth=auth_info.as_tuple() if auth_info else None,
             )
             if upstream_is_stream:
-                # Ensure upstream returns SSE payload when forced to streaming mode.
-                provider_hdrs["Accept"] = "text/event-stream"
+                from src.core.api_format.headers import set_accept_if_absent
+
+                set_accept_if_absent(provider_hdrs)
 
             provider_request_headers = provider_hdrs
             provider_request_body = provider_payload
@@ -1563,10 +1583,15 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             # 非流式：必须在 build_provider_url 调用后立即缓存（避免 contextvar 被后续调用覆盖）
             selected_base_url_cached = envelope.capture_selected_base_url() if envelope else None
 
-            # 记录代理信息
-            from src.services.proxy_node.resolver import get_proxy_label, resolve_proxy_info
+            # 解析有效代理（Key 级别优先于 Provider 级别）
+            from src.services.proxy_node.resolver import (
+                get_proxy_label,
+                resolve_effective_proxy,
+                resolve_proxy_info,
+            )
 
-            sync_proxy_info = resolve_proxy_info(provider.proxy)
+            _effective_proxy = resolve_effective_proxy(provider.proxy, getattr(key, "proxy", None))
+            sync_proxy_info = resolve_proxy_info(_effective_proxy)
             _proxy_label = get_proxy_label(sync_proxy_info)
 
             logger.info(
@@ -1576,7 +1601,7 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             )
             logger.debug(f"  [{self.request_id}] 请求URL: {redact_url_for_log(url)}")
 
-            # 获取复用的 HTTP 客户端（支持代理配置，从 Provider 读取）
+            # 获取复用的 HTTP 客户端（支持代理配置，Key 级别优先于 Provider 级别）
             # 注意：使用 get_proxy_client 复用连接池，不再每次创建新客户端
             from src.clients.http_client import HTTPClientPool
             from src.services.proxy_node.resolver import (
@@ -1589,9 +1614,9 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
             # 优先使用 Provider 配置，否则使用全局配置
             request_timeout = provider.request_timeout or config.http_request_timeout
 
-            delegate_cfg = resolve_delegate_config(provider.proxy)
+            delegate_cfg = resolve_delegate_config(_effective_proxy)
             http_client = await HTTPClientPool.get_upstream_client(
-                delegate_cfg, proxy_config=provider.proxy
+                delegate_cfg, proxy_config=_effective_proxy
             )
 
             # 注意：不使用 async with，因为复用的客户端不应该被关闭
@@ -1643,8 +1668,16 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
 
                         stream_resp.raise_for_status()
 
+                        byte_iter = stream_resp.aiter_bytes()
+                        if provider_type == "kiro" and envelope and envelope.force_stream_rewrite():
+                            from src.services.provider.adapters.kiro.eventstream_rewriter import (
+                                apply_kiro_stream_rewrite,
+                            )
+
+                            byte_iter = apply_kiro_stream_rewrite(byte_iter, model=str(model or ""))
+
                         internal_resp = await aggregate_upstream_stream_to_internal_response(
-                            stream_resp.aiter_bytes(),
+                            byte_iter,
                             provider_api_format=provider_api_format,
                             provider_name=str(provider.name),
                             model=str(model or ""),

@@ -11,9 +11,13 @@
       <div class="flex rounded-lg border border-border p-0.5 bg-muted/30">
         <button
           class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all"
-          :class="mode === 'oauth'
-            ? 'bg-background text-foreground shadow-sm'
-            : 'text-muted-foreground hover:text-foreground'"
+          :disabled="isKiroProvider"
+          :class="[
+            mode === 'oauth'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+            isKiroProvider ? 'opacity-50 cursor-not-allowed' : ''
+          ]"
           @click="switchMode('oauth')"
         >
           获取授权
@@ -232,11 +236,13 @@ import {
   startProviderLevelOAuth,
   completeProviderLevelOAuth,
   importProviderRefreshToken,
+  batchImportOAuth,
 } from '@/api/endpoints'
 
 const props = defineProps<{
   open: boolean
   providerId: string | null
+  providerType: string | null
 }>()
 
 const emit = defineEmits<{
@@ -287,6 +293,8 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const isOpen = computed(() => props.open)
 
+const isKiroProvider = computed(() => (props.providerType || '').toLowerCase() === 'kiro')
+
 const oauthBusy = computed(() =>
   oauth.value.starting || oauth.value.completing
 )
@@ -310,7 +318,7 @@ function resetForm() {
   importing.value = false
   isDragging.value = false
   showManualInput.value = false
-  mode.value = 'oauth'
+  mode.value = isKiroProvider.value ? 'import' : 'oauth'
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
   }
@@ -328,6 +336,13 @@ function clearImport() {
 
 function switchMode(newMode: DialogMode) {
   if (mode.value === newMode) return
+
+  if (newMode === 'oauth' && isKiroProvider.value) {
+    showError('Kiro \u4e0d\u652f\u6301 OAuth \u6388\u6743\uff0c\u8bf7\u4f7f\u7528\u5bfc\u5165\u6388\u6743', '\u63d0\u793a')
+    mode.value = 'import'
+    return
+  }
+
   mode.value = newMode
   if (newMode === 'oauth' && !oauth.value.authorization_url && !oauth.value.starting) {
     initOAuth()
@@ -353,6 +368,8 @@ function openAuthorizationUrl() {
 
 async function initOAuth() {
   if (!props.providerId) return
+  if (isKiroProvider.value) return
+
 
   oauth.value.starting = true
   try {
@@ -364,7 +381,7 @@ async function initOAuth() {
   } catch (err: any) {
     const errorMessage = parseApiError(err, '初始化授权失败')
     showError(errorMessage, '错误')
-    handleClose()
+    mode.value = 'import'
   } finally {
     oauth.value.starting = false
   }
@@ -388,31 +405,63 @@ async function handleCompleteOAuth() {
   }
 }
 
+// 检测是否为批量导入格式
+function isBatchImport(text: string): boolean {
+  const trimmed = text.trim()
+  // JSON 数组
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      return Array.isArray(parsed) && parsed.length > 1
+    } catch {
+      return false
+    }
+  }
+  // 单个 JSON 对象（可能是 pretty-printed 多行）不算批量导入
+  if (trimmed.startsWith('{')) {
+    try {
+      JSON.parse(trimmed)
+      return false // 可解析的单个 JSON 对象，走单条导入
+    } catch {
+      // 解析失败：可能是多个 JSON 对象（JSON Lines 格式），继续检查
+    }
+  }
+  // 多行文本（纯 Token 一行一个）
+  const lines = trimmed.split('\n').filter(line => line.trim() && !line.trim().startsWith('#'))
+  return lines.length > 1
+}
+
 function parseImportText(text: string): { refresh_token: string; name?: string } | null {
   const trimmed = text.trim()
+  if (!trimmed) return null
+
+  // Kiro: keep full JSON so backend can extract auth_method/region/client_id, etc.
+  if (isKiroProvider.value) {
+    return { refresh_token: trimmed }
+  }
+
   try {
     const parsed = JSON.parse(trimmed)
     if (typeof parsed === 'object' && parsed !== null) {
-      const refreshToken = parsed.refresh_token
+      const refreshToken = (parsed as any).refresh_token
       if (typeof refreshToken === 'string' && refreshToken.trim()) {
         return {
           refresh_token: refreshToken.trim(),
-          name: parsed.name || parsed.oauth_email || undefined,
+          name: (parsed as any).name || (parsed as any).oauth_email || undefined,
         }
       }
+      return null
     }
   } catch {
-    // 不是 JSON
+    // Not JSON: treat as raw token.
   }
-  if (trimmed) {
-    return { refresh_token: trimmed }
-  }
-  return null
+
+  return { refresh_token: trimmed }
 }
 
 function readFile(file: File) {
-  if (!file.name.endsWith('.json') && file.type !== 'application/json') {
-    showError('仅支持 .json 文件', '格式错误')
+  if (!file.name.endsWith('.json') && !file.name.endsWith('.txt') && file.type !== 'application/json' && file.type !== 'text/plain') {
+    showError('仅支持 .json 或 .txt 文件', '格式错误')
     return
   }
   importFileName.value = file.name
@@ -441,19 +490,43 @@ function handleFileDrop(event: DragEvent) {
 async function handleImport() {
   if (!canImport.value || !props.providerId) return
 
-  const inputText = importText.value || manualPasteText.value
-  const parsed = parseImportText(inputText)
-  if (!parsed) {
-    showError('无法解析输入内容，请检查格式', '格式错误')
+  const inputText = (importText.value || manualPasteText.value).trim()
+  if (!inputText) {
+    showError('请输入凭据数据', '格式错误')
     return
   }
 
   importing.value = true
   try {
-    await importProviderRefreshToken(props.providerId, parsed)
-    success('导入成功，账号已添加')
-    emit('saved')
-    handleClose()
+    // 检测是否为批量导入
+    if (isBatchImport(inputText)) {
+      // 批量导入
+      const result = await batchImportOAuth(props.providerId, inputText)
+      if (result.success > 0) {
+        if (result.failed > 0) {
+          success(`批量导入完成：成功 ${result.success} 个，失败 ${result.failed} 个`)
+        } else {
+          success(`批量导入成功：${result.success} 个账号已添加`)
+        }
+        emit('saved')
+        handleClose()
+      } else {
+        // 全部失败，显示第一个错误
+        const firstError = result.results.find(r => r.status === 'error')
+        showError(firstError?.error || '批量导入失败', '导入失败')
+      }
+    } else {
+      // 单条导入
+      const parsed = parseImportText(inputText)
+      if (!parsed) {
+        showError('无法解析输入内容，请检查格式', '格式错误')
+        return
+      }
+      await importProviderRefreshToken(props.providerId, parsed)
+      success('导入成功，账号已添加')
+      emit('saved')
+      handleClose()
+    }
   } catch (err: any) {
     const errorMessage = parseApiError(err, '导入失败')
     showError(errorMessage, '错误')
@@ -464,7 +537,11 @@ async function handleImport() {
 
 watch(() => props.open, (newOpen) => {
   if (newOpen) {
-    initOAuth()
+    if (isKiroProvider.value) {
+      mode.value = 'import'
+    } else {
+      initOAuth()
+    }
   } else {
     resetForm()
   }

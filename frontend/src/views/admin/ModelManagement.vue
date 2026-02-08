@@ -499,10 +499,6 @@ import {
   Trash2,
   Loader2,
   Eye,
-  Wrench,
-  Brain,
-  Zap,
-  Image,
   Building2,
   Search,
   Power,
@@ -648,7 +644,7 @@ function hasVideoPricing(model: GlobalModelResponse): boolean {
 }
 
 // 获取视频分辨率计费的数量
-function getVideoPricingCount(model: GlobalModelResponse): number {
+function _getVideoPricingCount(model: GlobalModelResponse): number {
   const priceByResolution = model.config?.billing?.video?.price_per_second_by_resolution
   if (!priceByResolution || typeof priceByResolution !== 'object') return 0
   return Object.keys(priceByResolution).length

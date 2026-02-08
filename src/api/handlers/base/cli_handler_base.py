@@ -381,6 +381,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
         用于根据目标模型的特性对请求体做最终调整，例如：
         - 图像生成模型需要移除不兼容的 tools/system_instruction 并注入 imageConfig
         - 特定模型需要注入/移除某些字段
+        - Gemini 格式：清理无效 parts 和合并连续同角色 contents
 
         此方法在流式和非流式路径中均会被调用，且 mapped_model 已确定。
 
@@ -392,6 +393,18 @@ class CliMessageHandlerBase(BaseMessageHandler):
         Returns:
             调整后的请求体
         """
+        # Gemini 格式请求：清理无效 parts 和合并连续同角色 contents
+        # 跨格式转换（如 Claude → Gemini）可能产生 thinking 等无法表示的块，
+        # 导致 parts 为空或缺少有效 data-oneof 字段，被 Google API 拒绝。
+        if provider_api_format and "gemini" in str(provider_api_format).lower():
+            contents = request_body.get("contents")
+            if isinstance(contents, list):
+                from src.core.api_format.conversion.normalizers.gemini import (
+                    compact_gemini_contents,
+                )
+
+                request_body["contents"] = compact_gemini_contents(contents)
+
         return request_body
 
     @staticmethod
@@ -872,8 +885,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
             pre_computed_auth=auth_info.as_tuple() if auth_info else None,
         )
         if upstream_is_stream:
-            # Ensure upstream returns SSE payload when in streaming mode.
-            provider_headers["Accept"] = "text/event-stream"
+            from src.core.api_format.headers import set_accept_if_absent
+
+            set_accept_if_absent(provider_headers)
 
         # 保存发送给 Provider 的请求信息（用于调试和统计）
         ctx.provider_request_headers = provider_headers
@@ -890,11 +904,13 @@ class CliMessageHandlerBase(BaseMessageHandler):
         # Capture the selected base_url from transport (used by some envelopes for failover).
         ctx.selected_base_url = envelope.capture_selected_base_url() if envelope else None
 
-        # 记录代理信息（sync-bridge 路径，早于流式路径执行）
+        # 解析有效代理（Key 级别优先于 Provider 级别）
         from src.services.proxy_node.resolver import get_proxy_label as _gpl
+        from src.services.proxy_node.resolver import resolve_effective_proxy as _rep
         from src.services.proxy_node.resolver import resolve_proxy_info as _rpi
 
-        ctx.proxy_info = _rpi(provider.proxy)
+        effective_proxy = _rep(provider.proxy, getattr(key, "proxy", None))
+        ctx.proxy_info = _rpi(effective_proxy)
 
         # If upstream is forced to non-stream mode, we execute a sync request and then
         # simulate streaming to the client (sync -> stream bridge).
@@ -903,9 +919,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
             from src.services.proxy_node.resolver import build_post_kwargs, resolve_delegate_config
 
             request_timeout_sync = provider.request_timeout or config.http_request_timeout
-            delegate_cfg = resolve_delegate_config(provider.proxy)
+            delegate_cfg = resolve_delegate_config(effective_proxy)
             http_client = await HTTPClientPool.get_upstream_client(
-                delegate_cfg, proxy_config=provider.proxy
+                delegate_cfg, proxy_config=effective_proxy
             )
 
             try:
@@ -1096,13 +1112,13 @@ class CliMessageHandlerBase(BaseMessageHandler):
             f"timeout={request_timeout}s, 代理={_proxy_label}"
         )
 
-        # 创建 HTTP 客户端（支持代理配置，从 Provider 读取）
+        # 创建 HTTP 客户端（支持代理配置，Key 级别优先于 Provider 级别）
         from src.clients.http_client import HTTPClientPool
         from src.services.proxy_node.resolver import build_stream_kwargs, resolve_delegate_config
 
-        delegate_cfg = resolve_delegate_config(provider.proxy)
+        delegate_cfg = resolve_delegate_config(effective_proxy)
         http_client = HTTPClientPool.create_upstream_stream_client(
-            delegate_cfg, proxy_config=provider.proxy, timeout=timeout_config
+            delegate_cfg, proxy_config=effective_proxy, timeout=timeout_config
         )
 
         # 用于存储内部函数的结果（必须在函数定义前声明，供 nonlocal 使用）
@@ -1297,7 +1313,25 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 needs_conversion = True
                 ctx.needs_conversion = True
 
-            async for chunk in stream_response.aiter_bytes():
+            # Kiro 特殊处理：AWS Event Stream 二进制流需要重写为 SSE
+            ctx_provider_type = str(ctx.provider_type or "").strip().lower()
+            if ctx_provider_type == "kiro" and envelope and envelope.force_stream_rewrite():
+                from src.services.provider.adapters.kiro.eventstream_rewriter import (
+                    apply_kiro_stream_rewrite,
+                )
+
+                chunk_source: AsyncGenerator[bytes, None] = apply_kiro_stream_rewrite(
+                    stream_response.aiter_bytes(),
+                    model=str(ctx.model or ""),
+                    input_tokens=int(ctx.input_tokens or 0),
+                )
+                # Kiro 重写后输出的是 Claude SSE 格式，不需要再进行格式转换
+                needs_conversion = False
+                ctx.needs_conversion = False
+            else:
+                chunk_source = stream_response.aiter_bytes()
+
+            async for chunk in chunk_source:
                 buffer += chunk
                 # 处理缓冲区中的完整行
                 while b"\n" in buffer:
@@ -1307,8 +1341,10 @@ class CliMessageHandlerBase(BaseMessageHandler):
                         line = decoder.decode(line_bytes + b"\n", False).rstrip("\n")
                     except Exception as e:
                         logger.warning(
-                            f"[{self.request_id}] UTF-8 解码失败: {e}, "
-                            f"bytes={line_bytes[:50]!r}"
+                            "[{}] UTF-8 解码失败: {}, bytes={!r}",
+                            self.request_id,
+                            e,
+                            line_bytes[:50],
                         )
                         continue
 
@@ -1333,11 +1369,14 @@ class CliMessageHandlerBase(BaseMessageHandler):
                     if ctx.chunk_count > self.EMPTY_CHUNK_THRESHOLD and ctx.data_count == 0:
                         elapsed = time.time() - last_data_time
                         if elapsed > self.DATA_TIMEOUT:
-                            logger.warning(f"Provider '{ctx.provider_name}' 流超时且无数据")
-                            # 设置错误状态用于后续记录
+                            logger.warning("Provider '{}' 流超时且无数据", ctx.provider_name)
                             ctx.status_code = 504
                             ctx.error_message = "流式响应超时，未收到有效数据"
-                            ctx.upstream_response = f"流超时: Provider={ctx.provider_name}, elapsed={elapsed:.1f}s, chunk_count={ctx.chunk_count}, data_count=0"
+                            ctx.upstream_response = (
+                                f"流超时: Provider={ctx.provider_name}, "
+                                f"elapsed={elapsed:.1f}s, "
+                                f"chunk_count={ctx.chunk_count}, data_count=0"
+                            )
                             error_event = {
                                 "type": "error",
                                 "error": {
@@ -1364,16 +1403,16 @@ class CliMessageHandlerBase(BaseMessageHandler):
                         self._mark_first_output(ctx, output_state)
                         yield (line + "\n").encode("utf-8")
 
-                for event in events:
-                    self._handle_sse_event(
-                        ctx,
-                        event.get("event"),
-                        event.get("data") or "",
-                        record_chunk=not needs_conversion,
-                    )
+                    for event in events:
+                        self._handle_sse_event(
+                            ctx,
+                            event.get("event"),
+                            event.get("data") or "",
+                            record_chunk=not needs_conversion,
+                        )
 
-                if ctx.data_count > 0:
-                    last_data_time = time.time()
+                    if ctx.data_count > 0:
+                        last_data_time = time.time()
 
             # 处理剩余事件
             for event in sse_parser.flush():
@@ -1386,13 +1425,13 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
             # 检查是否收到数据
             if ctx.data_count == 0:
-                # 流已开始，无法抛出异常进行故障转移
-                # 发送错误事件并记录日志
-                logger.warning(f"Provider '{ctx.provider_name}' 返回空流式响应")
-                # 设置错误状态用于后续记录
+                logger.warning("Provider '{}' 返回空流式响应", ctx.provider_name)
                 ctx.status_code = 503
                 ctx.error_message = "上游服务返回了空的流式响应"
-                ctx.upstream_response = f"空流式响应: Provider={ctx.provider_name}, chunk_count={ctx.chunk_count}, data_count=0"
+                ctx.upstream_response = (
+                    f"空流式响应: Provider={ctx.provider_name}, "
+                    f"chunk_count={ctx.chunk_count}, data_count=0"
+                )
                 error_event = {
                     "type": "error",
                     "error": {
@@ -1791,6 +1830,26 @@ class CliMessageHandlerBase(BaseMessageHandler):
             if envelope and envelope.force_stream_rewrite():
                 needs_conversion = True
                 ctx.needs_conversion = True
+
+            # Kiro 特殊处理：AWS Event Stream 二进制流需要重写为 SSE
+            ctx_provider_type = str(ctx.provider_type or "").strip().lower()
+            if ctx_provider_type == "kiro" and envelope and envelope.force_stream_rewrite():
+                from src.services.provider.adapters.kiro.eventstream_rewriter import (
+                    apply_kiro_stream_rewrite,
+                )
+
+                byte_iterator = apply_kiro_stream_rewrite(
+                    byte_iterator,
+                    model=str(ctx.model or ""),
+                    input_tokens=int(ctx.input_tokens or 0),
+                    prefetched_chunks=list(prefetched_chunks) if prefetched_chunks else None,
+                )
+                prefetched_chunks = []
+
+                # Kiro 重写后输出的是 Claude SSE 格式
+                # 客户端也是 Claude CLI，不需要再进行格式转换
+                needs_conversion = False
+                ctx.needs_conversion = False
 
             # 先处理预读的字节块
             for chunk in prefetched_chunks:
@@ -2461,10 +2520,6 @@ class CliMessageHandlerBase(BaseMessageHandler):
             try:
                 from src.models.database import ApiKey as ApiKeyModel
 
-                # 采集上游元数据（仅成功请求）
-                if ctx.is_success():
-                    self._collect_upstream_metadata(bg_db, ctx)
-
                 user = bg_db.query(User).filter(User.id == ctx.user_id).first()
                 api_key = bg_db.query(ApiKeyModel).filter(ApiKeyModel.id == ctx.api_key_id).first()
 
@@ -2719,19 +2774,6 @@ class CliMessageHandlerBase(BaseMessageHandler):
         except Exception as e:
             logger.exception("记录流式统计信息时出错")
 
-    @staticmethod
-    def _collect_upstream_metadata(db: Session, ctx: StreamContext) -> None:
-        """采集上游元数据并更新 ProviderAPIKey.upstream_metadata（带节流）"""
-        from src.services.provider.metadata_collectors import collect_and_save_upstream_metadata
-
-        collect_and_save_upstream_metadata(
-            db,
-            provider_type=ctx.provider_type or "",
-            key_id=ctx.key_id or "",
-            response_headers=ctx.response_headers or {},
-            request_id=ctx.request_id or "",
-        )
-
     async def _record_stream_failure(
         self,
         ctx: StreamContext,
@@ -2960,8 +3002,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 pre_computed_auth=auth_info.as_tuple() if auth_info else None,
             )
             if upstream_is_stream:
-                # Ensure upstream returns SSE payload when forced to streaming mode.
-                provider_headers["Accept"] = "text/event-stream"
+                from src.core.api_format.headers import set_accept_if_absent
+
+                set_accept_if_absent(provider_headers)
 
             # 保存发送给 Provider 的请求信息（用于调试和统计）
             provider_request_headers = provider_headers
@@ -2978,10 +3021,15 @@ class CliMessageHandlerBase(BaseMessageHandler):
             # 非流式：必须在 build_provider_url 调用后立即缓存（避免 contextvar 被后续调用覆盖）
             selected_base_url_cached = envelope.capture_selected_base_url() if envelope else None
 
-            # 记录代理信息
-            from src.services.proxy_node.resolver import get_proxy_label, resolve_proxy_info
+            # 解析有效代理（Key 级别优先于 Provider 级别）
+            from src.services.proxy_node.resolver import (
+                get_proxy_label,
+                resolve_effective_proxy,
+                resolve_proxy_info,
+            )
 
-            sync_proxy_info = resolve_proxy_info(provider.proxy)
+            _effective_proxy = resolve_effective_proxy(provider.proxy, getattr(key, "proxy", None))
+            sync_proxy_info = resolve_proxy_info(_effective_proxy)
             _proxy_label = get_proxy_label(sync_proxy_info)
 
             logger.info(
@@ -2992,7 +3040,7 @@ class CliMessageHandlerBase(BaseMessageHandler):
                 f"代理={_proxy_label}"
             )
 
-            # 获取复用的 HTTP 客户端（支持代理配置，从 Provider 读取）
+            # 获取复用的 HTTP 客户端（支持代理配置，Key 级别优先于 Provider 级别）
             # 注意：使用 get_proxy_client 复用连接池，不再每次创建新客户端
             from src.clients.http_client import HTTPClientPool
             from src.services.proxy_node.resolver import (
@@ -3005,9 +3053,9 @@ class CliMessageHandlerBase(BaseMessageHandler):
             # 优先使用 Provider 配置，否则使用全局配置
             request_timeout = provider.request_timeout or config.http_request_timeout
 
-            delegate_cfg = resolve_delegate_config(provider.proxy)
+            delegate_cfg = resolve_delegate_config(_effective_proxy)
             http_client = await HTTPClientPool.get_upstream_client(
-                delegate_cfg, proxy_config=provider.proxy
+                delegate_cfg, proxy_config=_effective_proxy
             )
 
             # 注意：不使用 async with，因为复用的客户端不应该被关闭
@@ -3060,8 +3108,16 @@ class CliMessageHandlerBase(BaseMessageHandler):
 
                         stream_resp.raise_for_status()
 
+                        byte_iter = stream_resp.aiter_bytes()
+                        if provider_type == "kiro" and envelope and envelope.force_stream_rewrite():
+                            from src.services.provider.adapters.kiro.eventstream_rewriter import (
+                                apply_kiro_stream_rewrite,
+                            )
+
+                            byte_iter = apply_kiro_stream_rewrite(byte_iter, model=str(model or ""))
+
                         internal_resp = await aggregate_upstream_stream_to_internal_response(
-                            stream_resp.aiter_bytes(),
+                            byte_iter,
                             provider_api_format=provider_api_format,
                             provider_name=str(provider.name),
                             model=str(model or ""),

@@ -365,7 +365,6 @@ import {
   X,
   Mail,
   Puzzle,
-  Video,
   Zap,
   FileUp,
   Server,

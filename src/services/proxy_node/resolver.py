@@ -269,6 +269,30 @@ def resolve_ops_proxy(
 
 
 # ---------------------------------------------------------------------------
+# Key 级别代理优先解析
+# ---------------------------------------------------------------------------
+
+
+def resolve_effective_proxy(
+    provider_proxy: dict[str, Any] | None,
+    key_proxy: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """
+    解析有效的代理配置，Key 级别代理优先于 Provider 级别代理。
+
+    Args:
+        provider_proxy: Provider 级别代理配置
+        key_proxy: Key 级别代理配置（可选），非 None 且 enabled 时覆盖 Provider 级别
+
+    Returns:
+        有效的代理配置字典，或 None（无代理）
+    """
+    if key_proxy and key_proxy.get("enabled", True):
+        return key_proxy
+    return provider_proxy
+
+
+# ---------------------------------------------------------------------------
 # 代理 URL 构建
 # ---------------------------------------------------------------------------
 

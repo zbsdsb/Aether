@@ -766,7 +766,7 @@ const currentTierIndex = computed(() => {
 })
 
 // 总输入上下文（输入 + 缓存创建 + 缓存读取）
-const totalInputContext = computed(() => {
+const _totalInputContext = computed(() => {
   if (!detail.value) return 0
 
   // 优先使用 tiered_pricing 中的值

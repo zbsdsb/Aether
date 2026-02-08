@@ -3,7 +3,7 @@ import { RouterLink } from 'vue-router'
 import { ArrowRight, Layers, Check, Info, Shuffle, TrendingUp, Gauge, Clock } from 'lucide-vue-next'
 import { loadBalanceModes, panelClasses } from './guide-config'
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     baseUrl?: string
   }>(),

@@ -1487,6 +1487,11 @@ class ProviderAPIKey(Base):
     oauth_invalid_at = Column(DateTime(timezone=True), nullable=True)  # 失效时间
     oauth_invalid_reason = Column(String(255), nullable=True)  # 失效原因
 
+    # Key 级别的代理配置（覆盖 Provider 级别的代理设置）
+    # 结构: {"node_id": "xxx", "enabled": true} 或 {"url": "socks5://...", "enabled": true}
+    # null 表示使用 Provider 级别代理（默认行为）
+    proxy = Column(JSON, nullable=True, default=None)
+
     # 时间戳
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

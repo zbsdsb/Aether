@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { Search, ChevronDown, ExternalLink, HelpCircle } from 'lucide-vue-next'
 import { faqItems, panelClasses } from './guide-config'
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     baseUrl?: string
   }>(),
@@ -17,12 +17,6 @@ const searchQuery = ref('')
 
 // 展开的 FAQ
 const expandedIds = ref<Set<string>>(new Set())
-
-// 分类列表
-const categories = computed(() => {
-  const cats = new Set(faqItems.map(item => item.category))
-  return Array.from(cats)
-})
 
 // 过滤后的 FAQ
 const filteredFaqs = computed(() => {

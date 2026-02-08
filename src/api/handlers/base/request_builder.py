@@ -58,6 +58,73 @@ class ProviderAuthInfo:
 
 
 # ==============================================================================
+# OAuth Token Refresh helpers
+# ==============================================================================
+
+
+async def _acquire_refresh_lock(key_id: str) -> tuple[Any, bool]:
+    """尝试获取 OAuth refresh 分布式锁。
+
+    返回 ``(redis_client | None, got_lock)``。调用方在刷新完成后
+    必须调用 :func:`_release_refresh_lock` 释放锁。
+    """
+    redis = await get_redis_client(require_redis=False)
+    lock_key = f"provider_oauth_refresh_lock:{key_id}"
+    got_lock = False
+    if redis is not None:
+        try:
+            got_lock = bool(await redis.set(lock_key, "1", ex=30, nx=True))
+        except Exception:
+            got_lock = False
+    return redis, got_lock
+
+
+async def _release_refresh_lock(redis: Any, key_id: str) -> None:
+    """释放 OAuth refresh 分布式锁（best-effort）。"""
+    if redis is not None:
+        try:
+            await redis.delete(f"provider_oauth_refresh_lock:{key_id}")
+        except Exception:
+            pass
+
+
+def _persist_refreshed_token(
+    key: Any,
+    access_token: str,
+    token_meta: dict[str, Any],
+) -> None:
+    """将刷新后的 access_token 和 auth_config 持久化到数据库。"""
+    key.api_key = crypto_service.encrypt(access_token)
+    key.auth_config = crypto_service.encrypt(json.dumps(token_meta))
+
+    sess = object_session(key)
+    if sess is not None:
+        sess.add(key)
+        sess.commit()
+    else:
+        logger.warning(
+            "[OAUTH_REFRESH] key {} refreshed but cannot persist (no session); "
+            "next request will refresh again",
+            key.id,
+        )
+
+
+def _get_proxy_config(key: Any, endpoint: Any = None) -> Any:
+    """获取有效代理配置（Key 级别优先于 Provider 级别）。"""
+    try:
+        from src.services.proxy_node.resolver import resolve_effective_proxy
+
+        provider = getattr(key, "provider", None) or (
+            getattr(endpoint, "provider", None) if endpoint else None
+        )
+        provider_proxy = getattr(provider, "proxy", None)
+        key_proxy = getattr(key, "proxy", None)
+        return resolve_effective_proxy(provider_proxy, key_proxy)
+    except Exception:
+        return None
+
+
+# ==============================================================================
 # 统一的头部配置常量
 # ==============================================================================
 
@@ -592,6 +659,142 @@ def build_passthrough_request(
 
 
 # ==============================================================================
+# OAuth Token Refresh logic (Kiro / Generic)
+# ==============================================================================
+
+
+async def _refresh_kiro_token(
+    key: Any,
+    endpoint: Any,
+    token_meta: dict[str, Any],
+) -> dict[str, Any]:
+    """Kiro OAuth refresh: validate + call Kiro-specific refresh endpoint."""
+    from src.core.exceptions import InvalidRequestException
+    from src.services.provider.adapters.kiro.models.credentials import KiroAuthConfig
+    from src.services.provider.adapters.kiro.token_manager import (
+        refresh_access_token,
+        validate_refresh_token,
+    )
+
+    cfg = KiroAuthConfig.from_dict(token_meta or {})
+    if not (cfg.refresh_token or "").strip():
+        raise InvalidRequestException(
+            "Kiro auth_config missing refresh_token; please re-import credentials."
+        )
+
+    proxy_config = _get_proxy_config(key, endpoint)
+
+    validate_refresh_token(cfg.refresh_token)
+    access_token, new_cfg = await refresh_access_token(
+        cfg,
+        proxy_config=proxy_config,
+    )
+    new_meta = new_cfg.to_dict()
+    new_meta["updated_at"] = int(time.time())
+
+    _persist_refreshed_token(key, access_token, new_meta)
+    return new_meta
+
+
+async def _refresh_generic_oauth_token(
+    key: Any,
+    endpoint: Any,
+    template: Any,
+    provider_type: str,
+    refresh_token: str,
+    token_meta: dict[str, Any],
+) -> dict[str, Any]:
+    """Generic OAuth refresh via template (Codex, Antigravity, ClaudeCode, etc.)."""
+    token_url = template.oauth.token_url
+    is_json = "anthropic.com" in token_url
+
+    scopes = getattr(template.oauth, "scopes", None) or []
+    scope_str = " ".join(scopes) if scopes else ""
+
+    if is_json:
+        body: dict[str, Any] = {
+            "grant_type": "refresh_token",
+            "client_id": template.oauth.client_id,
+            "refresh_token": str(refresh_token),
+        }
+        if scope_str:
+            body["scope"] = scope_str
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        data = None
+        json_body = body
+    else:
+        form: dict[str, str] = {
+            "grant_type": "refresh_token",
+            "client_id": template.oauth.client_id,
+            "refresh_token": str(refresh_token),
+        }
+        if scope_str:
+            form["scope"] = scope_str
+        if template.oauth.client_secret:
+            form["client_secret"] = template.oauth.client_secret
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        }
+        data = form
+        json_body = None
+
+    proxy_config = _get_proxy_config(key, endpoint)
+
+    resp = await post_oauth_token(
+        provider_type=provider_type,
+        token_url=token_url,
+        headers=headers,
+        data=data,
+        json_body=json_body,
+        proxy_config=proxy_config,
+        timeout_seconds=30.0,
+    )
+
+    if 200 <= resp.status_code < 300:
+        token = resp.json()
+        access_token = str(token.get("access_token") or "")
+        new_refresh_token = str(token.get("refresh_token") or "")
+        expires_in = token.get("expires_in")
+        new_expires_at: int | None = None
+        try:
+            if expires_in is not None:
+                new_expires_at = int(time.time()) + int(expires_in)
+        except Exception:
+            new_expires_at = None
+
+        if access_token:
+            token_meta["token_type"] = token.get("token_type")
+            if new_refresh_token:
+                token_meta["refresh_token"] = new_refresh_token
+            token_meta["expires_at"] = new_expires_at
+            token_meta["scope"] = token.get("scope")
+            token_meta["updated_at"] = int(time.time())
+
+            token_meta = await enrich_auth_config(
+                provider_type=provider_type,
+                auth_config=token_meta,
+                token_response=token,
+                access_token=access_token,
+                proxy_config=proxy_config,
+            )
+
+            _persist_refreshed_token(key, access_token, token_meta)
+    else:
+        logger.warning(
+            "OAuth token refresh failed: provider={}, key_id={}, status={}",
+            provider_type,
+            getattr(key, "id", "?"),
+            resp.status_code,
+        )
+
+    return token_meta
+
+
+# ==============================================================================
 # Service Account 认证支持
 # ==============================================================================
 
@@ -660,113 +863,19 @@ async def get_provider_auth(
                     template = FIXED_PROVIDERS.get(ProviderType(provider_type))
                 except Exception:
                     template = None
-                if template:
-                    redis = await get_redis_client(require_redis=False)
-                    lock_key = f"provider_oauth_refresh_lock:{key.id}"
-                    got_lock = False
-                    if redis is not None:
-                        try:
-                            got_lock = bool(await redis.set(lock_key, "1", ex=30, nx=True))
-                        except Exception:
-                            got_lock = False
 
-                    if got_lock or redis is None:
-                        try:
-                            token_url = template.oauth.token_url
-                            is_json = "anthropic.com" in token_url
-
-                            if is_json:
-                                body: dict[str, Any] = {
-                                    "grant_type": "refresh_token",
-                                    "client_id": template.oauth.client_id,
-                                    "refresh_token": str(refresh_token),
-                                }
-                                headers = {
-                                    "Content-Type": "application/json",
-                                    "Accept": "application/json",
-                                }
-                                data = None
-                                json_body = body
-                            else:
-                                form: dict[str, str] = {
-                                    "grant_type": "refresh_token",
-                                    "client_id": template.oauth.client_id,
-                                    "refresh_token": str(refresh_token),
-                                }
-                                if template.oauth.client_secret:
-                                    form["client_secret"] = template.oauth.client_secret
-                                headers = {
-                                    "Content-Type": "application/x-www-form-urlencoded",
-                                    "Accept": "application/json",
-                                }
-                                data = form
-                                json_body = None
-
-                            proxy_config = None
-                            try:
-                                provider = getattr(key, "provider", None)
-                                proxy_config = getattr(provider, "proxy", None)
-                            except Exception:
-                                proxy_config = None
-
-                            resp = await post_oauth_token(
-                                provider_type=provider_type,
-                                token_url=token_url,
-                                headers=headers,
-                                data=data,
-                                json_body=json_body,
-                                proxy_config=proxy_config,
-                                timeout_seconds=30.0,
+                redis, got_lock = await _acquire_refresh_lock(key.id)
+                if got_lock or redis is None:
+                    try:
+                        if provider_type == ProviderType.KIRO.value:
+                            token_meta = await _refresh_kiro_token(key, endpoint, token_meta)
+                        elif template:
+                            token_meta = await _refresh_generic_oauth_token(
+                                key, endpoint, template, provider_type, refresh_token, token_meta
                             )
-
-                            if 200 <= resp.status_code < 300:
-                                token = resp.json()
-                                access_token = str(token.get("access_token") or "")
-                                new_refresh_token = str(token.get("refresh_token") or "")
-                                expires_in = token.get("expires_in")
-                                new_expires_at: int | None = None
-                                try:
-                                    if expires_in is not None:
-                                        new_expires_at = int(time.time()) + int(expires_in)
-                                except Exception:
-                                    new_expires_at = None
-
-                                if access_token:
-                                    token_meta["token_type"] = token.get("token_type")
-                                    if new_refresh_token:
-                                        token_meta["refresh_token"] = new_refresh_token
-                                    token_meta["expires_at"] = new_expires_at
-                                    token_meta["scope"] = token.get("scope")
-                                    token_meta["updated_at"] = int(time.time())
-
-                                    token_meta = await enrich_auth_config(
-                                        provider_type=provider_type,
-                                        auth_config=token_meta,
-                                        token_response=token,
-                                        access_token=access_token,
-                                        proxy_config=proxy_config,
-                                    )
-
-                                    key.api_key = crypto_service.encrypt(access_token)
-                                    key.auth_config = crypto_service.encrypt(json.dumps(token_meta))
-
-                                    # 持久化：key 实体来自 DB session 时，尝试直接提交更新。
-                                    sess = object_session(key)
-                                    if sess is not None:
-                                        sess.add(key)
-                                        sess.commit()
-                                    else:
-                                        logger.warning(
-                                            "[OAUTH_REFRESH] key {} 刷新成功但无法持久化（无绑定 session），"
-                                            "下次请求将重新刷新",
-                                            key.id,
-                                        )
-                        finally:
-                            if got_lock and redis is not None:
-                                try:
-                                    await redis.delete(lock_key)
-                                except Exception:
-                                    pass
+                    finally:
+                        if got_lock:
+                            await _release_refresh_lock(redis, key.id)
             except Exception:
                 # 刷新失败不阻断请求；后续由上游返回 401 再触发管理端处理
                 pass
@@ -782,7 +891,6 @@ async def get_provider_auth(
             auth_value=f"Bearer {decrypted_key}",
             decrypted_auth_config=decrypted_auth_config,
         )
-
     if auth_type == "vertex_ai":
         from src.core.vertex_auth import VertexAuthError, VertexAuthService
 

@@ -948,7 +948,7 @@ function getEndpointRulesCount(endpoint: ProviderEndpoint): number {
 }
 
 // 检查端点是否有任何规则（包括正在编辑的空规则）
-function hasAnyRules(endpoint: ProviderEndpoint): boolean {
+function _hasAnyRules(endpoint: ProviderEndpoint): boolean {
   const state = endpointEditStates.value[endpoint.id]
   if (state) {
     return state.rules.length > 0
@@ -1158,7 +1158,7 @@ function getEndpointBodyRulesCount(endpoint: ProviderEndpoint): number {
 }
 
 // 检查端点是否有任何请求体规则（包括正在编辑的空规则）
-function hasAnyBodyRules(endpoint: ProviderEndpoint): boolean {
+function _hasAnyBodyRules(endpoint: ProviderEndpoint): boolean {
   const state = endpointEditStates.value[endpoint.id]
   if (state) {
     return state.bodyRules.length > 0
@@ -1172,7 +1172,7 @@ function getTotalRulesCount(endpoint: ProviderEndpoint): number {
 }
 
 // 格式化请求头规则的显示标签
-function formatHeaderRuleLabel(rule: EditableRule): string {
+function _formatHeaderRuleLabel(rule: EditableRule): string {
   if (rule.action === 'set') {
     if (!rule.key) return '(未设置)'
     return `${rule.key}=${rule.value || '...'}`
@@ -1187,7 +1187,7 @@ function formatHeaderRuleLabel(rule: EditableRule): string {
 }
 
 // 格式化请求体规则的显示标签
-function formatBodyRuleLabel(rule: EditableBodyRule): string {
+function _formatBodyRuleLabel(rule: EditableBodyRule): string {
   if (rule.action === 'set') {
     if (!rule.path) return '(未设置)'
     return `${rule.path}=${rule.value || '...'}`
@@ -1279,7 +1279,7 @@ function getBodyValidationErrorForEndpoint(endpointId: string): string | null {
 }
 
 // 检查请求体规则是否有验证错误
-function hasBodyValidationErrorsForEndpoint(endpointId: string): boolean {
+function _hasBodyValidationErrorsForEndpoint(endpointId: string): boolean {
   return !!getBodyValidationErrorForEndpoint(endpointId)
 }
 

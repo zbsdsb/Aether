@@ -18,10 +18,10 @@ import SelectContent from '@/components/ui/select-content.vue'
 import SelectItem from '@/components/ui/select-item.vue'
 import SelectValue from '@/components/ui/select-value.vue'
 import ScatterChart from '@/components/charts/ScatterChart.vue'
-import { Trash2, Eraser, Search, X, BarChart3, ChevronDown, ChevronRight, Database, ArrowRight } from 'lucide-vue-next'
+import { Trash2, Eraser, Search, X, BarChart3, ChevronDown, ChevronRight, Database, ArrowRight, HardDrive } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
-import { cacheApi, modelMappingCacheApi, type CacheStats, type CacheConfig, type UserAffinity, type ModelMappingCacheStats } from '@/api/cache'
+import { cacheApi, modelMappingCacheApi, redisCacheApi, type CacheStats, type CacheConfig, type UserAffinity, type ModelMappingCacheStats, type RedisCacheCategoriesResponse } from '@/api/cache'
 import type { TTLAnalysisUser } from '@/api/cache'
 import { formatNumber, formatTokens, formatCost, formatRemainingTime } from '@/utils/format'
 import {
@@ -53,6 +53,12 @@ const modelMappingStats = ref<ModelMappingCacheStats | null>(null)
 const modelMappingLoading = ref(false)
 const clearingModelMapping = ref(false)
 const clearingModelName = ref<string | null>(null)
+
+// ==================== Redis 缓存分类管理 ====================
+
+const redisCacheData = ref<RedisCacheCategoriesResponse | null>(null)
+const redisCacheLoading = ref(false)
+const clearingCategory = ref<string | null>(null)
 
 const { success: showSuccess, error: showError, info: showInfo } = useToast()
 const { confirm: showConfirm } = useConfirm()
@@ -324,6 +330,54 @@ async function clearProviderModelMapping(providerId: string, globalModelId: stri
   }
 }
 
+// ==================== Redis 缓存分类管理方法 ====================
+
+async function fetchRedisCacheCategories() {
+  redisCacheLoading.value = true
+  try {
+    redisCacheData.value = await redisCacheApi.getCategories()
+  } catch (error) {
+    showError('获取 Redis 缓存分类失败')
+    log.error('获取 Redis 缓存分类失败', error)
+  } finally {
+    redisCacheLoading.value = false
+  }
+}
+
+async function clearRedisCategory(categoryKey: string, categoryName: string, count: number) {
+  if (count === 0) {
+    showInfo(`${categoryName} 缓存为空，无需清理`)
+    return
+  }
+  const confirmed = await showConfirm({
+    title: `清除 ${categoryName} 缓存`,
+    message: `确定要清除 ${categoryName} 的所有缓存吗？共 ${count} 个键。`,
+  })
+  if (!confirmed) return
+
+  clearingCategory.value = categoryKey
+  try {
+    const result = await redisCacheApi.clearCategory(categoryKey)
+    showSuccess(`已清除 ${categoryName} 缓存（${result.deleted_count} 个键）`)
+    await fetchRedisCacheCategories()
+  } catch (error) {
+    showError(`清除 ${categoryName} 缓存失败`)
+    log.error('清除 Redis 缓存分类失败', error)
+  } finally {
+    clearingCategory.value = null
+  }
+}
+
+const redisCategoriesWithKeys = computed(() => {
+  if (!redisCacheData.value?.categories) return []
+  return redisCacheData.value.categories.filter(c => c.count > 0)
+})
+
+const redisCategoriesEmpty = computed(() => {
+  if (!redisCacheData.value?.categories) return []
+  return redisCacheData.value.categories.filter(c => c.count === 0)
+})
+
 function formatTTL(ttl: number | null): string {
   if (ttl === null || ttl < 0) return '-'
   if (ttl < 60) return `${ttl}s`
@@ -353,7 +407,8 @@ async function refreshData() {
     fetchCacheStats(),
     fetchCacheConfig(),
     fetchAffinityList(),
-    fetchModelMappingStats()
+    fetchModelMappingStats(),
+    fetchRedisCacheCategories()
   ])
 }
 
@@ -379,6 +434,7 @@ onMounted(() => {
   fetchCacheConfig()
   fetchAffinityList()
   fetchModelMappingStats()
+  fetchRedisCacheCategories()
   startCountdown()
   refreshAnalysis()
 })
@@ -1042,6 +1098,108 @@ onBeforeUnmount(() => {
         class="px-6 py-8 text-center text-sm text-muted-foreground"
       >
         加载中...
+      </div>
+    </Card>
+
+    <!-- Redis 缓存分类管理 -->
+    <Card class="overflow-hidden">
+      <div class="px-4 sm:px-6 py-3 sm:py-3.5 border-b border-border/60">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+          <div class="flex items-center gap-3 shrink-0">
+            <HardDrive class="h-5 w-5 text-muted-foreground hidden sm:block" />
+            <h3 class="text-sm sm:text-base font-semibold">
+              Redis 缓存管理
+            </h3>
+            <Badge
+              v-if="redisCacheData?.total_keys !== undefined"
+              variant="secondary"
+            >
+              {{ redisCacheData.total_keys }} 个键
+            </Badge>
+          </div>
+          <div class="flex items-center gap-2">
+            <RefreshButton
+              :loading="redisCacheLoading"
+              size="sm"
+              title="刷新缓存分类"
+              @click="fetchRedisCacheCategories"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- 有数据 -->
+      <div v-if="redisCacheData?.available && redisCacheData.categories.length > 0">
+        <!-- 有缓存的分类 -->
+        <div
+          v-if="redisCategoriesWithKeys.length > 0"
+          class="divide-y divide-border/40"
+        >
+          <div
+            v-for="cat in redisCategoriesWithKeys"
+            :key="cat.key"
+            class="flex items-center justify-between px-4 sm:px-6 py-2.5 hover:bg-muted/30 transition-colors"
+          >
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium">{{ cat.name }}</span>
+                <Badge variant="outline">
+                  {{ cat.count }}
+                </Badge>
+              </div>
+              <p class="text-xs text-muted-foreground mt-0.5 truncate">
+                {{ cat.description }}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="shrink-0 ml-3 text-destructive hover:text-destructive hover:bg-destructive/10"
+              :disabled="clearingCategory === cat.key"
+              title="清除该分类缓存"
+              @click="clearRedisCategory(cat.key, cat.name, cat.count)"
+            >
+              <Trash2 class="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        <!-- 空分类折叠 -->
+        <div
+          v-if="redisCategoriesEmpty.length > 0"
+          class="px-4 sm:px-6 py-3 border-t border-border/40"
+        >
+          <p class="text-xs text-muted-foreground">
+            另有 {{ redisCategoriesEmpty.length }} 个分类为空：{{ redisCategoriesEmpty.map(c => c.name).join('、') }}
+          </p>
+        </div>
+
+        <!-- 全部为空 -->
+        <div
+          v-if="redisCategoriesWithKeys.length === 0"
+          class="px-6 py-8 text-center"
+        >
+          <HardDrive class="h-10 w-10 text-muted-foreground/30 mx-auto mb-2" />
+          <p class="text-sm text-muted-foreground">
+            所有缓存分类为空
+          </p>
+        </div>
+      </div>
+
+      <!-- Redis 不可用 -->
+      <div
+        v-else-if="redisCacheData && !redisCacheData.available"
+        class="px-6 py-8 text-center text-sm text-muted-foreground"
+      >
+        {{ redisCacheData.message || 'Redis 未启用' }}
+      </div>
+
+      <!-- 加载中 -->
+      <div
+        v-else-if="redisCacheLoading"
+        class="px-6 py-8 text-center text-sm text-muted-foreground"
+      >
+        正在扫描 Redis 缓存...
       </div>
     </Card>
 

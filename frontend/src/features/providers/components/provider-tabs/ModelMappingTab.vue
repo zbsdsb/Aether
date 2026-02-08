@@ -387,7 +387,7 @@ const preselectedModelId = ref<string | null>(null)
 const providerEndpoints = ref<ProviderEndpoint[]>([])
 
 // Key 数据（用于判断支持的格式）
-const providerKeys = ref<EndpointAPIKey[]>([])
+const providerKeysState = ref<EndpointAPIKey[]>([])
 
 // 测试下拉菜单状态
 const formatMenuOpen = ref<Record<string, boolean>>({})
@@ -397,7 +397,7 @@ const expandedItems = ref<Set<number>>(new Set())
 
 // 是否有 key 配置了自动获取上游模型
 const hasAutoFetchKey = computed(() => {
-  const keys = props.providerKeys || providerKeys.value
+  const keys = props.providerKeys || providerKeysState.value
   return keys.some(k => k.auto_fetch_models)
 })
 
@@ -536,7 +536,7 @@ async function loadData() {
     models.value = modelsData
     aliasMappingPreview.value = previewData
     providerEndpoints.value = endpointsData
-    providerKeys.value = keysData
+    providerKeysState.value = keysData
   } catch (err: any) {
     showError(err.response?.data?.detail || '加载失败', '错误')
   } finally {
@@ -645,7 +645,7 @@ function getItemAvailableFormats(item: CombinedMapping): string[] {
     const mappingFormats = item.group.apiFormats
 
     // 找到所有支持该映射格式的活跃 Key
-    const supportingKeys = providerKeys.value.filter(key => {
+    const supportingKeys = providerKeysState.value.filter(key => {
       if (!key.is_active) return false
       // Key 的 api_formats 与映射的 apiFormats 有交集
       return key.api_formats?.some(fmt => mappingFormats.includes(fmt))
@@ -669,7 +669,7 @@ function getItemAvailableFormats(item: CombinedMapping): string[] {
 
   // 正则映射或无限制：返回所有有活跃 Key 支持的端点格式
   const allKeyFormats = new Set<string>()
-  for (const key of providerKeys.value) {
+  for (const key of providerKeysState.value) {
     if (!key.is_active) continue
     for (const fmt of key.api_formats || []) {
       allKeyFormats.add(fmt)
