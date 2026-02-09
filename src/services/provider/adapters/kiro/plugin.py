@@ -23,49 +23,13 @@ from src.services.provider.adapters.kiro.constants import (
 from src.services.provider.adapters.kiro.context import get_kiro_request_context
 
 # ---------------------------------------------------------------------------
-# Fixed model catalog
+# Preset model catalog
 # ---------------------------------------------------------------------------
-# Kiro upstream has no /v1/models endpoint.  We return a static list matching
-# the models accepted by map_model() in converter.py.
-_KIRO_MODELS: list[dict[str, Any]] = [
-    {
-        "id": "claude-sonnet-4.5",
-        "object": "model",
-        "owned_by": "anthropic",
-        "display_name": "Claude Sonnet 4.5",
-    },
-    {
-        "id": "claude-opus-4.5",
-        "object": "model",
-        "owned_by": "anthropic",
-        "display_name": "Claude Opus 4.5",
-    },
-    {
-        "id": "claude-opus-4.6",
-        "object": "model",
-        "owned_by": "anthropic",
-        "display_name": "Claude Opus 4.6",
-    },
-    {
-        "id": "claude-haiku-4.5",
-        "object": "model",
-        "owned_by": "anthropic",
-        "display_name": "Claude Haiku 4.5",
-    },
-]
+# Kiro upstream has no /v1/models endpoint. We use the unified preset models
+# registry from preset_models.py.
+from src.services.provider.preset_models import create_preset_models_fetcher
 
-
-async def fetch_models_kiro(
-    ctx: Any,
-    timeout_seconds: float,  # noqa: ARG001
-) -> tuple[list[dict], list[str], bool, dict[str, Any] | None]:
-    """Return a fixed model catalog for Kiro.
-
-    Kiro upstream does not expose a ``/v1/models`` endpoint, so we skip the
-    HTTP call entirely and return a hardcoded list.
-    """
-    _ = ctx  # not needed — no upstream call
-    return list(_KIRO_MODELS), [], True, None
+fetch_models_kiro = create_preset_models_fetcher("kiro")
 
 
 # ---------------------------------------------------------------------------
