@@ -18,37 +18,13 @@ from urllib.parse import urlencode
 from src.core.logger import logger
 
 # ---------------------------------------------------------------------------
-# Fixed model catalog
+# Preset model catalog
 # ---------------------------------------------------------------------------
 # Codex upstream (chatgpt.com/backend-api/codex) has no /v1/models endpoint.
-# Return a static list of known models.
-_CODEX_MODELS: list[dict[str, Any]] = [
-    {
-        "id": "gpt-5.2",
-        "object": "model",
-        "owned_by": "openai",
-        "display_name": "gpt-5.2",
-    },
-    {
-        "id": "gpt-5.2-codex",
-        "object": "model",
-        "owned_by": "openai",
-        "display_name": "gpt-5.2-codex",
-    },
-]
+# We use the unified preset models registry from preset_models.py.
+from src.services.provider.preset_models import create_preset_models_fetcher
 
-
-async def fetch_models_codex(
-    ctx: Any,
-    timeout_seconds: float,  # noqa: ARG001
-) -> tuple[list[dict], list[str], bool, dict[str, Any] | None]:
-    """Return a fixed model catalog for Codex.
-
-    Codex upstream does not expose a ``/v1/models`` endpoint, so we skip the
-    HTTP call entirely and return a hardcoded list.
-    """
-    _ = ctx
-    return list(_CODEX_MODELS), [], True, None
+fetch_models_codex = create_preset_models_fetcher("codex")
 
 
 # ---------------------------------------------------------------------------

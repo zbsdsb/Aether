@@ -383,7 +383,6 @@
                           <RefreshCw class="w-3.5 h-3.5" />
                         </Button>
                         <Button
-                          v-if="key.auth_type !== 'oauth'"
                           variant="ghost"
                           size="icon"
                           class="h-7 w-7"
@@ -393,7 +392,6 @@
                           <Shield class="w-3.5 h-3.5" />
                         </Button>
                         <Button
-                          v-if="key.auth_type !== 'oauth'"
                           variant="ghost"
                           size="icon"
                           class="h-7 w-7"
@@ -870,6 +868,15 @@
     @saved="handleKeyChanged"
   />
 
+  <!-- OAuth 密钥编辑对话框 -->
+  <OAuthKeyEditDialog
+    v-if="open"
+    :open="oauthKeyEditDialogOpen"
+    :editing-key="editingKey"
+    @close="oauthKeyEditDialogOpen = false"
+    @saved="handleKeyChanged"
+  />
+
   <!-- 模型权限对话框 -->
   <KeyAllowedModelsEditDialog
     v-if="open"
@@ -964,7 +971,8 @@ import {
   KeyAllowedModelsEditDialog,
   ModelsTab,
   BatchAssignModelsDialog,
-  OAuthAccountDialog
+  OAuthAccountDialog,
+  OAuthKeyEditDialog
 } from '@/features/providers/components'
 import ModelMappingTab from '@/features/providers/components/provider-tabs/ModelMappingTab.vue'
 import EndpointFormDialog from '@/features/providers/components/EndpointFormDialog.vue'
@@ -1032,6 +1040,7 @@ const endpointDialogOpen = ref(false)
 const keyFormDialogOpen = ref(false)
 const keyPermissionsDialogOpen = ref(false)
 const oauthAccountDialogOpen = ref(false)
+const oauthKeyEditDialogOpen = ref(false)
 const currentEndpoint = ref<ProviderEndpoint | null>(null)
 const editingKey = ref<EndpointAPIKey | null>(null)
 const deleteKeyConfirmOpen = ref(false)
@@ -1097,6 +1106,7 @@ const hasBlockingDialogOpen = computed(() =>
   keyFormDialogOpen.value ||
   keyPermissionsDialogOpen.value ||
   oauthAccountDialogOpen.value ||
+  oauthKeyEditDialogOpen.value ||
   deleteKeyConfirmOpen.value ||
   modelFormDialogOpen.value ||
   batchAssignDialogOpen.value ||
@@ -1175,6 +1185,7 @@ watch(
       keyFormDialogOpen.value = false
       keyPermissionsDialogOpen.value = false
       oauthAccountDialogOpen.value = false
+      oauthKeyEditDialogOpen.value = false
       deleteKeyConfirmOpen.value = false
       batchAssignDialogOpen.value = false
       antigravityQuotaDialogOpen.value = false
@@ -1297,7 +1308,12 @@ function handleAddKeyToFirstEndpoint() {
 function handleEditKey(endpoint: ProviderEndpoint | undefined, key: EndpointAPIKey) {
   currentEndpoint.value = endpoint || null
   editingKey.value = key
-  keyFormDialogOpen.value = true
+  // OAuth 密钥使用专门的编辑对话框
+  if (key.auth_type === 'oauth') {
+    oauthKeyEditDialogOpen.value = true
+  } else {
+    keyFormDialogOpen.value = true
+  }
 }
 
 function handleKeyPermissions(key: EndpointAPIKey) {
