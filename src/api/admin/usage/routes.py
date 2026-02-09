@@ -16,6 +16,7 @@ from src.api.base.context import ApiRequestContext
 from src.api.base.pipeline import ApiRequestPipeline
 from src.config.constants import CacheTTL
 from src.config.settings import config
+from src.core.logger import logger
 from src.database import get_db
 from src.models.database import (
     ApiKey,
@@ -274,8 +275,75 @@ async def get_active_requests(
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
+@router.get("/{usage_id}/curl")
+async def get_usage_curl_data(
+    usage_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Any:
+    """
+    获取使用记录的 cURL 命令数据
+
+    返回重建 cURL 命令所需的 URL、请求头（含明文 API Key）和请求体。
+
+    **路径参数**:
+    - `usage_id`: 使用记录 ID
+
+    **返回字段**:
+    - `url`: 提供商请求 URL
+    - `method`: HTTP 方法
+    - `headers`: 提供商请求头（含明文 API Key）
+    - `body`: 请求体
+    - `curl`: 生成的 cURL 命令字符串
+    """
+    adapter = AdminUsageCurlAdapter(usage_id=usage_id)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post("/{usage_id}/replay")
+async def replay_usage_request(
+    usage_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Any:
+    """
+    回放使用记录请求
+
+    将原始请求重新发送到原始或指定的提供商，并返回响应结果。
+
+    **路径参数**:
+    - `usage_id`: 使用记录 ID
+
+    **请求体**:
+    - `provider_id`: 可选，目标提供商 ID（不指定则使用原始提供商）
+    - `endpoint_id`: 可选，目标端点 ID（不指定则使用原始端点）
+    - `body_override`: 可选，覆盖原始请求体
+
+    **返回字段**:
+    - `url`: 请求 URL
+    - `status_code`: HTTP 状态码
+    - `response_headers`: 响应头
+    - `response_body`: 响应体
+    - `response_time_ms`: 响应时间（毫秒）
+    """
+    # 从 JSON body 中解析参数
+    try:
+        json_body = await request.json()
+    except Exception:
+        json_body = {}
+
+    adapter = AdminUsageReplayAdapter(
+        usage_id=usage_id,
+        target_provider_id=json_body.get("provider_id"),
+        target_endpoint_id=json_body.get("endpoint_id"),
+        target_api_key_id=json_body.get("api_key_id"),
+        body_override=json_body.get("body_override"),
+    )
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
 # NOTE: This route must be defined AFTER all other routes to avoid matching
-# routes like /stats, /records, /active, etc.
+# routes like /stats, /records, /active, /curl, /replay, etc.
 @router.get("/{usage_id}")
 async def get_usage_detail(
     usage_id: str,
@@ -1339,6 +1407,426 @@ class AdminUsageDetailAdapter(AdminApiAdapter):
             return None
 
         return result
+
+
+# ==================== cURL 导出 & 请求回放 ====================
+
+
+def _find_usage_record(db: Session, usage_id: str) -> Usage:
+    """按 id 或 request_id 查找 Usage 记录，找不到则抛 404。"""
+    record = db.query(Usage).filter(Usage.id == usage_id).first()
+    if not record:
+        record = db.query(Usage).filter(Usage.request_id == usage_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Usage record not found")
+    return record
+
+
+def _build_provider_url_safe(
+    endpoint: ProviderEndpoint,
+    model_name: str | None,
+    is_stream: bool,
+    provider_key: ProviderAPIKey | None,
+) -> str:
+    """构建 Provider URL，build_provider_url 失败时回退到 base_url + custom_path。"""
+    from src.services.provider.transport import build_provider_url
+
+    try:
+        return build_provider_url(
+            endpoint,
+            path_params={"model": model_name} if model_name else None,
+            is_stream=is_stream,
+            key=provider_key,
+        )
+    except Exception:
+        base = (endpoint.base_url or "").rstrip("/")
+        return f"{base}{endpoint.custom_path}" if endpoint.custom_path else base
+
+
+def _build_fresh_headers(
+    auth_headers: dict[str, str],
+    endpoint: ProviderEndpoint,
+) -> dict[str, str]:
+    """从零构建请求头：Content-Type + 认证头 + endpoint header_rules 额外头。"""
+    from src.core.api_format.headers import get_extra_headers_from_endpoint
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    headers.update(auth_headers)
+    extra = get_extra_headers_from_endpoint(endpoint)
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+async def _resolve_provider_auth(
+    provider_key: ProviderAPIKey,
+    endpoint: ProviderEndpoint,
+    db: Session,
+) -> dict[str, str]:
+    """解析 Provider Key 的认证信息，返回可直接用于请求的认证头字典。
+
+    支持: api_key / oauth / vertex_ai 三种 auth_type。
+    """
+    from src.core.api_format.metadata import get_auth_config_for_endpoint
+    from src.core.crypto import crypto_service
+
+    auth_type = str(getattr(provider_key, "auth_type", "api_key") or "api_key").lower()
+    auth_headers: dict[str, str] = {}
+
+    if auth_type == "oauth":
+        from src.services.provider.oauth_token import resolve_oauth_access_token
+
+        # 获取 Provider 对象以读取 proxy 和 provider_type
+        provider_obj = db.query(Provider).filter(Provider.id == provider_key.provider_id).first()
+        provider_type = (
+            str(getattr(provider_obj, "provider_type", "") or "").lower() if provider_obj else ""
+        )
+
+        # Antigravity 使用 gemini:chat 端点格式
+        ep_format = str(getattr(endpoint, "api_format", "") or "")
+        if provider_type == "antigravity" and not ep_format:
+            ep_format = "gemini:chat"
+
+        resolved = await resolve_oauth_access_token(
+            key_id=str(provider_key.id),
+            encrypted_api_key=str(provider_key.api_key or ""),
+            encrypted_auth_config=(
+                str(provider_key.auth_config)
+                if getattr(provider_key, "auth_config", None) is not None
+                else None
+            ),
+            provider_proxy_config=getattr(provider_obj, "proxy", None) if provider_obj else None,
+            endpoint_api_format=ep_format,
+        )
+        access_token = resolved.access_token or ""
+        auth_headers["Authorization"] = f"Bearer {access_token}"
+
+        # Codex 等需要 account_id
+        if resolved.decrypted_auth_config:
+            account_id = resolved.decrypted_auth_config.get("account_id")
+            if account_id:
+                auth_headers["chatgpt-account-id"] = str(account_id)
+
+    elif auth_type == "vertex_ai":
+        from src.api.handlers.base.request_builder import get_provider_auth
+
+        auth_info = await get_provider_auth(endpoint, provider_key)
+        if auth_info:
+            auth_headers[auth_info.auth_header] = auth_info.auth_value
+        else:
+            # 回退
+            decrypted_key = crypto_service.decrypt(provider_key.api_key)
+            auth_headers["Authorization"] = f"Bearer {decrypted_key}"
+
+    else:
+        # 标准 API Key
+        decrypted_key = crypto_service.decrypt(provider_key.api_key)
+
+        # 根据 endpoint signature 确定认证头名称和类型
+        api_family = str(getattr(endpoint, "api_family", "") or "").lower()
+        api_kind = str(getattr(endpoint, "endpoint_kind", "") or "").lower()
+        if api_family and api_kind:
+            endpoint_sig = f"{api_family}:{api_kind}"
+        else:
+            endpoint_sig = str(getattr(endpoint, "api_format", "") or "") or "openai:chat"
+
+        auth_header, auth_type_cfg = get_auth_config_for_endpoint(endpoint_sig)
+        auth_value = f"Bearer {decrypted_key}" if auth_type_cfg == "bearer" else decrypted_key
+        auth_headers[auth_header] = auth_value
+
+    return auth_headers
+
+
+@dataclass
+class AdminUsageCurlAdapter(AdminApiAdapter):
+    """Generate cURL command data from a usage record."""
+
+    usage_id: str
+
+    async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
+        import json as _json
+        import shlex
+
+        db = context.db
+        usage_record = _find_usage_record(db, self.usage_id)
+
+        # 获取端点和密钥
+        endpoint = None
+        if usage_record.provider_endpoint_id:
+            endpoint = (
+                db.query(ProviderEndpoint)
+                .filter(ProviderEndpoint.id == usage_record.provider_endpoint_id)
+                .first()
+            )
+        provider_key = None
+        if usage_record.provider_api_key_id:
+            provider_key = (
+                db.query(ProviderAPIKey)
+                .filter(ProviderAPIKey.id == usage_record.provider_api_key_id)
+                .first()
+            )
+
+        # 重建请求 URL
+        url: str | None = None
+        if endpoint:
+            model_name = usage_record.target_model or usage_record.model
+            url = _build_provider_url_safe(
+                endpoint, model_name, usage_record.is_stream or False, provider_key
+            )
+
+        # 解析认证信息并构建请求头
+        stored_headers = usage_record.provider_request_headers or {}
+        headers: dict[str, str] = {}
+
+        if provider_key and endpoint:
+            try:
+                auth_headers = await _resolve_provider_auth(provider_key, endpoint, db)
+
+                if stored_headers:
+                    # 有存储的请求头：替换被脱敏的认证头为真实值
+                    headers = dict(stored_headers)
+                    auth_lower_keys = {k.lower() for k in auth_headers}
+                    for key_name in list(headers.keys()):
+                        if key_name.lower() in auth_lower_keys:
+                            del headers[key_name]
+                    headers.update(auth_headers)
+                else:
+                    headers = _build_fresh_headers(auth_headers, endpoint)
+            except Exception:
+                headers = dict(stored_headers)
+        else:
+            headers = dict(stored_headers)
+
+        # 确保始终有 Content-Type
+        if not any(k.lower() == "content-type" for k in headers):
+            headers["Content-Type"] = "application/json"
+
+        # 获取请求体
+        body = usage_record.get_request_body()
+
+        # 生成 cURL 命令
+        curl_parts = ["curl"]
+        if url:
+            curl_parts.append(shlex.quote(url))
+        curl_parts.append("-X POST")
+
+        for h_key, h_value in headers.items():
+            curl_parts.append(f"-H {shlex.quote(f'{h_key}: {h_value}')}")
+
+        if body:
+            body_str = _json.dumps(body, ensure_ascii=False)
+            curl_parts.append(f"-d {shlex.quote(body_str)}")
+
+        curl_command = " \\\n  ".join(curl_parts)
+
+        context.add_audit_metadata(
+            action="usage_curl",
+            usage_id=self.usage_id,
+        )
+
+        return {
+            "url": url,
+            "method": "POST",
+            "headers": headers,
+            "body": body,
+            "curl": curl_command,
+        }
+
+
+@dataclass
+class AdminUsageReplayAdapter(AdminApiAdapter):
+    """Replay a usage record request to the same or a different provider."""
+
+    usage_id: str
+    target_provider_id: str | None = None
+    target_endpoint_id: str | None = None
+    target_api_key_id: str | None = None
+    body_override: dict | None = None
+
+    async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
+        import time
+
+        import httpx
+
+        db = context.db
+        usage_record = _find_usage_record(db, self.usage_id)
+
+        # 确定目标端点和密钥
+        target_pid = self.target_provider_id
+        if self.target_endpoint_id:
+            endpoint = (
+                db.query(ProviderEndpoint)
+                .filter(ProviderEndpoint.id == self.target_endpoint_id)
+                .first()
+            )
+            if not endpoint:
+                raise HTTPException(status_code=404, detail="Target endpoint not found")
+            target_pid = str(endpoint.provider_id)
+        elif target_pid:
+            target_provider = db.query(Provider).filter(Provider.id == target_pid).first()
+            if not target_provider:
+                raise HTTPException(status_code=404, detail="Target provider not found")
+            endpoint = (
+                db.query(ProviderEndpoint)
+                .filter(
+                    ProviderEndpoint.provider_id == target_pid,
+                    ProviderEndpoint.is_active == True,  # noqa: E712
+                )
+                .first()
+            )
+            if not endpoint:
+                raise HTTPException(
+                    status_code=404, detail="No active endpoint found for target provider"
+                )
+        else:
+            endpoint = None
+            if usage_record.provider_endpoint_id:
+                endpoint = (
+                    db.query(ProviderEndpoint)
+                    .filter(ProviderEndpoint.id == usage_record.provider_endpoint_id)
+                    .first()
+                )
+            if not endpoint:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Original endpoint not found, specify target_endpoint_id",
+                )
+
+        # 确定 API Key
+        provider_key = None
+        if self.target_api_key_id:
+            provider_key = (
+                db.query(ProviderAPIKey).filter(ProviderAPIKey.id == self.target_api_key_id).first()
+            )
+        elif target_pid:
+            provider_key = (
+                db.query(ProviderAPIKey)
+                .filter(
+                    ProviderAPIKey.provider_id == target_pid,
+                    ProviderAPIKey.is_active == True,  # noqa: E712
+                )
+                .first()
+            )
+        else:
+            if usage_record.provider_api_key_id:
+                provider_key = (
+                    db.query(ProviderAPIKey)
+                    .filter(ProviderAPIKey.id == usage_record.provider_api_key_id)
+                    .first()
+                )
+
+        if not provider_key:
+            raise HTTPException(status_code=404, detail="No API key available for replay")
+
+        # 根据 auth_type 正确解析认证（支持 OAuth / Vertex AI / API Key）
+        try:
+            auth_headers = await _resolve_provider_auth(provider_key, endpoint, db)
+        except Exception as e:
+            logger.error("[replay] Failed to resolve auth for key {}: {}", provider_key.id, e)
+            raise HTTPException(status_code=500, detail="Failed to resolve provider authentication")
+
+        # 构建 URL
+        model_name = usage_record.target_model or usage_record.model
+        url = _build_provider_url_safe(endpoint, model_name, False, provider_key)
+
+        # 构建请求头（Content-Type + 认证头 + 端点额外头）
+        headers = _build_fresh_headers(auth_headers, endpoint)
+
+        # 使用覆盖体或原始请求体
+        body = self.body_override or usage_record.get_request_body() or {}
+
+        # 格式转换：如果存储的请求体格式与目标端点格式不同，需要转换
+        if isinstance(body, dict):
+            # 确定存储体的格式（发送给原 Provider 的格式）
+            stored_format = (
+                (usage_record.endpoint_api_format or usage_record.api_format or "").strip().lower()
+            )
+            target_format = str(getattr(endpoint, "api_format", "") or "").strip().lower()
+
+            if stored_format and target_format and stored_format != target_format:
+                try:
+                    from src.core.api_format.conversion import format_conversion_registry
+
+                    body = format_conversion_registry.convert_request(
+                        body,
+                        source_format=stored_format,
+                        target_format=target_format,
+                    )
+                except Exception as conv_err:
+                    logger.warning(
+                        "[replay] Format conversion {} -> {} failed: {}",
+                        stored_format,
+                        target_format,
+                        conv_err,
+                    )
+                    # 转换失败仍发送原始体，让用户看到上游的实际报错
+
+        # 强制非流式以获取完整响应
+        # Gemini 格式通过 URL 控制流式（streamGenerateContent vs generateContent），
+        # 不支持 body 中的 stream 字段，设置会导致 400 错误
+        if isinstance(body, dict):
+            target_family = str(getattr(endpoint, "api_family", "") or "").lower()
+            if target_family == "gemini":
+                body.pop("stream", None)
+            else:
+                body["stream"] = False
+
+        # 获取提供商名称
+        provider_name = usage_record.provider_name
+        if self.target_provider_id:
+            target_p = db.query(Provider).filter(Provider.id == self.target_provider_id).first()
+            if target_p:
+                provider_name = target_p.name
+        elif endpoint and endpoint.provider_id:
+            p = db.query(Provider).filter(Provider.id == endpoint.provider_id).first()
+            if p:
+                provider_name = p.name
+
+        # 发送请求
+        try:
+            from src.utils.ssl_utils import get_ssl_context
+
+            start_time = time.monotonic()
+            async with httpx.AsyncClient(
+                timeout=60.0,
+                verify=get_ssl_context(),
+            ) as client:
+                response = await client.post(
+                    url,
+                    headers=headers,
+                    json=body,
+                )
+            elapsed_ms = int((time.monotonic() - start_time) * 1000)
+
+            # 解析响应体
+            try:
+                response_body = response.json()
+            except Exception:
+                response_body = {"raw": response.text[:10000]}
+
+            response_headers = dict(response.headers)
+
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="Request to provider timed out")
+        except Exception as e:
+            logger.error("[replay] Failed to connect to provider at {}: {}", url, e)
+            raise HTTPException(status_code=502, detail="Failed to connect to provider")
+
+        context.add_audit_metadata(
+            action="usage_replay",
+            usage_id=self.usage_id,
+            target_provider=provider_name,
+            target_url=url,
+        )
+
+        return {
+            "url": url,
+            "provider": provider_name,
+            "status_code": response.status_code,
+            "response_headers": response_headers,
+            "response_body": response_body,
+            "response_time_ms": elapsed_ms,
+        }
 
 
 # ==================== 缓存亲和性分析 ====================

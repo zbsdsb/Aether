@@ -205,6 +205,30 @@ export interface RequestDetail {
   video_billing?: VideoBilling | null
 }
 
+export interface CurlData {
+  url: string
+  method: string
+  headers: Record<string, string>
+  body: Record<string, any>
+  curl: string
+}
+
+export interface ReplayRequest {
+  provider_id?: string
+  endpoint_id?: string
+  api_key_id?: string
+  body_override?: Record<string, any>
+}
+
+export interface ReplayResponse {
+  url: string
+  provider: string
+  status_code: number
+  response_headers: Record<string, string>
+  response_body: Record<string, any>
+  response_time_ms: number
+}
+
 export interface ModelBreakdown {
   model: string
   requests: number
@@ -293,6 +317,21 @@ export const dashboardApi = {
     const response = await apiClient.get<DailyStatsResponse>('/api/dashboard/daily-stats', {
       params
     })
+    return response.data
+  },
+
+  // 获取 cURL 命令数据（含明文 API Key）
+  async getCurlData(requestId: string): Promise<CurlData> {
+    const response = await apiClient.get<CurlData>(`/api/admin/usage/${requestId}/curl`)
+    return response.data
+  },
+
+  // 回放请求到提供商
+  async replayRequest(requestId: string, params?: ReplayRequest): Promise<ReplayResponse> {
+    const response = await apiClient.post<ReplayResponse>(
+      `/api/admin/usage/${requestId}/replay`,
+      params || {}
+    )
     return response.data
   }
 }

@@ -66,6 +66,16 @@
                   variant="ghost"
                   size="icon"
                   class="h-8 w-8"
+                  title="回放请求"
+                  :disabled="loading"
+                  @click="openReplayDialog"
+                >
+                  <Play class="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-8 w-8"
                   :disabled="loading && !autoRefreshing"
                   :title="autoRefreshing ? '停止自动刷新' : '刷新'"
                   @click="refreshDetail"
@@ -437,10 +447,6 @@
                           >
                             <Server class="w-4 h-4" />
                           </button>
-                          <Separator
-                            orientation="vertical"
-                            class="h-4 mx-1"
-                          />
                         </template>
 
                         <!-- 请求体/响应体专用：JSON/对话 视图切换（单按钮） -->
@@ -463,16 +469,38 @@
                               class="w-4 h-4"
                             />
                           </button>
-                          <Separator
-                            orientation="vertical"
-                            class="h-4 mx-1"
-                          />
                         </template>
 
+                        <!-- cURL 复制（仅在请求头/请求体 Tab） -->
+                        <template v-if="['request-headers', 'request-body'].includes(activeTab)">
+                          <button
+                            :title="curlCopied ? '已复制 cURL' : '复制 cURL'"
+                            class="p-1.5 rounded transition-colors text-muted-foreground hover:bg-muted"
+                            :disabled="curlCopying"
+                            @click="copyCurlCommand"
+                          >
+                            <Check
+                              v-if="curlCopied"
+                              class="w-4 h-4 text-green-500"
+                            />
+                            <Terminal
+                              v-else
+                              class="w-4 h-4"
+                              :class="{ 'animate-pulse': curlCopying }"
+                            />
+                          </button>
+                        </template>
+                      </div>
+                    </div>
+
+                    <!-- Tab 内容（统一容器：表头栏 + 内容区融为一体） -->
+                    <div class="content-block rounded-md border overflow-hidden">
+                      <!-- 表头栏：操作按钮 -->
+                      <div class="flex items-center justify-end gap-0.5 px-3 py-1 border-b bg-muted/40">
                         <!-- 展开/收缩 -->
                         <button
                           :title="currentExpandDepth === 0 ? '展开全部' : '收缩全部'"
-                          class="p-1.5 rounded transition-colors"
+                          class="p-1 rounded transition-colors"
                           :class="viewMode === 'compare' || (supportsConversationView && contentViewMode === 'conversation')
                             ? 'text-muted-foreground/40 cursor-not-allowed'
                             : 'text-muted-foreground hover:bg-muted'"
@@ -481,17 +509,17 @@
                         >
                           <Maximize2
                             v-if="currentExpandDepth === 0"
-                            class="w-4 h-4"
+                            class="w-3.5 h-3.5"
                           />
                           <Minimize2
                             v-else
-                            class="w-4 h-4"
+                            class="w-3.5 h-3.5"
                           />
                         </button>
                         <!-- 复制 -->
                         <button
                           :title="copiedStates[activeTab] ? '已复制' : '复制'"
-                          class="p-1.5 rounded transition-colors"
+                          class="p-1 rounded transition-colors"
                           :class="viewMode === 'compare'
                             ? 'text-muted-foreground/40 cursor-not-allowed'
                             : 'text-muted-foreground hover:bg-muted'"
@@ -500,87 +528,86 @@
                         >
                           <Check
                             v-if="copiedStates[activeTab]"
-                            class="w-4 h-4 text-green-500"
+                            class="w-3.5 h-3.5 text-green-500"
                           />
                           <Copy
                             v-else
-                            class="w-4 h-4"
+                            class="w-3.5 h-3.5"
                           />
                         </button>
                       </div>
+
+                      <TabsContent value="request-headers">
+                        <RequestHeadersContent
+                          :detail="detail"
+                          :view-mode="viewMode"
+                          :data-source="dataSource"
+                          :current-header-data="currentHeaderData"
+                          :current-expand-depth="currentExpandDepth"
+                          :has-provider-headers="hasProviderHeaders"
+                          :client-headers-with-diff="clientHeadersWithDiff"
+                          :provider-headers-with-diff="providerHeadersWithDiff"
+                          :header-stats="headerStats"
+                          :is-dark="isDark"
+                        />
+                      </TabsContent>
+
+                      <TabsContent value="request-body">
+                        <!-- 对话视图 -->
+                        <ConversationView
+                          v-if="contentViewMode === 'conversation'"
+                          :render-result="requestRenderResult"
+                          empty-message="无请求体信息"
+                        />
+                        <!-- JSON 视图 -->
+                        <JsonContent
+                          v-else
+                          :data="detail.request_body"
+                          :view-mode="viewMode"
+                          :expand-depth="currentExpandDepth"
+                          :is-dark="isDark"
+                          empty-message="无请求体信息"
+                        />
+                      </TabsContent>
+
+                      <TabsContent value="response-headers">
+                        <JsonContent
+                          :data="actualResponseHeaders"
+                          :view-mode="viewMode"
+                          :expand-depth="currentExpandDepth"
+                          :is-dark="isDark"
+                          empty-message="无响应头信息"
+                        />
+                      </TabsContent>
+
+                      <TabsContent value="response-body">
+                        <!-- 对话视图 -->
+                        <ConversationView
+                          v-if="contentViewMode === 'conversation'"
+                          :render-result="responseRenderResult"
+                          empty-message="无响应体信息"
+                        />
+                        <!-- JSON 视图 -->
+                        <JsonContent
+                          v-else
+                          :data="detail.response_body"
+                          :view-mode="viewMode"
+                          :expand-depth="currentExpandDepth"
+                          :is-dark="isDark"
+                          empty-message="无响应体信息"
+                        />
+                      </TabsContent>
+
+                      <TabsContent value="metadata">
+                        <JsonContent
+                          :data="detail.metadata"
+                          :view-mode="viewMode"
+                          :expand-depth="currentExpandDepth"
+                          :is-dark="isDark"
+                          empty-message="无元数据信息"
+                        />
+                      </TabsContent>
                     </div>
-
-                    <!-- Tab 内容 -->
-                    <TabsContent value="request-headers">
-                      <RequestHeadersContent
-                        :detail="detail"
-                        :view-mode="viewMode"
-                        :data-source="dataSource"
-                        :current-header-data="currentHeaderData"
-                        :current-expand-depth="currentExpandDepth"
-                        :has-provider-headers="hasProviderHeaders"
-                        :client-headers-with-diff="clientHeadersWithDiff"
-                        :provider-headers-with-diff="providerHeadersWithDiff"
-                        :header-stats="headerStats"
-                        :is-dark="isDark"
-                      />
-                    </TabsContent>
-
-                    <TabsContent value="request-body">
-                      <!-- 对话视图 -->
-                      <ConversationView
-                        v-if="contentViewMode === 'conversation'"
-                        :render-result="requestRenderResult"
-                        empty-message="无请求体信息"
-                      />
-                      <!-- JSON 视图 -->
-                      <JsonContent
-                        v-else
-                        :data="detail.request_body"
-                        :view-mode="viewMode"
-                        :expand-depth="currentExpandDepth"
-                        :is-dark="isDark"
-                        empty-message="无请求体信息"
-                      />
-                    </TabsContent>
-
-                    <TabsContent value="response-headers">
-                      <JsonContent
-                        :data="actualResponseHeaders"
-                        :view-mode="viewMode"
-                        :expand-depth="currentExpandDepth"
-                        :is-dark="isDark"
-                        empty-message="无响应头信息"
-                      />
-                    </TabsContent>
-
-                    <TabsContent value="response-body">
-                      <!-- 对话视图 -->
-                      <ConversationView
-                        v-if="contentViewMode === 'conversation'"
-                        :render-result="responseRenderResult"
-                        empty-message="无响应体信息"
-                      />
-                      <!-- JSON 视图 -->
-                      <JsonContent
-                        v-else
-                        :data="detail.response_body"
-                        :view-mode="viewMode"
-                        :expand-depth="currentExpandDepth"
-                        :is-dark="isDark"
-                        empty-message="无响应体信息"
-                      />
-                    </TabsContent>
-
-                    <TabsContent value="metadata">
-                      <JsonContent
-                        :data="detail.metadata"
-                        :view-mode="viewMode"
-                        :expand-depth="currentExpandDepth"
-                        :is-dark="isDark"
-                        empty-message="无元数据信息"
-                      />
-                    </TabsContent>
                   </Tabs>
                 </div>
               </Card>
@@ -590,6 +617,14 @@
       </div>
     </Transition>
   </Teleport>
+
+  <!-- 请求回放对话框 -->
+  <ReplayDialog
+    :is-open="replayDialogOpen"
+    :request-id="requestId"
+    :detail="detail"
+    @close="replayDialogOpen = false"
+  />
 </template>
 
 <script setup lang="ts">
@@ -603,7 +638,7 @@ import Separator from '@/components/ui/separator.vue'
 import Skeleton from '@/components/ui/skeleton.vue'
 import Tabs from '@/components/ui/tabs.vue'
 import TabsContent from '@/components/ui/tabs-content.vue'
-import { Copy, Check, Maximize2, Minimize2, Columns2, RefreshCw, X, Monitor, Server, MessageSquareText, Code2 } from 'lucide-vue-next'
+import { Copy, Check, Maximize2, Minimize2, Columns2, RefreshCw, X, Monitor, Server, MessageSquareText, Code2, Terminal, Play } from 'lucide-vue-next'
 import { dashboardApi, type RequestDetail } from '@/api/dashboard'
 import { API_FORMAT_LABELS } from '@/api/endpoints/types'
 import { log } from '@/utils/logger'
@@ -613,6 +648,7 @@ import RequestHeadersContent from './RequestDetailDrawer/RequestHeadersContent.v
 import JsonContent from './RequestDetailDrawer/JsonContent.vue'
 import ConversationView from './RequestDetailDrawer/ConversationView.vue'
 import HorizontalRequestTimeline from './HorizontalRequestTimeline.vue'
+import ReplayDialog from './ReplayDialog.vue'
 
 // 对话解析器
 import {
@@ -651,6 +687,9 @@ const historicalPricing = ref<{
 } | null>(null)
 const autoRefreshTimer = ref<ReturnType<typeof setInterval> | null>(null)
 const autoRefreshing = ref(false)
+const curlCopying = ref(false)
+const curlCopied = ref(false)
+const replayDialogOpen = ref(false)
 
 // 监听标签页切换
 watch(activeTab, (newTab) => {
@@ -1209,6 +1248,29 @@ function collapseAll() {
   currentExpandDepth.value = 0
 }
 
+// 复制 cURL 命令
+async function copyCurlCommand() {
+  if (!props.requestId || curlCopying.value) return
+  curlCopying.value = true
+  try {
+    const data = await dashboardApi.getCurlData(props.requestId)
+    if (data.curl) {
+      copyToClipboard(data.curl, false)
+      curlCopied.value = true
+      setTimeout(() => { curlCopied.value = false }, 2000)
+    }
+  } catch (err) {
+    log.error('Failed to generate cURL command:', err)
+  } finally {
+    curlCopying.value = false
+  }
+}
+
+// 打开请求回放对话框
+function openReplayDialog() {
+  replayDialogOpen.value = true
+}
+
 // 请求头合并对比逻辑
 interface HeaderEntry {
   key: string
@@ -1347,6 +1409,13 @@ useEscapeKey(() => {
 .drawer-enter-to .relative,
 .drawer-leave-from .relative {
   transform: translateX(0);
+}
+
+/* 内容区融合：子组件的 Card 不再需要自己的边框和圆角，与表头栏融为一体 */
+.content-block :deep(.rounded-2xl) {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 </style>
 
