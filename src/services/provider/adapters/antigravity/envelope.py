@@ -30,7 +30,10 @@ from src.services.provider.adapters.antigravity.constants import (
     IMAGE_ASPECT_RATIO_SUFFIXES,
     IMAGE_GEN_UPSTREAM_MODEL,
     MODEL_ALIAS_MAP,
+    MODEL_MAX_OUTPUT_LIMIT,
     NETWORKING_TOOL_KEYWORDS,
+    OUTPUT_OVERHEAD,
+    OUTPUT_OVERHEAD_IMAGE,
 )
 from src.services.provider.adapters.antigravity.constants import (
     REQUEST_USER_AGENT as ANTIGRAVITY_REQUEST_USER_AGENT,
@@ -139,6 +142,10 @@ def _inject_claude_tool_ids_request(inner_request: dict[str, Any], model: str) -
 
     Google v1internal 在目标模型为 Claude 时要求 functionCall 带有 id 字段，
     但标准 Gemini 协议不包含此字段。对齐 AM wrapper.rs #1522。
+
+    算法：
+    1. 第一遍：扫描所有 functionCall，为没有 id 的生成 id，并记录 (name, id) 队列
+    2. 第二遍：扫描所有 functionResponse，从对应 name 的队列中取出 id 使用
     """
     if "claude" not in model.lower():
         return
@@ -147,6 +154,14 @@ def _inject_claude_tool_ids_request(inner_request: dict[str, Any], model: str) -
     if not isinstance(contents, list):
         return
 
+    # 第一遍：收集所有 functionCall 的 ID（按 name 分组，保持顺序）
+    # name -> [id1, id2, ...] 每个调用的 ID 按出现顺序排列
+    call_ids_by_name: dict[str, list[str]] = {}
+    # 所有 call ID 按原始出现顺序（用于 fallback 匹配）
+    all_call_ids_ordered: list[str] = []
+    # 用于生成新 ID 的计数器（全局，确保唯一性）
+    name_counters: dict[str, int] = {}
+
     for content in contents:
         if not isinstance(content, dict):
             continue
@@ -154,41 +169,98 @@ def _inject_claude_tool_ids_request(inner_request: dict[str, Any], model: str) -
         if not isinstance(parts, list):
             continue
 
-        # 每条消息维护独立的计数器（确保 Call 和 Response 生成匹配的 ID）
-        name_counters: dict[str, int] = {}
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+
+            fc = part.get("functionCall") or part.get("function_call")
+            if isinstance(fc, dict):
+                name = fc.get("name", "")
+                if not isinstance(name, str) or not name:
+                    name = "unknown"
+
+                fc_id = fc.get("id")
+                if fc_id is None:
+                    # 生成新 ID
+                    count = name_counters.get(name, 0)
+                    fc_id = f"call_{name}_{count}"
+                    fc["id"] = fc_id
+                    name_counters[name] = count + 1
+
+                # 记录这个 call 的 ID，供后续 response 使用
+                if name not in call_ids_by_name:
+                    call_ids_by_name[name] = []
+                call_ids_by_name[name].append(fc_id)
+                # 同时按原始出现顺序记录（用于 fallback）
+                all_call_ids_ordered.append(fc_id)
+
+    # 第二遍：为 functionResponse 分配匹配的 ID
+    # 使用索引追踪每个 name 已消费到第几个 ID
+    response_index_by_name: dict[str, int] = {}
+    # 已使用的 call ID 集合
+    used_call_ids: set[str] = set()
+    # fallback 用的有序索引
+    fallback_index = 0
+
+    for content in contents:
+        if not isinstance(content, dict):
+            continue
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            continue
 
         for part in parts:
             if not isinstance(part, dict):
                 continue
 
-            # 1. functionCall（Assistant 请求调用工具）- 支持 camelCase 和 snake_case
-            fc = part.get("functionCall") or part.get("function_call")
-            if isinstance(fc, dict) and fc.get("id") is None:
-                name = fc.get("name", "unknown")
-                if not isinstance(name, str):
-                    name = "unknown"
-                count = name_counters.get(name, 0)
-                fc["id"] = f"call_{name}_{count}"
-                name_counters[name] = count + 1
-
-            # 2. functionResponse（User 回复工具结果）- 支持 camelCase 和 snake_case
             fr = part.get("functionResponse") or part.get("function_response")
             if isinstance(fr, dict) and fr.get("id") is None:
-                name = fr.get("name", "unknown")
-                if not isinstance(name, str):
+                name = fr.get("name", "")
+                if not isinstance(name, str) or not name:
                     name = "unknown"
-                count = name_counters.get(name, 0)
-                fr["id"] = f"call_{name}_{count}"
-                name_counters[name] = count + 1
+
+                assigned_id: str | None = None
+
+                # 优先：从对应 name 的 call ID 队列中取出下一个 ID
+                call_ids = call_ids_by_name.get(name, [])
+                idx = response_index_by_name.get(name, 0)
+                while idx < len(call_ids):
+                    cid = call_ids[idx]
+                    idx += 1
+                    if cid not in used_call_ids:
+                        assigned_id = cid
+                        used_call_ids.add(cid)
+                        break
+                response_index_by_name[name] = idx
+
+                # Fallback：如果 name 是 unknown（原本为空），尝试使用下一个未使用的 call ID（按原始出现顺序）
+                if assigned_id is None and name == "unknown":
+                    while fallback_index < len(all_call_ids_ordered):
+                        cid = all_call_ids_ordered[fallback_index]
+                        fallback_index += 1
+                        if cid not in used_call_ids:
+                            assigned_id = cid
+                            used_call_ids.add(cid)
+                            break
+
+                if assigned_id is not None:
+                    fr["id"] = assigned_id
+                else:
+                    # 没有匹配的 call ID（异常情况），生成一个新 ID
+                    count = name_counters.get(name, 0)
+                    fr["id"] = f"call_{name}_{count}"
+                    name_counters[name] = count + 1
 
 
 def _process_thinking_budget(inner_request: dict[str, Any], model: str) -> None:
-    """处理 Thinking Budget：自动注入 + Auto Cap。
+    """处理 Thinking Budget：自动注入 + Auto Cap + maxOutputTokens 约束。
 
-    对齐 AM wrapper.rs：
+    对齐 AM wrapper.rs + CLIProxyAPI 混合方案：
     - 对 flash/pro/thinking 模型处理 thinkingConfig
     - 自动注入 thinkingConfig（对已知需要 thinking 的模型）
     - Auto Cap：budget 超过 24576 时裁剪
+    - Claude 要求：maxOutputTokens 必须 > thinkingBudget
+    - 优先增加 maxOutputTokens；超限时才减少 budget
     """
     lower_model = model.lower()
     if not any(kw in lower_model for kw in ("flash", "pro", "thinking")):
@@ -214,8 +286,35 @@ def _process_thinking_budget(inner_request: dict[str, Any], model: str) -> None:
         return
 
     budget = thinking_config.get("thinkingBudget")
-    if isinstance(budget, int) and budget > THINKING_BUDGET_AUTO_CAP:
-        thinking_config["thinkingBudget"] = THINKING_BUDGET_AUTO_CAP
+    if not isinstance(budget, int):
+        return
+
+    # 1. 限制 budget 上限
+    if budget > THINKING_BUDGET_AUTO_CAP:
+        budget = THINKING_BUDGET_AUTO_CAP
+        thinking_config["thinkingBudget"] = budget
+
+    # 2. 确保 maxOutputTokens > thinkingBudget
+    current_max = gen_config.get("maxOutputTokens")
+
+    # 根据模型类型选择增量（对齐 Antigravity-Manager）
+    overhead = OUTPUT_OVERHEAD_IMAGE if "-image" in lower_model else OUTPUT_OVERHEAD
+
+    # 计算理想的 maxOutputTokens
+    ideal_max = budget + overhead
+
+    # 3. 确保不超过模型限制
+    if ideal_max > MODEL_MAX_OUTPUT_LIMIT:
+        # 超限时：减少 budget 而不是超限（对齐 CLIProxyAPI 策略）
+        ideal_max = MODEL_MAX_OUTPUT_LIMIT
+        # 确保 budget < ideal_max，保留 overhead 空间给输出
+        max_budget = ideal_max - overhead
+        if budget > max_budget:
+            thinking_config["thinkingBudget"] = max_budget
+
+    # 4. 应用修正
+    if current_max is None or (isinstance(current_max, int) and current_max <= budget):
+        gen_config["maxOutputTokens"] = ideal_max
 
 
 def _clean_tool_declarations(inner_request: dict[str, Any]) -> None:
