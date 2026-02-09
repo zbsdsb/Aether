@@ -226,26 +226,50 @@ def upgrade() -> None:
             sa.Column("proxy", postgresql.JSONB(), nullable=True, comment="代理配置"),
         )
 
-    # 从端点迁移数据到 provider
-    op.execute("""
-        UPDATE providers p
-        SET
-            timeout = COALESCE(
-                p.timeout,
-                (SELECT MAX(e.timeout) FROM provider_endpoints e WHERE e.provider_id = p.id AND e.timeout IS NOT NULL),
-                300
-            ),
-            max_retries = COALESCE(
-                p.max_retries,
-                (SELECT MAX(e.max_retries) FROM provider_endpoints e WHERE e.provider_id = p.id AND e.max_retries IS NOT NULL),
-                2
-            ),
+    # 从端点迁移数据到 provider（动态构建 SQL，仅引用存在的列）
+    ep_has_timeout = _column_exists("provider_endpoints", "timeout")
+    ep_has_max_retries = _column_exists("provider_endpoints", "max_retries")
+    ep_has_proxy = _column_exists("provider_endpoints", "proxy")
+
+    set_clauses = []
+    if _column_exists("providers", "timeout"):
+        if ep_has_timeout:
+            set_clauses.append("""
+                timeout = COALESCE(
+                    p.timeout,
+                    (SELECT MAX(e.timeout) FROM provider_endpoints e WHERE e.provider_id = p.id AND e.timeout IS NOT NULL),
+                    300
+                )""")
+        else:
+            set_clauses.append("timeout = COALESCE(p.timeout, 300)")
+
+    if _column_exists("providers", "max_retries"):
+        if ep_has_max_retries:
+            set_clauses.append("""
+                max_retries = COALESCE(
+                    p.max_retries,
+                    (SELECT MAX(e.max_retries) FROM provider_endpoints e WHERE e.provider_id = p.id AND e.max_retries IS NOT NULL),
+                    2
+                )""")
+        else:
+            set_clauses.append("max_retries = COALESCE(p.max_retries, 2)")
+
+    if _column_exists("providers", "proxy") and ep_has_proxy:
+        set_clauses.append("""
             proxy = COALESCE(
                 p.proxy,
                 (SELECT e.proxy FROM provider_endpoints e WHERE e.provider_id = p.id AND e.proxy IS NOT NULL ORDER BY e.created_at LIMIT 1)
-            )
-        WHERE p.timeout IS NULL OR p.max_retries IS NULL
-    """)
+            )""")
+
+    if set_clauses:
+        where_parts = []
+        if _column_exists("providers", "timeout"):
+            where_parts.append("p.timeout IS NULL")
+        if _column_exists("providers", "max_retries"):
+            where_parts.append("p.max_retries IS NULL")
+        where_clause = " OR ".join(where_parts) if where_parts else "TRUE"
+        sql = "UPDATE providers p SET " + ", ".join(set_clauses) + " WHERE " + where_clause
+        op.execute(sql)
 
     # ========== 5. providers: display_name -> name ==========
     # 注意：这里假设 display_name 已经被重命名为 name
