@@ -438,17 +438,9 @@ class EndpointAPIKeyCreate(BaseModel):
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, v: str) -> str:
-        """验证 API Key 安全性"""
-        # 移除首尾空白（长度校验由 Field min_length 处理）
-        v = v.strip()
-
-        # 检查危险字符（SQL 注入防护）
-        dangerous_chars = ["'", '"', ";", "--", "/*", "*/", "<", ">"]
-        for char in dangerous_chars:
-            if char in v:
-                raise ValueError(f"API Key 包含非法字符: {char}")
-
-        return v
+        """验证 API Key 基本格式"""
+        # 移除首尾空白（长度校验由 Field max_length 处理）
+        return v.strip()
 
     @field_validator("name")
     @classmethod
@@ -570,18 +562,11 @@ class EndpointAPIKeyUpdate(BaseModel):
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, v: str | None) -> str | None:
-        """验证 API Key 安全性"""
+        """验证 API Key 基本格式"""
         if v is None:
             return v
 
-        v = v.strip()
-
-        dangerous_chars = ["'", '"', ";", "--", "/*", "*/", "<", ">"]
-        for char in dangerous_chars:
-            if char in v:
-                raise ValueError(f"API Key 包含非法字符: {char}")
-
-        return v
+        return v.strip()
 
     @field_validator("name")
     @classmethod

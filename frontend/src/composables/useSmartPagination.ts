@@ -127,13 +127,13 @@ export function useSmartPagination<T>(
   function requestDetect() {
     pendingDetect = true
 
-    // 先尝试立即检测
+    // 先尝试立即检测（快路径），统一走防抖避免与 ResizeObserver 双重触发
     nextTick(() => {
       const el = listRef.value
       if (el && el.scrollHeight > 0) {
-        // DOM 已就绪，直接检测
+        // DOM 已就绪，通过防抖检测
         pendingDetect = false
-        detect()
+        debouncedDetect()
       }
       // 否则等待 ResizeObserver 回调
     })
