@@ -20,8 +20,12 @@ from src.utils.ssl_utils import get_ssl_context
 # 并发请求限制
 MAX_CONCURRENT_REQUESTS = 5
 
-# 只对这些基础 endpoint signature 获取模型列表，CLI 使用相同的上游 API
-MODEL_FETCH_FORMATS = ["openai:chat", "claude:chat", "gemini:chat"]
+# 模型获取格式优先级：同族内优先使用 chat 端点，若无则回退到 cli 端点
+MODEL_FETCH_FORMAT_PRIORITY: list[tuple[str, ...]] = [
+    ("openai:chat", "openai:cli"),
+    ("claude:chat", "claude:cli"),
+    ("gemini:chat", "gemini:cli"),
+]
 
 # Return tuple signature:
 # (models, errors, has_success, upstream_metadata)
@@ -163,17 +167,21 @@ def build_all_format_configs(
     if not format_to_endpoint:
         return []
 
-    # 只对基础 API 格式获取模型，CLI 格式使用相同的上游 API
-    return [
-        {
-            "api_key": api_key_value,
-            "base_url": ep.base_url,
-            "api_format": fmt,
-            "extra_headers": get_extra_headers_from_endpoint(ep),
-        }
-        for fmt in MODEL_FETCH_FORMATS
-        if (ep := format_to_endpoint.get(fmt)) is not None
-    ]
+    # 同族内优先使用 chat 端点，若无则回退到 cli 端点
+    configs: list[dict] = []
+    for candidates in MODEL_FETCH_FORMAT_PRIORITY:
+        fmt = next((f for f in candidates if f in format_to_endpoint), None)
+        if fmt is not None:
+            ep = format_to_endpoint[fmt]
+            configs.append(
+                {
+                    "api_key": api_key_value,
+                    "base_url": ep.base_url,
+                    "api_format": fmt,
+                    "extra_headers": get_extra_headers_from_endpoint(ep),
+                }
+            )
+    return configs
 
 
 async def fetch_models_from_endpoints(

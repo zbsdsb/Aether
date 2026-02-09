@@ -47,15 +47,46 @@ def test_only_configured_formats_are_included() -> None:
     assert configs[0]["base_url"] == "https://betterclau.de/claude/api.freekey.site"
 
 
-def test_cli_format_only_is_skipped() -> None:
-    """如果只配置了 CLI 格式（不在 MODEL_FETCH_FORMATS 中），应返回空列表。"""
+def test_cli_format_only_fallback() -> None:
+    """只配置了 CLI 格式时，应回退使用 CLI 端点获取模型。"""
     format_to_endpoint = {
         "openai:cli": _make_endpoint("https://api.openai.example.com"),
     }
 
     configs = build_all_format_configs("sk-test-key", format_to_endpoint)  # type: ignore[arg-type]
 
-    assert configs == []
+    assert len(configs) == 1
+    assert configs[0]["api_format"] == "openai:cli"
+    assert configs[0]["base_url"] == "https://api.openai.example.com"
+
+
+def test_chat_takes_priority_over_cli() -> None:
+    """同族同时存在 chat 和 cli 端点时，应优先使用 chat 端点。"""
+    format_to_endpoint = {
+        "openai:chat": _make_endpoint("https://chat.openai.example.com"),
+        "openai:cli": _make_endpoint("https://cli.openai.example.com"),
+    }
+
+    configs = build_all_format_configs("sk-test-key", format_to_endpoint)  # type: ignore[arg-type]
+
+    assert len(configs) == 1
+    assert configs[0]["api_format"] == "openai:chat"
+    assert configs[0]["base_url"] == "https://chat.openai.example.com"
+
+
+def test_mixed_chat_and_cli_fallback() -> None:
+    """一个族有 chat、另一个族只有 cli，应各自正确选择。"""
+    format_to_endpoint = {
+        "openai:chat": _make_endpoint("https://chat.openai.example.com"),
+        "claude:cli": _make_endpoint("https://cli.claude.example.com"),
+    }
+
+    configs = build_all_format_configs("sk-test-key", format_to_endpoint)  # type: ignore[arg-type]
+
+    assert len(configs) == 2
+    by_fmt = {c["api_format"]: c for c in configs}
+    assert by_fmt["openai:chat"]["base_url"] == "https://chat.openai.example.com"
+    assert by_fmt["claude:cli"]["base_url"] == "https://cli.claude.example.com"
 
 
 def test_empty_format_to_endpoint() -> None:
