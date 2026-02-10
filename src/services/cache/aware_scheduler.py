@@ -66,6 +66,7 @@ from src.services.rate_limit.adaptive_reservation import (
     AdaptiveReservationManager,
     get_adaptive_reservation_manager,
 )
+from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
 from src.services.rate_limit.concurrency_manager import get_concurrency_manager
 
 
@@ -404,30 +405,8 @@ class CacheAwareScheduler:
         raise ProviderNotAvailableException("服务暂时繁忙，请稍后重试")
 
     def _get_effective_rpm_limit(self, key: ProviderAPIKey) -> int | None:
-        """
-        获取有效的 RPM 限制
-
-        新逻辑：
-        - rpm_limit=NULL: 启用自适应，使用 learned_rpm_limit（如无学习记录则不限制，等待碰壁学习）
-        - rpm_limit=数字: 固定限制，直接使用该值
-
-        Args:
-            key: API Key对象
-
-        Returns:
-            有效的 RPM 限制（None 表示不限制）
-        """
-        if key.rpm_limit is None:
-            # 自适应模式：使用学习到的值
-            learned = key.learned_rpm_limit
-            if learned is not None:
-                return int(learned)
-
-            # 未学习到值时，不限制，让其碰壁后再学习真实边界
-            return None
-        else:
-            # 固定限制模式
-            return int(key.rpm_limit)
+        """获取有效的 RPM 限制（委托给 AdaptiveRPMManager 统一逻辑）"""
+        return get_adaptive_rpm_manager().get_effective_limit(key)
 
     async def _check_concurrent_available(
         self,

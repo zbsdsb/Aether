@@ -137,6 +137,22 @@ class RPMDefaults:
     # 探测性扩容最小请求数 - 在探测间隔内至少需要这么多请求
     PROBE_INCREASE_MIN_REQUESTS = 10
 
+    # === 置信度学习参数 ===
+    # 无 header 时，需要多少次一致的 429 观察才确认限制
+    MIN_CONSISTENT_OBSERVATIONS = 3
+    # 有 header 时，需要多少次一致的 header 观察才确认限制
+    MIN_HEADER_CONFIRMATIONS = 2
+    # 观察值之间的最大允许偏差比例（30% 以内视为一致）
+    OBSERVATION_CONSISTENCY_THRESHOLD = 0.3
+    # header 声明限制的安全边际（使用 95%）
+    HEADER_LIMIT_SAFETY_MARGIN = 0.95
+    # 纯观察限制的安全边际（使用 90%）
+    OBSERVATION_LIMIT_SAFETY_MARGIN = 0.90
+    # confidence 低于此阈值时不执行本地 RPM 限制（透传上游 429）
+    ENFORCEMENT_CONFIDENCE_THRESHOLD = 0.6
+    # confidence 自然衰减速率：每分钟衰减的比例
+    CONFIDENCE_DECAY_PER_MINUTE = 0.005  # 每分钟 -0.5%，约 200 分钟（~3.3h）从 1.0 衰减到 0
+
 
 # 向后兼容别名
 ConcurrencyDefaults = RPMDefaults

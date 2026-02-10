@@ -1,21 +1,23 @@
 """
-自适应 RPM 调整器 - 基于边界记忆的 RPM 限制调整
+自适应 RPM 调整器 - 基于置信度衰减的 RPM 限制学习
 
-核心算法：边界记忆 + 渐进探测
-- 触发 429 时记录边界（last_rpm_peak），这就是真实上限
-- 缩容策略：新限制 = 边界 - 步长，而非乘性减少
-- 扩容策略：不超过已知边界，除非是探测性扩容
-- 探测性扩容：长时间无 429 时尝试突破边界
+核心算法：多次观察确认 + 置信度衰减
+- 收到 429 时记录观察（本地 RPM + 上游 header 限制值）
+- 多次一致的观察才确认限制（header 需 2 次，无 header 需 3 次）
+- confidence 随时间自然衰减，限制永远不会固化
+- confidence 低于阈值时停止本地 RPM 限制执行，让上游 429 透传
 
 设计原则：
-1. 快速收敛：一次 429 就能找到接近真实的限制
-2. 避免过度保守：不会因为多次 429 而无限下降
-3. 安全探测：允许在稳定后尝试更高 RPM
+1. 限制永远不固化 -- confidence 需要持续的 429 观察来维持
+2. 即使有上游 header 也要多次确认
+3. 学习期间 429 直接透传给客户端
+4. 优先使用上游 header 声明的限制值，而非本地 RPM 计数
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from statistics import median
 from typing import Any, cast
 
 from sqlalchemy.orm import Session
@@ -39,24 +41,19 @@ class AdaptiveRPMManager:
     """
     自适应 RPM 管理器
 
-    核心算法：边界记忆 + 渐进探测
-    - 触发 429 时记录边界（last_rpm_peak = 触发时的 RPM）
-    - 缩容：新限制 = 边界 - 步长（快速收敛到真实限制附近）
-    - 扩容：不超过边界（即 last_rpm_peak），允许回到边界值尝试
-    - 探测性扩容：长时间（30分钟）无 429 时，可以尝试 +1 突破边界
+    核心算法：多次观察确认 + 置信度衰减
+    - 收到 429 时记录观察（本地 RPM 计数 + 上游 header 限制值）
+    - 有 header 的观察需 MIN_HEADER_CONFIRMATIONS 次一致才确认
+    - 无 header 的观察需 MIN_CONSISTENT_OBSERVATIONS 次一致才确认
+    - confidence 随时间自然衰减（CONFIDENCE_DECAY_PER_MINUTE）
+    - confidence < ENFORCEMENT_CONFIDENCE_THRESHOLD 时停止本地限制执行
 
     扩容条件（满足任一即可）：
     1. 利用率扩容：窗口内高利用率比例 >= 60%，且当前限制 < 边界
     2. 探测性扩容：距上次 429 超过 30 分钟，可以尝试突破边界
-
-    关键特性：
-    1. 快速收敛：一次 429 就能学到接近真实的限制值
-    2. 边界保护：普通扩容不会超过已知边界
-    3. 安全探测：长时间稳定后允许尝试更高 RPM
-    4. 区分并发限制和 RPM 限制
     """
 
-    # 默认配置 - 使用统一常量
+    # 默认配置
     DEFAULT_INITIAL_LIMIT = RPMDefaults.INITIAL_LIMIT
     MIN_RPM_LIMIT = RPMDefaults.MIN_RPM_LIMIT
     MAX_RPM_LIMIT = RPMDefaults.MAX_RPM_LIMIT
@@ -78,6 +75,15 @@ class AdaptiveRPMManager:
     # 记录历史数量
     MAX_HISTORY_RECORDS = 20
 
+    # 置信度学习参数
+    MIN_CONSISTENT_OBSERVATIONS = RPMDefaults.MIN_CONSISTENT_OBSERVATIONS
+    MIN_HEADER_CONFIRMATIONS = RPMDefaults.MIN_HEADER_CONFIRMATIONS
+    OBSERVATION_CONSISTENCY_THRESHOLD = RPMDefaults.OBSERVATION_CONSISTENCY_THRESHOLD
+    HEADER_LIMIT_SAFETY_MARGIN = RPMDefaults.HEADER_LIMIT_SAFETY_MARGIN
+    OBSERVATION_LIMIT_SAFETY_MARGIN = RPMDefaults.OBSERVATION_LIMIT_SAFETY_MARGIN
+    ENFORCEMENT_CONFIDENCE_THRESHOLD = RPMDefaults.ENFORCEMENT_CONFIDENCE_THRESHOLD
+    CONFIDENCE_DECAY_PER_MINUTE = RPMDefaults.CONFIDENCE_DECAY_PER_MINUTE
+
     def __init__(self, strategy: str = AdaptiveStrategy.AIMD):
         """
         初始化自适应 RPM 管理器
@@ -87,106 +93,283 @@ class AdaptiveRPMManager:
         """
         self.strategy = strategy
 
+    # ==================== 429 处理 ====================
+
     def handle_429_error(
         self,
         db: Session,
         key: ProviderAPIKey,
         rate_limit_info: RateLimitInfo,
         current_rpm: int | None = None,
-    ) -> int:
+    ) -> int | None:
         """
-        处理429错误，调整 RPM 限制
+        处理 429 错误，记录观察并基于一致性评估是否设置限制
 
-        Args:
-            db: 数据库会话
-            key: API Key对象
-            rate_limit_info: 速率限制信息
-            current_rpm: 当前分钟内的请求数
+        不再单次 429 就设限，而是：
+        1. 记录 429 观察（本地 RPM + 上游 header 限制值）
+        2. 评估历史观察的一致性
+        3. 一致性达标时设置 learned_rpm_limit 并赋予 confidence
+        4. 一致性不够时保持学习期（429 透传给客户端）
 
         Returns:
-            调整后的 RPM 限制
+            调整后的 RPM 限制，或 None（学习期间）
         """
-        # rpm_limit=NULL 表示启用自适应，rpm_limit=数字 表示固定限制
         is_adaptive = key.rpm_limit is None
 
         if not is_adaptive:
             logger.debug(f"Key {key.id} 设置了固定 RPM 限制 ({key.rpm_limit})，跳过自适应调整")
             return int(key.rpm_limit)  # type: ignore[arg-type]
 
-        # 更新429统计
+        # 更新 429 统计
         key.last_429_at = datetime.now(timezone.utc)  # type: ignore[assignment]
         key.last_429_type = rate_limit_info.limit_type  # type: ignore[assignment]
-        # 仅在 RPM 限制且拿到 RPM 数时记录边界
-        if (
-            rate_limit_info.limit_type == RateLimitType.RPM
-            and current_rpm is not None
-            and current_rpm > 0
-        ):
-            key.last_rpm_peak = current_rpm  # type: ignore[assignment]
 
-        # 遇到 429 错误，清空利用率采样窗口（重新开始收集）
+        # 清空利用率采样窗口
         key.utilization_samples = []  # type: ignore[assignment]
 
         if rate_limit_info.limit_type == RateLimitType.RPM:
-            # RPM 限制：减少 RPM 限制
             key.rpm_429_count = int(key.rpm_429_count or 0) + 1  # type: ignore[assignment]
 
-            # 获取当前有效限制（自适应模式使用 learned_rpm_limit）
-            old_limit = int(key.learned_rpm_limit or self.DEFAULT_INITIAL_LIMIT)
-            new_limit = self._decrease_limit(old_limit, current_rpm)
+            upstream_limit = rate_limit_info.limit_value
 
-            logger.warning(
-                f"[RPM] RPM 限制触发: Key {key.id[:8]}... | "
-                f"当前 RPM: {current_rpm} | "
-                f"调整: {old_limit} -> {new_limit}"
-            )
+            # 记录 429 观察
+            self._record_429_observation(key, current_rpm, upstream_limit)
 
-            # 记录调整历史
-            self._record_adjustment(
-                key,
-                old_limit=old_limit,
-                new_limit=new_limit,
-                reason="rpm_429",
-                current_rpm=current_rpm,
-            )
+            # 评估观察一致性，决定是否设置/更新限制
+            evaluated_limit, confidence = self._evaluate_observations(key)
 
-            # 更新学习到的 RPM 限制
-            key.learned_rpm_limit = new_limit  # type: ignore[assignment]
+            old_limit = key.learned_rpm_limit
+
+            if evaluated_limit is not None and confidence >= self.ENFORCEMENT_CONFIDENCE_THRESHOLD:
+                # 一致性达标，设置限制
+                self._record_adjustment(
+                    key,
+                    old_limit=old_limit or 0,
+                    new_limit=evaluated_limit,
+                    reason="rpm_429",
+                    current_rpm=current_rpm,
+                    upstream_limit=upstream_limit,
+                    confidence=round(confidence, 3),
+                    learning_source="header" if upstream_limit else "observation",
+                )
+                key.learned_rpm_limit = evaluated_limit  # type: ignore[assignment]
+
+                # 更新 last_rpm_peak：优先使用 upstream header
+                if upstream_limit and upstream_limit > 0:
+                    key.last_rpm_peak = upstream_limit  # type: ignore[assignment]
+                elif current_rpm and current_rpm > 0:
+                    key.last_rpm_peak = current_rpm  # type: ignore[assignment]
+
+                logger.warning(
+                    f"[RPM] 限制已确认: Key {key.id[:8]}... | "
+                    f"当前 RPM: {current_rpm} | "
+                    f"上游 header: {upstream_limit} | "
+                    f"调整: {old_limit} -> {evaluated_limit} | "
+                    f"confidence: {confidence:.2f}"
+                )
+            else:
+                # 一致性不够，保持学习期
+                logger.info(
+                    f"[RPM] 学习中: Key {key.id[:8]}... | "
+                    f"当前 RPM: {current_rpm} | "
+                    f"上游 header: {upstream_limit} | "
+                    f"观察已记录，暂不设限"
+                )
 
         elif rate_limit_info.limit_type == RateLimitType.CONCURRENT:
-            # 并发限制：不调整 RPM，只记录
             key.concurrent_429_count = int(key.concurrent_429_count or 0) + 1  # type: ignore[assignment]
-
             logger.info(
                 f"[CONCURRENT] 并发限制触发: Key {key.id[:8]}... | "
                 f"不调整 RPM 限制（这是并发问题，非 RPM 问题）"
             )
 
         else:
-            # 未知类型：保守处理，轻微减少
-            logger.warning(
-                f"[UNKNOWN] 未知429类型: Key {key.id[:8]}... | "
-                f"当前 RPM: {current_rpm} | "
-                f"保守减少 RPM"
-            )
-
-            old_limit = int(key.learned_rpm_limit or self.DEFAULT_INITIAL_LIMIT)
-            new_limit = max(int(old_limit * 0.9), self.MIN_RPM_LIMIT)  # 减少10%
-
-            self._record_adjustment(
-                key,
-                old_limit=old_limit,
-                new_limit=new_limit,
-                reason="unknown_429",
-                current_rpm=current_rpm,
-            )
-
-            key.learned_rpm_limit = new_limit  # type: ignore[assignment]
+            # 未知类型：保守处理（仅在已有学习值时减少）
+            old_limit = key.learned_rpm_limit
+            if old_limit is not None:
+                logger.warning(
+                    f"[UNKNOWN] 未知429类型: Key {key.id[:8]}... | "
+                    f"当前 RPM: {current_rpm} | "
+                    f"保守减少 RPM: {old_limit} -> {max(int(old_limit * 0.95), self.MIN_RPM_LIMIT)}"
+                )
+            else:
+                logger.info(
+                    f"[UNKNOWN] 未知429类型: Key {key.id[:8]}... | "
+                    f"当前 RPM: {current_rpm} | "
+                    f"无学习值，跳过调整"
+                )
+            if old_limit is not None:
+                new_limit = max(int(old_limit * 0.95), self.MIN_RPM_LIMIT)
+                self._record_adjustment(
+                    key,
+                    old_limit=int(old_limit),
+                    new_limit=new_limit,
+                    reason="unknown_429",
+                    current_rpm=current_rpm,
+                )
+                key.learned_rpm_limit = new_limit  # type: ignore[assignment]
 
         db.flush()
         get_batch_committer().mark_dirty(db)
 
-        return int(key.learned_rpm_limit or self.DEFAULT_INITIAL_LIMIT)
+        return key.learned_rpm_limit if key.learned_rpm_limit is not None else None
+
+    # ==================== 观察记录与评估 ====================
+
+    def _record_429_observation(
+        self,
+        key: ProviderAPIKey,
+        current_rpm: int | None,
+        upstream_limit: int | None,
+    ) -> None:
+        """在 adjustment_history 中记录一次 429 观察"""
+        history: list[dict[str, Any]] = list(key.adjustment_history or [])
+
+        observation: dict[str, Any] = {
+            "type": "429_observation",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "current_rpm": current_rpm,
+            "upstream_limit": upstream_limit,
+        }
+        history.append(observation)
+
+        key.adjustment_history = self._trim_history(history)  # type: ignore[assignment]
+
+    def _evaluate_observations(self, key: ProviderAPIKey) -> tuple[int | None, float]:
+        """
+        评估历史 429 观察的一致性，决定是否确认限制
+
+        优先使用有 header 的观察（upstream_limit），其次使用纯本地观察（current_rpm）。
+
+        Returns:
+            (limit, confidence):
+            - limit: 新确认的限制值，或 None（一致性不够，不设/不更新限制）
+            - confidence: 置信度分数 0.0~1.0
+        """
+        history: list[dict[str, Any]] = list(key.adjustment_history or [])
+        observations = [h for h in history if h.get("type") == "429_observation"]
+
+        if not observations:
+            return None, 0.0
+
+        # 优先评估有 header 的观察
+        header_obs = [
+            o
+            for o in observations
+            if o.get("upstream_limit") is not None and o["upstream_limit"] > 0
+        ]
+        if len(header_obs) >= self.MIN_HEADER_CONFIRMATIONS:
+            recent = header_obs[-self.MIN_HEADER_CONFIRMATIONS * 2 :]
+            values = [o["upstream_limit"] for o in recent]
+            last_n = values[-self.MIN_HEADER_CONFIRMATIONS :]
+
+            if self._check_consistency(last_n):
+                limit_val = int(median(last_n) * self.HEADER_LIMIT_SAFETY_MARGIN)
+                limit_val = max(limit_val, self.MIN_RPM_LIMIT)
+                limit_val = min(limit_val, self.MAX_RPM_LIMIT)
+                return limit_val, 0.8
+
+        # 其次评估纯本地观察（无 header）
+        local_obs = [
+            o for o in observations if o.get("current_rpm") is not None and o["current_rpm"] > 0
+        ]
+        if len(local_obs) >= self.MIN_CONSISTENT_OBSERVATIONS:
+            recent = local_obs[-self.MIN_CONSISTENT_OBSERVATIONS * 2 :]
+            values = [o["current_rpm"] for o in recent]
+            last_n = values[-self.MIN_CONSISTENT_OBSERVATIONS :]
+
+            if self._check_consistency(last_n):
+                limit_val = int(median(last_n) * self.OBSERVATION_LIMIT_SAFETY_MARGIN)
+                limit_val = max(limit_val, self.MIN_RPM_LIMIT)
+                limit_val = min(limit_val, self.MAX_RPM_LIMIT)
+                return limit_val, 0.6
+
+        # 一致性不够，不设/不更新限制（已有的 learned_rpm_limit 不在此处处理）
+        return None, 0.0
+
+    def _check_consistency(self, values: list[int]) -> bool:
+        """检查一组数值是否在 OBSERVATION_CONSISTENCY_THRESHOLD 偏差范围内"""
+        if not values:
+            return False
+        med = median(values)
+        if med <= 0:
+            return False
+        return all(abs(v - med) / med <= self.OBSERVATION_CONSISTENCY_THRESHOLD for v in values)
+
+    # ==================== 置信度计算 ====================
+
+    def get_confidence(self, key: ProviderAPIKey) -> float:
+        """
+        计算当前 confidence 分数（0.0~1.0），包含时间衰减
+
+        confidence 基于最后一次 429 评估的基础值，随时间自然衰减。
+        确保限制永远不会固化：长时间没有新 429 观察 → confidence 降至 0。
+
+        Returns:
+            当前 confidence（0.0~1.0）
+        """
+        if key.learned_rpm_limit is None:
+            return 0.0
+
+        # 从历史中获取基础 confidence
+        base_confidence = self._get_base_confidence(key)
+
+        if base_confidence <= 0:
+            return 0.0
+
+        # 时间衰减
+        if key.last_429_at is not None:
+            last_429_at = cast(datetime, key.last_429_at)
+            minutes_since = max(
+                0.0, (datetime.now(timezone.utc) - last_429_at).total_seconds() / 60.0
+            )
+            time_decay = minutes_since * self.CONFIDENCE_DECAY_PER_MINUTE
+        else:
+            time_decay = 1.0  # 没有 429 记录，直接衰减到 0
+
+        final = max(0.0, base_confidence - time_decay)
+        return min(final, 1.0)
+
+    def is_enforcement_active(self, key: ProviderAPIKey) -> bool:
+        """confidence 是否达到执行阈值，达标才执行本地 RPM 限制"""
+        return self.get_confidence(key) >= self.ENFORCEMENT_CONFIDENCE_THRESHOLD
+
+    def get_effective_limit(self, key: ProviderAPIKey) -> int | None:
+        """
+        获取 key 当前有效的 RPM 限制（统一入口）
+
+        - rpm_limit=NULL（自适应）：learned_rpm_limit + confidence 达标才返回
+        - rpm_limit=数字（固定）：直接返回固定值
+        - 其余情况返回 None（不限制）
+        """
+        if key.rpm_limit is not None:
+            return int(key.rpm_limit)
+        # 自适应模式
+        if key.learned_rpm_limit is not None and self.is_enforcement_active(key):
+            return int(key.learned_rpm_limit)
+        return None
+
+    def _get_base_confidence(self, key: ProviderAPIKey) -> float:
+        """从最近的 adjustment 记录中获取基础 confidence"""
+        history: list[dict[str, Any]] = list(key.adjustment_history or [])
+
+        # 从最新的 adjustment 记录中查找 confidence
+        for record in reversed(history):
+            if record.get("type") != "429_observation" and "confidence" in record:
+                return float(record["confidence"])
+
+        # 没有 confidence 记录（旧数据迁移）：尝试从观察中重新评估
+        evaluated_limit, confidence = self._evaluate_observations(key)
+        if confidence > 0:
+            return confidence
+
+        # 有 learned_rpm_limit 但无法从观察中确认（旧数据），给予低基线置信度
+        if key.learned_rpm_limit is not None:
+            return 0.3
+
+        return 0.0
+
+    # ==================== 成功处理 ====================
 
     def handle_success(
         self,
@@ -197,22 +380,21 @@ class AdaptiveRPMManager:
         """
         处理成功请求，基于滑动窗口利用率考虑增加 RPM 限制
 
-        Args:
-            db: 数据库会话
-            key: API Key对象
-            current_rpm: 当前分钟内的请求数（必需，用于计算利用率）
-
         Returns:
             调整后的 RPM 限制（如果有调整），否则返回 None
         """
-        # rpm_limit=NULL 表示启用自适应
         is_adaptive = key.rpm_limit is None
 
         if not is_adaptive:
             return None
 
-        # 未碰壁学习前，不主动设置限制，让系统自由运行直到遇到 429
+        # 未碰壁学习前，不主动设置限制
         if key.learned_rpm_limit is None:
+            return None
+
+        # confidence 太低时不做扩容逻辑（系统已在自由运行模式）
+        confidence = self.get_confidence(key)
+        if confidence < self.ENFORCEMENT_CONFIDENCE_THRESHOLD:
             return None
 
         current_limit = int(key.learned_rpm_limit)
@@ -267,6 +449,7 @@ class AdaptiveRPMManager:
                 sample_count=len(samples),
                 current_rpm=current_rpm,
                 known_boundary=known_boundary,
+                confidence=round(confidence, 3),
             )
 
             # 更新限制
@@ -291,37 +474,26 @@ class AdaptiveRPMManager:
 
         return None
 
+    # ==================== 滑动窗口 ====================
+
     def _update_utilization_window(
         self, key: ProviderAPIKey, now_ts: float, utilization: float
     ) -> list[dict[str, Any]]:
-        """
-        更新利用率滑动窗口
-
-        Args:
-            key: API Key对象
-            now_ts: 当前时间戳
-            utilization: 当前利用率
-
-        Returns:
-            更新后的采样列表
-        """
+        """更新利用率滑动窗口"""
         samples: list[dict[str, Any]] = list(key.utilization_samples or [])
 
-        # 添加新采样
         samples.append({"ts": now_ts, "util": round(utilization, 3)})
 
-        # 移除过期采样（超过时间窗口）
         cutoff_ts = now_ts - self.UTILIZATION_WINDOW_SECONDS
         samples = [s for s in samples if s["ts"] > cutoff_ts]
 
-        # 限制采样数量
         if len(samples) > self.UTILIZATION_WINDOW_SIZE:
             samples = samples[-self.UTILIZATION_WINDOW_SIZE :]
 
-        # 更新到 key 对象
         key.utilization_samples = samples  # type: ignore[assignment]
-
         return samples
+
+    # ==================== 扩容条件 ====================
 
     def _check_increase_conditions(
         self,
@@ -330,19 +502,7 @@ class AdaptiveRPMManager:
         now: datetime,
         known_boundary: int | None = None,
     ) -> str | None:
-        """
-        检查是否满足扩容条件
-
-        Args:
-            key: API Key对象
-            samples: 利用率采样列表
-            now: 当前时间
-            known_boundary: 已知边界（触发 429 时的 RPM）
-
-        Returns:
-            扩容原因（如果满足条件），否则返回 None
-        """
-        # 检查是否在冷却期
+        """检查是否满足扩容条件"""
         if self._is_in_cooldown(key):
             return None
 
@@ -354,17 +514,13 @@ class AdaptiveRPMManager:
             high_util_ratio = high_util_count / len(samples)
 
             if high_util_ratio >= self.HIGH_UTILIZATION_RATIO:
-                # 检查是否还有扩容空间（边界保护）
                 if known_boundary:
-                    # 允许扩容到边界值（而非 boundary - 1），因为缩容时已经 -步长 了
                     if current_limit < known_boundary:
                         return "high_utilization"
-                    # 已达边界，不触发普通扩容
                 else:
-                    # 无边界信息，允许扩容
                     return "high_utilization"
 
-        # 条件2：探测性扩容（长时间无 429 且有流量，可以突破边界）
+        # 条件2：探测性扩容
         if self._should_probe_increase(key, samples, now):
             return "probe_increase"
 
@@ -373,60 +529,32 @@ class AdaptiveRPMManager:
     def _should_probe_increase(
         self, key: ProviderAPIKey, samples: list[dict[str, Any]], now: datetime
     ) -> bool:
-        """
-        检查是否应该进行探测性扩容
-
-        条件：
-        1. 距上次 429 超过 PROBE_INCREASE_INTERVAL_MINUTES 分钟
-        2. 距上次探测性扩容超过 PROBE_INCREASE_INTERVAL_MINUTES 分钟
-        3. 期间有足够的请求量（采样数 >= PROBE_INCREASE_MIN_REQUESTS）
-        4. 平均利用率 > 30%（说明确实有使用需求）
-
-        Args:
-            key: API Key对象
-            samples: 利用率采样列表
-            now: 当前时间
-
-        Returns:
-            是否应该探测性扩容
-        """
+        """检查是否应该进行探测性扩容"""
         probe_interval_seconds = self.PROBE_INCREASE_INTERVAL_MINUTES * 60
 
-        # 检查距上次 429 的时间
         if key.last_429_at:
             last_429_at = cast(datetime, key.last_429_at)
             time_since_429 = (now - last_429_at).total_seconds()
             if time_since_429 < probe_interval_seconds:
                 return False
 
-        # 检查距上次探测性扩容的时间
         if key.last_probe_increase_at:
             last_probe = cast(datetime, key.last_probe_increase_at)
             time_since_probe = (now - last_probe).total_seconds()
             if time_since_probe < probe_interval_seconds:
                 return False
 
-        # 检查请求量
         if len(samples) < self.PROBE_INCREASE_MIN_REQUESTS:
             return False
 
-        # 检查平均利用率（确保确实有使用需求）
         avg_util = sum(s["util"] for s in samples) / len(samples)
-        if avg_util < 0.3:  # 至少 30% 利用率
+        if avg_util < 0.3:
             return False
 
         return True
 
     def _is_in_cooldown(self, key: ProviderAPIKey) -> bool:
-        """
-        检查是否在 429 错误后的冷却期内
-
-        Args:
-            key: API Key对象
-
-        Returns:
-            True 如果在冷却期内，否则 False
-        """
+        """检查是否在 429 错误后的冷却期内"""
         if key.last_429_at is None:
             return False
 
@@ -436,35 +564,7 @@ class AdaptiveRPMManager:
 
         return bool(time_since_429 < cooldown_seconds)
 
-    def _decrease_limit(
-        self,
-        current_limit: int,
-        current_rpm: int | None = None,
-    ) -> int:
-        """
-        减少 RPM 限制（基于边界记忆策略）
-
-        策略：
-        - 如果知道触发 429 时的 RPM，新限制 = RPM * 0.90（保留 10% 安全边际）
-        - 10% 的安全边际更保守，考虑到：
-          1. RPM 报告可能存在延迟，实际触发时的 RPM 可能略高于报告值
-          2. 上游 API 的限制可能有波动
-          3. 避免频繁在边界附近触发 429
-        - 相比固定步长，百分比方式更适应不同量级的限制值
-        """
-        if current_rpm is not None and current_rpm > 0:
-            # 边界记忆策略：新限制 = 触发边界 * 0.90（10% 安全边际）
-            candidate = int(current_rpm * 0.90)
-        else:
-            # 没有 RPM 信息时，减少 10%
-            candidate = int(current_limit * 0.9)
-
-        # 保证不会"缩容变扩容"
-        candidate = min(candidate, current_limit - 1)
-
-        new_limit = max(candidate, self.MIN_RPM_LIMIT)
-
-        return new_limit
+    # ==================== 限制调整 ====================
 
     def _increase_limit(
         self,
@@ -472,38 +572,23 @@ class AdaptiveRPMManager:
         known_boundary: int | None = None,
         is_probe: bool = False,
     ) -> int:
-        """
-        增加 RPM 限制（考虑边界保护）
-
-        策略：
-        - 普通扩容：每次 +INCREASE_STEP，但不超过 known_boundary
-        - 探测性扩容：每次只 +1，可以突破边界，但要谨慎
-
-        Args:
-            current_limit: 当前限制
-            known_boundary: 已知边界（last_rpm_peak），即触发 429 时的 RPM
-            is_probe: 是否是探测性扩容（可以突破边界）
-        """
+        """增加 RPM 限制（考虑边界保护）"""
         if is_probe:
-            # 探测模式：每次只 +1，谨慎突破边界
             new_limit = current_limit + 1
         else:
-            # 普通模式：每次 +INCREASE_STEP
             new_limit = current_limit + self.INCREASE_STEP
-
-            # 边界保护：普通扩容不超过 known_boundary
             if known_boundary:
                 if new_limit > known_boundary:
                     new_limit = known_boundary
 
-        # 全局上限保护
         new_limit = min(new_limit, self.MAX_RPM_LIMIT)
 
-        # 确保有增长（否则返回原值表示不扩容）
         if new_limit <= current_limit:
             return current_limit
 
         return new_limit
+
+    # ==================== 历史记录 ====================
 
     def _record_adjustment(
         self,
@@ -513,16 +598,7 @@ class AdaptiveRPMManager:
         reason: str,
         **extra_data: Any,
     ) -> None:
-        """
-        记录 RPM 调整历史
-
-        Args:
-            key: API Key对象
-            old_limit: 原限制
-            new_limit: 新限制
-            reason: 调整原因
-            **extra_data: 额外数据
-        """
+        """记录 RPM 调整历史"""
         history: list[dict[str, Any]] = list(key.adjustment_history or [])
 
         record = {
@@ -534,31 +610,48 @@ class AdaptiveRPMManager:
         }
         history.append(record)
 
-        # 保留最近N条记录
-        if len(history) > self.MAX_HISTORY_RECORDS:
-            history = history[-self.MAX_HISTORY_RECORDS :]
+        key.adjustment_history = self._trim_history(history)  # type: ignore[assignment]
 
-        key.adjustment_history = history  # type: ignore[assignment]
+    def _trim_history(self, history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        截断历史记录，优先保留 429_observation（学习数据源）
+
+        策略：超出 MAX_HISTORY_RECORDS 时，先淘汰最旧的非观察记录，
+        仍超限则淘汰最旧的观察记录。
+        """
+        if len(history) <= self.MAX_HISTORY_RECORDS:
+            return history
+
+        observations = [h for h in history if h.get("type") == "429_observation"]
+        adjustments = [h for h in history if h.get("type") != "429_observation"]
+
+        # 按时间戳排序（最新在后）
+        observations.sort(key=lambda h: h.get("timestamp", ""))
+        adjustments.sort(key=lambda h: h.get("timestamp", ""))
+
+        # 保留尽可能多的观察记录：先缩减 adjustment，再缩减 observation
+        overflow = len(history) - self.MAX_HISTORY_RECORDS
+        trim_adj = min(overflow, len(adjustments))
+        adjustments = adjustments[trim_adj:]
+        overflow -= trim_adj
+
+        if overflow > 0:
+            observations = observations[overflow:]
+
+        merged = observations + adjustments
+        merged.sort(key=lambda h: h.get("timestamp", ""))
+        return merged
+
+    # ==================== 统计与管理 ====================
 
     def get_adjustment_stats(self, key: ProviderAPIKey) -> dict[str, Any]:
-        """
-        获取调整统计信息
-
-        Args:
-            key: API Key对象
-
-        Returns:
-            统计信息
-        """
+        """获取调整统计信息"""
         history: list[dict[str, Any]] = list(key.adjustment_history or [])
         samples: list[dict[str, Any]] = list(key.utilization_samples or [])
 
-        # rpm_limit=NULL 表示自适应，否则为固定限制
         is_adaptive = key.rpm_limit is None
-        current_limit = int(key.learned_rpm_limit or self.DEFAULT_INITIAL_LIMIT)
-        effective_limit = current_limit if is_adaptive else int(key.rpm_limit)  # type: ignore
+        effective_limit = self.get_effective_limit(key) if is_adaptive else int(key.rpm_limit)  # type: ignore
 
-        # 计算窗口统计
         avg_utilization: float | None = None
         high_util_ratio: float | None = None
         if samples:
@@ -574,16 +667,29 @@ class AdaptiveRPMManager:
         if key.last_probe_increase_at:
             last_probe_at_str = cast(datetime, key.last_probe_increase_at).isoformat()
 
-        # 边界信息
         known_boundary = key.last_rpm_peak
+
+        # 观察统计
+        observations = [h for h in history if h.get("type") == "429_observation"]
+        header_observations = [
+            o
+            for o in observations
+            if o.get("upstream_limit") is not None and o["upstream_limit"] > 0
+        ]
+        latest_upstream = header_observations[-1]["upstream_limit"] if header_observations else None
+
+        confidence = self.get_confidence(key) if is_adaptive else None
+        enforcement_active = (
+            confidence >= self.ENFORCEMENT_CONFIDENCE_THRESHOLD if confidence is not None else None
+        )
 
         return {
             "adaptive_mode": is_adaptive,
-            "rpm_limit": key.rpm_limit,  # NULL=自适应，数字=固定限制
-            "effective_limit": effective_limit,  # 当前有效限制
-            "learned_limit": key.learned_rpm_limit,  # 学习到的限制
+            "rpm_limit": key.rpm_limit,
+            "effective_limit": effective_limit,
+            "learned_limit": key.learned_rpm_limit,
             # 边界记忆相关
-            "known_boundary": known_boundary,  # 触发 429 时的 RPM（已知上限）
+            "known_boundary": known_boundary,
             "concurrent_429_count": int(key.concurrent_429_count or 0),
             "rpm_429_count": int(key.rpm_429_count or 0),
             "last_429_at": last_429_at_str,
@@ -600,16 +706,16 @@ class AdaptiveRPMManager:
             # 探测性扩容相关
             "last_probe_increase_at": last_probe_at_str,
             "probe_increase_interval_minutes": self.PROBE_INCREASE_INTERVAL_MINUTES,
+            # 置信度相关
+            "learning_confidence": round(confidence, 3) if confidence is not None else None,
+            "enforcement_active": enforcement_active,
+            "observation_count": len(observations),
+            "header_observation_count": len(header_observations),
+            "latest_upstream_limit": latest_upstream,
         }
 
     def reset_learning(self, db: Session, key: ProviderAPIKey) -> None:
-        """
-        重置学习状态（管理员功能）
-
-        Args:
-            db: 数据库会话
-            key: API Key对象
-        """
+        """重置学习状态（管理员功能）"""
         logger.info(f"[RESET] 重置学习状态: Key {key.id[:8]}...")
 
         key.learned_rpm_limit = None  # type: ignore[assignment]

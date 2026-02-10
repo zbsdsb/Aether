@@ -525,9 +525,14 @@ class ErrorClassifier:
                 logger.warning(f"  [{request_id}] 并发限制触发（不调整RPM）")
                 return "concurrent"
             elif rate_limit_info.limit_type == RateLimitType.RPM:
-                logger.warning(
-                    f"  [{request_id}] 自适应调整: Key {key.id[:8]}... RPM限制 -> {new_limit}"
-                )
+                if new_limit is not None:
+                    logger.warning(
+                        f"  [{request_id}] 自适应调整: Key {key.id[:8]}... RPM限制 -> {new_limit}"
+                    )
+                else:
+                    logger.info(
+                        f"  [{request_id}] 学习中: Key {key.id[:8]}... 观察已记录，暂不设限"
+                    )
                 return "rpm"
             else:
                 return "unknown"

@@ -57,6 +57,12 @@ class AdaptiveStatsResponse(BaseModel):
     last_429_type: str | None
     adjustment_count: int
     recent_adjustments: list[dict]
+    # 置信度相关
+    learning_confidence: float | None = Field(None, description="学习置信度 (0.0-1.0)")
+    enforcement_active: bool | None = Field(None, description="是否正在执行本地 RPM 限制")
+    observation_count: int = Field(0, description="429 观察记录数")
+    header_observation_count: int = Field(0, description="带 header 的观察记录数")
+    latest_upstream_limit: int | None = Field(None, description="最近一次上游 header 限制值")
 
 
 class KeyListItem(BaseModel):
@@ -219,6 +225,7 @@ class ListAdaptiveKeysAdapter(AdminApiAdapter):
             query = query.filter(ProviderAPIKey.provider_id == self.provider_id)
 
         keys = query.all()
+        adaptive_manager = get_adaptive_rpm_manager()
         return [
             KeyListItem(
                 id=key.id,
@@ -227,11 +234,7 @@ class ListAdaptiveKeysAdapter(AdminApiAdapter):
                 api_formats=key.api_formats or [],
                 is_adaptive=key.rpm_limit is None,
                 rpm_limit=key.rpm_limit,
-                effective_limit=(
-                    key.learned_rpm_limit  # 自适应模式：使用学习值，未学习时为 None（不限制）
-                    if key.rpm_limit is None
-                    else key.rpm_limit
-                ),
+                effective_limit=adaptive_manager.get_effective_limit(key),
                 learned_rpm_limit=key.learned_rpm_limit,
                 concurrent_429_count=key.concurrent_429_count or 0,
                 rpm_429_count=key.rpm_429_count or 0,
@@ -275,16 +278,13 @@ class ToggleAdaptiveModeAdapter(AdminApiAdapter):
         context.db.refresh(key)
 
         is_adaptive = key.rpm_limit is None
+        adaptive_manager = get_adaptive_rpm_manager()
         return {
             "message": message,
             "key_id": key.id,
             "is_adaptive": is_adaptive,
             "rpm_limit": key.rpm_limit,
-            "effective_limit": (
-                key.learned_rpm_limit  # 自适应模式：使用学习值，未学习时为 None（不限制）
-                if is_adaptive
-                else key.rpm_limit
-            ),
+            "effective_limit": adaptive_manager.get_effective_limit(key),
         }
 
 
@@ -312,6 +312,11 @@ class GetAdaptiveStatsAdapter(AdminApiAdapter):
             last_429_type=stats["last_429_type"],
             adjustment_count=stats["adjustment_count"],
             recent_adjustments=stats["recent_adjustments"],
+            learning_confidence=stats.get("learning_confidence"),
+            enforcement_active=stats.get("enforcement_active"),
+            observation_count=stats.get("observation_count", 0),
+            header_observation_count=stats.get("header_observation_count", 0),
+            latest_upstream_limit=stats.get("latest_upstream_limit"),
         )
 
 

@@ -17,6 +17,7 @@ from src.core.logger import logger
 from src.services.health.monitor import health_monitor
 from src.services.provider.format import normalize_endpoint_signature
 from src.services.rate_limit.adaptive_reservation import get_adaptive_reservation_manager
+from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
 from src.services.request.candidate import RequestCandidateService
 
 
@@ -103,13 +104,7 @@ class RequestExecutor:
                 current_key_rpm = 0
 
             # 获取有效的 RPM 限制（自适应或固定）
-            if key.rpm_limit is None:
-                # 自适应模式：使用学习值，未学习时为 None（不限制，等待碰壁学习）
-                effective_key_limit = (
-                    int(key.learned_rpm_limit) if key.learned_rpm_limit is not None else None
-                )
-            else:
-                effective_key_limit = int(key.rpm_limit)
+            effective_key_limit = get_adaptive_rpm_manager().get_effective_limit(key)
 
             reservation_result = reservation_manager.calculate_reservation(
                 key=key,
