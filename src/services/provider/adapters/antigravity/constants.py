@@ -74,6 +74,11 @@ MIN_SIGNATURE_LENGTH = 50  # 与 Antigravity-Manager 对齐
 # ============== Thinking Budget ==============
 THINKING_BUDGET_AUTO_CAP = 24576
 THINKING_BUDGET_DEFAULT_INJECT = 24576  # 对齐 AM wrapper.rs (was 16000)
+# 给输出留的空间（对齐 Antigravity-Manager：普通模型 8192，图像模型 2048）
+OUTPUT_OVERHEAD = 8192
+OUTPUT_OVERHEAD_IMAGE = 2048
+# 模型最大输出限制（防止超限）
+MODEL_MAX_OUTPUT_LIMIT = 65536
 # 包含这些关键字的模型会自动注入 thinkingConfig（如果缺失）
 THINKING_MODELS_AUTO_INJECT_KEYWORDS = ("thinking", "gemini-2.0-pro", "gemini-3-pro")
 
@@ -191,7 +196,10 @@ __all__ = [
     "IMAGE_GEN_UPSTREAM_MODEL",
     "MIN_SIGNATURE_LENGTH",
     "MODEL_ALIAS_MAP",
+    "MODEL_MAX_OUTPUT_LIMIT",
     "NETWORKING_TOOL_KEYWORDS",
+    "OUTPUT_OVERHEAD",
+    "OUTPUT_OVERHEAD_IMAGE",
     "PROD_BASE_URL",
     "REQUEST_USER_AGENT",
     "RETRY_429_BASE_SECONDS",
