@@ -1632,13 +1632,21 @@ function formatKiroSubscription(title: string | undefined): string {
 
 function shouldAutoRefreshCodexQuota(): boolean {
   if (provider.value?.provider_type !== 'codex') return false
+  const now = Math.floor(Date.now() / 1000)
 
   for (const { key } of allKeys.value) {
     if (!key.is_active) continue
 
+    if (isTokenExpiringSoon(key, now)) return true
+
     const meta: UpstreamMetadata | null | undefined = key.upstream_metadata
     // 只要有一个活跃 key 没有配额数据，就刷新一次
     if (!hasCodexQuotaData(meta)) {
+      return true
+    }
+    // 配额数据超过 5 分钟未更新，也触发刷新
+    const updatedAt = meta?.codex?.updated_at
+    if (typeof updatedAt !== 'number' || (now - updatedAt) > AUTO_QUOTA_REFRESH_STALE_SECONDS) {
       return true
     }
   }
@@ -1646,7 +1654,7 @@ function shouldAutoRefreshCodexQuota(): boolean {
   return false
 }
 
-// 检查 OAuth Token 是否即将过期（Antigravity / Kiro ）
+// 检查 OAuth Token 是否即将过期（Codex / Antigravity / Kiro）
 function isTokenExpiringSoon(key: EndpointAPIKey, now: number): boolean {
   return key.oauth_invalid_at == null
     && typeof key.oauth_expires_at === 'number'
@@ -1687,8 +1695,14 @@ function shouldAutoRefreshKiroQuota(): boolean {
 
     if (isTokenExpiringSoon(key, now)) return true
 
+    const meta = key.upstream_metadata
     // 只要有一个活跃 key 没有配额数据，就刷新一次
-    if (!hasKiroQuotaData(key.upstream_metadata)) {
+    if (!hasKiroQuotaData(meta)) {
+      return true
+    }
+    // 配额数据超过 5 分钟未更新，也触发刷新
+    const updatedAt = meta?.kiro?.updated_at
+    if (typeof updatedAt !== 'number' || (now - updatedAt) > AUTO_QUOTA_REFRESH_STALE_SECONDS) {
       return true
     }
   }
