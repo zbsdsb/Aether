@@ -669,13 +669,12 @@ async function loadGlobalModels() {
 }
 
 // 从提供商获取模型（使用缓存）
-// 不传 apiKeyId，获取所有 Key 的聚合结果
+// 传 apiKeyId，获取当前 Key 自己能访问的上游模型
 async function fetchUpstreamModels(forceRefresh = false) {
   if (!props.providerId || !props.apiKey) return
   try {
     fetchingUpstreamModels.value = true
-    // 不传 apiKeyId，后端会遍历所有 Key 并聚合结果
-    const result = await fetchCachedModels(props.providerId, undefined, forceRefresh)
+    const result = await fetchCachedModels(props.providerId, props.apiKey.id, forceRefresh)
     if (loadingCancelled) return
     if (result.models.length > 0) {
       upstreamModels.value = result.models

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from src.config.constants import TimeoutDefaults
 from src.core.api_format import get_extra_headers_from_endpoint
+from src.core.cache_service import CacheService
 from src.core.crypto import crypto_service
 from src.core.logger import logger
 from src.core.provider_types import ProviderType
@@ -23,6 +24,7 @@ from src.database.database import get_db
 from src.models.database import Provider, ProviderEndpoint, User
 from src.services.model.fetch_scheduler import (
     MODEL_FETCH_HTTP_TIMEOUT,
+    UPSTREAM_MODELS_CACHE_TTL_SECONDS,
     get_upstream_models_from_cache,
     set_upstream_models_to_cache,
 )
@@ -38,6 +40,58 @@ from src.utils.auth_utils import get_current_user
 from src.utils.ssl_utils import get_ssl_context
 
 router = APIRouter(prefix="/api/admin/provider-query", tags=["Provider Query"])
+
+
+# ---------------------------------------------------------------------------
+# Provider-level upstream models cache (for multi-key ordered fetch)
+# ---------------------------------------------------------------------------
+
+
+async def _get_provider_upstream_models_cache(provider_id: str) -> list[dict] | None:
+    cache_key = f"upstream_models_provider:{provider_id}"
+    cached = await CacheService.get(cache_key)
+    return cached  # type: ignore[return-value]
+
+
+async def _set_provider_upstream_models_cache(provider_id: str, models: list[dict]) -> None:
+    cache_key = f"upstream_models_provider:{provider_id}"
+    await CacheService.set(cache_key, models, UPSTREAM_MODELS_CACHE_TTL_SECONDS)
+
+
+# ---------------------------------------------------------------------------
+# Antigravity: tier / availability sorting for upstream model fetching
+# ---------------------------------------------------------------------------
+
+# tier 排序权重（数值越大越优先）
+_ANTIGRAVITY_TIER_PRIORITY: dict[str, int] = {"ultra": 3, "pro": 2, "free": 1}
+
+
+def _antigravity_sort_keys(api_keys: list[Any]) -> list[Any]:
+    """按 tier/可用性对 Antigravity Key 降序排列。
+
+    预计算排序键避免排序过程中重复解密。
+
+    排序维度（优先级从高到低）:
+    1. 可用性: oauth_invalid_at 为空 = 1（优先）, 非空 = 0
+    2. 付费级别: Ultra=3 > Pro=2 > Free=1 > 未知=0
+    """
+    sort_keys: list[tuple[tuple[int, int], Any]] = []
+    for api_key in api_keys:
+        availability = 0 if getattr(api_key, "oauth_invalid_at", None) else 1
+        tier_weight = 0
+        encrypted_auth_config = getattr(api_key, "auth_config", None)
+        if encrypted_auth_config:
+            try:
+                decrypted = crypto_service.decrypt(encrypted_auth_config)
+                auth_config = json.loads(decrypted)
+                tier = (auth_config.get("tier") or "").lower()
+                tier_weight = _ANTIGRAVITY_TIER_PRIORITY.get(tier, 0)
+            except Exception:
+                pass
+        sort_keys.append(((availability, tier_weight), api_key))
+
+    sort_keys.sort(key=lambda x: x[0], reverse=True)
+    return [item[1] for item in sort_keys]
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +247,17 @@ async def query_available_models(
     if not active_keys:
         raise HTTPException(status_code=400, detail="No active API Key found for this provider")
 
-    # 并发获取所有 Key 的模型
+    # Antigravity: 按 tier/可用性排序后逐个尝试，成功即停止
+    provider_type = str(getattr(provider, "provider_type", "") or "").lower()
+    if provider_type == ProviderType.ANTIGRAVITY:
+        return await _fetch_models_antigravity_ordered(
+            provider=provider,
+            active_keys=active_keys,
+            format_to_endpoint=format_to_endpoint,
+            force_refresh=request.force_refresh,
+        )
+
+    # 其他类型: 并发获取所有 Key 的模型
     async def fetch_for_key(api_key: Any) -> Any:
         # 非强制刷新时，先检查缓存
         if not request.force_refresh:
@@ -321,6 +385,113 @@ def _aggregate_models_by_id(models: list[dict]) -> list[dict]:
     # 按 model id 排序
     result.sort(key=lambda m: m["id"])
     return result
+
+
+async def _fetch_models_antigravity_ordered(
+    provider: Provider,
+    active_keys: list[Any],
+    format_to_endpoint: dict[str, EndpointFetchConfig],
+    force_refresh: bool,
+) -> Any:
+    """Antigravity: 按账号 tier/可用性排序后逐个尝试获取上游模型，成功即停止。
+
+    排序规则（降序）:
+    1. 可用性: 无 oauth_invalid_at 的账号优先
+    2. 付费级别: Ultra > Pro > Free
+    """
+    sorted_keys = _antigravity_sort_keys(active_keys)
+
+    # 非强制刷新时，先检查 Provider 级别缓存
+    if not force_refresh:
+        cached_models = await _get_provider_upstream_models_cache(provider.id)
+        if cached_models is not None:
+            safe_models = [m for m in cached_models if isinstance(m, dict)]
+            unique_models = _aggregate_models_by_id(safe_models)
+            if unique_models:
+                logger.info(
+                    "Antigravity 上游模型命中 Provider 缓存: provider={}, models={}",
+                    provider.name,
+                    len(unique_models),
+                )
+                return {
+                    "success": True,
+                    "data": {
+                        "models": unique_models,
+                        "error": None,
+                        "from_cache": True,
+                        "keys_total": len(active_keys),
+                        "keys_cached": 1,
+                        "keys_fetched": 0,
+                    },
+                    "provider": {"id": provider.id, "name": provider.name},
+                }
+
+    all_errors: list[str] = []
+
+    for api_key in sorted_keys:
+        key_label = api_key.name or api_key.id
+
+        # 实时获取
+        try:
+            api_key_value, auth_config = await _resolve_key_auth(api_key, provider)
+        except _KeyAuthError as e:
+            all_errors.append(f"Key {key_label}: {e.message}")
+            continue
+
+        fetch_ctx = UpstreamModelsFetchContext(
+            provider_type=str(getattr(provider, "provider_type", "") or ""),
+            api_key_value=str(api_key_value or ""),
+            format_to_endpoint=format_to_endpoint,
+            proxy_config=getattr(provider, "proxy", None),
+            auth_config=auth_config,
+        )
+        models, errors, has_success, _meta = await fetch_models_for_key(
+            fetch_ctx, timeout_seconds=MODEL_FETCH_HTTP_TIMEOUT
+        )
+
+        if not has_success:
+            err = f"Key {key_label}: {'; '.join(errors)}" if errors else f"Key {key_label}: failed"
+            all_errors.append(err)
+            logger.info("Antigravity 上游模型获取失败, 尝试下一个账号: {}", err)
+            continue
+
+        # 成功: 聚合并写入 Provider 级别缓存
+        unique_models = _aggregate_models_by_id([m for m in models if isinstance(m, dict)])
+        if unique_models:
+            await _set_provider_upstream_models_cache(provider.id, unique_models)
+
+        logger.info(
+            "Antigravity 上游模型获取成功: key={}, models={}",
+            key_label,
+            len(unique_models),
+        )
+        return {
+            "success": len(unique_models) > 0,
+            "data": {
+                "models": unique_models,
+                "error": None,
+                "from_cache": False,
+                "keys_total": len(active_keys),
+                "keys_cached": 0,
+                "keys_fetched": 1,
+            },
+            "provider": {"id": provider.id, "name": provider.name},
+        }
+
+    # 所有 Key 均失败
+    error = "; ".join(all_errors) if all_errors else "All keys failed"
+    return {
+        "success": False,
+        "data": {
+            "models": [],
+            "error": error,
+            "from_cache": False,
+            "keys_total": len(active_keys),
+            "keys_cached": 0,
+            "keys_fetched": len(all_errors),
+        },
+        "provider": {"id": provider.id, "name": provider.name},
+    }
 
 
 async def _fetch_models_for_single_key(
