@@ -876,8 +876,11 @@
                 :key="`models-${provider.id}`"
                 :provider="provider"
                 :endpoints="endpoints"
+                :models="providerModels"
+                :mapping-preview="providerMappingPreview"
                 @edit-model="handleEditModel"
                 @batch-assign="handleBatchAssign"
+                @refresh="loadEndpoints"
               />
 
               <!-- 模型映射 -->
@@ -887,6 +890,9 @@
                 :key="`mapping-${provider.id}`"
                 :provider="provider"
                 :provider-keys="providerKeys"
+                :models="providerModels"
+                :mapping-preview="providerMappingPreview"
+                :endpoints="endpoints"
                 @refresh="handleModelMappingChanged"
               />
             </div>
@@ -1027,7 +1033,14 @@ import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { useClipboard } from '@/composables/useClipboard'
 import { useCountdownTimer, formatCountdown, getOAuthExpiresCountdown } from '@/composables/useCountdownTimer'
-import { getProvider, getProviderEndpoints, updateProvider } from '@/api/endpoints'
+import {
+  getProvider,
+  getProviderEndpoints,
+  updateProvider,
+  getProviderModels,
+  getProviderMappingPreview,
+  type ProviderMappingPreviewResponse
+} from '@/api/endpoints'
 import { adminApi } from '@/api/admin'
 import {
   KeyFormDialog,
@@ -1092,6 +1105,8 @@ const loading = ref(false)
 const provider = ref<any>(null)
 const endpoints = ref<ProviderEndpointWithKeys[]>([])
 const providerKeys = ref<EndpointAPIKey[]>([])  // Provider 级别的 keys
+const providerModels = ref<Model[]>([])  // Provider 级别的 models
+const providerMappingPreview = ref<ProviderMappingPreviewResponse | null>(null)  // 映射预览
 
 // 系统级格式转换配置
 const systemFormatConversionEnabled = ref(false)
@@ -1632,13 +1647,21 @@ function formatKiroSubscription(title: string | undefined): string {
 
 function shouldAutoRefreshCodexQuota(): boolean {
   if (provider.value?.provider_type !== 'codex') return false
+  const now = Math.floor(Date.now() / 1000)
 
   for (const { key } of allKeys.value) {
     if (!key.is_active) continue
 
+    if (isTokenExpiringSoon(key, now)) return true
+
     const meta: UpstreamMetadata | null | undefined = key.upstream_metadata
     // 只要有一个活跃 key 没有配额数据，就刷新一次
     if (!hasCodexQuotaData(meta)) {
+      return true
+    }
+    // 配额数据超过 5 分钟未更新，也触发刷新
+    const updatedAt = meta?.codex?.updated_at
+    if (typeof updatedAt !== 'number' || (now - updatedAt) > AUTO_QUOTA_REFRESH_STALE_SECONDS) {
       return true
     }
   }
@@ -1646,7 +1669,7 @@ function shouldAutoRefreshCodexQuota(): boolean {
   return false
 }
 
-// 检查 OAuth Token 是否即将过期（Antigravity / Kiro ）
+// 检查 OAuth Token 是否即将过期（Codex / Antigravity / Kiro）
 function isTokenExpiringSoon(key: EndpointAPIKey, now: number): boolean {
   return key.oauth_invalid_at == null
     && typeof key.oauth_expires_at === 'number'
@@ -1687,8 +1710,14 @@ function shouldAutoRefreshKiroQuota(): boolean {
 
     if (isTokenExpiringSoon(key, now)) return true
 
+    const meta = key.upstream_metadata
     // 只要有一个活跃 key 没有配额数据，就刷新一次
-    if (!hasKiroQuotaData(key.upstream_metadata)) {
+    if (!hasKiroQuotaData(meta)) {
+      return true
+    }
+    // 配额数据超过 5 分钟未更新，也触发刷新
+    const updatedAt = meta?.kiro?.updated_at
+    if (typeof updatedAt !== 'number' || (now - updatedAt) > AUTO_QUOTA_REFRESH_STALE_SECONDS) {
       return true
     }
   }
@@ -2525,13 +2554,17 @@ async function loadEndpoints() {
   if (!props.providerId) return
 
   try {
-    // 并行加载端点列表和 Provider 级别的 keys
-    const [endpointsList, providerKeysResult] = await Promise.all([
+    // 并行加载端点列表、Provider 级别的 keys、models 和映射预览
+    const [endpointsList, providerKeysResult, modelsResult, mappingPreviewResult] = await Promise.all([
       getProviderEndpoints(props.providerId),
       getProviderKeys(props.providerId).catch(() => []),
+      getProviderModels(props.providerId).catch(() => []),
+      getProviderMappingPreview(props.providerId).catch(() => null),
     ])
 
     providerKeys.value = providerKeysResult
+    providerModels.value = modelsResult
+    providerMappingPreview.value = mappingPreviewResult
     // 按 API 格式排序
     endpoints.value = endpointsList.sort((a, b) => {
       const aIdx = API_FORMAT_ORDER.indexOf(a.api_format)

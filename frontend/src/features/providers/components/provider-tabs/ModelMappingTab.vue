@@ -343,7 +343,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useSmartPagination } from '@/composables/useSmartPagination'
 import { Tag, Plus, Edit, Trash2, ChevronRight, Loader2, Play } from 'lucide-vue-next'
 import {
@@ -354,15 +354,12 @@ import AlertDialog from '@/components/common/AlertDialog.vue'
 import ModelMappingDialog, { type AliasGroup } from '../ModelMappingDialog.vue'
 import { useToast } from '@/composables/useToast'
 import {
-  getProviderModels,
-  getProviderMappingPreview,
   testModel,
   type Model,
   type ProviderModelAlias,
   type ProviderMappingPreviewResponse
 } from '@/api/endpoints'
-import { getProviderEndpoints } from '@/api/endpoints/endpoints'
-import { getProviderKeys, type EndpointAPIKey } from '@/api/endpoints/keys'
+import { type EndpointAPIKey } from '@/api/endpoints/keys'
 import type { ProviderEndpoint } from '@/api/endpoints/types'
 import { updateModel } from '@/api/endpoints/models'
 import { parseTestModelError } from '@/utils/errorParser'
@@ -394,6 +391,9 @@ interface CombinedMapping {
 const props = defineProps<{
   provider: any
   providerKeys?: EndpointAPIKey[]
+  models?: Model[]
+  mappingPreview?: ProviderMappingPreviewResponse | null
+  endpoints?: ProviderEndpoint[]
 }>()
 
 const emit = defineEmits<{
@@ -404,8 +404,6 @@ const { error: showError, success: showSuccess } = useToast()
 
 // 状态
 const loading = ref(false)
-const models = ref<Model[]>([])
-const aliasMappingPreview = ref<ProviderMappingPreviewResponse | null>(null)
 const dialogOpen = ref(false)
 const deleteConfirmOpen = ref(false)
 const editingGroup = ref<AliasGroup | null>(null)
@@ -413,22 +411,21 @@ const deletingGroup = ref<AliasGroup | null>(null)
 const testingMapping = ref<string | null>(null)
 const preselectedModelId = ref<string | null>(null)
 
-// 端点数据（用于测试格式选择）
-const providerEndpoints = ref<ProviderEndpoint[]>([])
-
-// Key 数据（用于判断支持的格式）
-const providerKeysState = ref<EndpointAPIKey[]>([])
-
 // 测试下拉菜单状态
 const formatMenuOpen = ref<Record<string, boolean>>({})
+
+// 使用 props 传入的数据
+const models = computed(() => props.models ?? [])
+const aliasMappingPreview = computed(() => props.mappingPreview ?? null)
+const providerEndpoints = computed(() => props.endpoints ?? [])
+const providerKeysState = computed(() => props.providerKeys ?? [])
 
 // 展开状态
 const expandedItems = ref<Set<string>>(new Set())
 
 // 是否有 key 配置了自动获取上游模型
 const hasAutoFetchKey = computed(() => {
-  const keys = props.providerKeys || providerKeysState.value
-  return keys.some(k => k.auto_fetch_models)
+  return providerKeysState.value.some(k => k.auto_fetch_models)
 })
 
 // 生成作用域唯一键
@@ -562,25 +559,9 @@ const {
   paginatedItems: paginatedMappings,
 } = useSmartPagination(combinedMappings, mappingsListRef)
 
-// 加载数据
-async function loadData() {
-  try {
-    loading.value = true
-    const [modelsData, previewData, endpointsData, keysData] = await Promise.all([
-      getProviderModels(props.provider.id),
-      getProviderMappingPreview(props.provider.id).catch(() => null),
-      getProviderEndpoints(props.provider.id).catch(() => []),
-      getProviderKeys(props.provider.id).catch(() => [])
-    ])
-    models.value = modelsData
-    aliasMappingPreview.value = previewData
-    providerEndpoints.value = endpointsData
-    providerKeysState.value = keysData
-  } catch (err: any) {
-    showError(err.response?.data?.detail || '加载失败', '错误')
-  } finally {
-    loading.value = false
-  }
+// 刷新数据（通知父组件刷新）
+function refresh() {
+  emit('refresh')
 }
 
 // 删除确认描述
@@ -653,7 +634,6 @@ async function confirmDelete() {
     showSuccess('映射已删除')
     deleteConfirmOpen.value = false
     deletingGroup.value = null
-    await loadData()
     emit('refresh')
   } catch (err: any) {
     showError(err.response?.data?.detail || '删除失败', '错误')
@@ -662,7 +642,6 @@ async function confirmDelete() {
 
 // 对话框保存后回调
 async function onDialogSaved() {
-  await loadData()
   emit('refresh')
 }
 
@@ -770,16 +749,9 @@ async function testRegexMapping(item: CombinedMapping, keyItem: MatchedKeyInfo, 
   }
 }
 
-// 监听 provider 变化
-watch(() => props.provider?.id, (newId) => {
-  if (newId) {
-    loadData()
-  }
-}, { immediate: true })
-
 // 暴露给父组件
 defineExpose({
   dialogOpen: computed(() => dialogOpen.value || deleteConfirmOpen.value),
-  reload: loadData
+  reload: refresh
 })
 </script>
