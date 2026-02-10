@@ -322,7 +322,7 @@ def _check_duplicate_oauth_account(
     检查是否存在重复的 OAuth 账号
 
     通过以下字段判断重复：
-    - account_id: Codex 等使用的账号 ID
+    - user_id: Codex 等使用用户级别 ID（同 team 下不同成员共享 account_id 但 user_id 不同）
     - email + auth_method: Kiro 使用 email + auth_method 组合判断
       （同一邮箱可能通过 Social 和 IdC 两种方式登录，视为不同账号）
     - email: 其他 OAuth Provider 使用邮箱判断
@@ -337,12 +337,12 @@ def _check_duplicate_oauth_account(
         InvalidRequestException: 如果发现重复账号
     """
     new_email = auth_config.get("email")
-    new_account_id = auth_config.get("account_id")
+    new_user_id = auth_config.get("user_id")
     new_auth_method = auth_config.get("auth_method")  # Kiro: social / idc
     new_provider_type = auth_config.get("provider_type")
 
     # 如果没有可用于识别的字段，跳过检查
-    if not new_email and not new_account_id:
+    if not new_email and not new_user_id:
         return
 
     # 查询该 Provider 下所有 OAuth 类型的 Keys
@@ -363,12 +363,12 @@ def _check_duplicate_oauth_account(
                 crypto_service.decrypt(existing_key.auth_config, silent=True)
             )
             existing_email = decrypted_config.get("email")
-            existing_account_id = decrypted_config.get("account_id")
+            existing_user_id = decrypted_config.get("user_id")
             existing_auth_method = decrypted_config.get("auth_method")
             existing_provider_type = decrypted_config.get("provider_type")
 
-            # account_id 相同即重复（Codex 等）
-            if new_account_id and existing_account_id and new_account_id == existing_account_id:
+            # user_id 相同即重复（Codex 等，同一 team 下不同成员共享 account_id 但 user_id 不同）
+            if new_user_id and existing_user_id and new_user_id == existing_user_id:
                 raise InvalidRequestException(
                     f"该 OAuth 账号已存在于当前 Provider 中（名称: {existing_key.name}）"
                 )
