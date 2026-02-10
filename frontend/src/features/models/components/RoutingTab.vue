@@ -611,6 +611,9 @@ import { MAX_MODEL_NAME_LENGTH, createLRURegexCache, getCompiledModelMappingRege
 
 const props = defineProps<{
   globalModelId: string
+  routingData?: ModelRoutingPreviewResponse | null
+  loading?: boolean
+  error?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -624,9 +627,16 @@ const emit = defineEmits<{
 const { success: showSuccess, error: showError } = useToast()
 const { tick: countdownTick, start: startCountdownTimer } = useCountdownTimer()
 
-const loading = ref(false)
-const error = ref<string | null>(null)
-const routingData = ref<ModelRoutingPreviewResponse | null>(null)
+// 使用外部传入的数据或内部状态
+const internalRoutingData = ref<ModelRoutingPreviewResponse | null>(null)
+const internalLoading = ref(false)
+const internalError = ref<string | null>(null)
+
+// 计算属性：优先使用外部传入的数据
+const routingData = computed(() => props.routingData ?? internalRoutingData.value)
+const loading = computed(() => props.loading ?? internalLoading.value)
+const error = computed(() => props.error ?? internalError.value)
+
 const modelMappingRegexCache = createLRURegexCache(200)
 const keyMatchedModelsCache = new Map<string, string[]>()
 const compiledGlobalModelMappingRegexes = ref<RegExp[]>([])
@@ -808,16 +818,22 @@ function toggleProviderInFormat(format: string, providerId: string, endpointId?:
   }
 }
 
-// 加载数据
+// 加载数据（仅在没有外部数据时使用）
 async function loadRoutingData() {
+  // 如果有外部传入的数据，通知父组件刷新
+  if (props.routingData !== undefined) {
+    emit('refresh')
+    return
+  }
+
   if (!props.globalModelId) return
 
   modelMappingRegexCache.clear()
   keyMatchedModelsCache.clear()
   compiledGlobalModelMappingRegexes.value = []
 
-  loading.value = true
-  error.value = null
+  internalLoading.value = true
+  internalError.value = null
 
   try {
     const data = await getGlobalModelRoutingPreview(props.globalModelId)
@@ -828,14 +844,29 @@ async function loadRoutingData() {
       if (regex) compiled.push(regex)
     }
 
-    routingData.value = data
+    internalRoutingData.value = data
     compiledGlobalModelMappingRegexes.value = compiled
   } catch (err: any) {
-    error.value = err.response?.data?.detail || '加载失败'
+    internalError.value = err.response?.data?.detail || '加载失败'
   } finally {
-    loading.value = false
+    internalLoading.value = false
   }
 }
+
+// 监听外部 routingData 变化，更新编译后的正则
+watch(() => props.routingData, (data) => {
+  if (data) {
+    modelMappingRegexCache.clear()
+    keyMatchedModelsCache.clear()
+
+    const compiled: RegExp[] = []
+    for (const pattern of data.global_model_mappings || []) {
+      const regex = getCompiledModelMappingRegex(pattern, modelMappingRegexCache)
+      if (regex) compiled.push(regex)
+    }
+    compiledGlobalModelMappingRegexes.value = compiled
+  }
+}, { immediate: true })
 
 // 获取调度模式标签
 function getSchedulingModeLabel(mode: string): string {
@@ -1086,9 +1117,9 @@ function getKeyProbeCountdown(key: RoutingKeyInfo): string {
 async function handleRecoverKey(keyId: string, apiFormat: string) {
   try {
     const result = await recoverKeyHealth(keyId, apiFormat)
-    await loadRoutingData()
-    showSuccess(result.message || 'Key 已恢复')
+    // 通知父组件刷新数据
     emit('refresh')
+    showSuccess(result.message || 'Key 已恢复')
   } catch (err: any) {
     showError(err.response?.data?.detail || 'Key 恢复失败', '错误')
   }
@@ -1098,11 +1129,17 @@ async function handleRecoverKey(keyId: string, apiFormat: string) {
 watch(() => props.globalModelId, () => {
   expandedFormats.value.clear()
   expandedProvidersInFormat.value.clear()
-  loadRoutingData()
+  // 如果没有外部数据，才自己加载
+  if (props.routingData === undefined) {
+    loadRoutingData()
+  }
 }, { immediate: false })
 
 onMounted(() => {
-  loadRoutingData()
+  // 如果没有外部数据，才自己加载
+  if (props.routingData === undefined) {
+    loadRoutingData()
+  }
   startCountdownTimer()
 })
 

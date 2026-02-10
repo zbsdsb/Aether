@@ -220,7 +220,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, watch, onUnmounted, computed } from 'vue'
 import { Card, Button, Input, Badge } from '@/components/ui'
 import { Plus, Trash2, GitMerge, RefreshCw, ChevronRight, Save, AlertCircle, Link } from 'lucide-vue-next'
 import { updateGlobalModel, getGlobalModel, getGlobalModelRoutingPreview } from '@/api/global-models'
@@ -241,6 +241,8 @@ const props = defineProps<{
   modelName: string
   mappings: string[]
   loading?: boolean
+  routingData?: ModelRoutingPreviewResponse | null  // 外部传入的 routing 数据
+  loadingPreview?: boolean  // 外部传入的加载状态
 }>()
 const emit = defineEmits<{
   update: [mappings: string[]]
@@ -267,9 +269,13 @@ const mappingValidations = computed<ValidationResult[]>(() => {
   })
 })
 
-// 匹配预览状态
-const loadingPreview = ref(false)
-const routingData = ref<ModelRoutingPreviewResponse | null>(null)
+// 匹配预览状态 - 优先使用外部传入的数据
+const internalLoadingPreview = ref(false)
+const internalRoutingData = ref<ModelRoutingPreviewResponse | null>(null)
+
+// 计算属性：优先使用外部传入的数据
+const loadingPreview = computed(() => props.loadingPreview ?? internalLoadingPreview.value)
+const routingData = computed(() => props.routingData ?? internalRoutingData.value)
 
 const REGEX_CACHE_MAX_SIZE = 100
 const regexCache = createLRURegexCache(REGEX_CACHE_MAX_SIZE)
@@ -542,22 +548,31 @@ async function saveMappings() {
   }
 }
 
+// 刷新数据（通知父组件刷新，或在无外部数据时自行加载）
 async function loadMatchPreview() {
+  // 如果有外部传入的数据，通知父组件刷新
+  if (props.routingData !== undefined) {
+    emit('refresh')
+    return
+  }
+
   // 清空正则缓存，确保使用最新数据
   regexCache.clear()
   matchCountCache.clear()
-  loadingPreview.value = true
+  internalLoadingPreview.value = true
   try {
-    routingData.value = await getGlobalModelRoutingPreview(props.globalModelId)
+    internalRoutingData.value = await getGlobalModelRoutingPreview(props.globalModelId)
   } catch (err) {
     log.error('加载匹配预览失败:', err)
   } finally {
-    loadingPreview.value = false
+    internalLoadingPreview.value = false
   }
 }
 
-onMounted(() => {
-  loadMatchPreview()
+// 监听外部 routingData 变化，清空缓存
+watch(() => props.routingData, () => {
+  regexCache.clear()
+  matchCountCache.clear()
 })
 
 // 组件卸载时清理缓存，防止内存泄漏

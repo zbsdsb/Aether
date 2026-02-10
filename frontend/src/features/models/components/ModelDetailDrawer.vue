@@ -408,6 +408,10 @@
                 v-if="model"
                 ref="routingTabRef"
                 :global-model-id="model.id"
+                :routing-data="routingData"
+                :loading="routingLoading"
+                :error="routingError"
+                @refresh="loadRoutingData"
                 @add-provider="$emit('addProvider')"
                 @edit-provider="handleEditProviderFromRouting"
                 @toggle-provider-status="handleToggleProviderFromRouting"
@@ -423,7 +427,10 @@
                 :global-model-id="model.id"
                 :model-name="model.name"
                 :mappings="model.config?.model_mappings || []"
+                :routing-data="routingData"
+                :loading-preview="routingLoading"
                 @update="handleMappingsUpdate"
+                @refresh="loadRoutingData"
                 @link-provider="(providerId) => $emit('linkProvider', providerId)"
                 @link-providers="(providerIds) => $emit('linkProviders', providerIds)"
               />
@@ -462,10 +469,11 @@ import TableCell from '@/components/ui/table-cell.vue'
 import RoutingTab from './RoutingTab.vue'
 import ModelMappingsTab from './ModelMappingsTab.vue'
 import { sortResolutionEntries } from '@/utils/form'
+import { getGlobalModelRoutingPreview } from '@/api/global-models'
 
 // 使用外部类型定义
 import type { GlobalModelResponse } from '@/api/global-models'
-import type { TieredPricingConfig, PricingTier } from '@/api/endpoints/types'
+import type { TieredPricingConfig, PricingTier, ModelRoutingPreviewResponse } from '@/api/endpoints/types'
 import type { CapabilityDefinition } from '@/api/endpoints'
 import type { RoutingProviderInfo } from '@/api/global-models'
 
@@ -498,6 +506,27 @@ const routingTabRef = ref<InstanceType<typeof RoutingTab> | null>(null)
 // ModelMappingsTab 引用
 const modelMappingsTabRef = ref<InstanceType<typeof ModelMappingsTab> | null>(null)
 
+// 统一管理 routing 数据，避免子组件重复请求
+const routingData = ref<ModelRoutingPreviewResponse | null>(null)
+const routingLoading = ref(false)
+const routingError = ref<string | null>(null)
+
+// 加载 routing 数据（统一入口）
+async function loadRoutingData() {
+  if (!props.model?.id) return
+
+  routingLoading.value = true
+  routingError.value = null
+
+  try {
+    routingData.value = await getGlobalModelRoutingPreview(props.model.id)
+  } catch (err: any) {
+    routingError.value = err.response?.data?.detail || '加载失败'
+  } finally {
+    routingLoading.value = false
+  }
+}
+
 // 将 RoutingProviderInfo 转换为父组件期望的格式
 function convertRoutingProviderToLegacyFormat(provider: RoutingProviderInfo) {
   return {
@@ -525,8 +554,7 @@ function handleDeleteProviderFromRouting(provider: RoutingProviderInfo) {
 
 // 刷新路由数据
 function refreshRoutingData() {
-  routingTabRef.value?.loadRoutingData?.()
-  modelMappingsTabRef.value?.refresh?.()
+  loadRoutingData()
 }
 
 // 处理模型映射更新
@@ -632,11 +660,17 @@ function getFirst1hCachePrice(tieredPricing: TieredPricingConfig | undefined | n
   return get1hCachePrice(tieredPricing.tiers[0])
 }
 
-// 监听 open 变化，重置 tab
+// 监听 open 变化，重置 tab 并加载数据
 watch(() => props.open, (newOpen) => {
   if (newOpen) {
     // 直接设置为 basic，不需要先重置为空
     detailTab.value = 'basic'
+    // 加载 routing 数据
+    loadRoutingData()
+  } else {
+    // 关闭时清空数据
+    routingData.value = null
+    routingError.value = null
   }
 })
 

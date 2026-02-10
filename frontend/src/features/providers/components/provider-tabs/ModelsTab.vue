@@ -246,7 +246,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useSmartPagination } from '@/composables/useSmartPagination'
 import { Box, Edit, Layers, Power, Copy, Loader2, Play } from 'lucide-vue-next'
 import Card from '@/components/ui/card.vue'
@@ -261,8 +261,6 @@ import { useToast } from '@/composables/useToast'
 import { useClipboard } from '@/composables/useClipboard'
 import { sortResolutionEntries } from '@/utils/form'
 import {
-  getProviderModels,
-  getProviderMappingPreview,
   testModel,
   type Model,
   type ProviderMappingPreviewResponse
@@ -280,11 +278,14 @@ interface Endpoint {
 const props = defineProps<{
   provider: any
   endpoints?: Endpoint[]
+  models?: Model[]
+  mappingPreview?: ProviderMappingPreviewResponse | null
 }>()
 
 const emit = defineEmits<{
   'editModel': [model: Model]
   'batchAssign': []
+  'refresh': []
 }>()
 
 const { error: showError, success: showSuccess } = useToast()
@@ -292,11 +293,15 @@ const { copyToClipboard } = useClipboard()
 
 // 状态
 const loading = ref(false)
-const models = ref<Model[]>([])
-const mappingPreview = ref<ProviderMappingPreviewResponse | null>(null)
+const localModels = ref<Model[]>([])
+const localMappingPreview = ref<ProviderMappingPreviewResponse | null>(null)
 const togglingModelId = ref<string | null>(null)
 const testingModelId = ref<string | null>(null)
 const formatMenuOpen = ref<Record<string, boolean>>({})
+
+// 使用 props 传入的数据，或使用本地数据
+const models = computed(() => props.models ?? localModels.value)
+const mappingPreview = computed(() => props.mappingPreview ?? localMappingPreview.value)
 
 // 获取可用的 API 格式（有活跃端点且有活跃 Key）
 const availableApiFormats = computed(() => {
@@ -329,24 +334,9 @@ async function copyModelId(modelId: string) {
   await copyToClipboard(modelId)
 }
 
-// 加载模型和映射预览
-async function loadModels() {
-  try {
-    loading.value = true
-    const [modelsData, previewData] = await Promise.all([
-      getProviderModels(props.provider.id),
-      getProviderMappingPreview(props.provider.id).catch((err) => {
-        console.warn('Failed to load mapping preview:', err)
-        return null
-      })
-    ])
-    models.value = modelsData
-    mappingPreview.value = previewData
-  } catch (err: any) {
-    showError(err.response?.data?.detail || '加载失败', '错误')
-  } finally {
-    loading.value = false
-  }
+// 刷新数据（通知父组件刷新）
+function refresh() {
+  emit('refresh')
 }
 
 // 格式化价格显示
@@ -547,12 +537,8 @@ async function testModelConnection(model: Model, apiFormat?: string) {
   }
 }
 
-onMounted(() => {
-  loadModels()
-})
-
 // 暴露给父组件
 defineExpose({
-  reload: loadModels
+  reload: refresh
 })
 </script>
