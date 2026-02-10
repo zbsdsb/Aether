@@ -57,7 +57,7 @@
           <!-- 提供商列表 -->
           <div
             v-else
-            class="space-y-1 h-full overflow-y-auto pr-1"
+            class="space-y-0.5 h-full overflow-y-auto pr-1"
           >
             <div
               v-for="(provider, index) in sortedProviders"
@@ -172,18 +172,18 @@
           <!-- 左右布局：格式列表 + Key 列表 -->
           <div
             v-else
-            class="flex gap-4 h-full"
+            class="flex gap-0 h-full"
           >
             <!-- 左侧：API 格式列表 -->
-            <div class="w-32 shrink-0 space-y-1 overflow-y-auto">
+            <div class="w-36 shrink-0 space-y-0.5 overflow-y-auto border-r border-border/50 pr-3 mr-3 py-0.5">
               <button
                 v-for="format in availableFormats"
                 :key="format"
                 type="button"
-                class="w-full px-3 py-2 text-xs font-medium rounded-md text-left transition-all duration-200"
+                class="w-full px-3 py-2 text-xs font-medium rounded-lg text-left transition-all duration-200"
                 :class="[
                   activeFormatTab === format
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                 ]"
                 @click="activeFormatTab = format"
@@ -198,15 +198,16 @@
                 v-for="format in availableFormats"
                 v-show="activeFormatTab === format"
                 :key="format"
+                class="h-full"
               >
                 <div
                   v-if="keysByFormat[format]?.length > 0"
-                  class="space-y-1 h-full overflow-y-auto pr-1"
+                  class="space-y-0.5 h-full overflow-y-auto pr-1"
                 >
                   <div
                     v-for="(key, index) in keysByFormat[format]"
                     :key="key.id"
-                    class="group flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-all duration-200"
+                    class="group flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-all duration-200"
                     :class="[
                       !(key.is_active && key.provider_active)
                         ? 'border-border/30 bg-muted/20 opacity-50'
@@ -348,11 +349,11 @@
 
     <template #footer>
       <div class="flex items-center justify-between w-full">
-        <div class="flex items-center gap-4">
-          <div class="text-xs text-muted-foreground">
-            当前模式: <span class="font-medium">{{ activeMainTab === 'provider' ? '提供商优先' : 'Key 优先' }}</span>
+        <div class="flex items-center gap-3">
+          <div class="text-xs text-muted-foreground whitespace-nowrap">
+            当前模式: <span class="font-medium text-foreground/80">{{ activeMainTab === 'provider' ? '提供商优先' : 'Key 优先' }}</span>
           </div>
-          <div class="flex items-center gap-2 pl-4 border-l border-border">
+          <div class="flex items-center gap-1.5 pl-3 border-l border-border/60">
             <span class="text-xs text-muted-foreground">调度:</span>
             <div class="flex gap-0.5 p-0.5 bg-muted/40 rounded-md">
               <button
