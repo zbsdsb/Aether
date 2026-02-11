@@ -23,6 +23,10 @@ from src.services.system.config import SystemConfigService
 
 router = APIRouter(prefix="/api/admin/system", tags=["Admin - System"])
 
+CONFIG_EXPORT_VERSION = "2.2"
+CONFIG_SUPPORTED_VERSIONS = ("2.0", "2.1", "2.2")
+MAX_IMPORT_SIZE = 10 * 1024 * 1024  # 10MB
+
 
 def _get_version_from_git() -> str | None:
     """从 git describe 获取版本号"""
@@ -1075,11 +1079,6 @@ class AdminExportConfigAdapter(AdminApiAdapter):
             "oauth_providers": oauth_data,
             "system_configs": system_configs_data,
         }
-
-
-CONFIG_EXPORT_VERSION = "2.2"
-CONFIG_SUPPORTED_VERSIONS = ("2.0", "2.1", "2.2")
-MAX_IMPORT_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 class AdminImportConfigAdapter(AdminApiAdapter):
