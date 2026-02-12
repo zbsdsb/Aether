@@ -132,9 +132,7 @@ class Config:
         self.db_pool_warn_threshold = int(os.getenv("DB_POOL_WARN_THRESHOLD", "70"))
 
         # 并发控制配置
-        # CONCURRENCY_SLOT_TTL: 并发槽位 TTL（秒），防止死锁
         # CACHE_RESERVATION_RATIO: 缓存用户预留比例（默认 10%，新用户可用 90%）
-        self.concurrency_slot_ttl = int(os.getenv("CONCURRENCY_SLOT_TTL", "600"))
         self.cache_reservation_ratio = float(os.getenv("CACHE_RESERVATION_RATIO", "0.1"))
 
         # 限流降级策略配置
