@@ -14,6 +14,7 @@ from src.core.exceptions import ProviderNotAvailableException
 from src.core.logger import logger
 from src.models.database import ApiKey
 from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
+from src.services.provider.format import normalize_endpoint_signature
 
 
 class CandidateResolver:
@@ -75,45 +76,52 @@ class CandidateResolver:
         provider_offset = 0
         provider_batch_size = 20
         global_model_id: str | None = None
+        api_format_norm = normalize_endpoint_signature(api_format)
 
         logger.debug(
             "[CandidateResolver] fetch_candidates starting: model={}, api_format={}",
             model_name,
-            api_format,
+            api_format_norm,
         )
 
         while True:
-            candidates, resolved_global_model_id = await self.cache_scheduler.list_all_candidates(
-                db=self.db,
-                api_format=api_format,
-                model_name=model_name,
-                affinity_key=affinity_key,
-                user_api_key=user_api_key,
-                provider_offset=provider_offset,
-                provider_limit=provider_batch_size,
-                is_stream=is_stream,
-                capability_requirements=capability_requirements,
+            candidates, resolved_global_model_id, provider_batch_count = (
+                await self.cache_scheduler.list_all_candidates(
+                    db=self.db,
+                    api_format=api_format_norm,
+                    model_name=model_name,
+                    affinity_key=affinity_key,
+                    user_api_key=user_api_key,
+                    provider_offset=provider_offset,
+                    provider_limit=provider_batch_size,
+                    is_stream=is_stream,
+                    capability_requirements=capability_requirements,
+                )
             )
 
             logger.debug(
-                "[CandidateResolver] list_all_candidates batch: offset={}, returned={} candidates",
+                "[CandidateResolver] list_all_candidates batch: offset={}, providers={}, returned={} candidates",
                 provider_offset,
+                provider_batch_count,
                 len(candidates),
             )
 
             if resolved_global_model_id and global_model_id is None:
                 global_model_id = resolved_global_model_id
 
-            if not candidates:
+            if provider_batch_count == 0:
                 break
 
             all_candidates.extend(candidates)
             provider_offset += provider_batch_size
 
-            logger.debug(
-                "[CandidateResolver] fetch_candidates completed: total={} candidates",
-                len(all_candidates),
-            )
+            if provider_batch_count < provider_batch_size:
+                break
+
+        logger.debug(
+            "[CandidateResolver] fetch_candidates completed: total={} candidates",
+            len(all_candidates),
+        )
 
         if not all_candidates:
             logger.error(f"  [{request_id}] 没有找到任何可用的 Provider/Endpoint/Key 组合")
@@ -123,6 +131,22 @@ class CandidateResolver:
             )
 
         logger.debug(f"  [{request_id}] 获取到 {len(all_candidates)} 个候选组合")
+
+        # Provider 分页会导致候选在全局维度上排序失真（尤其是 global_key / 降级分组 / cache_affinity）。
+        # 这里在汇总后再次应用全局排序规则，保证遍历顺序符合当前调度配置。
+        try:
+            all_candidates = await self.cache_scheduler.reorder_candidates(
+                candidates=all_candidates,
+                db=self.db,
+                affinity_key=affinity_key,
+                api_format=api_format_norm,
+                global_model_id=global_model_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CandidateResolver] global reorder failed, keep paged order: {}",
+                exc,
+            )
 
         if preferred_key_ids:
             preferred_set = {str(kid) for kid in preferred_key_ids if kid}
@@ -208,6 +232,7 @@ class CandidateResolver:
                         "extra_data": {
                             "needs_conversion": candidate.needs_conversion,
                             "provider_api_format": candidate.provider_api_format or None,
+                            "mapping_matched_model": candidate.mapping_matched_model or None,
                         },
                         "required_capabilities": active_capabilities,
                         "created_at": datetime.now(timezone.utc),
@@ -241,6 +266,7 @@ class CandidateResolver:
                             "extra_data": {
                                 "needs_conversion": candidate.needs_conversion,
                                 "provider_api_format": candidate.provider_api_format or None,
+                                "mapping_matched_model": candidate.mapping_matched_model or None,
                             },
                             "required_capabilities": active_capabilities,
                             "created_at": datetime.now(timezone.utc),

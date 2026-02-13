@@ -54,7 +54,6 @@ from src.core.model_permissions import (
     get_allowed_models_preview,
     merge_allowed_models,
 )
-from src.core.provider_types import ProviderType, normalize_provider_type
 from src.models.database import (
     ApiKey,
     Model,
@@ -62,6 +61,7 @@ from src.models.database import (
     ProviderAPIKey,
     ProviderEndpoint,
 )
+from src.services.cache.quota_skipper import is_key_quota_exhausted
 
 if TYPE_CHECKING:
     from src.models.database import GlobalModel
@@ -132,106 +132,6 @@ class ProviderCandidate:
         if not isinstance(other, ProviderCandidate):
             return NotImplemented
         return self._stable_order_key() < other._stable_order_key()
-
-
-# ---------------------------------------------------------------------------
-# Quota-based skipping
-# ---------------------------------------------------------------------------
-
-
-def _pct_is_exhausted(value: object) -> bool:
-    """Return True when used_percent indicates 0% remaining."""
-    try:
-        pct = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return False
-    # Some upstreams may return values slightly above 100 due to rounding.
-    return pct >= 100.0 - 1e-6
-
-
-def _float_or_none(value: object) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-
-
-def _is_key_quota_exhausted(
-    provider_type: str | None,
-    key: ProviderAPIKey,
-    *,
-    model_name: str,
-) -> tuple[bool, str | None]:
-    """Check ProviderAPIKey.upstream_metadata quota and decide whether to skip.
-
-    Requirements:
-    - Kiro: account-level quota. When remaining == 0, skip this key; allow again when remaining > 0.
-    - Codex: only consider weekly quota + 5H quota (ignore code review quota).
-             If either remaining is 0%, skip this key.
-    - Antigravity: quota is per-model; do not disable the account.
-                   When the requested model's quota is 0%, skip this key.
-    """
-    pt = normalize_provider_type(provider_type)
-
-    upstream = getattr(key, "upstream_metadata", None) or {}
-    if not isinstance(upstream, dict):
-        return False, None
-
-    if pt == ProviderType.KIRO:
-        kiro_meta = upstream.get("kiro")
-        if not isinstance(kiro_meta, dict):
-            return False, None
-
-        remaining = _float_or_none(kiro_meta.get("remaining"))
-
-        if remaining is not None and remaining <= 0.0:
-            return True, "Kiro 账号配额剩余 0"
-
-        return False, None
-
-    if pt == ProviderType.CODEX:
-        codex_meta = upstream.get("codex")
-        if not isinstance(codex_meta, dict):
-            return False, None
-
-        weekly_used = codex_meta.get("primary_used_percent")
-        five_hour_used = codex_meta.get("secondary_used_percent")
-
-        exhausted_parts: list[str] = []
-        if _pct_is_exhausted(weekly_used):
-            exhausted_parts.append("周限额剩余 0%")
-        if _pct_is_exhausted(five_hour_used):
-            exhausted_parts.append("5H 限额剩余 0%")
-
-        if exhausted_parts:
-            return True, "Codex " + "，".join(exhausted_parts)
-
-        return False, None
-
-    if pt == ProviderType.ANTIGRAVITY:
-        ag_meta = upstream.get("antigravity")
-        if not isinstance(ag_meta, dict):
-            return False, None
-
-        quota_by_model = ag_meta.get("quota_by_model")
-        if not isinstance(quota_by_model, dict):
-            return False, None
-
-        model_quota = quota_by_model.get(model_name)
-        if not isinstance(model_quota, dict):
-            return False, None
-
-        remaining_fraction = _float_or_none(model_quota.get("remaining_fraction"))
-        if remaining_fraction is not None and remaining_fraction <= 0.0:
-            return True, f"Antigravity 模型 {model_name} 配额剩余 0%"
-        if _pct_is_exhausted(model_quota.get("used_percent")):
-            return True, f"Antigravity 模型 {model_name} 配额剩余 0%"
-
-        return False, None
-
-    return False, None
 
 
 @dataclass
@@ -440,20 +340,22 @@ class CacheAwareScheduler:
         global_model_id = None  # 用于缓存亲和性
 
         while True:
-            candidates, resolved_global_model_id = await self.list_all_candidates(
-                db=db,
-                api_format=normalized_format,
-                model_name=model_name,
-                affinity_key=affinity_key,
-                provider_offset=provider_offset,
-                provider_limit=provider_batch_size,
-                max_candidates=max_candidates_per_batch,
+            candidates, resolved_global_model_id, provider_batch_count = (
+                await self.list_all_candidates(
+                    db=db,
+                    api_format=normalized_format,
+                    model_name=model_name,
+                    affinity_key=affinity_key,
+                    provider_offset=provider_offset,
+                    provider_limit=provider_batch_size,
+                    max_candidates=max_candidates_per_batch,
+                )
             )
 
             if resolved_global_model_id and global_model_id is None:
                 global_model_id = resolved_global_model_id
 
-            if not candidates:
+            if provider_batch_count == 0:
                 if provider_offset == 0:
                     # 没有找到任何候选，提供友好的错误提示（不暴露内部信息）
                     raise ProviderNotAvailableException("请求的模型当前不可用")
@@ -513,6 +415,8 @@ class CacheAwareScheduler:
                 return provider, endpoint, key
 
             provider_offset += provider_batch_size
+            if provider_batch_count < provider_batch_size:
+                break
 
         raise ProviderNotAvailableException("服务暂时繁忙，请稍后重试")
 
@@ -716,7 +620,7 @@ class CacheAwareScheduler:
         max_candidates: int | None = None,
         is_stream: bool = False,
         capability_requirements: dict[str, bool] | None = None,
-    ) -> tuple[list[ProviderCandidate], str]:
+    ) -> tuple[list[ProviderCandidate], str, int]:
         """
         预先获取所有可用的 Provider/Endpoint/Key 组合
 
@@ -738,7 +642,9 @@ class CacheAwareScheduler:
             capability_requirements: 能力需求（用于过滤不满足能力要求的 Key）
 
         Returns:
-            (候选列表, global_model_id) - global_model_id 用于缓存亲和性
+            (候选列表, global_model_id, provider_batch_count)
+            - global_model_id 用于缓存亲和性
+            - provider_batch_count 表示本次查询到的 Provider 数量（未应用 allowed_providers 过滤前）
         """
         # If the caller already touched the DB, release the connection before we do async work.
         self._release_db_connection_before_await(db)
@@ -772,6 +678,8 @@ class CacheAwareScheduler:
         # 使用 GlobalModel.id 作为缓存亲和性的模型标识，确保映射名和规范名都能命中同一个缓存
         global_model_id: str = str(global_model.id)
 
+        queried_provider_count = 0
+
         # 提取模型映射（用于 Provider Key 的 allowed_models 匹配）
         model_mappings: list[str] = (global_model.config or {}).get("model_mappings", [])
         if model_mappings:
@@ -793,7 +701,7 @@ class CacheAwareScheduler:
                     f"API Key {user_api_key.id[:8] if user_api_key else 'N/A'}... 不允许使用 API 格式 {target_format}, "
                     f"允许的格式: {allowed_api_formats}"
                 )
-                return [], global_model_id
+                return [], global_model_id, queried_provider_count
 
         # 0.2 检查模型是否被允许
         if not check_model_allowed(
@@ -804,7 +712,7 @@ class CacheAwareScheduler:
                 f"用户/API Key 不允许使用模型 {model_name}, "
                 f"允许的模型: {get_allowed_models_preview(allowed_models)}"
             )
-            return [], global_model_id
+            return [], global_model_id, queried_provider_count
 
         # 1. 查询 Providers
         providers = self._query_providers(
@@ -812,6 +720,7 @@ class CacheAwareScheduler:
             provider_offset=provider_offset,
             provider_limit=provider_limit,
         )
+        queried_provider_count = len(providers)
 
         # Provider query starts a transaction; release connection before entering async candidate build.
         self._release_db_connection_before_await(db)
@@ -831,7 +740,7 @@ class CacheAwareScheduler:
             )
 
         if not providers:
-            return [], global_model_id
+            return [], global_model_id, queried_provider_count
 
         # 1.5 根据 allowed_providers 过滤（合并 ApiKey 和 User 的限制）
         if allowed_providers is not None:
@@ -844,7 +753,7 @@ class CacheAwareScheduler:
                 logger.debug(f"用户/API Key 过滤 Provider: {original_count} -> {len(providers)}")
 
         if not providers:
-            return [], global_model_id
+            return [], global_model_id, queried_provider_count
 
         # 2. 构建候选列表（传入 is_stream 和 capability_requirements 用于过滤）
 
@@ -864,8 +773,14 @@ class CacheAwareScheduler:
             global_conversion_enabled=global_conversion_enabled,
         )
 
-        # 3. 应用优先级模式排序
-        candidates = self._apply_priority_mode_sort(candidates, db, affinity_key, target_format)
+        # 3. 应用优先级模式排序 + 调度模式排序
+        candidates = await self.reorder_candidates(
+            candidates=candidates,
+            db=db,
+            affinity_key=affinity_key,
+            api_format=target_format,
+            global_model_id=global_model_id,
+        )
 
         # 更新指标
         self._metrics["total_candidates"] += len(candidates)
@@ -876,28 +791,55 @@ class CacheAwareScheduler:
             f"(api_format={target_format}, model={model_name})"
         )
 
-        # 4. 根据调度模式应用不同的排序策略
+        return candidates, global_model_id, queried_provider_count
+
+    async def reorder_candidates(
+        self,
+        candidates: list[ProviderCandidate],
+        db: Session,
+        affinity_key: str | None = None,
+        api_format: str | None = None,
+        global_model_id: str | None = None,
+    ) -> list[ProviderCandidate]:
+        """对候选列表应用优先级模式排序和调度模式排序。
+
+        在分页汇总后调用此方法可修正跨页排序失真。
+
+        Args:
+            candidates: 候选列表
+            db: 数据库会话
+            affinity_key: 亲和性标识符
+            api_format: API 格式
+            global_model_id: GlobalModel ID（缓存亲和模式需要）
+
+        Returns:
+            重排序后的候选列表
+        """
+        if not candidates:
+            return candidates
+
+        # 1. 优先级模式排序
+        candidates = self._apply_priority_mode_sort(candidates, db, affinity_key, api_format)
+
+        # 2. 调度模式排序
         if self.scheduling_mode == self.SCHEDULING_MODE_CACHE_AFFINITY:
-            # 缓存亲和模式：优先使用缓存的，同优先级内哈希分散
-            if affinity_key and candidates:
+            if affinity_key and candidates and global_model_id:
                 candidates = await self._apply_cache_affinity(
                     candidates=candidates,
                     db=db,
                     affinity_key=affinity_key,
-                    api_format=target_format,
+                    api_format=api_format or "",
                     global_model_id=global_model_id,
                 )
         elif self.scheduling_mode == self.SCHEDULING_MODE_LOAD_BALANCE:
-            # 负载均衡模式：忽略缓存，同优先级内随机轮换
-            candidates = self._apply_load_balance(candidates, target_format)
+            candidates = self._apply_load_balance(candidates, api_format)
             for candidate in candidates:
                 candidate.is_cached = False
         else:
-            # 固定顺序模式：严格按优先级，忽略缓存
             for candidate in candidates:
                 candidate.is_cached = False
 
-        return candidates, global_model_id
+        return candidates
 
     def _query_providers(
         self,
@@ -1173,7 +1115,7 @@ class CacheAwareScheduler:
 
         effective_model_name = mapping_matched_model or model_name
 
-        quota_exhausted, quota_reason = _is_key_quota_exhausted(
+        quota_exhausted, quota_reason = is_key_quota_exhausted(
             provider_type,
             key,
             model_name=effective_model_name,

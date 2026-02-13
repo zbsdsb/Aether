@@ -216,7 +216,7 @@ async def _select_provider_candidate(
     # 要求 gemini_files 能力：只有 Google 官方 API 才支持 Files API
     capability_requirements = {"gemini_files": True} if require_files_capability else None
 
-    candidates, _global_model_id = await scheduler.list_all_candidates(
+    candidates, _global_model_id, _provider_count = await scheduler.list_all_candidates(
         db=db,
         api_format="gemini:chat",
         model_name=model_name,
