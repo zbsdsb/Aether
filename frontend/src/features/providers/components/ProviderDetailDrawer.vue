@@ -31,17 +31,6 @@
                   <h2 class="text-lg sm:text-xl font-bold truncate">
                     {{ provider.name }}
                   </h2>
-                  <!-- 网站图标 -->
-                  <a
-                    v-if="provider.website"
-                    :href="provider.website"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="text-muted-foreground hover:text-primary transition-colors shrink-0"
-                    :title="provider.website"
-                  >
-                    <ExternalLink class="w-4 h-4" />
-                  </a>
                   <Badge
                     :variant="provider.is_active ? 'default' : 'secondary'"
                     class="text-xs shrink-0"
@@ -87,24 +76,18 @@
                   </Button>
                 </div>
               </div>
-              <!-- 描述（独占整行，紧贴名称行下方） -->
-              <div class="-mt-0.5">
-                <span
-                  v-if="!editingDescription"
-                  class="text-xs text-muted-foreground truncate block cursor-pointer hover:text-foreground transition-colors"
-                  :title="provider.description || '点击添加描述'"
-                  @click="startEditDescription"
-                >{{ provider.description || '添加描述...' }}</span>
-                <input
-                  v-else
-                  ref="descriptionInputRef"
-                  v-model="editingDescriptionValue"
-                  type="text"
-                  class="text-xs px-1.5 py-0.5 border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary w-full"
-                  placeholder="输入描述..."
-                  @keydown="handleDescriptionKeydown"
-                  @blur="saveDescription"
-                >
+              <!-- 网站地址（独占整行，紧贴名称行下方） -->
+              <div
+                v-if="provider.website"
+                class="-mt-0.5"
+              >
+                <a
+                  :href="provider.website"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-xs text-muted-foreground hover:text-primary hover:underline transition-colors truncate block"
+                  :title="provider.website"
+                >{{ provider.website }}</a>
               </div>
               <!-- 端点 API 格式 -->
               <div class="flex items-center gap-1.5 flex-wrap mt-3">
@@ -1020,7 +1003,6 @@ import {
   Download,
   Shield,
   Shuffle,
-  ExternalLink,
   BarChart3,
   ShieldX,
   Globe,
@@ -1166,11 +1148,6 @@ const proxyNodesStore = useProxyNodesStore()
 const savingProxyKeyId = ref<string | null>(null)
 const proxyPopoverOpenKeyId = ref<string | null>(null)
 
-// 描述编辑状态
-const editingDescription = ref(false)
-const editingDescriptionValue = ref('')
-const descriptionInputRef = ref<HTMLInputElement | null>(null)
-
 // 点击编辑倍率相关状态
 const editingMultiplierKey = ref<string | null>(null)
 const editingMultiplierFormat = ref<string | null>(null)
@@ -1307,44 +1284,6 @@ async function toggleFormatConversion() {
     emit('refresh')
   } catch {
     showError('切换格式转换失败')
-  }
-}
-
-// ===== 描述编辑 =====
-function startEditDescription() {
-  editingDescription.value = true
-  editingDescriptionValue.value = provider.value?.description || ''
-  nextTick(() => {
-    descriptionInputRef.value?.focus()
-    descriptionInputRef.value?.select()
-  })
-}
-
-function handleDescriptionKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    saveDescription()
-  } else if (e.key === 'Escape') {
-    e.preventDefault()
-    editingDescription.value = false
-  }
-}
-
-async function saveDescription() {
-  if (!editingDescription.value || !provider.value) return
-  editingDescription.value = false
-
-  const newDescription = editingDescriptionValue.value.trim()
-  // 如果没有变化，直接返回
-  if (newDescription === (provider.value.description || '')) return
-
-  try {
-    await updateProvider(provider.value.id, { description: newDescription || null })
-    provider.value.description = newDescription || null
-    showSuccess('描述已更新')
-    emit('refresh')
-  } catch {
-    showError('更新描述失败')
   }
 }
 

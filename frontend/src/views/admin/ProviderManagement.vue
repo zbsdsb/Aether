@@ -188,18 +188,25 @@
             >
               <TableCell class="py-3.5">
                 <div class="space-y-0.5">
-                  <span class="text-sm font-medium text-foreground">{{ provider.name }}</span>
-                  <a
-                    v-if="provider.website"
-                    :href="provider.website"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="text-xs text-primary/80 hover:text-primary hover:underline truncate block max-w-[160px]"
-                    :title="provider.website"
-                    @click.stop
-                  >
-                    {{ formatWebsiteDisplay(provider.website) }}
-                  </a>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-sm font-medium text-foreground">{{ provider.name }}</span>
+                    <a
+                      v-if="provider.website"
+                      :href="provider.website"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-muted-foreground hover:text-primary transition-colors shrink-0"
+                      :title="provider.website"
+                      @click.stop
+                    >
+                      <ExternalLink class="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                  <span
+                    v-if="provider.description"
+                    class="text-xs text-muted-foreground truncate block max-w-[200px]"
+                    :title="provider.description"
+                  >{{ provider.description }}</span>
                 </div>
               </TableCell>
               <TableCell class="py-3.5">
@@ -217,7 +224,10 @@
                   class="flex items-center gap-2 text-xs"
                 >
                   <!-- 余额文字：balance + points 分开显示，或普通余额 -->
-                  <template v-for="bd in [getProviderBalanceBreakdown(provider.id)]" :key="'bd'">
+                  <template
+                    v-for="bd in [getProviderBalanceBreakdown(provider.id)]"
+                    key="bd"
+                  >
                     <div
                       v-if="bd"
                       class="min-w-[4.5rem] tabular-nums leading-tight"
@@ -460,9 +470,20 @@
         >
           <!-- 第一行：名称 + 状态 + 操作 -->
           <div class="flex items-start justify-between gap-3">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
+            <div class="flex-1 min-w-0 space-y-0.5">
+              <div class="flex items-center gap-1.5">
                 <span class="font-medium text-foreground truncate">{{ provider.name }}</span>
+                <a
+                  v-if="provider.website"
+                  :href="provider.website"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-muted-foreground hover:text-primary transition-colors shrink-0"
+                  :title="provider.website"
+                  @click.stop
+                >
+                  <ExternalLink class="w-3.5 h-3.5" />
+                </a>
                 <Badge
                   :variant="provider.is_active ? 'success' : 'secondary'"
                   class="text-xs shrink-0"
@@ -470,6 +491,11 @@
                   {{ provider.is_active ? '活跃' : '停用' }}
                 </Badge>
               </div>
+              <span
+                v-if="provider.description"
+                class="text-xs text-muted-foreground truncate block max-w-[120px]"
+                :title="provider.description"
+              >{{ provider.description }}</span>
             </div>
             <div
               class="flex items-center gap-0.5 shrink-0"
@@ -681,7 +707,8 @@ import {
   Power,
   KeyRound,
   Loader2,
-  FilterX
+  FilterX,
+  ExternalLink
 } from 'lucide-vue-next'
 import Button from '@/components/ui/button.vue'
 import Badge from '@/components/ui/badge.vue'
@@ -1173,16 +1200,6 @@ function getProviderBalanceExtra(providerId: string, architectureId?: string): B
   return formatBalanceExtraFromSchema(schema, extra)
 }
 
-
-// 格式化官网显示
-function formatWebsiteDisplay(url: string): string {
-  try {
-    const urlObj = new URL(url)
-    return urlObj.hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
-}
 
 // 端点排序
 function sortEndpoints(endpoints: any[]) {
