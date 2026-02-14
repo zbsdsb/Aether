@@ -1,5 +1,5 @@
 import json
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 import pytest
 
@@ -10,12 +10,7 @@ from src.core.api_format.conversion import register_default_normalizers
 
 
 class _DummyResponseCtx:
-    async def __aexit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
-        return None
-
-
-class _DummyHTTPClient:
-    async def aclose(self) -> None:
+    async def __aexit__(self, exc_type: type | None, exc: BaseException | None, tb: object) -> None:
         return None
 
 
@@ -70,7 +65,6 @@ async def test_stream_processor_converts_gemini_json_lines_without_data_prefix()
         ctx=ctx,
         byte_iterator=_iter_bytes(upstream_lines),
         response_ctx=_DummyResponseCtx(),
-        http_client=_DummyHTTPClient(),  # type: ignore[arg-type]
         prefetched_chunks=[],
         start_time=None,
     ):

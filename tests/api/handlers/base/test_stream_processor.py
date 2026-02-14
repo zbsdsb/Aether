@@ -84,12 +84,7 @@ def test_process_line_handles_openai_usage_chunk_followed_by_done_without_blank_
 
 
 class _DummyResponseCtx:
-    async def __aexit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
-        return None
-
-
-class _DummyHTTPClient:
-    async def aclose(self) -> None:
+    async def __aexit__(self, exc_type: type | None, exc: BaseException | None, tb: object) -> None:
         return None
 
 
@@ -115,7 +110,6 @@ async def test_create_response_stream_flushes_usage_on_remote_protocol_error() -
         ctx=ctx,
         byte_iterator=_iter_bytes_then_remote_protocol_error(),
         response_ctx=_DummyResponseCtx(),
-        http_client=_DummyHTTPClient(),  # type: ignore[arg-type]
         prefetched_chunks=[],
         start_time=None,
     ):

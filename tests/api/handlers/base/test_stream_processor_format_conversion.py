@@ -24,7 +24,7 @@ class DummyParser(ResponseParser):
         return ""
 
 
-async def _empty_async_iter():
+async def _empty_async_iter() -> Any:
     if False:  # pragma: no cover
         yield b""
 
@@ -42,9 +42,6 @@ async def test_create_response_stream_converts_claude_to_openai() -> None:
 
     response_ctx = AsyncMock()
     response_ctx.__aexit__ = AsyncMock(return_value=None)
-
-    http_client = AsyncMock()
-    http_client.aclose = AsyncMock(return_value=None)
 
     message_start = {
         "type": "message_start",
@@ -79,7 +76,6 @@ async def test_create_response_stream_converts_claude_to_openai() -> None:
                 ctx,
                 byte_iterator=_empty_async_iter(),
                 response_ctx=response_ctx,
-                http_client=http_client,
                 prefetched_chunks=prefetched_chunks,
             )
         ]

@@ -62,6 +62,7 @@ def update_user_agent_version(version: str) -> None:
         # Backward compat: keep module-level constant in sync.
         HTTP_USER_AGENT = f"antigravity/{_ua_version} {_PLATFORM_TAG}"
 
+
 def parse_version_string(text: str) -> str | None:
     """从任意文本中提取 X.Y.Z 格式的版本号。"""
     m = _VERSION_RE.search(text)
@@ -72,7 +73,9 @@ def parse_version_string(text: str) -> str | None:
 URL_UNAVAILABLE_TTL_SECONDS = 300  # 5 分钟
 
 # ============== Thinking Signature ==============
-DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
+# 统一从 core 层导入，避免多处定义
+from src.core.api_format.conversion.constants import DUMMY_THOUGHT_SIGNATURE  # noqa: E402
+
 MIN_SIGNATURE_LENGTH = 50  # 与 Antigravity-Manager 对齐
 
 # ============== Thinking Budget ==============

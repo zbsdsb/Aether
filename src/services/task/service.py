@@ -3,22 +3,52 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 
+import httpx
 from sqlalchemy.orm import Session
 
 from src.config.settings import config
+from src.core.error_utils import extract_error_message
+from src.core.exceptions import (
+    ConcurrencyLimitError,
+    EmbeddedErrorException,
+    ProviderNotAvailableException,
+    ProxyNodeUnavailableError,
+    ThinkingSignatureException,
+    UpstreamClientException,
+)
 from src.core.logger import logger
 from src.core.provider_types import ProviderType
-from src.models.database import ApiKey
+from src.models.database import (
+    ApiKey,
+    Provider,
+    ProviderAPIKey,
+    ProviderEndpoint,
+    RequestCandidate,
+    Usage,
+    User,
+    VideoTask,
+)
+from src.services.cache.aware_scheduler import (
+    CacheAwareScheduler,
+    get_cache_aware_scheduler,
+)
 from src.services.candidate.failover import FailoverEngine
 from src.services.candidate.policy import RetryPolicy, SkipPolicy
 from src.services.candidate.recorder import CandidateRecorder
+from src.services.candidate.resolver import CandidateResolver
+from src.services.orchestration.error_classifier import ErrorClassifier
+from src.services.orchestration.request_dispatcher import RequestDispatcher
 from src.services.provider.format import normalize_endpoint_signature
 from src.services.request.candidate import RequestCandidateService
+from src.services.request.result import RequestMetadata
+from src.services.system.config import SystemConfigService
 from src.services.task.context import TaskMode
 from src.services.task.exceptions import TaskNotFoundError
 from src.services.task.protocol import AttemptKind, AttemptResult
 from src.services.task.schema import ExecutionResult, TaskStatusResult
+from src.services.usage.service import UsageService
 
 _SENSITIVE_PATTERN = re.compile(
     r"(api[_-]?key|token|bearer|authorization)[=:\s]+\S+",
@@ -173,21 +203,9 @@ class TaskService:
         - RequestDispatcher execution
         - Error classification/rectify logic ported from the previous SYNC implementation
         """
-        from uuid import uuid4
-
-        from src.models.database import User
-        from src.services.cache.aware_scheduler import (
-            CacheAwareScheduler,
-            get_cache_aware_scheduler,
-        )
-        from src.services.candidate.resolver import CandidateResolver
-        from src.services.orchestration.error_classifier import ErrorClassifier
-        from src.services.orchestration.request_dispatcher import RequestDispatcher
         from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
         from src.services.rate_limit.concurrency_manager import get_concurrency_manager
         from src.services.request.executor import RequestExecutor
-        from src.services.system.config import SystemConfigService
-        from src.services.usage.service import UsageService
 
         if not request_id:
             request_id = str(uuid4())
@@ -432,8 +450,6 @@ class TaskService:
         if not error or not candidate:
             return
 
-        from src.services.request.result import RequestMetadata
-
         existing_metadata = getattr(error, "request_metadata", None)
         if existing_metadata and getattr(existing_metadata, "api_format", None):
             return
@@ -469,10 +485,6 @@ class TaskService:
         last_error: Exception | None = None,
     ) -> None:
         """Raise a unified 'all candidates failed' exception."""
-        import httpx
-
-        from src.core.exceptions import ProviderNotAvailableException
-
         logger.error("  [{}] 所有 {} 个组合均失败", request_id, max_attempts)
 
         request_metadata = None
@@ -530,8 +542,6 @@ class TaskService:
         extra_data: dict[str, Any],
     ) -> None:
         """Mark ThinkingSignatureException as failed for the candidate."""
-        from src.core.exceptions import ThinkingSignatureException
-
         if not isinstance(error, ThinkingSignatureException):
             return
 
@@ -560,7 +570,6 @@ class TaskService:
         request_body_ref: dict[str, Any] | None,
     ) -> str:
         """Try to rectify thinking signature errors and request a retry."""
-        from src.core.exceptions import ThinkingSignatureException
         from src.services.message.thinking_rectifier import ThinkingRectifier
 
         if not isinstance(converted_error, ThinkingSignatureException):
@@ -697,17 +706,7 @@ class TaskService:
         - "break": move to next candidate
         - "raise": raise the underlying exception
         """
-        import httpx
-
         from src.core.api_format.conversion.exceptions import FormatConversionError
-        from src.core.error_utils import extract_error_message
-        from src.core.exceptions import (
-            ConcurrencyLimitError,
-            EmbeddedErrorException,
-            ProxyNodeUnavailableError,
-            ThinkingSignatureException,
-            UpstreamClientException,
-        )
         from src.services.proxy_node.resolver import resolve_effective_proxy, resolve_proxy_info
         from src.services.request.executor import ExecutionError
 
@@ -980,20 +979,14 @@ class TaskService:
         """
         from datetime import datetime, timezone
 
-        import httpx
         from sqlalchemy import update
 
-        from src.models.database import RequestCandidate
         from src.services.billing.rule_service import BillingRuleLookupResult, BillingRuleService
-        from src.services.cache.aware_scheduler import ProviderCandidate, get_cache_aware_scheduler
-        from src.services.candidate.resolver import CandidateResolver
         from src.services.candidate.submit import (
             AllCandidatesFailedError,
             SubmitOutcome,
             UpstreamClientRequestError,
         )
-        from src.services.orchestration.error_classifier import ErrorClassifier
-        from src.services.system.config import SystemConfigService
 
         def _sanitize(message: str, max_length: int = 200) -> str:
             if not message:
@@ -1131,8 +1124,6 @@ class TaskService:
                         continue
 
                     # 2. global switch (from database config)
-                    from src.services.system.config import SystemConfigService
-
                     if not SystemConfigService.is_format_conversion_enabled(self.db):
                         skip_reason = "format_conversion_disabled"
                         candidate_info.update(
@@ -1398,8 +1389,6 @@ class TaskService:
         - internal UUID (VideoTask.id)
         - external operation id (VideoTask.short_id)
         """
-        from src.models.database import VideoTask
-
         task = (
             self.db.query(VideoTask)
             .filter(VideoTask.id == task_id, VideoTask.user_id == user_id)
@@ -1498,9 +1487,7 @@ class TaskService:
         )
         from src.core.api_format.conversion.internal_video import VideoStatus
         from src.core.crypto import crypto_service
-        from src.models.database import ProviderAPIKey, ProviderEndpoint
         from src.services.provider.transport import build_provider_url
-        from src.services.usage.service import UsageService
 
         try:
             task = self._get_video_task_for_user(task_id, user_id=user_id)
@@ -1617,9 +1604,6 @@ class TaskService:
 
         This keeps behavior compatible with the old Phase2 finalize logic.
         """
-        from src.models.database import ApiKey, Provider, User
-        from src.services.usage.service import UsageService
-
         user_obj = self.db.query(User).filter(User.id == task.user_id).first()
         api_key_obj = (
             self.db.query(ApiKey).filter(ApiKey.id == task.api_key_id).first()
@@ -1707,11 +1691,9 @@ class TaskService:
         from datetime import datetime, timezone
 
         from src.core.api_format.conversion.internal_video import VideoStatus
-        from src.models.database import Usage
         from src.services.billing.dimension_collector_service import DimensionCollectorService
         from src.services.billing.formula_engine import BillingIncompleteError, FormulaEngine
         from src.services.billing.rule_service import BillingRuleService
-        from src.services.usage.service import UsageService
 
         request_id = getattr(task, "request_id", None) or getattr(task, "id", None)
         if not request_id:
@@ -1916,8 +1898,6 @@ class TaskService:
 
     async def finalize(self, task_id: str) -> bool:
         """Finalize a task by internal id (best-effort)."""
-        from src.models.database import VideoTask
-
         task = self.db.query(VideoTask).filter(VideoTask.id == task_id).first()
         if not task:
             return False

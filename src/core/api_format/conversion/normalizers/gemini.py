@@ -379,14 +379,11 @@ class GeminiNormalizer(FormatNormalizer):
                         isinstance(p, dict) and p.get("thought") is True for p in parts
                     )
                     if not has_thought:
-                        try:
-                            from src.services.provider.adapters.antigravity.constants import (
-                                DUMMY_THOUGHT_SIGNATURE,
-                            )
+                        from src.core.api_format.conversion.constants import (
+                            DUMMY_THOUGHT_SIGNATURE,
+                        )
 
-                            dummy_sig = DUMMY_THOUGHT_SIGNATURE
-                        except Exception:
-                            dummy_sig = "skip_thought_signature_validator"
+                        dummy_sig = DUMMY_THOUGHT_SIGNATURE
 
                         dummy_part: dict[str, Any] = {
                             "text": "Thinking...",
@@ -1423,10 +1420,11 @@ class GeminiNormalizer(FormatNormalizer):
 
                     if signature is None and target_variant == "antigravity":
                         model_str = str(model or "")
+                        from src.core.api_format.conversion.constants import (
+                            DUMMY_THOUGHT_SIGNATURE,
+                        )
+
                         try:
-                            from src.services.provider.adapters.antigravity.constants import (
-                                DUMMY_THOUGHT_SIGNATURE,
-                            )
                             from src.services.provider.adapters.antigravity.signature_cache import (
                                 signature_cache,
                             )
@@ -1445,7 +1443,7 @@ class GeminiNormalizer(FormatNormalizer):
                         except Exception:
                             # Best-effort fallback: Gemini models can accept a dummy signature.
                             if model_str.startswith("gemini-"):
-                                signature = "skip_thought_signature_validator"
+                                signature = DUMMY_THOUGHT_SIGNATURE
 
                     # For Antigravity, missing signature is likely to fail upstream validation.
                     if target_variant == "antigravity" and not signature:
@@ -1564,8 +1562,9 @@ class GeminiNormalizer(FormatNormalizer):
             payload_sig = None
 
         signature: str | None = None
+        from src.core.api_format.conversion.constants import DUMMY_THOUGHT_SIGNATURE
+
         try:
-            from src.services.provider.adapters.antigravity.constants import DUMMY_THOUGHT_SIGNATURE
             from src.services.provider.adapters.antigravity.signature_cache import signature_cache
 
             cached_or_dummy = signature_cache.get_or_dummy(model, text_val)

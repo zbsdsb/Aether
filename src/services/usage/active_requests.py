@@ -1,0 +1,331 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from src.core.api_format.metadata import can_passthrough_endpoint
+from src.core.api_format.signature import normalize_signature_key
+from src.core.logger import logger
+from src.models.database import RequestCandidate, Usage
+
+
+class UsageActiveRequestsMixin:
+    """活跃请求管理方法"""
+
+    @classmethod
+    def get_active_requests(
+        cls,
+        db: Session,
+        user_id: str | None = None,
+        limit: int = 50,
+    ) -> list[Usage]:
+        """
+        获取活跃的请求（pending 或 streaming 状态）
+
+        Args:
+            db: 数据库会话
+            user_id: 用户ID（可选，用于过滤）
+            limit: 最大返回数量
+
+        Returns:
+            活跃请求的 Usage 列表
+        """
+        query = db.query(Usage).filter(Usage.status.in_(["pending", "streaming"]))
+
+        if user_id:
+            query = query.filter(Usage.user_id == user_id)
+
+        return query.order_by(Usage.created_at.desc()).limit(limit).all()
+
+    @classmethod
+    def cleanup_stale_pending_requests(
+        cls,
+        db: Session,
+        timeout_minutes: int = 10,
+    ) -> int:
+        """
+        清理超时的 pending/streaming 请求
+
+        将超过指定时间仍处于 pending 或 streaming 状态的请求标记为 failed。
+        这些请求可能是由于网络问题、服务重启或其他异常导致未能正常完成。
+
+        Args:
+            db: 数据库会话
+            timeout_minutes: 超时时间（分钟），默认 10 分钟
+
+        Returns:
+            清理的记录数
+        """
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
+
+        # 查找超时的请求
+        stale_requests = (
+            db.query(Usage)
+            .filter(
+                Usage.status.in_(["pending", "streaming"]),
+                Usage.created_at < cutoff_time,
+            )
+            .all()
+        )
+
+        count = 0
+        for usage in stale_requests:
+            old_status = usage.status
+            usage.status = "failed"
+            usage.error_message = f"请求超时: 状态 '{old_status}' 超过 {timeout_minutes} 分钟未完成"
+            usage.status_code = 504  # Gateway Timeout
+            count += 1
+
+        if count > 0:
+            db.commit()
+            logger.info(
+                f"清理超时请求: 将 {count} 条超过 {timeout_minutes} 分钟的 pending/streaming 请求标记为 failed"
+            )
+
+        return count
+
+    @classmethod
+    def get_stale_pending_count(
+        cls,
+        db: Session,
+        timeout_minutes: int = 10,
+    ) -> int:
+        """
+        获取超时的 pending/streaming 请求数量（用于监控）
+
+        Args:
+            db: 数据库会话
+            timeout_minutes: 超时时间（分钟）
+
+        Returns:
+            超时请求数量
+        """
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
+
+        return (
+            db.query(Usage)
+            .filter(
+                Usage.status.in_(["pending", "streaming"]),
+                Usage.created_at < cutoff_time,
+            )
+            .count()
+        )
+
+    @classmethod
+    def get_active_requests_status(
+        cls,
+        db: Session,
+        ids: list[str] | None = None,
+        user_id: str | None = None,
+        default_timeout_seconds: int = 300,
+        *,
+        include_admin_fields: bool = False,
+    ) -> list[dict[str, Any]]:
+        """
+        获取活跃请求状态（用于前端轮询），并自动清理超时的 pending/streaming 请求
+
+        与 get_active_requests 不同，此方法：
+        1. 返回轻量级的状态字典而非完整 Usage 对象
+        2. 自动检测并清理超时的 pending/streaming 请求
+        3. 支持按 ID 列表查询特定请求
+
+        Args:
+            db: 数据库会话
+            ids: 指定要查询的请求 ID 列表（可选）
+            user_id: 限制只查询该用户的请求（可选，用于普通用户接口）
+            default_timeout_seconds: 默认超时时间（秒），当端点未配置时使用
+
+        Returns:
+            请求状态列表
+        """
+        now = datetime.now(timezone.utc)
+
+        # 构建基础查询
+        query = db.query(
+            Usage.id,
+            Usage.status,
+            Usage.input_tokens,
+            Usage.output_tokens,
+            Usage.cache_creation_input_tokens,
+            Usage.cache_read_input_tokens,
+            Usage.total_cost_usd,
+            Usage.actual_total_cost_usd,
+            Usage.rate_multiplier,
+            Usage.response_time_ms,
+            Usage.first_byte_time_ms,  # 首字时间 (TTFB)
+            Usage.created_at,
+            Usage.provider_endpoint_id,
+            # API 格式 / 格式转换（streaming 状态时已可确定）
+            Usage.api_format,
+            Usage.endpoint_api_format,
+            Usage.has_format_conversion,
+            # 模型映射（streaming 时已可确定）
+            Usage.target_model,
+        )
+
+        # 管理员轮询：可附带 provider 与上游 key 名称（注意：不要在普通用户接口暴露上游 key 信息）
+        if include_admin_fields:
+            from src.models.database import ProviderAPIKey
+
+            query = query.add_columns(
+                Usage.provider_name,
+                ProviderAPIKey.name.label("api_key_name"),
+            ).outerjoin(ProviderAPIKey, Usage.provider_api_key_id == ProviderAPIKey.id)
+
+        if ids:
+            query = query.filter(Usage.id.in_(ids))
+            if user_id:
+                query = query.filter(Usage.user_id == user_id)
+        else:
+            # 查询所有活跃请求
+            query = query.filter(Usage.status.in_(["pending", "streaming"]))
+            if user_id:
+                query = query.filter(Usage.user_id == user_id)
+            query = query.order_by(Usage.created_at.desc()).limit(50)
+
+        records = query.all()
+
+        # 检查超时的 pending/streaming 请求
+        # 收集可能超时的 usage_id 列表
+        timeout_candidates: list[str] = []
+        for r in records:
+            if r.status in ("pending", "streaming") and r.created_at:
+                # 使用全局配置的超时时间
+                timeout_seconds = default_timeout_seconds
+
+                # 处理时区：如果 created_at 没有时区信息，假定为 UTC
+                created_at = r.created_at
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                elapsed = (now - created_at).total_seconds()
+                if elapsed > timeout_seconds:
+                    # 需要获取 request_id 以便检查 RequestCandidate 表
+                    # r.id 是 usage_id，需要查询 request_id
+                    timeout_candidates.append(r.id)
+
+        # 批量更新超时的请求（排除已有成功完成记录的请求）
+        timeout_ids = []
+        if timeout_candidates:
+            # 检查 RequestCandidate 表是否有成功完成的记录
+            # 如果流已经成功完成（stream_completed: true），不应该标记为超时
+            # 先获取这些 Usage 的 request_id
+            usage_request_ids = (
+                db.query(Usage.id, Usage.request_id).filter(Usage.id.in_(timeout_candidates)).all()
+            )
+            usage_id_to_request_id = {u.id: u.request_id for u in usage_request_ids}
+            request_id_to_usage_id = {u.request_id: u.id for u in usage_request_ids}
+            request_ids = list(request_id_to_usage_id.keys())
+
+            # 查询这些请求中已有成功完成记录的 request_id
+            # 包括两种情况：
+            # 1. status='success' 且 stream_completed=True（正常完成）
+            # 2. status='streaming' 且 status_code=200（流传输中但 Provider 已返回 200，可能是服务重启导致回调丢失）
+            completed_usage_ids = set()
+            if request_ids:
+                from sqlalchemy import or_
+
+                candidates = (
+                    db.query(
+                        RequestCandidate.request_id,
+                        RequestCandidate.status,
+                        RequestCandidate.status_code,
+                        RequestCandidate.extra_data,
+                    )
+                    .filter(
+                        RequestCandidate.request_id.in_(request_ids),
+                        or_(
+                            RequestCandidate.status == "success",
+                            # streaming 状态且 status_code=200，说明 Provider 响应成功
+                            # 但流传输可能因服务重启而中断
+                            (RequestCandidate.status == "streaming")
+                            & (RequestCandidate.status_code == 200),
+                        ),
+                    )
+                    .all()
+                )
+                for candidate in candidates:
+                    extra_data = candidate.extra_data or {}
+                    # 情况1：status='success' 且 stream_completed=True
+                    if candidate.status == "success" and extra_data.get("stream_completed", False):
+                        usage_id = request_id_to_usage_id.get(candidate.request_id)
+                        if usage_id:
+                            completed_usage_ids.add(usage_id)
+                    # 情况2：status='streaming' 且 status_code=200
+                    # 这表示 Provider 返回了 200，但流传输可能因服务重启而未正常结束
+                    # 此时应该恢复为 completed 而不是标记为 failed
+                    elif candidate.status == "streaming" and candidate.status_code == 200:
+                        usage_id = request_id_to_usage_id.get(candidate.request_id)
+                        if usage_id:
+                            completed_usage_ids.add(usage_id)
+
+            # 只对没有成功完成记录的请求标记超时
+            timeout_ids = [uid for uid in timeout_candidates if uid not in completed_usage_ids]
+
+            if timeout_ids:
+                db.query(Usage).filter(Usage.id.in_(timeout_ids)).update(
+                    {"status": "failed", "error_message": "请求超时（服务器可能已重启）"},
+                    synchronize_session=False,
+                )
+                db.commit()
+
+            # 对于已完成但状态未更新的请求，主动恢复状态为 completed
+            # 这处理了遥测回调丢失的情况（例如服务重启、后台任务未执行等）
+            if completed_usage_ids:
+                db.query(Usage).filter(Usage.id.in_(list(completed_usage_ids))).update(
+                    {"status": "completed"},
+                    synchronize_session=False,
+                )
+                db.commit()
+                logger.info(
+                    f"[Usage] 恢复 {len(completed_usage_ids)} 个已完成请求的状态（遥测回调丢失）"
+                )
+
+        result: list[dict[str, Any]] = []
+        for r in records:
+            api_format = getattr(r, "api_format", None)
+            endpoint_api_format = getattr(r, "endpoint_api_format", None)
+            has_format_conversion = getattr(r, "has_format_conversion", None)
+
+            # 兼容历史数据：当 streaming 状态已拿到两个格式但 has_format_conversion 为空时，回填推断结果
+            if has_format_conversion is None and api_format and endpoint_api_format:
+                client_raw = str(api_format).strip()
+                endpoint_raw = str(endpoint_api_format).strip()
+                if ":" in client_raw and ":" in endpoint_raw:
+                    client_fmt = normalize_signature_key(client_raw)
+                    endpoint_fmt = normalize_signature_key(endpoint_raw)
+                    has_format_conversion = not can_passthrough_endpoint(client_fmt, endpoint_fmt)
+
+            item: dict[str, Any] = {
+                "id": r.id,
+                "status": "failed" if r.id in timeout_ids else r.status,
+                "input_tokens": r.input_tokens,
+                "output_tokens": r.output_tokens,
+                "cache_creation_input_tokens": r.cache_creation_input_tokens,
+                "cache_read_input_tokens": r.cache_read_input_tokens,
+                "cost": float(r.total_cost_usd) if r.total_cost_usd else 0,
+                "actual_cost": (
+                    float(r.actual_total_cost_usd) if r.actual_total_cost_usd is not None else None
+                ),
+                "rate_multiplier": (
+                    float(r.rate_multiplier) if r.rate_multiplier is not None else None
+                ),
+                "response_time_ms": r.response_time_ms,
+                "first_byte_time_ms": r.first_byte_time_ms,  # 首字时间 (TTFB)
+            }
+            if api_format:
+                item["api_format"] = api_format
+            if endpoint_api_format:
+                item["endpoint_api_format"] = endpoint_api_format
+            if has_format_conversion is not None:
+                item["has_format_conversion"] = bool(has_format_conversion)
+            # 模型映射（streaming 时已可确定）
+            if r.target_model:
+                item["target_model"] = r.target_model
+            if include_admin_fields:
+                item["provider"] = r.provider_name
+                item["api_key_name"] = r.api_key_name
+            result.append(item)
+
+        return result

@@ -80,7 +80,7 @@ def test_convert_sse_line_unwraps_before_convert_stream_chunk() -> None:
             return []
 
     with patch(
-        "src.api.handlers.base.cli_handler_base.get_format_converter_registry",
+        "src.api.handlers.base.cli_event_mixin.get_format_converter_registry",
         return_value=_DummyRegistry(),
     ):
         _lines, _events = handler._convert_sse_line(ctx, v1_line, [])
@@ -189,7 +189,6 @@ async def test_antigravity_forces_conversion_path_in_stream_with_prefetch() -> N
     ]
     byte_iter = _AsyncIter([])  # no more bytes after prefetch
     response_ctx = SimpleNamespace(__aexit__=AsyncMock(return_value=None))
-    http_client = SimpleNamespace(aclose=AsyncMock(return_value=None))
 
     with patch.object(
         handler,
@@ -198,7 +197,7 @@ async def test_antigravity_forces_conversion_path_in_stream_with_prefetch() -> N
     ) as mock_convert:
         out = []
         async for chunk in handler._create_response_stream_with_prefetch(
-            ctx, byte_iter, response_ctx, http_client, prefetched  # type: ignore[arg-type]
+            ctx, byte_iter, response_ctx, prefetched  # type: ignore[arg-type]
         ):
             out.append(chunk)
 
