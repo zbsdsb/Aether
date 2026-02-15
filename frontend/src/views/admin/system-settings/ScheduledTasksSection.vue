@@ -58,10 +58,10 @@
                 :model-value="task.hour"
                 @update:model-value="(val: string) => task.updateTime(val, task.minute)"
               >
-                <SelectTrigger class="w-14 h-8 text-xs">
+                <SelectTrigger class="w-16 h-8 text-xs px-2 justify-center gap-1">
                   <SelectValue placeholder="时" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent class="min-w-0">
                   <SelectItem
                     v-for="h in 24"
                     :key="h - 1"
@@ -76,10 +76,10 @@
                 :model-value="task.minute"
                 @update:model-value="(val: string) => task.updateTime(task.hour, val)"
               >
-                <SelectTrigger class="w-14 h-8 text-xs">
+                <SelectTrigger class="w-16 h-8 text-xs px-2 justify-center gap-1">
                   <SelectValue placeholder="分" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent class="min-w-0">
                   <SelectItem
                     v-for="m in 60"
                     :key="m - 1"
@@ -89,23 +89,33 @@
                   </SelectItem>
                 </SelectContent>
               </Select>
-              <Button
-                v-if="task.hasChanges"
-                variant="default"
-                size="sm"
-                class="h-8 px-2.5 text-xs"
-                :disabled="task.loading"
-                @click="task.onSave"
-              >
-                <Check
-                  v-if="!task.loading"
-                  class="w-3.5 h-3.5"
-                />
-                <Loader2
-                  v-else
-                  class="w-3.5 h-3.5 animate-spin"
-                />
-              </Button>
+              <template v-if="task.hasChanges">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-8 px-2.5 text-xs"
+                  :disabled="task.loading"
+                  @click="task.onCancel"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  class="h-8 px-2.5 text-xs"
+                  :disabled="task.loading"
+                  @click="task.onSave"
+                >
+                  <Check
+                    v-if="!task.loading"
+                    class="w-3.5 h-3.5"
+                  />
+                  <Loader2
+                    v-else
+                    class="w-3.5 h-3.5 animate-spin"
+                  />
+                </Button>
+              </template>
             </div>
           </div>
 
@@ -142,7 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import { Clock, Check, Loader2 } from 'lucide-vue-next'
+import { Clock, Check, Loader2, X } from 'lucide-vue-next'
 import Button from '@/components/ui/button.vue'
 import Input from '@/components/ui/input.vue'
 import Switch from '@/components/ui/switch.vue'
@@ -168,6 +178,7 @@ interface ScheduledTask {
   loading: boolean
   onToggle: (enabled: boolean) => void
   onSave: () => void
+  onCancel: () => void
 }
 
 defineProps<{

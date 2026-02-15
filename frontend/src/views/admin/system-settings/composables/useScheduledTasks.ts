@@ -129,6 +129,16 @@ export function useScheduledTasks(systemConfig: Ref<SystemConfig>) {
     }
   }
 
+  // Cancel handlers
+  function handleCheckinTimeCancel() {
+    systemConfig.value.provider_checkin_time = previousCheckinTime.value
+  }
+
+  function handleQuotaResetConfigCancel() {
+    systemConfig.value.user_quota_reset_time = previousUserQuotaResetTime.value
+    systemConfig.value.user_quota_reset_interval_days = previousUserQuotaResetIntervalDays.value
+  }
+
   // Save handlers
   async function handleCheckinTimeSave() {
     const newTime = systemConfig.value.provider_checkin_time
@@ -238,6 +248,7 @@ export function useScheduledTasks(systemConfig: Ref<SystemConfig>) {
       loading: checkinConfigLoading.value,
       onToggle: handleProviderCheckinToggle,
       onSave: handleCheckinTimeSave,
+      onCancel: handleCheckinTimeCancel,
     },
     {
       id: 'user-quota-reset',
@@ -253,6 +264,7 @@ export function useScheduledTasks(systemConfig: Ref<SystemConfig>) {
       loading: quotaResetConfigLoading.value,
       onToggle: handleUserQuotaResetToggle,
       onSave: handleQuotaResetConfigSave,
+      onCancel: handleQuotaResetConfigCancel,
     },
     {
       id: 'oauth-token-refresh',
@@ -268,6 +280,7 @@ export function useScheduledTasks(systemConfig: Ref<SystemConfig>) {
       loading: false,
       onToggle: handleOAuthTokenRefreshToggle,
       onSave: () => {},
+      onCancel: () => {},
     },
   ])
 
