@@ -30,13 +30,24 @@ from sqlalchemy.orm import relationship
 
 from src.core.enums import ProviderBillingType
 
-from ._base import Base
+from ._base import Base, ExportMixin
 
 
-class Provider(Base):
+class Provider(ExportMixin, Base):
     """提供商配置表"""
 
     __tablename__ = "providers"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "monthly_used_usd",
+            "quota_last_reset_at",
+            "quota_expires_at",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)  # 提供商名称（唯一）
@@ -133,10 +144,21 @@ class Provider(Base):
     )
 
 
-class ProviderEndpoint(Base):
+class ProviderEndpoint(ExportMixin, Base):
     """提供商端点 - 一个提供商可以有多个 API 格式端点"""
 
     __tablename__ = "provider_endpoints"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "provider_id",
+            "api_family",
+            "endpoint_kind",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     provider_id = Column(String(36), ForeignKey("providers.id", ondelete="CASCADE"), nullable=False)
@@ -287,10 +309,49 @@ class ProxyNode(Base):
     __table_args__ = (UniqueConstraint("ip", "port", name="uq_proxy_node_ip_port"),)
 
 
-class ProviderAPIKey(Base):
+class ProviderAPIKey(ExportMixin, Base):
     """Provider API密钥表 - 直接归属于 Provider，支持多种 API 格式"""
 
     __tablename__ = "provider_api_keys"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "provider_id",
+            # 加密存储，导出时需手动解密
+            "api_key",
+            "auth_config",
+            # 运行时状态 / 自适应学习
+            "learned_rpm_limit",
+            "concurrent_429_count",
+            "rpm_429_count",
+            "last_429_at",
+            "last_429_type",
+            "last_rpm_peak",
+            "adjustment_history",
+            "utilization_samples",
+            "last_probe_increase_at",
+            "health_by_format",
+            "circuit_breaker_by_format",
+            # 使用统计
+            "request_count",
+            "success_count",
+            "error_count",
+            "total_response_time_ms",
+            "last_used_at",
+            "last_error_at",
+            "last_error_msg",
+            # 运行时状态
+            "expires_at",
+            "last_models_fetch_at",
+            "last_models_fetch_error",
+            "upstream_metadata",
+            "oauth_invalid_at",
+            "oauth_invalid_reason",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -864,19 +865,10 @@ class AdminExportConfigAdapter(AdminApiAdapter):
 
         # 导出 GlobalModels
         global_models = db.query(GlobalModel).all()
-        global_models_data = []
-        for gm in global_models:
-            global_models_data.append(
-                {
-                    "name": gm.name,
-                    "display_name": gm.display_name,
-                    "default_price_per_request": gm.default_price_per_request,
-                    "default_tiered_pricing": gm.default_tiered_pricing,
-                    "supported_capabilities": gm.supported_capabilities,
-                    "config": gm.config,
-                    "is_active": gm.is_active,
-                }
-            )
+        global_models_data = [gm.to_export_dict() for gm in global_models]
+
+        # 预建 global_model_id -> name 映射，避免导出 Model 时 N+1 查询
+        gm_name_map: dict[str, str] = {gm.id: gm.name for gm in global_models}
 
         # 导出 Providers 及其关联数据
         providers = db.query(Provider).all()
@@ -886,20 +878,7 @@ class AdminExportConfigAdapter(AdminApiAdapter):
             endpoints = (
                 db.query(ProviderEndpoint).filter(ProviderEndpoint.provider_id == provider.id).all()
             )
-            endpoints_data = []
-            for ep in endpoints:
-                endpoints_data.append(
-                    {
-                        "api_format": ep.api_format,
-                        "base_url": ep.base_url,
-                        "header_rules": ep.header_rules,
-                        "max_retries": ep.max_retries,
-                        "is_active": ep.is_active,
-                        "custom_path": ep.custom_path,
-                        "config": ep.config,
-                        "proxy": ep.proxy,
-                    }
-                )
+            endpoints_data = [ep.to_export_dict() for ep in endpoints]
 
             # 导出 Provider Keys（按 provider_id 归属，包含 api_formats）
             keys = (
@@ -910,31 +889,20 @@ class AdminExportConfigAdapter(AdminApiAdapter):
             )
             keys_data = []
             for key in keys:
+                key_data = key.to_export_dict()
                 # 解密 API Key
                 try:
-                    decrypted_key = crypto_service.decrypt(key.api_key)
+                    key_data["api_key"] = crypto_service.decrypt(key.api_key)
                 except Exception:
-                    decrypted_key = ""
-
-                keys_data.append(
-                    {
-                        "api_key": decrypted_key,
-                        "name": key.name,
-                        "note": key.note,
-                        "api_formats": key.api_formats or [],
-                        "rate_multipliers": key.rate_multipliers,
-                        "internal_priority": key.internal_priority,
-                        "global_priority_by_format": key.global_priority_by_format,
-                        "rpm_limit": key.rpm_limit,
-                        "allowed_models": key.allowed_models,
-                        "capabilities": key.capabilities,
-                        "cache_ttl_minutes": key.cache_ttl_minutes,
-                        "max_probe_interval_minutes": key.max_probe_interval_minutes,
-                        "auto_fetch_models": key.auto_fetch_models,
-                        "locked_models": key.locked_models,
-                        "is_active": key.is_active,
-                    }
-                )
+                    key_data["api_key"] = ""
+                # 解密 auth_config（OAuth 等认证配置）
+                # 导出值为解密后的 JSON 字符串（非 dict），导入时需按字符串重新加密
+                if key.auth_config:
+                    try:
+                        key_data["auth_config"] = crypto_service.decrypt(key.auth_config)
+                    except Exception:
+                        pass  # 解密失败则不导出 auth_config
+                keys_data.append(key_data)
 
             # 导出 Provider Models
             # 注意：提供商模型（Model）必须关联全局模型（GlobalModel）才能参与路由
@@ -942,51 +910,18 @@ class AdminExportConfigAdapter(AdminApiAdapter):
             models = db.query(Model).filter(Model.provider_id == provider.id).all()
             models_data = []
             for model in models:
-                # 获取关联的 GlobalModel 名称
-                global_model = (
-                    db.query(GlobalModel).filter(GlobalModel.id == model.global_model_id).first()
-                )
-                models_data.append(
-                    {
-                        "global_model_name": global_model.name if global_model else None,
-                        "provider_model_name": model.provider_model_name,
-                        "provider_model_mappings": model.provider_model_mappings,
-                        "price_per_request": model.price_per_request,
-                        "tiered_pricing": model.tiered_pricing,
-                        "supports_vision": model.supports_vision,
-                        "supports_function_calling": model.supports_function_calling,
-                        "supports_streaming": model.supports_streaming,
-                        "supports_extended_thinking": model.supports_extended_thinking,
-                        "supports_image_generation": model.supports_image_generation,
-                        "is_active": model.is_active,
-                        "config": model.config,
-                    }
-                )
+                model_data = model.to_export_dict()
+                # 追加关联的 GlobalModel 名称（导入时通过名称查找）
+                model_data["global_model_name"] = gm_name_map.get(model.global_model_id)
+                models_data.append(model_data)
 
             # 解密 Provider config 中的 credentials
-            decrypted_provider_config = self._decrypt_provider_config(
-                provider.config, crypto_service
-            )
-
-            providers_data.append(
-                {
-                    "name": provider.name,
-                    "description": provider.description,
-                    "website": provider.website,
-                    "billing_type": provider.billing_type.value if provider.billing_type else None,
-                    "monthly_quota_usd": provider.monthly_quota_usd,
-                    "quota_reset_day": provider.quota_reset_day,
-                    "provider_priority": provider.provider_priority,
-                    "is_active": provider.is_active,
-                    "concurrent_limit": provider.concurrent_limit,
-                    "max_retries": provider.max_retries,
-                    "proxy": provider.proxy,
-                    "config": decrypted_provider_config,
-                    "endpoints": endpoints_data,
-                    "api_keys": keys_data,
-                    "models": models_data,
-                }
-            )
+            provider_data = provider.to_export_dict()
+            provider_data["config"] = self._decrypt_provider_config(provider.config, crypto_service)
+            provider_data["endpoints"] = endpoints_data
+            provider_data["api_keys"] = keys_data
+            provider_data["models"] = models_data
+            providers_data.append(provider_data)
 
         # 导出 LDAP 配置
         from src.models.database import LDAPConfig
@@ -1137,7 +1072,9 @@ class AdminImportConfigAdapter(AdminApiAdapter):
         # 验证配置版本
         version = payload.get("version")
         if version not in CONFIG_SUPPORTED_VERSIONS:
-            raise InvalidRequestException(f"不支持的配置版本: {version}，支持的版本: {', '.join(CONFIG_SUPPORTED_VERSIONS)}")
+            raise InvalidRequestException(
+                f"不支持的配置版本: {version}，支持的版本: {', '.join(CONFIG_SUPPORTED_VERSIONS)}"
+            )
 
         # 获取导入选项
         merge_mode = payload.get("merge_mode", "skip")  # skip, overwrite, error
@@ -1230,6 +1167,9 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                     elif merge_mode == "overwrite":
                         # 更新现有记录
                         existing_provider.name = prov_data.get("name", existing_provider.name)
+                        existing_provider.provider_type = prov_data.get(
+                            "provider_type", existing_provider.provider_type
+                        )
                         existing_provider.description = prov_data.get("description")
                         existing_provider.website = prov_data.get("website")
                         if prov_data.get("billing_type"):
@@ -1241,10 +1181,25 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         existing_provider.provider_priority = prov_data.get(
                             "provider_priority", 100
                         )
+                        existing_provider.keep_priority_on_conversion = prov_data.get(
+                            "keep_priority_on_conversion",
+                            existing_provider.keep_priority_on_conversion,
+                        )
+                        existing_provider.enable_format_conversion = prov_data.get(
+                            "enable_format_conversion",
+                            existing_provider.enable_format_conversion,
+                        )
                         existing_provider.is_active = prov_data.get("is_active", True)
                         existing_provider.concurrent_limit = prov_data.get("concurrent_limit")
                         existing_provider.max_retries = prov_data.get(
                             "max_retries", existing_provider.max_retries
+                        )
+                        existing_provider.stream_first_byte_timeout = prov_data.get(
+                            "stream_first_byte_timeout",
+                            existing_provider.stream_first_byte_timeout,
+                        )
+                        existing_provider.request_timeout = prov_data.get(
+                            "request_timeout", existing_provider.request_timeout
                         )
                         existing_provider.proxy = prov_data.get("proxy", existing_provider.proxy)
                         # 加密 provider_ops credentials 后再保存
@@ -1267,15 +1222,22 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                     new_provider = Provider(
                         id=str(uuid.uuid4()),
                         name=prov_data["name"],
+                        provider_type=prov_data.get("provider_type", "custom"),
                         description=prov_data.get("description"),
                         website=prov_data.get("website"),
                         billing_type=billing_type,
                         monthly_quota_usd=prov_data.get("monthly_quota_usd"),
                         quota_reset_day=prov_data.get("quota_reset_day", 30),
                         provider_priority=prov_data.get("provider_priority", 100),
+                        keep_priority_on_conversion=prov_data.get(
+                            "keep_priority_on_conversion", False
+                        ),
+                        enable_format_conversion=prov_data.get("enable_format_conversion", False),
                         is_active=prov_data.get("is_active", True),
                         concurrent_limit=prov_data.get("concurrent_limit"),
                         max_retries=prov_data.get("max_retries"),
+                        stream_first_byte_timeout=prov_data.get("stream_first_byte_timeout"),
+                        request_timeout=prov_data.get("request_timeout"),
                         proxy=prov_data.get("proxy"),
                         config=encrypted_config,
                     )
@@ -1311,10 +1273,14 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         elif merge_mode == "overwrite":
                             existing_ep.base_url = ep_data.get("base_url", existing_ep.base_url)
                             existing_ep.header_rules = ep_data.get("header_rules")
+                            existing_ep.body_rules = ep_data.get("body_rules")
                             existing_ep.max_retries = ep_data.get("max_retries", 2)
                             existing_ep.is_active = ep_data.get("is_active", True)
                             existing_ep.custom_path = ep_data.get("custom_path")
                             existing_ep.config = ep_data.get("config")
+                            existing_ep.format_acceptance_config = ep_data.get(
+                                "format_acceptance_config"
+                            )
                             existing_ep.proxy = ep_data.get("proxy")
                             sig = parse_signature_key(ep_format)
                             existing_ep.api_format = sig.key  # 使用归一化后的格式
@@ -1334,10 +1300,12 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                             endpoint_kind=endpoint_kind,
                             base_url=ep_data["base_url"],
                             header_rules=ep_data.get("header_rules"),
+                            body_rules=ep_data.get("body_rules"),
                             max_retries=ep_data.get("max_retries", 2),
                             is_active=ep_data.get("is_active", True),
                             custom_path=ep_data.get("custom_path"),
                             config=ep_data.get("config"),
+                            format_acceptance_config=ep_data.get("format_acceptance_config"),
                             proxy=ep_data.get("proxy"),
                         )
                         db.add(new_ep)
@@ -1420,11 +1388,25 @@ class AdminImportConfigAdapter(AdminApiAdapter):
 
                     encrypted_key = crypto_service.encrypt(plaintext_key)
 
+                    # 加密 auth_config（如果有）
+                    encrypted_auth_config = None
+                    raw_auth_config = key_data.get("auth_config")
+                    if raw_auth_config:
+                        # auth_config 导出时是解密后的 JSON 字符串，需要重新加密
+                        auth_config_str = (
+                            raw_auth_config
+                            if isinstance(raw_auth_config, str)
+                            else json.dumps(raw_auth_config)
+                        )
+                        encrypted_auth_config = crypto_service.encrypt(auth_config_str)
+
                     new_key = ProviderAPIKey(
                         id=str(uuid.uuid4()),
                         provider_id=provider_id,
                         api_formats=normalized_formats,
+                        auth_type=key_data.get("auth_type", "api_key"),
                         api_key=encrypted_key,
+                        auth_config=encrypted_auth_config,
                         name=key_data.get("name") or "Imported Key",
                         note=key_data.get("note"),
                         rate_multipliers=key_data.get("rate_multipliers"),
@@ -1437,7 +1419,10 @@ class AdminImportConfigAdapter(AdminApiAdapter):
                         max_probe_interval_minutes=key_data.get("max_probe_interval_minutes", 32),
                         auto_fetch_models=key_data.get("auto_fetch_models", False),
                         locked_models=key_data.get("locked_models"),
+                        model_include_patterns=key_data.get("model_include_patterns"),
+                        model_exclude_patterns=key_data.get("model_exclude_patterns"),
                         is_active=key_data.get("is_active", True),
+                        proxy=key_data.get("proxy"),
                         health_by_format={},
                         circuit_breaker_by_format={},
                     )

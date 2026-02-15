@@ -27,10 +27,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
-from ._base import Base
+from ._base import Base, ExportMixin
 
 
-class GlobalModel(Base):
+class GlobalModel(ExportMixin, Base):
     """全局统一模型定义 - 包含价格和能力配置
 
     设计原则:
@@ -40,6 +40,15 @@ class GlobalModel(Base):
     """
 
     __tablename__ = "global_models"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "usage_count",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)  # 统一模型名（唯一）
@@ -118,7 +127,7 @@ class GlobalModel(Base):
     models = relationship("Model", back_populates="global_model")
 
 
-class Model(Base):
+class Model(ExportMixin, Base):
     """Provider 模型配置表 - Provider 如何使用某个 GlobalModel
 
     设计原则:
@@ -131,6 +140,17 @@ class Model(Base):
     """
 
     __tablename__ = "models"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "provider_id",
+            "global_model_id",
+            "is_available",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     provider_id = Column(String(36), ForeignKey("providers.id"), nullable=False)
