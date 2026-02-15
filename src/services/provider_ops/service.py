@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from src.config import config
 from src.core.cache_service import CacheService
@@ -96,6 +97,7 @@ class ProviderOpsService:
     SENSITIVE_FIELDS = {
         "api_key",
         "password",
+        "refresh_token",
         "session_token",
         "session_cookie",
         "token_cookie",
@@ -193,10 +195,11 @@ class ProviderOpsService:
         # 加密敏感凭据
         encrypted_credentials = self._encrypt_credentials(config.connector_credentials)
         logger.debug(
-            f"加密凭据: provider_id={provider_id}, "
-            f"input_keys={list(config.connector_credentials.keys())}, "
-            f"output_keys={list(encrypted_credentials.keys())}, "
-            f"has_api_key={bool(config.connector_credentials.get('api_key'))}"
+            "加密凭据: provider_id={}, input_keys={}, output_keys={}, has_api_key={}",
+            provider_id,
+            list(config.connector_credentials.keys()),
+            list(encrypted_credentials.keys()),
+            bool(config.connector_credentials.get("api_key")),
         )
 
         # 构建配置
@@ -214,7 +217,7 @@ class ProviderOpsService:
         if provider_id in self._connectors:
             del self._connectors[provider_id]
 
-        logger.info(f"保存 Provider 操作配置: provider_id={provider_id}")
+        logger.info("保存 Provider 操作配置: provider_id={}", provider_id)
         return True
 
     def delete_config(self, provider_id: str) -> bool:
@@ -301,8 +304,14 @@ class ProviderOpsService:
 
         # 建立连接
         logger.info(
-            f"尝试连接: provider_id={provider_id}, "
-            f"credentials_keys={list(actual_credentials.keys())}"
+            "尝试连接: provider_id={}, credentials_keys={}",
+            provider_id,
+            list(actual_credentials.keys()),
+        )
+        # 注册凭据更新回调（Token Rotation 场景持久化新 refresh_token）
+        # 必须在 connect 之前注册，因为 connect 内部可能已经触发 Token Rotation
+        connector._on_credentials_updated = (
+            lambda updated, pid=provider_id: self._persist_updated_credentials(pid, updated)
         )
         success = await connector.connect(actual_credentials)
         if success:
@@ -491,11 +500,11 @@ class ProviderOpsService:
         # 没有缓存
         if allow_sync_query:
             # 同步查询一次（首次访问）
-            logger.info(f"余额缓存未命中，同步查询: provider_id={provider_id}")
+            logger.info("余额缓存未命中，同步查询: provider_id={}", provider_id)
             return await self.query_balance(provider_id)
         else:
             # 仅触发异步刷新，立即返回
-            logger.debug(f"余额缓存未命中，触发异步刷新: provider_id={provider_id}")
+            logger.debug("余额缓存未命中，触发异步刷新: provider_id={}", provider_id)
             asyncio.create_task(self._refresh_balance_async(provider_id))
             return ActionResult(
                 status=ActionStatus.PENDING,
@@ -520,7 +529,7 @@ class ProviderOpsService:
             # 使用 wait_for 设置超时，避免无限等待
             await asyncio.wait_for(semaphore.acquire(), timeout=5.0)
         except asyncio.TimeoutError:
-            logger.debug(f"异步刷新余额跳过（并发限制）: provider_id={provider_id}")
+            logger.debug("异步刷新余额跳过（并发限制）: provider_id={}", provider_id)
             return
 
         db = None
@@ -530,7 +539,7 @@ class ProviderOpsService:
             service = ProviderOpsService(db)
             await service.query_balance(provider_id)
         except Exception as e:
-            logger.warning(f"异步刷新余额失败: provider_id={provider_id}, error={e}")
+            logger.warning("异步刷新余额失败: provider_id={}, error={}", provider_id, e)
         finally:
             # 确保 session 被关闭，归还连接到连接池
             if db is not None:
@@ -545,7 +554,7 @@ class ProviderOpsService:
         """清除余额缓存"""
         cache_key = f"provider_ops:balance:{provider_id}"
         await CacheService.delete(cache_key)
-        logger.info(f"余额缓存已清除: provider_id={provider_id}")
+        logger.info("余额缓存已清除: provider_id={}", provider_id)
 
     async def _cache_auth_failed(self, provider_id: str, result: ActionResult) -> None:
         """
@@ -564,7 +573,9 @@ class ProviderOpsService:
         }
         await CacheService.set(cache_key, cache_data, AUTH_FAILED_CACHE_TTL)
         logger.info(
-            f"余额缓存已写入（认证失败）: provider_id={provider_id}, message={result.message}"
+            "余额缓存已写入（认证失败）: provider_id={}, message={}",
+            provider_id,
+            result.message,
         )
 
     async def _cache_balance(self, provider_id: str, result: ActionResult) -> None:
@@ -617,7 +628,7 @@ class ProviderOpsService:
         }
 
         await CacheService.set(cache_key, cache_data, BALANCE_CACHE_TTL)
-        logger.debug(f"验证成功，缓存余额: provider_id={provider_id}, quota_usd={quota_usd}")
+        logger.debug("验证成功，缓存余额: provider_id={}, quota_usd={}", provider_id, quota_usd)
 
     async def _get_cached_balance(self, provider_id: str) -> ActionResult | None:
         """获取缓存的余额"""
@@ -660,7 +671,7 @@ class ProviderOpsService:
                 cache_ttl_seconds=ttl,
             )
         except Exception as e:
-            logger.warning(f"解析缓存余额失败: provider_id={provider_id}, error={e}")
+            logger.warning("解析缓存余额失败: provider_id={}, error={}", provider_id, e)
             return None
 
     async def checkin(
@@ -705,6 +716,78 @@ class ProviderOpsService:
 
         return None
 
+    def _persist_updated_credentials(self, provider_id: str, updated: dict[str, Any]) -> None:
+        """
+        持久化连接器运行时更新的凭据（如 Token Rotation 后的新 refresh_token）
+
+        通过 run_in_executor 将同步 DB 操作 offload 到线程池，避免在异步事件循环中阻塞。
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            future = loop.run_in_executor(
+                None, self._persist_updated_credentials_sync, provider_id, updated
+            )
+
+            def _log_persist_error(f: asyncio.Future) -> None:  # type: ignore[type-arg]
+                if not f.cancelled() and f.exception():
+                    logger.warning("异步持久化凭据失败: {}", f.exception())
+
+            future.add_done_callback(_log_persist_error)
+        except RuntimeError:
+            # 没有运行中的事件循环（测试等场景），直接同步执行
+            self._persist_updated_credentials_sync(provider_id, updated)
+
+    def _persist_updated_credentials_sync(self, provider_id: str, updated: dict[str, Any]) -> None:
+        """同步执行凭据持久化（在线程池中运行）"""
+        import copy
+
+        db = None
+        try:
+            db = create_session()
+            provider = db.query(Provider).filter(Provider.id == provider_id).first()
+            if not provider:
+                return
+
+            # 深拷贝整个 config，避免原地修改导致 SQLAlchemy 变更检测失败
+            provider_config = copy.deepcopy(dict(provider.config or {}))
+
+            config_data = provider_config.get("provider_ops")
+            if not config_data:
+                return
+
+            credentials = config_data.get("connector", {}).get("credentials", {})
+
+            # 更新凭据（敏感字段加密）
+            for key, value in updated.items():
+                if key in self.SENSITIVE_FIELDS and isinstance(value, str) and value:
+                    credentials[key] = self.crypto.encrypt(value)
+                else:
+                    credentials[key] = value
+
+            config_data["connector"]["credentials"] = credentials
+            provider.config = provider_config
+            flag_modified(provider, "config")
+            db.commit()
+
+            logger.info(
+                "凭据已持久化更新: provider_id={}, updated_keys={}",
+                provider_id,
+                list(updated.keys()),
+            )
+        except Exception as e:
+            logger.warning("持久化凭据更新失败: provider_id={}, error={}", provider_id, e)
+            if db:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+        finally:
+            if db:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+
     def _encrypt_credentials(self, credentials: dict[str, Any]) -> dict[str, Any]:
         """加密凭据中的敏感字段"""
         encrypted = {}
@@ -713,10 +796,13 @@ class ProviderOpsService:
                 if value:  # 只加密非空值
                     encrypted[key] = self.crypto.encrypt(value)
                     logger.debug(
-                        f"加密字段 {key}: 原始长度={len(value)}, 加密后长度={len(encrypted[key])}"
+                        "加密字段 {}: 原始长度={}, 加密后长度={}",
+                        key,
+                        len(value),
+                        len(encrypted[key]),
                     )
                 else:
-                    logger.warning(f"跳过空值字段 {key}")
+                    logger.warning("跳过空值字段 {}", key)
                     encrypted[key] = value
             else:
                 encrypted[key] = value
@@ -730,17 +816,22 @@ class ProviderOpsService:
                 try:
                     decrypted[key] = self.crypto.decrypt(value)
                 except Exception as e:
-                    logger.warning(f"解密字段 {key} 失败: {e}")
+                    logger.warning("解密字段 {} 失败: {}", key, e)
                     decrypted[key] = value  # 解密失败则保持原值
             else:
                 decrypted[key] = value
         return decrypted
 
+    # 密码类字段：脱敏时全部遮盖，不显示任何明文字符
+    FULLY_MASKED_FIELDS = {"password"}
+
     def get_masked_credentials(self, credentials: dict[str, Any]) -> dict[str, Any]:
         """
         获取脱敏后的凭据
 
-        解密凭据并对敏感字段进行脱敏处理（显示部分字符）。
+        解密凭据并对敏感字段进行脱敏处理。
+        - 密码类字段：全部遮盖为 ********
+        - 其他敏感字段：显示部分字符（如 sk-x****a12k）
 
         Args:
             credentials: 加密的凭据
@@ -753,8 +844,10 @@ class ProviderOpsService:
         for field in self.SENSITIVE_FIELDS:
             if field in decrypted and decrypted[field]:
                 value = str(decrypted[field])
-                # 显示前4位和后4位，中间固定4个 *（如 sk-x****a12k）
-                if len(value) > 12:
+                if field in self.FULLY_MASKED_FIELDS:
+                    decrypted[field] = "********"
+                elif len(value) > 12:
+                    # 显示前4位和后4位，中间固定4个 *（如 sk-x****a12k）
                     decrypted[field] = value[:4] + "****" + value[-4:]
                 elif len(value) > 8:
                     decrypted[field] = value[:2] + "****" + value[-2:]
@@ -788,6 +881,7 @@ class ProviderOpsService:
             sensitive_fields = [
                 "api_key",
                 "password",
+                "refresh_token",
                 "session_token",
                 "cookie_string",
                 "cookie",
@@ -802,7 +896,12 @@ class ProviderOpsService:
                 if not req_value or (isinstance(req_value, str) and set(req_value) <= {"*"}):
                     if field in saved_credentials:
                         merged[field] = saved_credentials[field]
-                        logger.debug(f"合并凭据 - 使用已保存的 {field}")
+                        logger.debug("合并凭据 - 使用已保存的 {}", field)
+
+            # 保留内部缓存字段（如 _cached_access_token），前端不感知这些字段
+            for key, value in saved_credentials.items():
+                if key.startswith("_") and key not in merged:
+                    merged[key] = value
 
         return merged
 
@@ -847,7 +946,7 @@ class ProviderOpsService:
                     )
                     return provider_id, result
                 except Exception as e:
-                    logger.warning(f"查询余额失败: provider_id={provider_id}, error={e}")
+                    logger.warning("查询余额失败: provider_id={}, error={}", provider_id, e)
                     return provider_id, ActionResult(
                         status=ActionStatus.UNKNOWN_ERROR,
                         action_type=ProviderActionType.QUERY_BALANCE,
@@ -905,15 +1004,33 @@ class ProviderOpsService:
         # 使用架构的方法构建请求
         verify_endpoint = f"{base_url}{architecture.get_verify_endpoint()}"
 
-        # 执行异步预处理（如获取动态 Cookie）
-        extra_config = await architecture.prepare_verify_config(base_url, config, credentials)
+        # 执行异步预处理（如获取动态 Cookie、登录获取 Token）
+        # 返回值可以是 dict（仅额外配置）或 tuple[dict, dict]（额外配置 + 凭据更新）
+        prepare_result = await architecture.prepare_verify_config(base_url, config, credentials)
+        if isinstance(prepare_result, tuple):
+            extra_config, updated_creds = prepare_result
+        else:
+            extra_config = prepare_result
+            updated_creds = {}
         merged_config = {**config, **extra_config}
+
+        # Token Rotation: prepare_verify_config 可能已消耗旧 refresh_token 并获取新值，
+        # 无论后续验证是否成功都需要立即持久化，否则旧 token 已失效但数据库未更新。
+        if updated_creds and provider_id:
+            logger.info(
+                "验证过程检测到凭据变更: provider_id={}, updated_keys={}",
+                provider_id,
+                list(updated_creds.keys()),
+            )
+            self._persist_updated_credentials(provider_id, updated_creds)
 
         headers = architecture.build_verify_headers(merged_config, credentials)
 
         logger.debug(
-            f"验证认证: architecture={architecture_id}, "
-            f"endpoint={verify_endpoint}, headers={list(headers.keys())}"
+            "验证认证: architecture={}, endpoint={}, headers={}",
+            architecture_id,
+            verify_endpoint,
+            list(headers.keys()),
         )
 
         # 获取代理配置（支持 proxy_node_id 和旧的 proxy URL）
@@ -929,14 +1046,15 @@ class ProviderOpsService:
             }
             if proxy:
                 client_kwargs["proxy"] = proxy
-                logger.debug(f"使用代理: {proxy}")
+                logger.debug("使用代理: {}", proxy)
 
             async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.get(verify_endpoint, headers=headers)
 
                 logger.debug(
-                    f"验证响应: status={response.status_code}, "
-                    f"content_type={response.headers.get('content-type')}"
+                    "验证响应: status={}, content_type={}",
+                    response.status_code,
+                    response.headers.get("content-type"),
                 )
 
                 # 尝试解析 JSON
@@ -954,6 +1072,12 @@ class ProviderOpsService:
                 # 使用架构的方法解析响应
                 result = architecture.parse_verify_response(response.status_code, data)
                 result_dict = result.to_dict()
+
+                # 将凭据更新信息附加到响应，供前端同步更新表单
+                # 过滤掉内部缓存字段（以 _ 开头），前端不需要这些
+                frontend_creds = {k: v for k, v in updated_creds.items() if not k.startswith("_")}
+                if frontend_creds:
+                    result_dict["updated_credentials"] = frontend_creds
 
                 # 验证成功且有 provider_id 时，缓存余额
                 if result.success and provider_id and result.quota is not None:
@@ -974,5 +1098,5 @@ class ProviderOpsService:
         except httpx.ConnectError as e:
             return {"success": False, "message": f"连接失败: {str(e)}"}
         except Exception as e:
-            logger.error(f"验证认证失败: {e}")
+            logger.error("验证认证失败: {}", e)
             return {"success": False, "message": f"验证失败: {str(e)}"}

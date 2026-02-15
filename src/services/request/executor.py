@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -34,6 +35,13 @@ class ExecutionContext:
     start_time: float | None = None
     elapsed_ms: int | None = None
     concurrent_requests: int | None = None
+    rpm_current: int | None = None
+    rpm_limit: int | None = None
+    rpm_available_for_new: int | None = None
+    reservation_ratio: float | None = None
+    reservation_phase: str | None = None
+    reservation_confidence: float | None = None
+    reservation_load_factor: float | None = None
 
 
 @dataclass
@@ -100,8 +108,12 @@ class RequestExecutor:
                     key_id=key.id,
                 )
             except Exception as e:
-                logger.debug(f"获取 RPM 计数失败（用于预留计算）: {e}")
+                logger.debug("获取 RPM 计数失败（用于预留计算）: {}", e)
                 current_key_rpm = 0
+
+            # 在获取 guard 之前记录当前 RPM 计数，便于并发拒绝场景落库
+            context.concurrent_requests = current_key_rpm
+            context.rpm_current = current_key_rpm
 
             # 获取有效的 RPM 限制（自适应或固定）
             effective_key_limit = get_adaptive_rpm_manager().get_effective_limit(key)
@@ -113,10 +125,23 @@ class RequestExecutor:
             )
             dynamic_reservation_ratio = reservation_result.ratio
 
+            context.rpm_limit = effective_key_limit
+            context.reservation_ratio = dynamic_reservation_ratio
+            context.reservation_phase = reservation_result.phase
+            context.reservation_confidence = reservation_result.confidence
+            context.reservation_load_factor = reservation_result.load_factor
+
+            if effective_key_limit is not None and not is_cached_user:
+                context.rpm_available_for_new = max(
+                    1, math.floor(effective_key_limit * (1 - dynamic_reservation_ratio))
+                )
+
             logger.debug(
-                f"[Executor] 动态预留: key={key.id[:8]}..., "
-                f"ratio={dynamic_reservation_ratio:.0%}, phase={reservation_result.phase}, "
-                f"confidence={reservation_result.confidence:.0%}"
+                "[Executor] 动态预留: key={}..., ratio={:.0%}, phase={}, confidence={:.0%}",
+                key.id[:8],
+                dynamic_reservation_ratio,
+                reservation_result.phase,
+                reservation_result.confidence,
             )
 
             async with self.concurrency_manager.rpm_guard(
@@ -131,10 +156,11 @@ class RequestExecutor:
                         key_id=key.id,
                     )
                 except Exception as e:
-                    logger.debug(f"获取 RPM 计数失败（guard 内）: {e}")
+                    logger.debug("获取 RPM 计数失败（guard 内）: {}", e)
                     key_rpm_count = None
 
-                context.concurrent_requests = key_rpm_count  # 用于记录，实际是 RPM 计数
+                if key_rpm_count is not None:
+                    context.concurrent_requests = key_rpm_count  # 用于记录，实际是 RPM 计数
                 context.start_time = time.time()
 
                 response = await request_func(provider, endpoint, key, candidate)

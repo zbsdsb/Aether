@@ -3,7 +3,7 @@ Provider 架构抽象基类
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -58,6 +58,9 @@ class ProviderConnector(ABC):
         # HTTP 客户端配置
         self._timeout = self.config.get("timeout", 30)
         self._headers: dict[str, str] = {}
+
+        # 凭据更新回调（Token Rotation 等场景需要持久化新凭据）
+        self._on_credentials_updated: Callable[[dict[str, Any]], None] | None = None
 
     @abstractmethod
     async def connect(self, credentials: dict[str, Any]) -> bool:
@@ -389,12 +392,11 @@ class ProviderArchitecture(ABC):
         base_url: str,
         config: dict[str, Any],
         credentials: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | tuple[dict[str, Any], dict[str, Any]]:
         """
         验证前的异步预处理（可选）
 
-        子类可重写以执行异步操作（如获取动态 Cookie）。
-        返回的配置会传递给 build_verify_headers。
+        子类可重写以执行异步操作（如获取动态 Cookie、登录获取 Token）。
 
         Args:
             base_url: API 基础地址
@@ -402,7 +404,10 @@ class ProviderArchitecture(ABC):
             credentials: 凭据信息
 
         Returns:
-            处理后的配置（会与原 config 合并）
+            - dict: 额外配置（会与原 config 合并传递给 build_verify_headers）
+            - tuple[dict, dict]: (额外配置, 需持久化的凭据更新)
+              当预处理过程中凭据发生变更时（如 Token Rotation），
+              通过第二个 dict 显式返回需要持久化的字段。
         """
         return {}
 
@@ -516,7 +521,11 @@ class ProviderArchitecture(ABC):
             "credentials_schema": self.get_credentials_schema(),
             "verify_endpoint": self.get_verify_endpoint(),
             "supported_auth_types": [
-                {"type": c.auth_type.value, "display_name": c.display_name}
+                {
+                    "type": c.auth_type.value,
+                    "display_name": c.display_name,
+                    "credentials_schema": c.get_credentials_schema(),
+                }
                 for c in self.supported_connectors
             ],
             "supported_actions": [

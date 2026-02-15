@@ -80,12 +80,13 @@ class Provider(Base):
     # 注意：如果系统配置 keep_priority_on_conversion=true，此字段被忽略（所有提供商都保持优先级）
     keep_priority_on_conversion = Column(Boolean, default=False, nullable=False)
 
-    # 是否允许格式转换（默认 True）
-    # - True: 该提供商可以作为格式转换的目标（如 OpenAI 客户端请求可以路由到此 Gemini 提供商）
-    # - False: 该提供商不接受需要格式转换的请求
+    # 是否允许格式转换（默认 False）
+    # - True: 该提供商可以作为格式转换的目标（全局开关关闭时也可跳过端点检查）
+    # - False: 默认不作为格式转换目标；此时需要端点 format_acceptance_config 显式允许才可跨格式
     # 优先级逻辑：
-    # - 全局开关 ON -> 强制允许所有提供商的格式转换（忽略此字段）
-    # - 全局开关 OFF -> 由此字段决定是否允许该提供商的格式转换
+    # - 全局开关 ON  -> 强制允许跨格式（忽略此字段与端点检查）
+    # - 全局开关 OFF -> 若此字段 ON -> 允许跨格式（跳过端点检查）
+    # - 否则        -> 由端点 format_acceptance_config 决定是否允许
     enable_format_conversion = Column(Boolean, default=False, nullable=False)
 
     # 状态

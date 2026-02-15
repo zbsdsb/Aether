@@ -29,12 +29,14 @@ from src.models.database import (
     ProviderEndpoint,
 )
 from src.services.cache.quota_skipper import is_key_quota_exhausted
+from src.services.cache.utils import release_db_connection_before_await
 from src.services.health.monitor import health_monitor
 from src.services.provider.format import normalize_endpoint_signature
 
 if TYPE_CHECKING:
     from src.models.database import GlobalModel
-    from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
+    from src.services.cache.candidate_sorter import CandidateSorter
+    from src.services.cache.schemas import ProviderCandidate
 
 from src.services.cache.model_cache import ModelCacheService
 
@@ -58,8 +60,8 @@ def _sort_endpoints_by_family_priority(
 class CandidateBuilder:
     """候选构建器，负责查询 Provider、检查模型支持和 Key 可用性、构建候选列表。"""
 
-    def __init__(self, scheduler: CacheAwareScheduler) -> None:
-        self._scheduler = scheduler
+    def __init__(self, candidate_sorter: CandidateSorter) -> None:
+        self._sorter = candidate_sorter
 
     def _query_providers(
         self,
@@ -132,7 +134,7 @@ class CandidateBuilder:
             - provider_model_names: Provider 侧可用的模型名称集合（主名称 + 映射名称，按 api_format 过滤）
         """
         # Avoid holding a DB connection while awaiting cache/Redis inside ModelCacheService.
-        self._scheduler._release_db_connection_before_await(db)
+        release_db_connection_before_await(db)
 
         # 仅接受 GlobalModel.name（不允许映射名）
         normalized_name = model_name.strip() if isinstance(model_name, str) else ""
@@ -373,12 +375,12 @@ class CandidateBuilder:
             max_candidates: 最大候选数
             is_stream: 是否是流式请求，如果为 True 则过滤不支持流式的 Provider
             capability_requirements: 能力需求（可选）
-            global_conversion_enabled: 格式转换总开关（数据库配置），关闭时禁止任何跨格式转换
+            global_conversion_enabled: 格式转换全局开关（数据库配置），关闭时回退到 Provider/Endpoint 精细化配置
 
         Returns:
             候选列表
         """
-        from src.services.cache.aware_scheduler import ProviderCandidate
+        from src.services.cache.schemas import ProviderCandidate
 
         candidates: list[ProviderCandidate] = []
         client_format_str = normalize_endpoint_signature(client_format)
@@ -468,14 +470,14 @@ class CandidateBuilder:
                     str(getattr(endpoint, "endpoint_kind", "")).strip().lower(),
                 )
 
-                # 计算格式转换开关状态（三层优先级）
-                #
-                # 1) 全局开关（数据库配置）关闭 -> 禁止任何跨格式转换
-                # 2) 全局开关开启 -> 允许跨格式转换
-                # 3) 提供商覆盖（Provider.enable_format_conversion）开启 -> 强制允许（跳过端点检查）
-                # 4) 否则 -> 由端点配置 format_acceptance_config 决定是否允许
-                provider_allows_conversion = getattr(provider, "enable_format_conversion", True)
-                skip_endpoint_check = global_conversion_enabled or provider_allows_conversion
+                # 格式转换开关（从高到低）：
+                # 1) 全局开关 enable_format_conversion=ON -> 允许跨格式（跳过端点检查）
+                # 2) 全局开关 OFF -> Provider.enable_format_conversion=ON -> 允许跨格式（跳过端点检查）
+                # 3) 否则 -> 需 Endpoint.format_acceptance_config 显式允许
+                provider_conversion_enabled = bool(
+                    getattr(provider, "enable_format_conversion", False)
+                )
+                skip_endpoint_check = global_conversion_enabled or provider_conversion_enabled
 
                 is_compatible, needs_conversion, _compat_reason = is_format_compatible(
                     client_format_str,
@@ -492,7 +494,7 @@ class CandidateBuilder:
                     endpoint_format_str,
                     is_compatible,
                     global_conversion_enabled,
-                    provider_allows_conversion,
+                    provider_conversion_enabled,
                     skip_endpoint_check,
                     _compat_reason,
                 )
@@ -521,8 +523,11 @@ class CandidateBuilder:
                 )
                 if not supports_model:
                     logger.debug(
-                        f"Provider {provider.name} 端点 {endpoint_format_str} "
-                        f"不支持模型 {model_name}: {skip_reason}"
+                        "Provider {} 端点 {} 不支持模型 {}: {}",
+                        provider.name,
+                        endpoint_format_str,
+                        model_name,
+                        skip_reason,
                     )
                     continue
 
@@ -541,11 +546,13 @@ class CandidateBuilder:
                 use_random = all((key.cache_ttl_minutes or 0) == 0 for key in active_keys)
                 if use_random and len(active_keys) > 1:
                     logger.debug(
-                        f"  Provider {provider.name} 启用 Key 轮换模式 "
-                        f"(endpoint_format={endpoint_format_str}, {len(active_keys)} keys)"
+                        "  Provider {} 启用 Key 轮换模式 (endpoint_format={}, {} keys)",
+                        provider.name,
+                        endpoint_format_str,
+                        len(active_keys),
                     )
 
-                keys = self._scheduler._candidate_sorter._shuffle_keys_by_internal_priority(
+                keys = self._sorter.shuffle_keys_by_internal_priority(
                     active_keys, affinity_key, use_random
                 )
 

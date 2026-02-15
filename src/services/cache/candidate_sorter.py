@@ -13,21 +13,22 @@ import random
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from src.core.logger import logger
+from src.services.cache.scheduling_config import SchedulingConfig
+from src.services.cache.utils import affinity_hash
 from src.services.system.config import SystemConfigService
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from src.models.database import ProviderAPIKey
-    from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
+    from src.services.cache.schemas import ProviderCandidate
 
 
 class CandidateSorter:
     """候选排序器，负责优先级模式排序、负载均衡排序和 Key 内部打乱。"""
 
-    def __init__(self, scheduler: CacheAwareScheduler) -> None:
-        self._scheduler = scheduler
+    def __init__(self, config: SchedulingConfig) -> None:
+        self._config = config
 
     def _apply_priority_mode_sort(
         self,
@@ -51,14 +52,12 @@ class CandidateSorter:
         if not candidates:
             return candidates
 
-        s = self._scheduler
-
         # 全局配置：如果开启，所有候选保持原优先级
         global_keep_priority = SystemConfigService.is_keep_priority_on_conversion(db)
 
         if global_keep_priority:
             # 全局开启：不分组，直接按优先级模式排序
-            if s.priority_mode == s.PRIORITY_MODE_GLOBAL_KEY:
+            if self._config.priority_mode == SchedulingConfig.PRIORITY_MODE_GLOBAL_KEY:
                 return self._sort_by_global_priority_with_hash(candidates, affinity_key, api_format)
             # 提供商优先模式：保持构建时的顺序（已按 provider_priority 排序）
             return candidates
@@ -80,7 +79,7 @@ class CandidateSorter:
                 # convertible 且未配置保持优先级：降级
                 demote_candidates.append(c)
 
-        if s.priority_mode == s.PRIORITY_MODE_GLOBAL_KEY:
+        if self._config.priority_mode == SchedulingConfig.PRIORITY_MODE_GLOBAL_KEY:
             # 全局 Key 优先模式：分别对两组排序后合并
             sorted_keep = self._sort_by_global_priority_with_hash(
                 keep_priority_candidates, affinity_key, api_format
@@ -132,7 +131,7 @@ class CandidateSorter:
                 scored_candidates = []
                 for candidate in group:
                     key_id = candidate.key.id if candidate.key else ""
-                    hash_value = self._scheduler._affinity_hash(affinity_key, key_id)
+                    hash_value = affinity_hash(affinity_key, key_id)
                     scored_candidates.append((hash_value, candidate))
 
                 # 按哈希值排序
@@ -167,11 +166,10 @@ class CandidateSorter:
         if not candidates:
             return candidates
 
-        s = self._scheduler
         priority_groups: dict[tuple, list[ProviderCandidate]] = defaultdict(list)
 
         # 根据优先级模式选择分组方式
-        if s.priority_mode == s.PRIORITY_MODE_GLOBAL_KEY:
+        if self._config.priority_mode == SchedulingConfig.PRIORITY_MODE_GLOBAL_KEY:
             # 全局 Key 优先模式：按格式特定优先级分组
             for candidate in candidates:
                 priority = 999999
@@ -203,6 +201,14 @@ class CandidateSorter:
                 result.extend(group)
 
         return result
+
+    def shuffle_keys_by_internal_priority(
+        self,
+        keys: list[ProviderAPIKey],
+        affinity_key: str | None = None,
+        use_random: bool = False,
+    ) -> list[ProviderAPIKey]:
+        return self._shuffle_keys_by_internal_priority(keys, affinity_key, use_random)
 
     def _shuffle_keys_by_internal_priority(
         self,
@@ -252,7 +258,7 @@ class CandidateSorter:
                     # 正常模式：使用哈希确定性打乱（保持缓存亲和性）
                     key_scores = []
                     for key in group_keys:
-                        hash_value = self._scheduler._affinity_hash(affinity_key, key.id)
+                        hash_value = affinity_hash(affinity_key, key.id)
                         key_scores.append((hash_value, key))
 
                     # 按哈希值排序

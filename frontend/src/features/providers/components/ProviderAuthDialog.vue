@@ -25,26 +25,56 @@
         v-else
         class="space-y-4"
       >
-        <!-- 认证模板选择 -->
-        <div class="space-y-2">
-          <Label>认证模板</Label>
-          <Select
-            v-model="selectedArchitectureId"
-            @update:model-value="handleArchitectureChange"
+        <!-- 认证模板 + 认证方式（并排） -->
+        <div class="flex gap-3">
+          <div
+            class="space-y-2"
+            :style="{ flex: currentAuthTypes.length > 1 ? 1 : 'auto', width: currentAuthTypes.length > 1 ? undefined : '100%' }"
           >
-            <SelectTrigger>
-              <SelectValue placeholder="选择认证模板" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem
-                v-for="arch in architectures"
-                :key="arch.architecture_id"
-                :value="arch.architecture_id"
-              >
-                {{ arch.display_name }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
+            <Label>认证模板</Label>
+            <Select
+              v-model="selectedArchitectureId"
+              @update:model-value="handleArchitectureChange"
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="选择认证模板" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="arch in architectures"
+                  :key="arch.architecture_id"
+                  :value="arch.architecture_id"
+                >
+                  {{ arch.display_name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div
+            v-if="currentAuthTypes.length > 1"
+            class="space-y-2"
+            style="flex: 1"
+          >
+            <Label>认证方式</Label>
+            <Select
+              v-model="selectedAuthType"
+              @update:model-value="handleAuthTypeChange"
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="选择认证方式" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="authType in currentAuthTypes"
+                  :key="authType.type"
+                  :value="authType.type"
+                >
+                  {{ authType.display_name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <!-- 动态表单字段 -->
@@ -253,7 +283,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { KeyRound } from 'lucide-vue-next'
 import {
   Dialog,
@@ -342,11 +372,28 @@ const architecturesLoaded = ref(false)
 
 // 当前选择
 const selectedArchitectureId = ref('new_api')
+const selectedAuthType = ref('')
 const formData = ref<Record<string, any>>({})
 
-// 当前架构的 schema
+// 当前架构支持的认证方式
+const currentAuthTypes = computed(() => {
+  const arch = architectures.value.find((a) => a.architecture_id === selectedArchitectureId.value)
+  return arch?.supported_auth_types ?? []
+})
+
+// 当前架构的 schema（优先从选中的 auth_type 获取）
 const currentSchema = computed<CredentialsSchema | null>(() => {
   const arch = architectures.value.find((a) => a.architecture_id === selectedArchitectureId.value)
+  if (!arch) return null
+
+  // 如果有选中的 auth_type 且架构有多个 connector，从对应的 auth_type 获取 schema
+  if (selectedAuthType.value && arch.supported_auth_types.length > 1) {
+    const authType = arch.supported_auth_types.find((t) => t.type === selectedAuthType.value)
+    if (authType?.credentials_schema) {
+      return authType.credentials_schema as CredentialsSchema
+    }
+  }
+
   return (arch?.credentials_schema as CredentialsSchema) ?? null
 })
 
@@ -385,6 +432,15 @@ const fieldGroups = computed<AuthTemplateFieldGroup[]>(() => {
 
 // Methods
 function handleArchitectureChange() {
+  // 切换架构时，默认选中第一个认证方式
+  const authTypes = currentAuthTypes.value
+  selectedAuthType.value = authTypes.length > 0 ? authTypes[0].type : ''
+  resetFormData()
+  verifyStatus.value = null
+  formChanged.value = true
+}
+
+function handleAuthTypeChange() {
   resetFormData()
   verifyStatus.value = null
   formChanged.value = true
@@ -492,6 +548,19 @@ async function handleVerify() {
       } else {
         verifyStatus.value = 'success'
         formChanged.value = false
+
+        // Token Rotation: 验证过程中 refresh_token 可能已被轮换，用新值更新表单
+        // 必须在 formChanged=false 之后执行，避免 watch 将 formChanged 重新设为 true
+        if (result.updated_credentials) {
+          for (const [key, value] of Object.entries(result.updated_credentials)) {
+            formData.value[key] = value
+          }
+          // 凭据更新不算用户修改，保持可保存状态
+          nextTick(() => {
+            formChanged.value = false
+          })
+        }
+
         const displayName = result.data?.display_name || result.data?.username
         const extra = result.data?.extra
         let balanceText = `余额: ${formatQuota(quota)}`
@@ -502,6 +571,14 @@ async function handleVerify() {
       }
     } else {
       verifyStatus.value = 'error'
+
+      // Token Rotation: 即使验证失败，refresh_token 可能已被轮换（旧 token 已失效）
+      if (result.updated_credentials) {
+        for (const [key, value] of Object.entries(result.updated_credentials)) {
+          formData.value[key] = value
+        }
+      }
+
       showError(result.message || '验证失败')
     }
   } catch (error: any) {
@@ -582,6 +659,7 @@ async function handleClear() {
       verifyStatus.value = null
       formChanged.value = false
       selectedArchitectureId.value = 'new_api'
+      selectedAuthType.value = ''
       resetFormData()
       emit('saved')
       emit('update:open', false)
@@ -604,6 +682,15 @@ function loadFromConfig(config: any) {
   const architectureId = config.architecture_id || 'new_api'
   const archExists = architectures.value.some((a) => a.architecture_id === architectureId)
   selectedArchitectureId.value = archExists ? architectureId : 'new_api'
+
+  // 从已保存的 connector auth_type 恢复认证方式选择
+  const savedAuthType = config.connector?.auth_type
+  const authTypes = currentAuthTypes.value
+  if (savedAuthType && authTypes.some((t) => t.type === savedAuthType)) {
+    selectedAuthType.value = savedAuthType
+  } else {
+    selectedAuthType.value = authTypes.length > 0 ? authTypes[0].type : ''
+  }
 
   const schema = currentSchema.value
   if (schema) {
@@ -666,12 +753,14 @@ watch(
             hasExistingConfig.value = false
             sensitivePlaceholders.value = {}
             selectedArchitectureId.value = 'new_api'
+            selectedAuthType.value = ''
             resetFormData()
           }
         } catch {
           hasExistingConfig.value = false
           sensitivePlaceholders.value = {}
           selectedArchitectureId.value = 'new_api'
+          selectedAuthType.value = ''
           resetFormData()
         } finally {
           isLoadingConfig.value = false
@@ -680,6 +769,7 @@ watch(
         hasExistingConfig.value = false
         sensitivePlaceholders.value = {}
         selectedArchitectureId.value = 'new_api'
+        selectedAuthType.value = ''
         resetFormData()
       }
     }

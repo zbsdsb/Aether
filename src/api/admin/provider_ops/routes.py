@@ -41,7 +41,7 @@ class ArchitectureInfo(BaseModel):
     display_name: str
     description: str
     credentials_schema: dict[str, Any]
-    supported_auth_types: list[dict[str, str]]
+    supported_auth_types: list[dict[str, Any]]
     supported_actions: list[dict[str, Any]]
     default_connector: str | None
 
@@ -131,6 +131,7 @@ class VerifyAuthResponse(BaseModel):
     success: bool
     message: str | None = None
     data: dict[str, Any] | None = None
+    updated_credentials: dict[str, Any] | None = None
 
 
 # ==================== Helper Functions ====================
@@ -338,6 +339,7 @@ async def verify_provider_auth(
         success=result.get("success", False),
         message=result.get("message"),
         data=result.get("data"),
+        updated_credentials=result.get("updated_credentials"),
     )
 
 

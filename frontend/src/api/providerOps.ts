@@ -49,6 +49,7 @@ export interface ArchitectureInfo {
   supported_auth_types: Array<{
     type: string
     display_name: string
+    credentials_schema?: Record<string, any>
   }>
   supported_actions: Array<{
     type: string
@@ -340,6 +341,7 @@ export interface VerifyAuthResponse {
     request_count?: number
     extra?: Record<string, any>
   }
+  updated_credentials?: Record<string, any>
 }
 
 /**

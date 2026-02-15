@@ -1,0 +1,88 @@
+"""
+调度器核心数据类型
+
+从 CacheAwareScheduler 提取的共享数据结构，被 24+ 个模块使用。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from src.models.database import (
+    Provider,
+    ProviderAPIKey,
+    ProviderEndpoint,
+)
+
+
+@dataclass
+class ProviderCandidate:
+    """候选 provider 组合及是否命中缓存"""
+
+    provider: Provider
+    endpoint: ProviderEndpoint
+    key: ProviderAPIKey
+    is_cached: bool = False
+    is_skipped: bool = False  # 是否被跳过
+    skip_reason: str | None = None  # 跳过原因
+    mapping_matched_model: str | None = None  # 通过映射匹配到的模型名（用于实际请求）
+    needs_conversion: bool = False  # 是否需要格式转换
+    provider_api_format: str = ""  # Provider 端点实际格式（用于健康度/熔断 bucket）
+
+    def _stable_order_key(self) -> tuple[int, int, str, str, str]:
+        """
+        为排序/优先队列提供稳定的比较键。
+
+        说明：
+        - 运行时偶发会出现对 ProviderCandidate 做 tuple 排序/heap 排序的场景；
+          当主键相同需要比较候选本身时，若候选不可比较会触发：
+          TypeError: '<' not supported between instances of 'ProviderCandidate' and 'ProviderCandidate'
+        - 这里提供一个与调度逻辑无关、但足够稳定且可比的兜底顺序。
+        """
+        provider_priority_raw = getattr(self.provider, "provider_priority", None)
+        internal_priority_raw = getattr(self.key, "internal_priority", None)
+
+        try:
+            provider_priority = (
+                int(provider_priority_raw) if provider_priority_raw is not None else 999999
+            )
+        except Exception:
+            provider_priority = 999999
+
+        try:
+            internal_priority = (
+                int(internal_priority_raw) if internal_priority_raw is not None else 999999
+            )
+        except Exception:
+            internal_priority = 999999
+
+        provider_id = str(getattr(self.provider, "id", "") or "")
+        endpoint_id = str(getattr(self.endpoint, "id", "") or "")
+        key_id = str(getattr(self.key, "id", "") or "")
+        return (provider_priority, internal_priority, provider_id, endpoint_id, key_id)
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, ProviderCandidate):
+            return NotImplemented
+        return self._stable_order_key() < other._stable_order_key()
+
+
+@dataclass
+class ConcurrencySnapshot:
+    key_current: int
+    key_limit: int | None
+    is_cached_user: bool = False
+    # 动态预留信息
+    reservation_ratio: float = 0.0
+    reservation_phase: str = "unknown"
+    reservation_confidence: float = 0.0
+    load_factor: float = 0.0
+
+    def describe(self) -> str:
+        key_limit_text = str(self.key_limit) if self.key_limit is not None else "inf"
+        reservation_text = f"{self.reservation_ratio:.0%}" if self.reservation_ratio > 0 else "N/A"
+        return (
+            f"key={self.key_current}/{key_limit_text}, "
+            f"cached={self.is_cached_user}, "
+            f"reserve={reservation_text}({self.reservation_phase})"
+        )

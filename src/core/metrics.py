@@ -39,6 +39,13 @@ request_total = Counter(
     ["type", "status"],  # type values: streaming/non-streaming, status: success/error
 )
 
+# 调度：并发拒绝计数（RPM guard）
+scheduler_concurrency_denied_total = Counter(
+    "scheduler_concurrency_denied_total",
+    "Total number of candidates skipped due to concurrency/RPM limits",
+    ["is_cached_user", "reason", "reservation_phase"],
+)
+
 # 健康监控相关
 health_open_circuits = Gauge(
     "health_open_circuits",

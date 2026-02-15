@@ -247,7 +247,13 @@ class RequestCandidateService:
 
     @staticmethod
     def mark_candidate_skipped(
-        db: Session, candidate_id: str, skip_reason: str | None = None
+        db: Session,
+        candidate_id: str,
+        skip_reason: str | None = None,
+        *,
+        status_code: int | None = None,
+        concurrent_requests: int | None = None,
+        extra_data: dict | None = None,
     ) -> None:
         """
         标记候选为已跳过
@@ -256,12 +262,25 @@ class RequestCandidateService:
             db: 数据库会话
             candidate_id: 候选ID
             skip_reason: 跳过原因
+            status_code: HTTP 状态码（可选）
+            concurrent_requests: 并发请求数（这里实际记录 RPM 计数）
+            extra_data: 额外数据（合并写入）
         """
         candidate = db.query(RequestCandidate).filter(RequestCandidate.id == candidate_id).first()
         if candidate:
             candidate.status = "skipped"
             candidate.skip_reason = skip_reason
             candidate.finished_at = datetime.now(timezone.utc)
+
+            if status_code is not None:
+                candidate.status_code = int(status_code)
+            if concurrent_requests is not None:
+                candidate.concurrent_requests = int(concurrent_requests)
+
+            if extra_data:
+                base = candidate.extra_data if isinstance(candidate.extra_data, dict) else {}
+                candidate.extra_data = {**base, **extra_data}
+
             db.flush()  # 只 flush，不立即 commit
             get_batch_committer().mark_dirty(db)
 
@@ -364,5 +383,5 @@ class RequestCandidateService:
                 first_byte_epoch_ms = request_start_epoch_ms + global_first_byte_time_ms
                 return max(0, int(first_byte_epoch_ms - started_at_epoch_ms))
         except Exception as e:
-            logger.debug(f"计算候选 TTFB 失败: {e}")
+            logger.debug("计算候选 TTFB 失败: {}", e)
         return global_first_byte_time_ms

@@ -81,7 +81,7 @@ class ConcurrencyManager:
                 # 内存模式下启动后台清理任务
                 self._start_background_cleanup()
         except Exception as e:
-            logger.error(f"[ERROR] 获取全局 Redis 客户端失败: {e}")
+            logger.error("[ERROR] 获取全局 Redis 客户端失败: {}", e)
             logger.warning("[WARN] RPM 限制将降级为内存模式（仅在单实例环境下安全）")
             self._redis = None
             self._owns_redis = False
@@ -104,7 +104,7 @@ class ConcurrencyManager:
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    logger.debug(f"后台清理任务异常: {e}")
+                    logger.debug("后台清理任务异常: {}", e)
 
         try:
             self._cleanup_task = asyncio.create_task(cleanup_loop())
@@ -164,21 +164,26 @@ class ConcurrencyManager:
         # 分级告警：根据使用率记录不同级别的日志
         if current_size >= critical_threshold and key_id not in self._memory_key_rpm_counts:
             logger.critical(
-                f"[CRITICAL] 内存 RPM 计数器接近上限 ({current_size}/{self._max_memory_rpm_entries})，"
-                f"强烈建议启用 Redis！继续增长可能导致 RPM 限制失效"
+                "[CRITICAL] 内存 RPM 计数器接近上限 ({}/{})，"
+                "强烈建议启用 Redis！继续增长可能导致 RPM 限制失效",
+                current_size,
+                self._max_memory_rpm_entries,
             )
         elif current_size >= high_threshold and key_id not in self._memory_key_rpm_counts:
             # 每 100 个条目告警一次，避免日志过多
             if current_size % 100 == 0:
                 logger.error(
-                    f"[ERROR] 内存 RPM 计数器使用率过高 ({current_size}/{self._max_memory_rpm_entries})，"
-                    f"建议启用 Redis"
+                    "[ERROR] 内存 RPM 计数器使用率过高 ({}/{})，建议启用 Redis",
+                    current_size,
+                    self._max_memory_rpm_entries,
                 )
         elif current_size >= warning_threshold and key_id not in self._memory_key_rpm_counts:
             if current_size == warning_threshold:
                 logger.warning(
-                    f"[WARN] 内存 RPM 计数器达到 {self._memory_warning_threshold:.0%} 阈值 "
-                    f"({current_size}/{self._max_memory_rpm_entries})，建议启用 Redis"
+                    "[WARN] 内存 RPM 计数器达到 {:.0%} 阈值 ({}/{})，建议启用 Redis",
+                    self._memory_warning_threshold,
+                    current_size,
+                    self._max_memory_rpm_entries,
                 )
 
         # 检查是否超过最大条目限制
@@ -197,7 +202,7 @@ class ConcurrencyManager:
                 )
                 for k, _ in sorted_keys[:evict_count]:
                     del self._memory_key_rpm_counts[k]
-                logger.warning(f"[WARN] 内存 RPM 计数器达到上限，已淘汰 {evict_count} 个最旧条目")
+                logger.warning("[WARN] 内存 RPM 计数器达到上限，已淘汰 {} 个最旧条目", evict_count)
         self._memory_key_rpm_counts[key_id] = (bucket, count)
 
     def _cleanup_expired_memory_rpm_counts(self, current_bucket: int, force: bool = False) -> None:
@@ -232,7 +237,7 @@ class ConcurrencyManager:
             del self._memory_key_rpm_counts[key_id]
 
         if expired_keys:
-            logger.debug(f"[CLEANUP] 清理了 {len(expired_keys)} 个过期的内存 RPM 计数")
+            logger.debug("[CLEANUP] 清理了 {} 个过期的内存 RPM 计数", len(expired_keys))
 
     async def get_key_rpm_count(self, key_id: str) -> int:
         """
@@ -256,7 +261,7 @@ class ConcurrencyManager:
             result = await self._redis.get(key_key)
             return int(result) if result else 0
         except Exception as e:
-            logger.error(f"获取 RPM 计数失败: {e}")
+            logger.error("获取 RPM 计数失败: {}", e)
             return 0
 
     async def check_rpm_available(
@@ -405,7 +410,7 @@ class ConcurrencyManager:
 
             if success:
                 user_type = "缓存用户" if is_cached_user else "新用户"
-                logger.debug(f"[OK] 获取 RPM 槽位成功: key={key_id}, 类型={user_type}")
+                logger.debug("[OK] 获取 RPM 槽位成功: key={}, 类型={}", key_id, user_type)
             else:
                 key_count = await self.get_key_rpm_count(key_id)
 
@@ -416,12 +421,12 @@ class ConcurrencyManager:
                 else:
                     user_info = f"缓存用户, 当前={key_count}/{key_rpm_limit}"
 
-                logger.warning(f"[WARN] RPM 限制已达上限: key={key_id}({user_info})")
+                logger.warning("[WARN] RPM 限制已达上限: key={}({})", key_id, user_info)
 
             return success
 
         except Exception as e:
-            logger.error(f"获取 RPM 槽位失败，降级到内存模式: {e}")
+            logger.error("获取 RPM 槽位失败，降级到内存模式: {}", e)
             # Redis 异常时降级到内存模式进行保守限流
             async with self._memory_lock:
                 bucket = self._get_rpm_bucket()
@@ -436,13 +441,15 @@ class ConcurrencyManager:
 
                 if fallback_rpm_limit is not None and key_count >= fallback_rpm_limit:
                     logger.warning(
-                        f"[FALLBACK] Key RPM 达到降级限制: {key_count}/{fallback_rpm_limit}"
+                        "[FALLBACK] Key RPM 达到降级限制: {}/{}",
+                        key_count,
+                        fallback_rpm_limit,
                     )
                     return False
 
                 # 更新内存计数
                 self._set_memory_key_rpm_count(key_id, bucket, key_count + 1)
-                logger.debug(f"[FALLBACK] 使用内存模式获取 RPM 槽位: key={key_id}")
+                logger.debug("[FALLBACK] 使用内存模式获取 RPM 槽位: key={}", key_id)
                 return True
 
     @asynccontextmanager
@@ -485,8 +492,8 @@ class ConcurrencyManager:
         if not acquired:
             from src.core.exceptions import ConcurrencyLimitError
 
-            user_type = "缓存用户" if is_cached_user else "新用户"
-            raise ConcurrencyLimitError(f"RPM 限制已达上限: key={key_id}, 类型={user_type}")
+            # Keep the client-facing message generic; do not leak internal IDs.
+            raise ConcurrencyLimitError("服务暂时繁忙，请稍后重试")
 
         # 记录开始时间和状态
         import time
@@ -525,15 +532,15 @@ class ConcurrencyManager:
                 # 告警：槽位占用时间过长（超过 60 秒）
                 if slot_duration > 60:
                     logger.warning(
-                        f"[WARN] 请求耗时过长: "
-                        f"key_id={key_id[:8] if key_id else 'unknown'}..., "
-                        f"duration={slot_duration:.1f}s, "
-                        f"exception={exception_occurred}"
+                        "[WARN] 请求耗时过长: key_id={}..., duration={:.1f}s, exception={}",
+                        key_id[:8] if key_id else "unknown",
+                        slot_duration,
+                        exception_occurred,
                     )
 
             except Exception as metric_error:
                 # 指标记录失败不应影响业务逻辑
-                logger.debug(f"记录指标失败: {metric_error}")
+                logger.debug("记录指标失败: {}", metric_error)
 
             # 注意：RPM 计数不需要在请求结束后释放，它会在分钟窗口过期后自动重置
 
@@ -547,14 +554,14 @@ class ConcurrencyManager:
         if self._redis is None:
             async with self._memory_lock:
                 self._memory_key_rpm_counts.pop(key_id, None)
-                logger.info(f"[RESET] 重置 Key RPM 计数(内存): {key_id}")
+                logger.info("[RESET] 重置 Key RPM 计数(内存): {}", key_id)
             return
 
         try:
             deleted_count = await self._scan_and_delete(f"rpm:key:{key_id}:*")
-            logger.info(f"[RESET] 重置 Key RPM 计数: {key_id}, 删除 {deleted_count} 个键")
+            logger.info("[RESET] 重置 Key RPM 计数: {}, 删除 {} 个键", key_id, deleted_count)
         except Exception as e:
-            logger.error(f"重置 Key RPM 计数失败: {e}")
+            logger.error("重置 Key RPM 计数失败: {}", e)
 
     async def reset_all_rpm(self) -> None:
         """重置所有 Key RPM 计数（管理功能，慎用）"""
@@ -563,15 +570,15 @@ class ConcurrencyManager:
                 count = len(self._memory_key_rpm_counts)
                 self._memory_key_rpm_counts.clear()
                 if count:
-                    logger.info(f"[RESET] 重置所有 Key RPM 计数(内存): {count} 个")
+                    logger.info("[RESET] 重置所有 Key RPM 计数(内存): {} 个", count)
             return
 
         try:
             deleted_count = await self._scan_and_delete("rpm:key:*")
             if deleted_count:
-                logger.info(f"[RESET] 重置所有 Key RPM 计数: {deleted_count} 个")
+                logger.info("[RESET] 重置所有 Key RPM 计数: {} 个", deleted_count)
         except Exception as e:
-            logger.error(f"重置所有 Key RPM 计数失败: {e}")
+            logger.error("重置所有 Key RPM 计数失败: {}", e)
 
     async def _scan_and_delete(self, pattern: str, batch_size: int = 100) -> int:
         """使用 SCAN 遍历并分批删除匹配的键，避免阻塞 Redis"""

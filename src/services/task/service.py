@@ -740,17 +740,99 @@ class TaskService:
         has_retry_left = retry_index < (max_retries_for_candidate - 1)
 
         if isinstance(cause, ConcurrencyLimitError):
+            rpm_current = context.rpm_current
+            if rpm_current is None:
+                rpm_current = captured_key_concurrent
+
+            rpm_limit = context.rpm_limit
+            rpm_available_for_new = context.rpm_available_for_new
+            reservation_ratio = context.reservation_ratio
+            reservation_phase = context.reservation_phase or "unknown"
+            reservation_confidence = context.reservation_confidence
+            reservation_load_factor = context.reservation_load_factor
+
+            reason_code = "unknown"
+            if rpm_limit is not None and rpm_current is not None:
+                if context.is_cached_user:
+                    if rpm_current >= rpm_limit:
+                        reason_code = "total_limit"
+                else:
+                    if rpm_available_for_new is not None and rpm_current >= rpm_available_for_new:
+                        reason_code = (
+                            "reserved_for_cached" if rpm_current < rpm_limit else "total_limit"
+                        )
+                    elif rpm_current >= rpm_limit:
+                        reason_code = "total_limit"
+
+            reason_text = "并发限制"
+            if reason_code == "reserved_for_cached":
+                reason_text = "并发限制: 新用户配额已满（预留给缓存用户）"
+            elif reason_code == "total_limit":
+                reason_text = "并发限制: 总配额已满"
+
+            parts: list[str] = []
+            if rpm_current is not None:
+                parts.append(f"current={rpm_current}")
+            if rpm_limit is not None:
+                parts.append(f"limit={rpm_limit}")
+            if rpm_available_for_new is not None and not context.is_cached_user:
+                parts.append(f"new={rpm_available_for_new}")
+            if reservation_ratio is not None:
+                parts.append(f"reserve={reservation_ratio:.0%}")
+            if reservation_phase:
+                parts.append(f"phase={reservation_phase}")
+
+            skip_reason = reason_text
+            if parts:
+                skip_reason = f"{reason_text} ({', '.join(parts)})"
+
             logger.warning(
-                "  [{}] 并发限制 (attempt={}/{}): {}",
+                "  [{}] 并发限制 (attempt={}/{}): provider={}, key={}, cached={}, reason={}, {}",
                 request_id,
                 attempt,
                 max_attempts,
-                str(cause),
+                provider.name,
+                str(key.id)[:8],
+                bool(context.is_cached_user),
+                reason_code,
+                ", ".join(parts) if parts else "N/A",
             )
+
+            extra_data: dict[str, Any] = {
+                "concurrency_denied": True,
+                "concurrency_reason": reason_code,
+                "rpm_current": rpm_current,
+                "rpm_limit": rpm_limit,
+                "rpm_available_for_new": rpm_available_for_new,
+                "reservation_ratio": reservation_ratio,
+                "reservation_phase": reservation_phase,
+                "reservation_confidence": reservation_confidence,
+                "reservation_load_factor": reservation_load_factor,
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+            }
+            extra_data = {k: v for k, v in extra_data.items() if v is not None}
+            if _proxy_extra:
+                extra_data = {**_proxy_extra, **extra_data}
+
+            try:
+                from src.core.metrics import scheduler_concurrency_denied_total
+
+                scheduler_concurrency_denied_total.labels(
+                    is_cached_user=str(bool(context.is_cached_user)).lower(),
+                    reason=reason_code,
+                    reservation_phase=str(reservation_phase or "unknown"),
+                ).inc()
+            except Exception:
+                pass
+
             RequestCandidateService.mark_candidate_skipped(
                 db=self.db,
                 candidate_id=candidate_record_id,
-                skip_reason=f"并发限制: {str(cause)}",
+                skip_reason=skip_reason,
+                status_code=429,
+                concurrent_requests=rpm_current,
+                extra_data=extra_data,
             )
             return "break"
 
