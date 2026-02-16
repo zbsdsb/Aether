@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 import httpx
 
-from src.services.cache.aware_scheduler import ProviderCandidate
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 
 
 class AttemptKind(str, Enum):

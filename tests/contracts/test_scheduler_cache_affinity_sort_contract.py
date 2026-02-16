@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
+from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler, ProviderCandidate
 
 
 def _make_candidate(
@@ -31,15 +33,15 @@ def _make_candidate(
     )
 
     return ProviderCandidate(
-        provider=provider,
-        endpoint=endpoint,
-        key=key,
+        provider=cast(Provider, provider),
+        endpoint=cast(ProviderEndpoint, endpoint),
+        key=cast(ProviderAPIKey, key),
         is_cached=False,
         is_skipped=is_skipped,
         skip_reason="unhealthy" if is_skipped else None,
         needs_conversion=needs_conversion,
         provider_api_format="openai:chat",
-    )  # type: ignore[arg-type]
+    )
 
 
 @pytest.mark.asyncio

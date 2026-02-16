@@ -1425,7 +1425,7 @@ class GeminiNormalizer(FormatNormalizer):
                         )
 
                         try:
-                            from src.services.provider.adapters.antigravity.signature_cache import (
+                            from src.core.api_format.conversion.thinking_cache import (
                                 signature_cache,
                             )
 
@@ -1565,7 +1565,7 @@ class GeminiNormalizer(FormatNormalizer):
         from src.core.api_format.conversion.constants import DUMMY_THOUGHT_SIGNATURE
 
         try:
-            from src.services.provider.adapters.antigravity.signature_cache import signature_cache
+            from src.core.api_format.conversion.thinking_cache import signature_cache
 
             cached_or_dummy = signature_cache.get_or_dummy(model, text_val)
 

@@ -28,8 +28,6 @@ class ConcurrencyManager:
 
     _instance: ConcurrencyManager | None = None
     _redis: aioredis.Redis | None = None
-    _key_rpm_bucket_seconds: int = 60
-    _key_rpm_key_ttl_seconds: int = 120  # 2 分钟，足够覆盖当前分钟与边界
 
     def __new__(cls) -> "ConcurrencyManager":
         """单例模式"""
@@ -42,13 +40,18 @@ class ConcurrencyManager:
         if hasattr(self, "_memory_initialized"):
             return
 
+        from src.config.settings import config
+
+        self._key_rpm_bucket_seconds: int = config.rpm_bucket_seconds
+        self._key_rpm_key_ttl_seconds: int = config.rpm_key_ttl_seconds
+
         self._memory_lock: asyncio.Lock = asyncio.Lock()
         # Key RPM 计数器：{key_id: (bucket, count)}，bucket = floor(now / 60)
         self._memory_key_rpm_counts: dict[str, tuple[int, int]] = {}
         self._owns_redis: bool = False
         self._last_cleanup_bucket: int = 0  # 上次清理时的 bucket，用于定期清理过期数据
         self._last_cleanup_time: float = 0  # 上次清理的时间戳，用于强制定期清理
-        self._cleanup_interval_seconds: int = 300  # 强制清理间隔（5 分钟）
+        self._cleanup_interval_seconds: int = config.rpm_cleanup_interval_seconds
         self._cleanup_task: asyncio.Task | None = None  # 后台清理任务
 
         # 内存模式下的最大条目限制，防止内存泄漏（支持环境变量覆盖）
@@ -130,16 +133,14 @@ class ConcurrencyManager:
         self._redis = None
         self._owns_redis = False
 
-    @classmethod
-    def _get_rpm_bucket(cls, now_ts: float | None = None) -> int:
+    def _get_rpm_bucket(self, now_ts: float | None = None) -> int:
         """获取当前 RPM 计数桶（按分钟）"""
         ts = now_ts if now_ts is not None else time.time()
-        return int(ts // cls._key_rpm_bucket_seconds)
+        return int(ts // self._key_rpm_bucket_seconds)
 
-    @classmethod
-    def _get_key_key(cls, key_id: str, bucket: int | None = None) -> str:
+    def _get_key_key(self, key_id: str, bucket: int | None = None) -> str:
         """获取 ProviderAPIKey RPM 计数的 Redis Key（按分钟桶）"""
-        b = bucket if bucket is not None else cls._get_rpm_bucket()
+        b = bucket if bucket is not None else self._get_rpm_bucket()
         return f"rpm:key:{key_id}:{b}"
 
     def _get_memory_key_rpm_count(self, key_id: str, bucket: int) -> int:

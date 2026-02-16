@@ -643,7 +643,7 @@ class AdminSetSystemConfigAdapter(AdminApiAdapter):
         if self.key in ("scheduling_mode", "provider_priority_mode"):
             try:
                 from src.clients.redis_client import get_redis_client_sync
-                from src.services.cache.aware_scheduler import get_cache_aware_scheduler
+                from src.services.scheduling.aware_scheduler import get_cache_aware_scheduler
 
                 redis_client = get_redis_client_sync()
                 # 从数据库读取两个调度配置的最新值，确保一致性

@@ -416,7 +416,7 @@ class UserService:
         通过 GlobalModel + Model 关联查询用户可用模型
         逻辑：使用 AccessRestrictions 统一处理 allowed_providers 和 allowed_models 限制
         """
-        from src.api.base.models_service import AccessRestrictions
+        from src.core.access_restrictions import AccessRestrictions
 
         # 使用 AccessRestrictions 类来处理限制（与 /v1/models 逻辑一致）
         restrictions = AccessRestrictions.from_api_key_and_user(api_key=None, user=user)

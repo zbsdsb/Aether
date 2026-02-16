@@ -39,7 +39,7 @@ from src.core.crypto import crypto_service
 from src.core.logger import logger
 from src.models.database import ApiKey, ProviderAPIKey, ProviderEndpoint, User, VideoTask
 from src.services.billing.rule_service import BillingRuleLookupResult, BillingRuleService
-from src.services.cache.aware_scheduler import ProviderCandidate
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 from src.services.usage.service import UsageService
 
 

@@ -6,7 +6,7 @@ from typing import Any, Protocol, runtime_checkable
 import httpx
 
 from src.services.billing.rule_service import BillingRuleLookupResult
-from src.services.cache.aware_scheduler import ProviderCandidate
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 
 
 @runtime_checkable

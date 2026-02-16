@@ -169,6 +169,7 @@ def merge_upstream_metadata(
 
 def get_adapter_for_format(api_format: str) -> type | None:
     """根据 API 格式获取对应的 Adapter 类"""
+    # TODO(arch): 引入 adapter 能力注册表，消除 services->api 依赖
     from src.api.handlers.base.chat_adapter_base import get_adapter_class
     from src.api.handlers.base.cli_adapter_base import get_cli_adapter_class
 

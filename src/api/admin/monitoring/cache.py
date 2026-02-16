@@ -22,8 +22,8 @@ from src.core.crypto import crypto_service
 from src.core.logger import logger
 from src.database import get_db
 from src.models.database import ApiKey, User
-from src.services.cache.affinity_manager import get_affinity_manager
-from src.services.cache.aware_scheduler import CacheAwareScheduler, get_cache_aware_scheduler
+from src.services.scheduling.affinity_manager import get_affinity_manager
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler, get_cache_aware_scheduler
 from src.services.system.config import SystemConfigService
 
 router = APIRouter(prefix="/api/admin/monitoring/cache", tags=["Admin - Monitoring: Cache"])
@@ -1103,8 +1103,8 @@ class AdminClearProviderCacheAdapter(AdminApiAdapter):
 class AdminCacheConfigAdapter(AdminApiAdapter):
     async def handle(self, context: ApiRequestContext) -> dict[str, Any]:  # type: ignore[override]
         from src.config.constants import ConcurrencyDefaults
-        from src.services.cache.affinity_manager import CacheAffinityManager
         from src.services.rate_limit.adaptive_reservation import get_adaptive_reservation_manager
+        from src.services.scheduling.affinity_manager import CacheAffinityManager
 
         # 获取动态预留管理器的配置
         reservation_manager = get_adaptive_reservation_manager()

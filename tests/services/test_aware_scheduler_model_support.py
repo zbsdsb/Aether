@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.models.database import GlobalModel, Model, Provider
-from src.services.cache.aware_scheduler import CacheAwareScheduler
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler
 
 
 class TestCheckModelSupportForGlobalModel:

@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 
 from src.core.logger import logger
 from src.models.database import ApiKey
-from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
 from src.services.request.candidate import RequestCandidateService
 from src.services.request.executor import RequestExecutor
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler, ProviderCandidate
 
 
 class RequestDispatcher:

@@ -72,7 +72,9 @@ class CacheWarmupService:
         """预热管理员仪表盘统计缓存"""
         db = None
         try:
-            from src.api.dashboard.routes import AdminDashboardStatsAdapter
+            from src.api.dashboard.routes import (  # TODO(arch): 提取 dashboard 统计计算到 services 层
+                AdminDashboardStatsAdapter,
+            )
             from src.models.database import User as DBUser
 
             db = create_session()
@@ -128,7 +130,9 @@ class CacheWarmupService:
         """预热每日统计缓存"""
         db = None
         try:
-            from src.api.dashboard.routes import DashboardDailyStatsAdapter
+            from src.api.dashboard.routes import (  # TODO(arch): 提取 dashboard 统计计算到 services 层
+                DashboardDailyStatsAdapter,
+            )
             from src.models.database import User as DBUser
 
             db = create_session()

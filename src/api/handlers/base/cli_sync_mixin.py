@@ -29,7 +29,6 @@ from src.core.exceptions import (
     ThinkingSignatureException,
 )
 from src.core.logger import logger
-from src.services.cache.aware_scheduler import ProviderCandidate
 from src.services.provider.behavior import get_provider_behavior
 from src.services.provider.stream_policy import (
     enforce_stream_mode_for_upstream,
@@ -37,6 +36,7 @@ from src.services.provider.stream_policy import (
     resolve_upstream_is_stream,
 )
 from src.services.provider.transport import build_provider_url
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 
 if TYPE_CHECKING:
     from src.api.handlers.base.cli_protocol import CliHandlerProtocol

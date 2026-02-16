@@ -19,15 +19,18 @@ from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
 from src.config.constants import CacheTTL
+from src.core.access_restrictions import AccessRestrictions
 from src.core.api_format.conversion.compatibility import is_format_compatible
 from src.core.cache_service import CacheService
 from src.core.logger import logger
-from src.models.database import ApiKey, Model, Provider, ProviderEndpoint, User
+from src.models.database import Model, Provider, ProviderEndpoint
+from src.services.cache.model_list_cache import MODELS_LIST_CACHE_PREFIX as _CACHE_KEY_PREFIX
+from src.services.cache.model_list_cache import (
+    invalidate_models_list_cache,
+)
 from src.services.model.availability import ModelAvailabilityQuery
 from src.services.provider.format import normalize_endpoint_signature
 
-# 缓存 key 前缀
-_CACHE_KEY_PREFIX = "models:list"
 _CACHE_TTL = CacheTTL.MODEL  # 300 秒
 
 
@@ -70,21 +73,7 @@ async def _set_cached_models(
         logger.warning(f"[ModelsService] 缓存写入失败: {e}")
 
 
-async def invalidate_models_list_cache() -> None:
-    """
-    清除所有 /v1/models 列表缓存
-
-    在模型创建、更新、删除时调用，确保模型列表实时更新
-    """
-    try:
-        # 使用通配符删除所有 models:list:* 缓存（包括多格式组合的 key）
-        deleted = await CacheService.delete_pattern(f"{_CACHE_KEY_PREFIX}:*")
-        if deleted > 0:
-            logger.info(f"[ModelsService] 已清除 {deleted} 个 {_CACHE_KEY_PREFIX} 缓存")
-        else:
-            logger.debug(f"[ModelsService] 无 {_CACHE_KEY_PREFIX} 缓存需要清除")
-    except Exception as e:
-        logger.warning(f"[ModelsService] 清除缓存失败: {e}")
+__all__ = ["AccessRestrictions", "invalidate_models_list_cache", "ModelInfo"]
 
 
 @dataclass
@@ -115,91 +104,7 @@ class ModelInfo:
     output_modalities: list[str] | None = None
 
 
-@dataclass
-class AccessRestrictions:
-    """API Key 或 User 的访问限制"""
-
-    allowed_providers: list[str] | None = None  # 允许的 Provider ID 列表
-    allowed_models: list[str] | None = None  # 允许的模型名称列表
-    allowed_api_formats: list[str] | None = None  # 允许的 API 格式列表
-
-    @classmethod
-    def from_api_key_and_user(cls, api_key: ApiKey | None, user: User | None) -> AccessRestrictions:
-        """
-        从 API Key 和 User 合并访问限制
-
-        限制逻辑:
-        - API Key 的限制优先于 User 的限制
-        - 如果 API Key 有限制，使用 API Key 的限制
-        - 如果 API Key 无限制但 User 有限制，使用 User 的限制
-        - 两者都无限制则返回空限制
-        """
-        allowed_providers: list[str] | None = None
-        allowed_models: list[str] | None = None
-        allowed_api_formats: list[str] | None = None
-
-        # 优先使用 API Key 的限制
-        if api_key:
-            if api_key.allowed_providers is not None:
-                allowed_providers = api_key.allowed_providers
-            if api_key.allowed_models is not None:
-                allowed_models = api_key.allowed_models
-            if api_key.allowed_api_formats is not None:
-                allowed_api_formats = api_key.allowed_api_formats
-
-        # 如果 API Key 没有限制，检查 User 的限制
-        if user:
-            if allowed_providers is None and user.allowed_providers is not None:
-                allowed_providers = user.allowed_providers
-            if allowed_models is None and user.allowed_models is not None:
-                allowed_models = user.allowed_models
-            if allowed_api_formats is None and user.allowed_api_formats is not None:
-                allowed_api_formats = user.allowed_api_formats
-
-        return cls(
-            allowed_providers=allowed_providers,
-            allowed_models=allowed_models,
-            allowed_api_formats=allowed_api_formats,
-        )
-
-    def is_api_format_allowed(self, api_format: str) -> bool:
-        """
-        检查 API 格式是否被允许
-
-        Args:
-            api_format: endpoint signature（如 "openai:chat"）
-
-        Returns:
-            True 如果格式被允许，False 否则
-        """
-        if self.allowed_api_formats is None:
-            return True
-        target = normalize_endpoint_signature(api_format)
-        allowed = {normalize_endpoint_signature(f) for f in self.allowed_api_formats if f}
-        return target in allowed
-
-    def is_model_allowed(self, model_id: str, provider_id: str) -> bool:
-        """
-        检查模型是否被允许访问
-
-        Args:
-            model_id: 模型 ID
-            provider_id: Provider ID
-
-        Returns:
-            True 如果模型被允许，False 否则
-        """
-        # 检查 Provider 限制
-        if self.allowed_providers is not None:
-            if provider_id not in self.allowed_providers:
-                return False
-
-        # 检查模型限制
-        if self.allowed_models is not None:
-            if model_id not in self.allowed_models:
-                return False
-
-        return True
+# AccessRestrictions -- re-export from src.core.access_restrictions (see __all__)
 
 
 def _normalize_api_formats(

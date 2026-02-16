@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from src.services.cache.aware_scheduler import CacheAwareScheduler
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler
 
 
 def _make_key(
@@ -20,7 +20,7 @@ def _make_key(
 
 
 @patch(
-    "src.services.cache.candidate_builder.health_monitor.get_circuit_breaker_status",
+    "src.services.scheduling.candidate_builder.health_monitor.get_circuit_breaker_status",
     return_value=(True, None),
 )
 def test_kiro_quota_remaining_zero_skips(_mock_cb: MagicMock) -> None:
@@ -39,7 +39,7 @@ def test_kiro_quota_remaining_zero_skips(_mock_cb: MagicMock) -> None:
 
 
 @patch(
-    "src.services.cache.candidate_builder.health_monitor.get_circuit_breaker_status",
+    "src.services.scheduling.candidate_builder.health_monitor.get_circuit_breaker_status",
     return_value=(True, None),
 )
 def test_kiro_quota_remaining_positive_allows(_mock_cb: MagicMock) -> None:
@@ -58,7 +58,7 @@ def test_kiro_quota_remaining_positive_allows(_mock_cb: MagicMock) -> None:
 
 
 @patch(
-    "src.services.cache.candidate_builder.health_monitor.get_circuit_breaker_status",
+    "src.services.scheduling.candidate_builder.health_monitor.get_circuit_breaker_status",
     return_value=(True, None),
 )
 def test_codex_weekly_quota_exhausted_skips(_mock_cb: MagicMock) -> None:
@@ -85,7 +85,7 @@ def test_codex_weekly_quota_exhausted_skips(_mock_cb: MagicMock) -> None:
 
 
 @patch(
-    "src.services.cache.candidate_builder.health_monitor.get_circuit_breaker_status",
+    "src.services.scheduling.candidate_builder.health_monitor.get_circuit_breaker_status",
     return_value=(True, None),
 )
 def test_codex_5h_quota_exhausted_skips(_mock_cb: MagicMock) -> None:
@@ -111,7 +111,7 @@ def test_codex_5h_quota_exhausted_skips(_mock_cb: MagicMock) -> None:
 
 
 @patch(
-    "src.services.cache.candidate_builder.health_monitor.get_circuit_breaker_status",
+    "src.services.scheduling.candidate_builder.health_monitor.get_circuit_breaker_status",
     return_value=(True, None),
 )
 def test_codex_ignores_code_review_quota(_mock_cb: MagicMock) -> None:
@@ -138,7 +138,7 @@ def test_codex_ignores_code_review_quota(_mock_cb: MagicMock) -> None:
 
 
 @patch(
-    "src.services.cache.candidate_builder.health_monitor.get_circuit_breaker_status",
+    "src.services.scheduling.candidate_builder.health_monitor.get_circuit_breaker_status",
     return_value=(True, None),
 )
 def test_antigravity_model_quota_exhausted_skips(_mock_cb: MagicMock) -> None:
@@ -166,7 +166,7 @@ def test_antigravity_model_quota_exhausted_skips(_mock_cb: MagicMock) -> None:
 
 
 @patch(
-    "src.services.cache.candidate_builder.health_monitor.get_circuit_breaker_status",
+    "src.services.scheduling.candidate_builder.health_monitor.get_circuit_breaker_status",
     return_value=(True, None),
 )
 def test_antigravity_other_model_not_exhausted_allows(_mock_cb: MagicMock) -> None:
@@ -194,7 +194,7 @@ def test_antigravity_other_model_not_exhausted_allows(_mock_cb: MagicMock) -> No
 
 
 @patch(
-    "src.services.cache.candidate_builder.health_monitor.get_circuit_breaker_status",
+    "src.services.scheduling.candidate_builder.health_monitor.get_circuit_breaker_status",
     return_value=(True, None),
 )
 def test_antigravity_quota_uses_mapping_matched_model(_mock_cb: MagicMock) -> None:

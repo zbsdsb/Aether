@@ -36,9 +36,9 @@ from src.core.logger import logger
 from src.database import create_session
 from src.models.database import ApiKey, GlobalModel, Model, Provider, ProviderEndpoint, User
 from src.services.auth.service import AuthService
-from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
 from src.services.gemini_files_mapping import delete_file_key_mapping, store_file_key_mapping
 from src.services.provider.transport import redact_url_for_log
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler, ProviderCandidate
 
 
 @dataclass

@@ -28,15 +28,15 @@ from src.models.database import (
     ProviderAPIKey,
     ProviderEndpoint,
 )
-from src.services.cache.quota_skipper import is_key_quota_exhausted
-from src.services.cache.utils import release_db_connection_before_await
 from src.services.health.monitor import health_monitor
 from src.services.provider.format import normalize_endpoint_signature
+from src.services.scheduling.quota_skipper import is_key_quota_exhausted
+from src.services.scheduling.utils import release_db_connection_before_await
 
 if TYPE_CHECKING:
     from src.models.database import GlobalModel
-    from src.services.cache.candidate_sorter import CandidateSorter
-    from src.services.cache.schemas import ProviderCandidate
+    from src.services.scheduling.protocols import CandidateSorterProtocol
+    from src.services.scheduling.schemas import ProviderCandidate
 
 from src.services.cache.model_cache import ModelCacheService
 
@@ -60,7 +60,7 @@ def _sort_endpoints_by_family_priority(
 class CandidateBuilder:
     """候选构建器，负责查询 Provider、检查模型支持和 Key 可用性、构建候选列表。"""
 
-    def __init__(self, candidate_sorter: CandidateSorter) -> None:
+    def __init__(self, candidate_sorter: CandidateSorterProtocol) -> None:
         self._sorter = candidate_sorter
 
     def _query_providers(
@@ -380,7 +380,7 @@ class CandidateBuilder:
         Returns:
             候选列表
         """
-        from src.services.cache.schemas import ProviderCandidate
+        from src.services.scheduling.schemas import ProviderCandidate
 
         candidates: list[ProviderCandidate] = []
         client_format_str = normalize_endpoint_signature(client_format)

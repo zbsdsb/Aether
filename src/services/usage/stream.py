@@ -13,10 +13,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from src.api.handlers.base.parsers import get_parser_for_format
-from src.api.handlers.base.response_parser import StreamStats
 from src.core.exceptions import EmptyStreamException
 from src.core.logger import logger
+from src.core.stream_types import StreamStats, get_parser_for_format
 from src.database.database import create_session
 from src.models.database import ApiKey, User
 from src.services.usage.service import UsageService

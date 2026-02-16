@@ -521,7 +521,7 @@ def _inject_thought_signatures(inner_request: dict[str, Any], session_id: str | 
     """
 
     try:
-        from src.services.provider.adapters.antigravity.signature_cache import signature_cache
+        from src.core.api_format.conversion.thinking_cache import signature_cache
     except Exception:
         return
 
@@ -881,7 +881,7 @@ def wrap_v1internal_request(
     13. 注入 sessionId
     14. 构建 v1internal 信封
     """
-    from src.api.handlers.gemini.image_gen import is_image_gen_model
+    from src.core.video_utils import is_image_gen_model
 
     inner_request = dict(gemini_request)
     inner_request.pop("model", None)
@@ -979,7 +979,7 @@ def cache_thought_signatures(model: str, response: dict[str, Any]) -> None:
     同时缓存到 legacy (text) 层和 tool (Layer 1) 层。
     """
     try:
-        from src.services.provider.adapters.antigravity.signature_cache import signature_cache
+        from src.core.api_format.conversion.thinking_cache import signature_cache
     except Exception:
         return
 

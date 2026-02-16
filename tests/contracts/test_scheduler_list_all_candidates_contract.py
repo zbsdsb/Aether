@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.services.cache.aware_scheduler import CacheAwareScheduler
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler
 
 
 def _make_db() -> MagicMock:
@@ -71,11 +71,11 @@ async def test_list_all_candidates_returns_provider_batch_count_even_when_candid
     with patch.object(scheduler, "_ensure_initialized", new=AsyncMock(return_value=None)):
         with patch.object(scheduler._candidate_builder, "_query_providers", return_value=providers):
             with patch(
-                "src.services.cache.aware_scheduler.ModelCacheService.get_global_model_by_name",
+                "src.services.scheduling.aware_scheduler.ModelCacheService.get_global_model_by_name",
                 new=AsyncMock(return_value=global_model),
             ):
                 with patch(
-                    "src.services.cache.aware_scheduler.SystemConfigService.is_format_conversion_enabled",
+                    "src.services.scheduling.aware_scheduler.SystemConfigService.is_format_conversion_enabled",
                     return_value=True,
                 ):
                     candidates, global_model_id, provider_batch_count = (
@@ -108,11 +108,11 @@ async def test_list_all_candidates_returns_zero_provider_batch_count_when_provid
     with patch.object(scheduler, "_ensure_initialized", new=AsyncMock(return_value=None)):
         with patch.object(scheduler._candidate_builder, "_query_providers", return_value=[]):
             with patch(
-                "src.services.cache.aware_scheduler.ModelCacheService.get_global_model_by_name",
+                "src.services.scheduling.aware_scheduler.ModelCacheService.get_global_model_by_name",
                 new=AsyncMock(return_value=global_model),
             ):
                 with patch(
-                    "src.services.cache.aware_scheduler.SystemConfigService.is_format_conversion_enabled",
+                    "src.services.scheduling.aware_scheduler.SystemConfigService.is_format_conversion_enabled",
                     return_value=True,
                 ):
                     candidates, global_model_id, provider_batch_count = (

@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 from src.core.exceptions import ProviderNotAvailableException
 from src.core.logger import logger
 from src.models.database import ApiKey
-from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
 from src.services.provider.format import normalize_endpoint_signature
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler, ProviderCandidate
 
 
 class CandidateResolver:

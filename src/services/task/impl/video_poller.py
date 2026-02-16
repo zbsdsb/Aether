@@ -16,11 +16,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from src.api.handlers.base.request_builder import ProviderAuthInfo, get_provider_auth
-from src.api.handlers.base.video_handler_base import (
-    normalize_gemini_operation_id,
-    sanitize_error_message,
-)
 from src.clients.http_client import HTTPClientPool
 from src.config.settings import config
 from src.core.api_format import (
@@ -33,8 +28,14 @@ from src.core.api_format.conversion.normalizers.gemini import GeminiNormalizer
 from src.core.api_format.conversion.normalizers.openai import OpenAINormalizer
 from src.core.crypto import crypto_service
 from src.core.logger import logger
+from src.core.provider_auth_types import ProviderAuthInfo
+from src.core.video_utils import (
+    normalize_gemini_operation_id,
+    sanitize_error_message,
+)
 from src.database import create_session
 from src.models.database import ProviderAPIKey, ProviderEndpoint, VideoTask
+from src.services.provider.auth import get_provider_auth
 from src.services.task.service import TaskService
 
 

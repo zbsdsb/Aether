@@ -50,7 +50,7 @@ async def test_submit_with_failover_skips_http_500_then_succeeds(
         lambda *_args, **_kwargs: "provider",
     )
     monkeypatch.setattr(
-        "src.services.cache.aware_scheduler.get_cache_aware_scheduler",
+        "src.services.scheduling.aware_scheduler.get_cache_aware_scheduler",
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(
@@ -106,7 +106,7 @@ async def test_submit_with_failover_stops_on_client_error(monkeypatch: pytest.Mo
         lambda *_args, **_kwargs: "provider",
     )
     monkeypatch.setattr(
-        "src.services.cache.aware_scheduler.get_cache_aware_scheduler",
+        "src.services.scheduling.aware_scheduler.get_cache_aware_scheduler",
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(
@@ -152,7 +152,7 @@ async def test_submit_with_failover_no_eligible_candidates_due_to_auth_type(
         lambda *_args, **_kwargs: "provider",
     )
     monkeypatch.setattr(
-        "src.services.cache.aware_scheduler.get_cache_aware_scheduler",
+        "src.services.scheduling.aware_scheduler.get_cache_aware_scheduler",
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(
@@ -194,7 +194,7 @@ async def test_submit_with_failover_filters_missing_billing_rule(
         lambda *_args, **_kwargs: "provider",
     )
     monkeypatch.setattr(
-        "src.services.cache.aware_scheduler.get_cache_aware_scheduler",
+        "src.services.scheduling.aware_scheduler.get_cache_aware_scheduler",
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(

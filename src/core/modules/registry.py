@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 from src.core.logger import logger
 from src.core.modules.base import (
@@ -20,6 +20,17 @@ from src.core.modules.base import (
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+
+class ConfigBackend(Protocol):
+    """模块配置读写后端协议。
+
+    通过 ``ModuleRegistry.set_config_backend()`` 在应用启动时注入实现，
+    使 core 层无需在运行时 import services 层。
+    """
+
+    def get_config(self, db: Any, key: str, default: Any = None) -> Any: ...
+    def set_config(self, db: Any, key: str, value: Any, description: Any = None) -> Any: ...
 
 
 class ModuleRegistry:
@@ -34,10 +45,16 @@ class ModuleRegistry:
     """
 
     _instance: ModuleRegistry | None = None
+    _config_backend: ConfigBackend | None = None
 
     def __init__(self) -> None:
         self._modules: dict[str, ModuleDefinition] = {}
         self._initialized: set[str] = set()
+
+    @classmethod
+    def set_config_backend(cls, backend: ConfigBackend) -> None:
+        """注入配置读写后端，消除 core→services 的运行时依赖"""
+        cls._config_backend = backend
 
     @classmethod
     def get_instance(cls) -> ModuleRegistry:
@@ -50,6 +67,7 @@ class ModuleRegistry:
     def reset_instance(cls) -> None:
         """重置单例（仅用于测试）"""
         cls._instance = None
+        cls._config_backend = None
 
     def register(self, module: ModuleDefinition) -> None:
         """
@@ -123,6 +141,15 @@ class ModuleRegistry:
 
     # ========== 启用状态检查（运行级）==========
 
+    def _get_config_backend(self) -> ConfigBackend:
+        """获取配置后端（优先使用已注入的，兜底 lazy import）"""
+        if self._config_backend is not None:
+            return self._config_backend
+        # 兜底: 未注入时使用 lazy import（向后兼容独立脚本/测试场景）
+        from src.services.system.config import SystemConfigService  # noqa: lazy fallback
+
+        return SystemConfigService  # type: ignore[return-value]
+
     def is_enabled(self, name: str, db: Session) -> bool:
         """
         检查模块是否运行启用（数据库配置）
@@ -131,10 +158,8 @@ class ModuleRegistry:
             name: 模块名称
             db: 数据库会话
         """
-        from src.services.system.config import SystemConfigService
-
         config_key = f"module.{name}.enabled"
-        value = SystemConfigService.get_config(db, config_key, default=False)
+        value = self._get_config_backend().get_config(db, config_key, default=False)
         return bool(value)
 
     def set_enabled(self, name: str, enabled: bool, db: Session) -> None:
@@ -146,15 +171,13 @@ class ModuleRegistry:
             enabled: 是否启用
             db: 数据库会话
         """
-        from src.services.system.config import SystemConfigService
-
         if name not in self._modules:
             raise ValueError(f"Module [{name}] not registered")
 
         config_key = f"module.{name}.enabled"
         module = self._modules[name]
         description = f"模块 [{module.metadata.display_name}] 启用状态"
-        SystemConfigService.set_config(db, config_key, enabled, description)
+        self._get_config_backend().set_config(db, config_key, enabled, description)
 
     # ========== 激活状态检查 ==========
 

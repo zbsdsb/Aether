@@ -25,9 +25,9 @@ from src.core.exceptions import (
 )
 from src.core.logger import logger
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
-from src.services.cache.aware_scheduler import CacheAwareScheduler
 from src.services.orchestration.error_handler import ErrorHandlerService
 from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler
 
 
 class ErrorAction(Enum):

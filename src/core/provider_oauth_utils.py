@@ -10,7 +10,6 @@ import jwt
 from src.clients.http_client import HTTPClientPool
 from src.core.logger import logger
 from src.core.provider_types import ProviderType
-from src.services.proxy_node.resolver import build_proxy_url
 
 _ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
 _GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json"
@@ -22,6 +21,8 @@ def _coerce_proxy_url(proxy_config: dict[str, Any] | None) -> str | None:
     try:
         if not proxy_config.get("enabled", True):
             return None
+        from src.services.proxy_node.resolver import build_proxy_url  # lazy: core→services
+
         return build_proxy_url(proxy_config)
     except Exception:
         return None
@@ -363,11 +364,10 @@ async def enrich_auth_config(
     """Enrich auth_config with non-secret metadata (email/account_id).
 
     各 provider 的 enrichment 逻辑通过 register_auth_enricher 注册。
+    注意: ensure_providers_bootstrapped() 在应用启动时(main.py lifespan)已显式调用。
     """
     from src.core.provider_types import normalize_provider_type
-    from src.services.provider.envelope import ensure_providers_bootstrapped
 
-    ensure_providers_bootstrapped()
     pt = normalize_provider_type(provider_type)
     enricher = _auth_enrichers.get(pt)
     if enricher:

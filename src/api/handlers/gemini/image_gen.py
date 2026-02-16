@@ -7,13 +7,9 @@ Gemini 图像生成模型请求适配
 
 from typing import Any
 
+from src.core.video_utils import is_image_gen_model
 
-def is_image_gen_model(model: str | None) -> bool:
-    """判断是否为图像生成模型（模式匹配，覆盖 gemini-*-image / imagen-* 系列）"""
-    if not model:
-        return False
-    m = model.lower()
-    return "image" in m and ("gemini" in m or "imagen" in m)
+__all__ = ["is_image_gen_model", "adapt_request_for_image_gen"]
 
 
 def adapt_request_for_image_gen(body: dict[str, Any]) -> dict[str, Any]:

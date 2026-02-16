@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.core.api_format.conversion.thinking_cache import ThinkingSignatureCache
 from src.services.provider.adapters.antigravity.constants import DUMMY_THOUGHT_SIGNATURE
-from src.services.provider.adapters.antigravity.signature_cache import ThinkingSignatureCache
 
 # 测试用签名（需 >= MIN_SIGNATURE_LENGTH=50）
 _SIG_A = "a" * 60
@@ -54,11 +54,11 @@ def test_tool_signature_short_ignored() -> None:
 
 
 def test_tool_signature_cache_enforces_limit(monkeypatch: Any) -> None:
-    import src.services.provider.adapters.antigravity.signature_cache as sc_mod
+    import src.core.api_format.conversion.thinking_cache as tc_mod
 
     # Use a small limit to make eviction deterministic in tests.
-    monkeypatch.setattr(sc_mod, "_TOOL_CACHE_LIMIT", 3)
-    cache = sc_mod.ThinkingSignatureCache()
+    monkeypatch.setattr(tc_mod, "_TOOL_CACHE_LIMIT", 3)
+    cache = tc_mod.ThinkingSignatureCache()
     cache.cache_tool_signature("toolu_1", _SIG_A)
     cache.cache_tool_signature("toolu_2", _SIG_B)
     cache.cache_tool_signature("toolu_3", _SIG_C)

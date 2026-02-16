@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.services.cache.aware_scheduler import ProviderCandidate
 from src.services.candidate.schema import CandidateKey
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 
 from .protocol import AttemptKind, AttemptResult
 

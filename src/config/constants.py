@@ -153,6 +153,14 @@ class RPMDefaults:
     # confidence 自然衰减速率：每分钟衰减的比例
     CONFIDENCE_DECAY_PER_MINUTE = 0.005  # 每分钟 -0.5%，约 200 分钟（~3.3h）从 1.0 衰减到 0
 
+    # === RPM 计数器时间窗口配置 ===
+    # RPM 计数时间窗口（秒）
+    RPM_BUCKET_SECONDS = 60
+    # Redis key 过期时间（秒），需覆盖当前分钟与边界
+    RPM_KEY_TTL_SECONDS = 120
+    # 内存模式清理间隔（秒）
+    RPM_CLEANUP_INTERVAL_SECONDS = 300
+
 
 # 向后兼容别名
 ConcurrencyDefaults = RPMDefaults

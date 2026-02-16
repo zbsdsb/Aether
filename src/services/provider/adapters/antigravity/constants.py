@@ -11,7 +11,9 @@ import re
 import threading
 
 # ============== API 端点 ==============
-PROD_BASE_URL = "https://cloudcode-pa.googleapis.com"
+# 唯一定义在 core 层，此处 re-export 保持向后兼容
+from src.core.provider_templates.fixed_providers import ANTIGRAVITY_PROD_URL as PROD_BASE_URL
+
 DAILY_BASE_URL = "https://daily-cloudcode-pa.googleapis.com"
 SANDBOX_BASE_URL = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 
@@ -75,8 +77,7 @@ URL_UNAVAILABLE_TTL_SECONDS = 300  # 5 分钟
 # ============== Thinking Signature ==============
 # 统一从 core 层导入，避免多处定义
 from src.core.api_format.conversion.constants import DUMMY_THOUGHT_SIGNATURE  # noqa: E402
-
-MIN_SIGNATURE_LENGTH = 50  # 与 Antigravity-Manager 对齐
+from src.core.api_format.conversion.thinking_cache import MIN_SIGNATURE_LENGTH  # noqa: E402, F401
 
 # ============== Thinking Budget ==============
 THINKING_BUDGET_AUTO_CAP = 24576

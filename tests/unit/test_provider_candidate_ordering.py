@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.services.cache.aware_scheduler import ProviderCandidate
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 
 
 def _make_candidate(

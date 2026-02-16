@@ -10,13 +10,13 @@ from sqlalchemy import and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.api.base.models_service import invalidate_models_list_cache
 from src.core.exceptions import InvalidRequestException, NotFoundException
 from src.core.logger import logger
 from src.models.api import ModelCreate, ModelResponse, ModelUpdate
 from src.models.database import Model, Provider
 from src.services.cache.invalidation import get_cache_invalidation_service
 from src.services.cache.model_cache import ModelCacheService
+from src.services.cache.model_list_cache import invalidate_models_list_cache
 
 
 class ModelService:

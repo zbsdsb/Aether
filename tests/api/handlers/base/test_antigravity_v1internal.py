@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.api.handlers.base.cli_protocol import CliHandlerProtocol
 from src.api.handlers.base.stream_context import StreamContext
 from src.api.handlers.gemini_cli.handler import GeminiCliMessageHandler
 from src.services.provider.adapters.antigravity.envelope import (
@@ -110,7 +112,9 @@ def test_handle_sse_event_unwraps_for_antigravity() -> None:
     }
 
     with patch.object(handler, "_process_event_data") as mock_process:
-        handler._handle_sse_event(ctx, None, json.dumps(v1_data), record_chunk=False)
+        cast(CliHandlerProtocol, handler)._handle_sse_event(
+            ctx, None, json.dumps(v1_data), record_chunk=False
+        )
 
     assert mock_process.call_count == 1
     passed_data = mock_process.call_args[0][2]
@@ -120,7 +124,7 @@ def test_handle_sse_event_unwraps_for_antigravity() -> None:
 
 
 def test_handle_sse_event_caches_thought_signature_for_antigravity() -> None:
-    from src.services.provider.adapters.antigravity.signature_cache import signature_cache
+    from src.core.api_format.conversion.thinking_cache import signature_cache
 
     signature_cache.clear()
 
@@ -148,7 +152,9 @@ def test_handle_sse_event_caches_thought_signature_for_antigravity() -> None:
     }
 
     with patch.object(handler, "_process_event_data") as _mock_process:
-        handler._handle_sse_event(ctx, None, json.dumps(payload), record_chunk=False)
+        cast(CliHandlerProtocol, handler)._handle_sse_event(
+            ctx, None, json.dumps(payload), record_chunk=False
+        )
 
     assert signature_cache.get_or_dummy("claude-sonnet-4-5", "t1") == long_sig
 
@@ -206,7 +212,7 @@ async def test_antigravity_forces_conversion_path_in_stream_with_prefetch() -> N
 
 
 def test_wrap_v1internal_request_injects_thought_signature_from_tool_cache() -> None:
-    from src.services.provider.adapters.antigravity.signature_cache import signature_cache
+    from src.core.api_format.conversion.thinking_cache import signature_cache
 
     signature_cache.clear()
 
@@ -234,7 +240,7 @@ def test_wrap_v1internal_request_injects_thought_signature_from_tool_cache() -> 
 
 
 def test_wrap_v1internal_request_injects_session_signature_when_tool_cache_missing() -> None:
-    from src.services.provider.adapters.antigravity.signature_cache import signature_cache
+    from src.core.api_format.conversion.thinking_cache import signature_cache
 
     signature_cache.clear()
 

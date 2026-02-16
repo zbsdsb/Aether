@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 
     from src.api.handlers.base.chat_handler_base import ChatHandlerBase
     from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
-    from src.services.cache.aware_scheduler import ProviderCandidate
+    from src.services.scheduling.aware_scheduler import ProviderCandidate
 
 
 @dataclass

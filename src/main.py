@@ -176,6 +176,12 @@ async def lifespan(app: FastAPI) -> Any:
     from src.modules import ALL_MODULES
 
     module_registry = get_module_registry()
+
+    # 注入配置后端，消除 core/modules→services 的运行时 lazy import
+    from src.services.system.config import SystemConfigService
+
+    module_registry.set_config_backend(SystemConfigService)  # type: ignore[arg-type]
+
     for module in ALL_MODULES:
         module_registry.register(module)
 
@@ -194,6 +200,17 @@ async def lifespan(app: FastAPI) -> Any:
             await module.on_startup()
 
     logger.info(f"功能模块初始化完成: {len(available_modules)}/{len(ALL_MODULES)} 个模块可用")
+
+    # 显式 bootstrap provider plugins（注册 envelope/enricher 等）
+    # 使 core/provider_oauth_utils 不需要在运行时 lazy import services 层
+    from src.services.provider.envelope import ensure_providers_bootstrapped
+
+    ensure_providers_bootstrapped()
+
+    # 显式触发 parsers 注册（使 core/stream_types 不需要 lazy import api 层）
+    from src.api.handlers.base.parsers import register_default_parsers
+
+    register_default_parsers()
 
     logger.info(f"服务启动成功: http://{config.host}:{config.port}")
     logger.info("=" * 60)

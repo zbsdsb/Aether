@@ -11,9 +11,9 @@ from typing import Any
 
 from src.core.logger import logger
 from src.models.database import ProviderAPIKey
-from src.services.cache.schemas import ConcurrencySnapshot
 from src.services.rate_limit.adaptive_reservation import AdaptiveReservationManager
 from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
+from src.services.scheduling.schemas import ConcurrencySnapshot
 
 
 class ConcurrencyChecker:

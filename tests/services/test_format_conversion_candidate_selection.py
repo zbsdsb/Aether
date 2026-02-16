@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.core.api_format.conversion import register_default_normalizers
-from src.services.cache.aware_scheduler import (
+from src.services.scheduling.aware_scheduler import (
     CacheAwareScheduler,
     _sort_endpoints_by_family_priority,
 )

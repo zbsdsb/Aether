@@ -928,6 +928,7 @@ class ModelCostService:
 
         # 获取对应 API 格式的 Adapter 实例来计算成本
         # 优先检查 Chat Adapter，然后检查 CLI Adapter
+        # TODO(arch): 引入 adapter 能力注册表，消除 services->api 依赖
         from src.api.handlers.base.chat_adapter_base import get_adapter_instance
         from src.api.handlers.base.cli_adapter_base import get_cli_adapter_instance
 

@@ -30,10 +30,6 @@ from src.models.database import (
     User,
     VideoTask,
 )
-from src.services.cache.aware_scheduler import (
-    CacheAwareScheduler,
-    get_cache_aware_scheduler,
-)
 from src.services.candidate.failover import FailoverEngine
 from src.services.candidate.policy import RetryPolicy, SkipPolicy
 from src.services.candidate.recorder import CandidateRecorder
@@ -43,6 +39,10 @@ from src.services.orchestration.request_dispatcher import RequestDispatcher
 from src.services.provider.format import normalize_endpoint_signature
 from src.services.request.candidate import RequestCandidateService
 from src.services.request.result import RequestMetadata
+from src.services.scheduling.aware_scheduler import (
+    CacheAwareScheduler,
+    get_cache_aware_scheduler,
+)
 from src.services.system.config import SystemConfigService
 from src.services.task.context import TaskMode
 from src.services.task.exceptions import TaskNotFoundError
@@ -1560,7 +1560,6 @@ class TaskService:
 
         from fastapi import HTTPException
 
-        from src.api.handlers.base.request_builder import get_provider_auth
         from src.clients.http_client import HTTPClientPool
         from src.core.api_format import (
             build_upstream_headers_for_endpoint,
@@ -1569,6 +1568,7 @@ class TaskService:
         )
         from src.core.api_format.conversion.internal_video import VideoStatus
         from src.core.crypto import crypto_service
+        from src.services.provider.auth import get_provider_auth
         from src.services.provider.transport import build_provider_url
 
         try:

@@ -22,11 +22,11 @@ from src.core.exceptions import (
 )
 from src.core.logger import logger
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
-from src.services.cache.aware_scheduler import CacheAwareScheduler
 from src.services.health.monitor import health_monitor
 from src.services.provider.format import normalize_endpoint_signature
 from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
 from src.services.rate_limit.detector import RateLimitType, detect_rate_limit_type
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler
 
 
 class ErrorHandlerService:

@@ -15,9 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.core.provider_templates.types import ProviderType
-from src.services.provider.adapters.antigravity.constants import (
-    PROD_BASE_URL as ANTIGRAVITY_PROD_URL,
-)
+
+# Antigravity 生产环境 URL（唯一定义点，services 层通过 re-export 引用）
+ANTIGRAVITY_PROD_URL = "https://cloudcode-pa.googleapis.com"
 
 
 @dataclass(frozen=True, slots=True)

@@ -54,7 +54,7 @@ class CacheInvalidationService:
             logger.error(f"[CacheInvalidation] 失效 ModelCacheService 缓存失败: {e}")
 
         # 4. 清除 /v1/models 列表缓存
-        from src.api.base.models_service import invalidate_models_list_cache
+        from src.services.cache.model_list_cache import invalidate_models_list_cache
 
         try:
             await invalidate_models_list_cache()
@@ -79,7 +79,7 @@ class CacheInvalidationService:
         self._refresh_provider_cache(provider_id)
 
         # 清除 /v1/models 列表缓存（allowed_models 变更会影响模型可用性）
-        from src.api.base.models_service import invalidate_models_list_cache
+        from src.services.cache.model_list_cache import invalidate_models_list_cache
 
         try:
             await invalidate_models_list_cache()

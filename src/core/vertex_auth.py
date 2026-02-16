@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import time
 from collections import OrderedDict
+from typing import Any
 
 import httpx
 import jwt
@@ -102,12 +103,16 @@ class VertexAuthService:
         }
         return jwt.encode(payload, self.private_key, algorithm="RS256")
 
-    async def get_access_token(self) -> str:
+    async def get_access_token(self, *, httpx_client_kwargs: dict[str, Any] | None = None) -> str:
         """
         获取 Access Token（带 LRU 缓存）
 
         如果缓存中有有效的 Token（距离过期超过 60 秒），直接返回。
         否则重新获取 Token。缓存采用 LRU 策略，超过 100 个条目时淘汰最旧的。
+
+        Args:
+            httpx_client_kwargs: 传给 httpx.AsyncClient 的额外参数（如代理配置）。
+                调用者（services 层）负责构建，core 层不关心代理细节。
 
         Returns:
             Access Token 字符串
@@ -129,10 +134,10 @@ class VertexAuthService:
         try:
             signed_jwt = self._create_jwt()
 
-            # 使用系统默认代理（Vertex AI token endpoint 是外部服务）
-            from src.services.proxy_node.resolver import build_proxy_client_kwargs
-
-            async with httpx.AsyncClient(**build_proxy_client_kwargs(timeout=30)) as client:
+            client_kwargs = (
+                httpx_client_kwargs if httpx_client_kwargs is not None else {"timeout": 30}
+            )
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 resp = await client.post(
                     self.TOKEN_URL,
                     data={
@@ -186,16 +191,21 @@ class VertexAuthService:
             cls._token_cache.clear()
 
 
-async def get_vertex_access_token(service_account_json: str) -> tuple[str, str]:
+async def get_vertex_access_token(
+    service_account_json: str,
+    *,
+    httpx_client_kwargs: dict[str, Any] | None = None,
+) -> tuple[str, str]:
     """
     便捷函数：获取 Vertex AI Access Token 和 Project ID
 
     Args:
         service_account_json: Service Account JSON 字符串
+        httpx_client_kwargs: 传给 httpx.AsyncClient 的额外参数（如代理配置）
 
     Returns:
         (access_token, project_id) 元组
     """
     service = VertexAuthService(service_account_json)
-    token = await service.get_access_token()
+    token = await service.get_access_token(httpx_client_kwargs=httpx_client_kwargs)
     return token, service.project_id

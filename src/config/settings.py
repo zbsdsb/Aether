@@ -135,6 +135,19 @@ class Config:
         # CACHE_RESERVATION_RATIO: 缓存用户预留比例（默认 10%，新用户可用 90%）
         self.cache_reservation_ratio = float(os.getenv("CACHE_RESERVATION_RATIO", "0.1"))
 
+        # RPM 计数器时间窗口配置
+        from src.config.constants import RPMDefaults
+
+        self.rpm_bucket_seconds = int(
+            os.getenv("RPM_BUCKET_SECONDS", str(RPMDefaults.RPM_BUCKET_SECONDS))
+        )
+        self.rpm_key_ttl_seconds = int(
+            os.getenv("RPM_KEY_TTL_SECONDS", str(RPMDefaults.RPM_KEY_TTL_SECONDS))
+        )
+        self.rpm_cleanup_interval_seconds = int(
+            os.getenv("RPM_CLEANUP_INTERVAL_SECONDS", str(RPMDefaults.RPM_CLEANUP_INTERVAL_SECONDS))
+        )
+
         # 限流降级策略配置
         # RATE_LIMIT_FAIL_OPEN: 当限流服务（Redis）异常时的行为
         #

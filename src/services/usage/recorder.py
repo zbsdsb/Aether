@@ -28,7 +28,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from src.api.handlers.base.utils import filter_proxy_response_headers
+from src.core.api_format import filter_response_headers as filter_proxy_response_headers
 from src.core.logger import logger
 from src.models.database import ApiKey, User
 from src.services.request.result import RequestResult

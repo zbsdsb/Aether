@@ -13,15 +13,15 @@ import random
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from src.services.cache.scheduling_config import SchedulingConfig
-from src.services.cache.utils import affinity_hash
+from src.services.scheduling.scheduling_config import SchedulingConfig
+from src.services.scheduling.utils import affinity_hash
 from src.services.system.config import SystemConfigService
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from src.models.database import ProviderAPIKey
-    from src.services.cache.schemas import ProviderCandidate
+    from src.services.scheduling.schemas import ProviderCandidate
 
 
 class CandidateSorter:

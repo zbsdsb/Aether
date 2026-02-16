@@ -5,8 +5,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from src.models.database import ApiKey
-from src.services.cache.aware_scheduler import ProviderCandidate, get_cache_aware_scheduler
 from src.services.orchestration.error_classifier import ErrorClassifier
+from src.services.scheduling.aware_scheduler import ProviderCandidate, get_cache_aware_scheduler
 from src.services.system.config import SystemConfigService
 
 from .recorder import CandidateRecorder

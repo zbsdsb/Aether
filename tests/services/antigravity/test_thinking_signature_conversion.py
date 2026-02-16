@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from src.api.handlers.base.utils import get_format_converter_registry
+from src.core.api_format.conversion.thinking_cache import signature_cache
 from src.services.provider.adapters.antigravity.constants import DUMMY_THOUGHT_SIGNATURE
-from src.services.provider.adapters.antigravity.signature_cache import signature_cache
 
 
 def _reset_sig_cache() -> None:

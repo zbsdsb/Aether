@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from src.services.cache.aware_scheduler import ProviderCandidate
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 
 CANDIDATE_KEY_SCHEMA_VERSION = "1.0"
 

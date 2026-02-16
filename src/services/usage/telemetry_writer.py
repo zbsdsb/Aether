@@ -8,11 +8,11 @@ import json
 from abc import ABC, abstractmethod
 from typing import Any
 
-from src.api.handlers.base.base_handler import MessageTelemetry
 from src.clients.redis_client import get_redis_client
 from src.config.settings import config
 from src.core.logger import logger
 from src.services.usage.events import UsageEventType, build_usage_event
+from src.services.usage.telemetry import MessageTelemetry
 
 
 class TelemetryWriter(ABC):

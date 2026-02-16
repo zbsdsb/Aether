@@ -64,7 +64,7 @@ async def resolve_oauth_access_token(
     """
 
     # Local import to avoid circular imports during app startup.
-    from src.api.handlers.base.request_builder import get_provider_auth
+    from src.services.provider.auth import get_provider_auth
 
     # Build detached key-like objects for get_provider_auth().
     provider_obj = (

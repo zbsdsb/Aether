@@ -75,7 +75,6 @@ from src.models.database import (
     ProviderEndpoint,
     User,
 )
-from src.services.cache.aware_scheduler import ProviderCandidate
 from src.services.provider.behavior import get_provider_behavior
 from src.services.provider.stream_policy import (
     enforce_stream_mode_for_upstream,
@@ -85,6 +84,7 @@ from src.services.provider.stream_policy import (
 from src.services.provider.transport import (
     build_provider_url,
 )
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 from src.services.system.config import SystemConfigService
 
 

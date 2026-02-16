@@ -1,14 +1,10 @@
-"""
-缓存服务模块
+"""通用缓存模块。
 
-包含缓存后端、缓存亲和性、缓存同步等功能。
+包含缓存后端、缓存失效与缓存同步等能力（backend/sync/*_cache）。
 
-注意：由于循环依赖问题，部分类需要直接从子模块导入：
-    from src.services.cache.affinity_manager import CacheAffinityManager
-    from src.services.cache.aware_scheduler import CacheAwareScheduler
+调度/候选/缓存亲和性相关逻辑已迁移到 `src.services.scheduling`。
 """
 
-# 只导出不会导致循环依赖的基础类
 from src.services.cache.backend import BaseCacheBackend, LocalCache, RedisCache, get_cache_backend
 
 __all__ = [

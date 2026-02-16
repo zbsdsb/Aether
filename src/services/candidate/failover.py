@@ -13,9 +13,9 @@ from sqlalchemy.orm import Session
 
 from src.core.logger import logger
 from src.models.database import RequestCandidate
-from src.services.cache.aware_scheduler import ProviderCandidate
 from src.services.orchestration.error_classifier import ErrorAction, ErrorClassifier
 from src.services.request.candidate import RequestCandidateService
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 from src.services.task.exceptions import StreamProbeError
 from src.services.task.protocol import AttemptFunc, AttemptKind, AttemptResult
 from src.services.task.schema import ExecutionResult

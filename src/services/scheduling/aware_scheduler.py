@@ -31,7 +31,15 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.services.scheduling.protocols import (
+        CacheAffinityManagerProtocol,
+        CandidateBuilderProtocol,
+        CandidateSorterProtocol,
+        ConcurrencyCheckerProtocol,
+    )
 
 from sqlalchemy.orm import Session
 
@@ -47,32 +55,32 @@ from src.models.database import (
     ProviderAPIKey,
     ProviderEndpoint,
 )
-from src.services.cache.affinity_manager import (
-    CacheAffinityManager,
-    get_affinity_manager,
-)
-from src.services.cache.candidate_builder import (
-    CandidateBuilder,
-)
-from src.services.cache.candidate_builder import (
-    _sort_endpoints_by_family_priority as _sort_endpoints_by_family_priority,
-)
-from src.services.cache.candidate_sorter import CandidateSorter
-from src.services.cache.concurrency_checker import ConcurrencyChecker
 from src.services.cache.model_cache import ModelCacheService
-from src.services.cache.restriction_checker import get_effective_restrictions
-from src.services.cache.scheduling_config import SchedulingConfig
-from src.services.cache.schemas import ConcurrencySnapshot as ConcurrencySnapshot  # re-export
-from src.services.cache.schemas import ProviderCandidate as ProviderCandidate  # re-export
-from src.services.cache.utils import affinity_hash as _affinity_hash  # re-export compat
-from src.services.cache.utils import (
-    release_db_connection_before_await,
-)
 from src.services.provider.format import normalize_endpoint_signature
 from src.services.rate_limit.adaptive_reservation import (
     get_adaptive_reservation_manager,
 )
 from src.services.rate_limit.concurrency_manager import get_concurrency_manager
+from src.services.scheduling.affinity_manager import (
+    CacheAffinityManager,
+    get_affinity_manager,
+)
+from src.services.scheduling.candidate_builder import (
+    CandidateBuilder,
+)
+from src.services.scheduling.candidate_builder import (
+    _sort_endpoints_by_family_priority as _sort_endpoints_by_family_priority,
+)
+from src.services.scheduling.candidate_sorter import CandidateSorter
+from src.services.scheduling.concurrency_checker import ConcurrencyChecker
+from src.services.scheduling.restriction_checker import get_effective_restrictions
+from src.services.scheduling.scheduling_config import SchedulingConfig
+from src.services.scheduling.schemas import ConcurrencySnapshot as ConcurrencySnapshot  # re-export
+from src.services.scheduling.schemas import ProviderCandidate as ProviderCandidate  # re-export
+from src.services.scheduling.utils import affinity_hash as _affinity_hash  # re-export compat
+from src.services.scheduling.utils import (
+    release_db_connection_before_await,
+)
 from src.services.system.config import SystemConfigService
 
 
@@ -102,6 +110,11 @@ class CacheAwareScheduler:
         redis_client: Any | None = None,
         priority_mode: str | None = None,
         scheduling_mode: str | None = None,
+        *,
+        candidate_builder: CandidateBuilderProtocol | None = None,
+        candidate_sorter: CandidateSorterProtocol | None = None,
+        concurrency_checker: ConcurrencyCheckerProtocol | None = None,
+        affinity_manager: CacheAffinityManagerProtocol | None = None,
     ) -> None:
         """
         初始化调度器
@@ -117,9 +130,9 @@ class CacheAwareScheduler:
         self.redis = redis_client
         self._config = SchedulingConfig(priority_mode, scheduling_mode)
 
-        # 异步子组件（将在第一次使用时初始化）
-        self._affinity_manager: CacheAffinityManager | None = None
-        self._concurrency_checker: ConcurrencyChecker | None = None
+        # 异步子组件（将在第一次使用时初始化，可通过构造函数注入）
+        self._affinity_manager: CacheAffinityManagerProtocol | None = affinity_manager
+        self._concurrency_checker: ConcurrencyCheckerProtocol | None = concurrency_checker
 
         self._metrics: dict[str, Any] = {
             "total_batches": 0,
@@ -139,9 +152,13 @@ class CacheAwareScheduler:
             "last_reservation_result": None,
         }
 
-        # 初始化子模块（不传 self，解除反向引用）
-        self._candidate_sorter = CandidateSorter(self._config)
-        self._candidate_builder = CandidateBuilder(self._candidate_sorter)
+        # 初始化子模块（不传 self，解除反向引用，可通过构造函数注入）
+        self._candidate_sorter: CandidateSorterProtocol = candidate_sorter or CandidateSorter(
+            self._config
+        )
+        self._candidate_builder: CandidateBuilderProtocol = candidate_builder or CandidateBuilder(
+            self._candidate_sorter
+        )
 
     # ── 属性代理（保持外部访问兼容性）──────────────────────────
 

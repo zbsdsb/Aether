@@ -13,8 +13,8 @@ from src.api.handlers.base.utils import get_format_converter_registry
 from src.core.exceptions import ThinkingSignatureException, UpstreamClientException
 from src.core.logger import logger
 from src.models.database import ProviderAPIKey
-from src.services.cache.aware_scheduler import ProviderCandidate
 from src.services.provider.transport import get_vertex_ai_effective_format
+from src.services.scheduling.aware_scheduler import ProviderCandidate
 
 
 def _get_error_status_code(e: Exception, default: int = 400) -> int:

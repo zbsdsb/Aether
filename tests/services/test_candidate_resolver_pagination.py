@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.services.cache.aware_scheduler import CacheAwareScheduler, ProviderCandidate
+from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint
 from src.services.orchestration.candidate_resolver import CandidateResolver
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler, ProviderCandidate
 
 
 class _FakeScheduler:
@@ -89,19 +90,19 @@ def _make_global_key_candidate(*, key_id: str, priority: int) -> ProviderCandida
         global_priority_by_format={"openai:chat": priority},
     )
     return ProviderCandidate(
-        provider=provider,
-        endpoint=endpoint,
-        key=key,
+        provider=cast(Provider, provider),
+        endpoint=cast(ProviderEndpoint, endpoint),
+        key=cast(ProviderAPIKey, key),
         needs_conversion=False,
         provider_api_format="openai:chat",
-    )  # type: ignore[arg-type]
+    )
 
 
 @pytest.mark.asyncio
 async def test_candidate_resolver_pagination_continues_on_empty_candidate_batch() -> None:
     db = MagicMock()
     scheduler = _FakeScheduler()
-    resolver = CandidateResolver(db=db, cache_scheduler=scheduler)  # type: ignore[arg-type]
+    resolver = CandidateResolver(db=db, cache_scheduler=cast(CacheAwareScheduler, scheduler))
 
     candidates, global_model_id = await resolver.fetch_candidates(
         api_format="openai:chat",

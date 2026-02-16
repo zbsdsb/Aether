@@ -32,7 +32,7 @@ from src.models.database import (
     ProviderAPIKey,
     ProviderEndpoint,
 )
-from src.services.cache.aware_scheduler import CacheAwareScheduler
+from src.services.scheduling.aware_scheduler import CacheAwareScheduler
 from src.services.system.config import SystemConfigService
 
 router = APIRouter(prefix="/global", tags=["Admin - Global Models"])

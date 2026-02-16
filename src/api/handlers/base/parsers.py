@@ -693,36 +693,22 @@ class GeminiCliResponseParser(GeminiResponseParser):
         self.api_format = "gemini:cli"
 
 
-# 解析器注册表
-_PARSERS: dict[str, type[ResponseParser]] = {
-    "claude:chat": ClaudeResponseParser,
-    "claude:cli": ClaudeCliResponseParser,
-    "openai:chat": OpenAIResponseParser,
-    "openai:cli": OpenAICliResponseParser,
-    "gemini:chat": GeminiResponseParser,
-    "gemini:cli": GeminiCliResponseParser,
-}
+# 注册解析器到 core 层注册表（供 services 层通过 format_id 获取）
+from src.core.stream_types import get_parser_for_format, register_parser
 
 
-def get_parser_for_format(format_id: str) -> ResponseParser:
-    """
-    根据格式 ID 获取 ResponseParser
+def register_default_parsers() -> None:
+    register_parser("claude:chat", ClaudeResponseParser)
+    register_parser("claude:cli", ClaudeCliResponseParser)
+    register_parser("openai:chat", OpenAIResponseParser)
+    register_parser("openai:cli", OpenAICliResponseParser)
+    register_parser("gemini:chat", GeminiResponseParser)
+    register_parser("gemini:cli", GeminiCliResponseParser)
 
-    Args:
-        format_id: endpoint signature，如 "claude:chat", "openai:cli"
 
-    Returns:
-        ResponseParser 实例
-
-    Raises:
-        KeyError: 格式不存在
-    """
-    from src.core.api_format.signature import normalize_signature_key
-
-    normalized = normalize_signature_key(format_id)
-    if normalized not in _PARSERS:
-        raise KeyError(f"Unknown format: {normalized}")
-    return _PARSERS[normalized]()
+# 模块加载时自动注册（保证 import parsers 即可用，测试也不需要手动初始化）
+# main.py lifespan 中的显式调用是冗余但无害的安全保障（dict 覆盖幂等）
+register_default_parsers()
 
 
 __all__ = [
@@ -732,6 +718,7 @@ __all__ = [
     "ClaudeCliResponseParser",
     "GeminiResponseParser",
     "GeminiCliResponseParser",
+    "register_default_parsers",
     "get_parser_for_format",
     "is_cli_format",
 ]
