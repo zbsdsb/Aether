@@ -1,9 +1,9 @@
 import type { Component } from 'vue'
 import {
+  Rocket,
+  Network,
   BookOpen,
-  Server,
-  Layers,
-  Users,
+  Target,
   Settings,
   HelpCircle
 } from 'lucide-vue-next'
@@ -20,38 +20,38 @@ export interface GuideNavItem {
 export const guideNavItems: GuideNavItem[] = [
   {
     id: 'overview',
-    name: '概览',
+    name: '快速开始',
     path: '/guide',
+    icon: Rocket,
+    description: '部署后的配置指南'
+  },
+  {
+    id: 'architecture',
+    name: '架构说明',
+    path: '/guide/architecture',
+    icon: Network,
+    description: '系统架构与请求流程'
+  },
+  {
+    id: 'concepts',
+    name: '相关概念',
+    path: '/guide/concepts',
     icon: BookOpen,
-    description: '系统架构与核心概念'
+    description: '核心概念深入解释'
   },
   {
-    id: 'provider',
-    name: '供应商管理',
-    path: '/guide/provider',
-    icon: Server,
-    description: '添加供应商与端点配置'
-  },
-  {
-    id: 'model',
-    name: '模型管理',
-    path: '/guide/model',
-    icon: Layers,
-    description: '模型映射与负载均衡'
-  },
-  {
-    id: 'user-key',
-    name: '用户与密钥',
-    path: '/guide/user-key',
-    icon: Users,
-    description: 'API Key 与权限管理'
+    id: 'strategy',
+    name: '关键策略',
+    path: '/guide/strategy',
+    icon: Target,
+    description: '调度、缓存与故障转移'
   },
   {
     id: 'advanced',
     name: '高级功能',
     path: '/guide/advanced',
     icon: Settings,
-    description: '格式转换、请求头规则等'
+    description: '格式转换、请求规则等'
   },
   {
     id: 'faq',
@@ -75,6 +75,7 @@ export const panelClasses = {
   badgeBlue: 'inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 dark:bg-blue-500/20 border border-blue-500/20 dark:border-blue-500/40 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400',
   badgeGreen: 'inline-flex items-center gap-1.5 rounded-full bg-green-500/10 dark:bg-green-500/20 border border-green-500/20 dark:border-green-500/40 px-2 py-0.5 text-xs font-medium text-green-600 dark:text-green-400',
   badgeYellow: 'inline-flex items-center gap-1.5 rounded-full bg-yellow-500/10 dark:bg-yellow-500/20 border border-yellow-500/20 dark:border-yellow-500/40 px-2 py-0.5 text-xs font-medium text-yellow-600 dark:text-yellow-400',
+  badgePurple: 'inline-flex items-center gap-1.5 rounded-full bg-purple-500/10 dark:bg-purple-500/20 border border-purple-500/20 dark:border-purple-500/40 px-2 py-0.5 text-xs font-medium text-purple-600 dark:text-purple-400',
   iconButtonSmall: [
     'flex items-center justify-center rounded-lg border h-7 w-7',
     'border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)]',
@@ -83,30 +84,6 @@ export const panelClasses = {
     'transition hover:bg-[#f0f0eb] dark:hover:bg-[#3a3731]'
   ].join(' ')
 } as const
-
-// 核心概念数据
-export const coreConcepts = [
-  {
-    name: '供应商 (Provider)',
-    description: '代表一个 AI 服务提供商，如 OpenAI、Anthropic、Google 等',
-    color: 'blue'
-  },
-  {
-    name: '端点 (Endpoint)',
-    description: '供应商下的具体 API 端点，包含 URL、密钥、API 格式等配置',
-    color: 'green'
-  },
-  {
-    name: '模型 (Model)',
-    description: '可供用户使用的模型，可关联多个端点实现负载均衡',
-    color: 'purple'
-  },
-  {
-    name: 'API Key',
-    description: '用户访问系统的凭证，可设置权限、配额、允许的模型等',
-    color: 'orange'
-  }
-]
 
 // API 格式说明
 export const apiFormats = [
@@ -118,9 +95,15 @@ export const apiFormats = [
   },
   {
     name: 'OpenAI CLI',
-    endpoint: '/v1/responses (Codex: /responses)',
+    endpoint: '/v1/responses',
     auth: 'Authorization: Bearer xxx',
     clients: ['Codex CLI']
+  },
+  {
+    name: 'OpenAI Video',
+    endpoint: '/v1/videos',
+    auth: 'Authorization: Bearer xxx',
+    clients: ['Sora']
   },
   {
     name: 'Claude Chat',
@@ -138,36 +121,148 @@ export const apiFormats = [
     name: 'Gemini Chat',
     endpoint: '/v1beta/models/{model}:generateContent',
     auth: 'x-goog-api-key: xxx',
-    clients: ['Gemini SDK', 'Gemini CLI']
+    clients: ['Gemini SDK']
+  },
+  {
+    name: 'Gemini CLI',
+    endpoint: '/v1beta/models/{model}:generateContent',
+    auth: 'x-goog-api-key: xxx',
+    clients: ['Gemini CLI']
+  },
+  {
+    name: 'Gemini Video',
+    endpoint: '/v1beta/models/{model}:predictLongRunning',
+    auth: 'x-goog-api-key: xxx',
+    clients: ['Veo']
   }
 ]
 
-// 负载均衡模式
-export const loadBalanceModes = [
+// 配置流程步骤
+export const configSteps = [
   {
-    mode: 'priority',
-    name: '优先级',
-    description: '按端点优先级顺序调用，高优先级的先用，失败后降级到低优先级'
+    step: 1,
+    title: '添加供应商',
+    description: '创建供应商并配置端点（URL、API Key、API 格式）',
+    path: '/admin/providers'
   },
   {
-    mode: 'random',
-    name: '随机',
-    description: '随机选择一个可用端点，适合多个同质端点'
+    step: 2,
+    title: '创建模型',
+    description: '定义用户可用的模型名，关联到端点',
+    path: '/admin/models'
   },
   {
-    mode: 'round_robin',
-    name: '轮询',
-    description: '依次轮流使用各个端点，分摊负载'
+    step: 3,
+    title: '发放密钥',
+    description: '为用户创建 API Key，设置权限和配额',
+    path: '/admin/keys'
   },
   {
-    mode: 'weighted',
-    name: '加权',
-    description: '按权重比例分配请求，权重高的端点处理更多请求'
+    step: 4,
+    title: '开始使用',
+    description: '配置客户端，开始调用 API',
+    path: '/guide'
+  }
+]
+
+// 客户端配置示例
+export const clientExamples = [
+  {
+    name: 'Claude Code',
+    configKey: 'ANTHROPIC_BASE_URL',
+    code: (baseUrl: string) => `# 设置环境变量
+export ANTHROPIC_BASE_URL="${baseUrl}"
+export ANTHROPIC_API_KEY="your-api-key"
+
+# 启动 Claude Code
+claude`,
+    note: '使用 Claude CLI 格式 (Authorization: Bearer)'
   },
   {
-    mode: 'latency',
-    name: '最低延迟',
-    description: '优先使用历史延迟最低的端点'
+    name: 'Codex CLI',
+    configKey: 'OPENAI_BASE_URL',
+    code: (baseUrl: string) => `# 设置环境变量
+export OPENAI_BASE_URL="${baseUrl}"
+export OPENAI_API_KEY="your-api-key"
+
+# 启动 Codex
+codex`,
+    note: '使用 OpenAI CLI 格式 (Responses API)'
+  },
+  {
+    name: 'Cursor',
+    configKey: 'Base URL',
+    code: (baseUrl: string) => `# Cursor Settings > Models > OpenAI API Key
+Base URL: ${baseUrl}/v1
+API Key: your-api-key`,
+    note: '使用 OpenAI Chat 格式'
+  },
+  {
+    name: 'OpenAI SDK (Python)',
+    configKey: 'base_url',
+    code: (baseUrl: string) => `from openai import OpenAI
+
+client = OpenAI(
+    base_url="${baseUrl}/v1",
+    api_key="your-api-key"
+)
+
+response = client.chat.completions.create(
+    model="claude-sonnet-4-20250514",
+    messages=[{"role": "user", "content": "Hello"}]
+)`,
+    note: '使用 OpenAI Chat 格式，支持格式转换调用 Claude/Gemini'
+  },
+  {
+    name: 'Gemini CLI',
+    configKey: 'GEMINI_API_BASE',
+    code: (baseUrl: string) => `# 设置环境变量
+export GEMINI_API_BASE="${baseUrl}"
+export GEMINI_API_KEY="your-api-key"
+
+# 启动 Gemini CLI
+gemini`,
+    note: '使用 Gemini Chat 格式'
+  }
+]
+
+// 常见供应商配置
+export const providerExamples = [
+  {
+    name: 'OpenAI',
+    url: 'https://api.openai.com',
+    format: 'OpenAI Chat',
+    note: '官方 API'
+  },
+  {
+    name: 'Anthropic',
+    url: 'https://api.anthropic.com',
+    format: 'Claude Chat',
+    note: '官方 Claude API'
+  },
+  {
+    name: 'Google AI',
+    url: 'https://generativelanguage.googleapis.com',
+    format: 'Gemini Chat',
+    note: '官方 Gemini API'
+  },
+  {
+    name: 'Azure OpenAI',
+    url: 'https://{resource}.openai.azure.com',
+    format: 'OpenAI Chat',
+    note: '替换 {resource} 为你的资源名'
+  },
+  {
+    name: 'OpenRouter',
+    url: 'https://openrouter.ai/api',
+    format: 'OpenAI Chat',
+    note: '聚合多家供应商的 API 代理'
+  },
+  {
+    name: '自托管/其他',
+    url: 'https://your-api.com',
+    format: 'OpenAI Chat',
+    note: '大多数兼容服务选择 OpenAI Chat 格式'
   }
 ]
 
@@ -232,33 +327,5 @@ export const faqItems = [
     category: '常见错误',
     question: '返回 502/503 错误？',
     answer: '表示上游服务不可用。检查：1) 端点健康状态；2) 供应商 API 是否正常；3) 网络连接是否正常。可以在健康监控页面查看端点状态。'
-  }
-]
-
-// 配置流程步骤
-export const configSteps = [
-  {
-    step: 1,
-    title: '添加供应商',
-    description: '创建一个供应商来组织你的 API 端点',
-    path: '/admin/providers'
-  },
-  {
-    step: 2,
-    title: '配置端点',
-    description: '在供应商下添加 API 端点，填写 URL、密钥等',
-    path: '/admin/providers'
-  },
-  {
-    step: 3,
-    title: '创建模型',
-    description: '创建用户可用的模型，关联到端点',
-    path: '/admin/models'
-  },
-  {
-    step: 4,
-    title: '发放密钥',
-    description: '为用户创建 API Key，设置权限和配额',
-    path: '/admin/keys'
   }
 ]

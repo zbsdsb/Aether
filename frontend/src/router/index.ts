@@ -31,21 +31,21 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAuth: false }
       },
       {
-        path: 'provider',
-        name: 'GuideProvider',
-        component: () => importWithRetry(() => import('@/views/public/guide/ProviderGuide.vue')),
+        path: 'architecture',
+        name: 'GuideArchitecture',
+        component: () => importWithRetry(() => import('@/views/public/guide/ArchitectureGuide.vue')),
         meta: { requiresAuth: false }
       },
       {
-        path: 'model',
-        name: 'GuideModel',
-        component: () => importWithRetry(() => import('@/views/public/guide/ModelGuide.vue')),
+        path: 'concepts',
+        name: 'GuideConcepts',
+        component: () => importWithRetry(() => import('@/views/public/guide/ConceptsGuide.vue')),
         meta: { requiresAuth: false }
       },
       {
-        path: 'user-key',
-        name: 'GuideUserKey',
-        component: () => importWithRetry(() => import('@/views/public/guide/UserKeyGuide.vue')),
+        path: 'strategy',
+        name: 'GuideStrategy',
+        component: () => importWithRetry(() => import('@/views/public/guide/StrategyGuide.vue')),
         meta: { requiresAuth: false }
       },
       {

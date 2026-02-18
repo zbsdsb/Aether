@@ -1,204 +1,308 @@
 <template>
-  <div class="min-h-screen literary-grid literary-paper">
-    <!-- Header -->
-    <header class="sticky top-0 z-50 border-b border-[#cc785c]/10 dark:border-[rgba(227,224,211,0.12)] bg-[#fafaf7]/90 dark:bg-[#191714]/95 backdrop-blur-xl transition-all">
-      <div class="h-14 sm:h-16 flex items-center px-3 sm:px-4 md:px-8">
-        <!-- Left: Logo & Brand -->
+  <AppShell
+    :main-class="mainClasses"
+    :sidebar-class="sidebarClasses"
+    :content-class="contentClasses"
+  >
+    <!-- GLOBAL TEXTURE (Paper Noise) -->
+    <div
+      class="absolute inset-0 pointer-events-none z-0 opacity-[0.03] mix-blend-multiply fixed"
+      :style="{ backgroundImage: `url(\&quot;data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E\&quot;)` }"
+    />
+
+    <template #sidebar>
+      <!-- HEADER (Brand) -->
+      <div class="shrink-0 flex items-center px-6 h-20">
         <RouterLink
           to="/"
-          class="flex items-center gap-2 sm:gap-3 group/logo cursor-pointer shrink-0"
+          class="flex items-center gap-3 group transition-opacity hover:opacity-80"
         >
           <HeaderLogo
-            size="h-7 w-7 sm:h-9 sm:w-9"
+            size="h-9 w-9"
             class-name="text-[#191919] dark:text-white"
           />
           <div class="flex flex-col justify-center">
-            <h1 class="text-base sm:text-lg font-bold text-[#191919] dark:text-white leading-none">
+            <h1 class="text-lg font-bold text-[#191919] dark:text-white leading-none">
               {{ siteName }}
             </h1>
-            <span class="text-[9px] sm:text-[10px] text-[#91918d] dark:text-muted-foreground leading-none mt-1 sm:mt-1.5 font-medium tracking-wide">{{ siteSubtitle }}</span>
+            <span class="text-[10px] text-[#91918d] dark:text-muted-foreground leading-none mt-1.5 font-medium tracking-wide">{{ siteSubtitle }}</span>
           </div>
         </RouterLink>
-
-        <!-- Center: Breadcrumb -->
-        <div class="hidden md:flex items-center gap-2 ml-8">
-          <RouterLink
-            to="/guide"
-            class="text-sm text-[#666663] dark:text-muted-foreground hover:text-[#191919] dark:hover:text-white transition"
-          >
-            教程文档
-          </RouterLink>
-          <ChevronRight
-            v-if="currentNavItem && currentNavItem.id !== 'overview'"
-            class="h-4 w-4 text-[#91918d]"
-          />
-          <span
-            v-if="currentNavItem && currentNavItem.id !== 'overview'"
-            class="text-sm font-medium text-[#191919] dark:text-white"
-          >
-            {{ currentNavItem.name }}
-          </span>
-        </div>
-
-        <!-- Spacer -->
-        <div class="flex-1" />
-
-        <!-- Right: Actions -->
-        <div class="flex items-center gap-1 sm:gap-2 shrink-0">
-          <!-- Mobile menu button -->
-          <button
-            class="md:hidden flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
-            @click="showMobileNav = !showMobileNav"
-          >
-            <Menu class="h-4 w-4" />
-          </button>
-
-          <!-- Theme Toggle + GitHub Icons -->
-          <div class="flex items-center gap-0.5 sm:gap-1">
-            <button
-              class="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
-              :title="themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色模式' : '浅色模式'"
-              @click="toggleDarkMode"
-            >
-              <SunMoon
-                v-if="themeMode === 'system'"
-                class="h-3.5 w-3.5 sm:h-4 sm:w-4"
-              />
-              <Sun
-                v-else-if="themeMode === 'light'"
-                class="h-3.5 w-3.5 sm:h-4 sm:w-4"
-              />
-              <Moon
-                v-else
-                class="h-3.5 w-3.5 sm:h-4 sm:w-4"
-              />
-            </button>
-            <a
-              href="https://github.com/fawney19/Aether"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
-              title="GitHub 仓库"
-            >
-              <GithubIcon class="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            </a>
-          </div>
-        </div>
       </div>
-    </header>
 
-    <!-- Mobile Nav Overlay -->
-    <Transition name="fade">
-      <div
-        v-if="showMobileNav"
-        class="fixed inset-0 z-40 bg-black/50 md:hidden"
-        @click="showMobileNav = false"
-      />
-    </Transition>
-
-    <!-- Mobile Nav Drawer -->
-    <Transition name="slide-left">
-      <div
-        v-if="showMobileNav"
-        class="fixed left-0 top-14 bottom-0 z-50 w-64 bg-[#fafaf7] dark:bg-[#191714] border-r border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] md:hidden overflow-y-auto"
-      >
-        <nav class="p-4 space-y-1">
-          <RouterLink
-            v-for="item in guideNavItems"
-            :key="item.id"
-            :to="item.path"
-            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors"
-            :class="isActive(item.path)
-              ? 'bg-[#cc785c]/10 text-[#cc785c] dark:text-[#d4a27f]'
-              : 'text-[#666663] dark:text-muted-foreground hover:bg-[#f0f0eb] dark:hover:bg-[#262624]'"
-            @click="showMobileNav = false"
-          >
-            <component
-              :is="item.icon"
-              class="h-4 w-4 shrink-0"
-            />
-            <span class="text-sm font-medium">{{ item.name }}</span>
-          </RouterLink>
-        </nav>
-      </div>
-    </Transition>
-
-    <!-- Main Content -->
-    <div class="flex">
-      <!-- Desktop Sidebar -->
-      <aside class="hidden md:block w-64 shrink-0 border-r border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] bg-[#fafaf7]/50 dark:bg-[#191714]/50">
-        <div class="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
-          <nav class="p-4 space-y-1">
-            <RouterLink
+      <!-- NAVIGATION -->
+      <div class="flex-1 overflow-y-auto py-2 scrollbar-none">
+        <nav class="w-full px-3">
+          <div class="space-y-0.5">
+            <template
               v-for="item in guideNavItems"
               :key="item.id"
-              :to="item.path"
-              class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors group"
-              :class="isActive(item.path)
-                ? 'bg-[#cc785c]/10 text-[#cc785c] dark:text-[#d4a27f]'
-                : 'text-[#666663] dark:text-muted-foreground hover:bg-[#f0f0eb] dark:hover:bg-[#262624]'"
             >
-              <component
-                :is="item.icon"
-                class="h-4 w-4 shrink-0"
-              />
-              <div class="flex flex-col">
-                <span class="text-sm font-medium">{{ item.name }}</span>
-                <span
-                  v-if="item.description"
-                  class="text-xs text-[#91918d] dark:text-muted-foreground/70"
+              <RouterLink
+                :to="item.path"
+                class="group relative flex items-center justify-between px-2.5 py-2 rounded-lg transition-all duration-200"
+                :class="[
+                  isNavActive(item.path)
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                ]"
+              >
+                <div class="flex items-center gap-2.5">
+                  <component
+                    :is="item.icon"
+                    class="h-4 w-4 transition-colors duration-200"
+                    :class="isNavActive(item.path) ? 'text-primary' : 'text-muted-foreground/70 group-hover:text-foreground'"
+                    :stroke-width="isNavActive(item.path) ? 2 : 1.75"
+                  />
+                  <span class="text-[13px] tracking-tight">{{ item.name }}</span>
+                </div>
+                <div
+                  v-if="isNavActive(item.path)"
+                  class="w-1 h-1 rounded-full bg-primary"
+                />
+              </RouterLink>
+
+              <!-- 快速开始子导航 -->
+              <div
+                v-if="item.id === 'overview' && isNavActive(item.path)"
+                class="ml-7 space-y-0.5 mt-0.5"
+              >
+                <a
+                  v-for="sub in overviewSubItems"
+                  :key="sub.hash"
+                  :href="sub.hash"
+                  class="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12px] transition-colors"
+                  :class="activeHash === sub.hash
+                    ? 'text-primary font-medium'
+                    : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/30'"
+                  @click.prevent="scrollToHash(sub.hash)"
                 >
-                  {{ item.description }}
-                </span>
+                  <span
+                    class="w-1 h-1 rounded-full flex-shrink-0"
+                    :class="activeHash === sub.hash ? 'bg-primary' : 'bg-muted-foreground/30'"
+                  />
+                  {{ sub.name }}
+                </a>
+              </div>
+            </template>
+          </div>
+        </nav>
+      </div>
+
+      <!-- FOOTER (Base URL) -->
+      <div class="p-4 border-t border-[#3d3929]/5 dark:border-white/5">
+        <label class="block text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-[0.1em] mb-2">
+          Base URL
+        </label>
+        <input
+          v-model="baseUrl"
+          type="text"
+          class="w-full px-3 py-2 text-sm rounded-lg border border-[#3d3929]/5 dark:border-white/5 bg-white/50 dark:bg-white/5 text-[#191919] dark:text-white placeholder-[#91918d] focus:outline-none focus:ring-2 focus:ring-[#cc785c]/30 transition"
+          placeholder="https://your-aether.com"
+        >
+        <p class="mt-1.5 text-[10px] text-muted-foreground/50">
+          代码示例将使用此 URL
+        </p>
+      </div>
+    </template>
+
+    <template #header>
+      <!-- Mobile Header -->
+      <header class="lg:hidden fixed top-0 left-0 right-0 z-50 border-b border-[var(--shell-border)] bg-[var(--shell-glass)] backdrop-blur-xl transition-all">
+        <div class="mx-auto max-w-7xl px-6 py-4">
+          <div class="flex items-center justify-between">
+            <RouterLink
+              to="/"
+              class="flex items-center gap-3 group"
+            >
+              <HeaderLogo
+                size="h-9 w-9"
+                class-name="text-[#191919] dark:text-white"
+              />
+              <div class="flex flex-col justify-center">
+                <h1 class="text-lg font-bold text-[#191919] dark:text-white leading-none">
+                  {{ siteName }}
+                </h1>
+                <span class="text-[10px] text-[#91918d] dark:text-muted-foreground leading-none mt-1.5 font-medium tracking-wide">{{ siteSubtitle }}</span>
               </div>
             </RouterLink>
-          </nav>
 
-          <!-- Base URL Input -->
-          <div class="p-4 border-t border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)]">
-            <label class="block text-xs font-medium text-[#666663] dark:text-muted-foreground mb-2">
-              {{ siteName }} Base URL
-            </label>
-            <input
-              v-model="baseUrl"
-              type="text"
-              class="w-full px-3 py-2 text-sm rounded-lg border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] bg-white dark:bg-[#1f1d1a] text-[#191919] dark:text-white placeholder-[#91918d] focus:outline-none focus:ring-2 focus:ring-[#cc785c]/30"
-              placeholder="https://your-aether.com"
-            >
-            <p class="mt-1.5 text-xs text-[#91918d]">
-              代码示例将使用此 URL
-            </p>
+            <div class="flex items-center gap-3">
+              <button
+                class="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
+                :title="themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色模式' : '浅色模式'"
+                @click="toggleDarkMode"
+              >
+                <SunMoon
+                  v-if="themeMode === 'system'"
+                  class="h-4 w-4"
+                />
+                <Sun
+                  v-else-if="themeMode === 'light'"
+                  class="h-4 w-4"
+                />
+                <Moon
+                  v-else
+                  class="h-4 w-4"
+                />
+              </button>
+              <button
+                class="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
+                @click="mobileMenuOpen = !mobileMenuOpen"
+              >
+                <div class="relative w-5 h-5">
+                  <Transition
+                    enter-active-class="transition-all duration-200 ease-out"
+                    enter-from-class="opacity-0 rotate-90 scale-75"
+                    enter-to-class="opacity-100 rotate-0 scale-100"
+                    leave-active-class="transition-all duration-150 ease-in absolute inset-0"
+                    leave-from-class="opacity-100 rotate-0 scale-100"
+                    leave-to-class="opacity-0 -rotate-90 scale-75"
+                    mode="out-in"
+                  >
+                    <Menu
+                      v-if="!mobileMenuOpen"
+                      class="h-5 w-5"
+                    />
+                    <X
+                      v-else
+                      class="h-5 w-5"
+                    />
+                  </Transition>
+                </div>
+              </button>
+            </div>
           </div>
         </div>
-      </aside>
 
-      <!-- Page Content -->
-      <main class="flex-1 min-w-0">
-        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
-          <RouterView v-slot="{ Component }">
-            <component
-              :is="Component"
-              :base-url="baseUrl"
-            />
-          </RouterView>
+        <!-- Mobile Dropdown Menu -->
+        <Transition
+          enter-active-class="transition-all duration-300 ease-out overflow-hidden"
+          enter-from-class="opacity-0 max-h-0"
+          enter-to-class="opacity-100 max-h-[500px]"
+          leave-active-class="transition-all duration-200 ease-in overflow-hidden"
+          leave-from-class="opacity-100 max-h-[500px]"
+          leave-to-class="opacity-0 max-h-0"
+        >
+          <div
+            v-if="mobileMenuOpen"
+            class="border-t border-[var(--shell-border)] bg-[var(--shell-glass)] backdrop-blur-xl"
+          >
+            <div class="mx-auto max-w-7xl px-6 py-4">
+              <div class="space-y-4">
+                <div
+                  v-for="group in navigation"
+                  :key="group.title"
+                >
+                  <div
+                    v-if="group.title"
+                    class="text-[10px] font-semibold text-[#91918d] dark:text-muted-foreground uppercase tracking-wider mb-2"
+                  >
+                    {{ group.title }}
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <RouterLink
+                      v-for="item in group.items"
+                      :key="item.href"
+                      :to="item.href"
+                      class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
+                      :class="isNavActive(item.href)
+                        ? 'bg-[#cc785c]/10 dark:bg-[#cc785c]/20 text-[#cc785c] dark:text-[#d4a27f]'
+                        : 'text-[#666663] dark:text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 hover:text-[#191919] dark:hover:text-white'"
+                      @click="mobileMenuOpen = false"
+                    >
+                      <component
+                        :is="item.icon"
+                        class="h-4 w-4 shrink-0"
+                      />
+                      <span class="truncate">{{ item.name }}</span>
+                    </RouterLink>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Transition>
+      </header>
+
+      <!-- Desktop Page Header -->
+      <header class="hidden lg:flex h-16 px-8 items-center justify-between shrink-0 border-b border-[#3d3929]/5 dark:border-white/5 sticky top-0 z-40 backdrop-blur-md bg-[#faf9f5]/90 dark:bg-[#191714]/90">
+        <div class="flex flex-col gap-0.5">
+          <div class="flex items-center gap-2 text-sm text-muted-foreground">
+            <RouterLink
+              to="/guide"
+              class="hover:text-foreground transition-colors"
+            >
+              教程文档
+            </RouterLink>
+            <template v-if="currentNavItem && currentNavItem.id !== 'overview'">
+              <ChevronRight class="w-3 h-3 opacity-50" />
+              <span class="text-foreground font-medium">
+                {{ currentNavItem.name }}
+              </span>
+            </template>
+          </div>
         </div>
-      </main>
+
+        <div class="flex items-center gap-2">
+          <button
+            class="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
+            :title="themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色模式' : '浅色模式'"
+            @click="toggleDarkMode"
+          >
+            <SunMoon
+              v-if="themeMode === 'system'"
+              class="h-4 w-4"
+            />
+            <Sun
+              v-else-if="themeMode === 'light'"
+              class="h-4 w-4"
+            />
+            <Moon
+              v-else
+              class="h-4 w-4"
+            />
+          </button>
+          <a
+            href="https://github.com/fawney19/Aether"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
+            title="GitHub 仓库"
+          >
+            <GithubIcon class="h-4 w-4" />
+          </a>
+        </div>
+      </header>
+    </template>
+
+    <div class="max-w-4xl mx-auto">
+      <RouterView
+        v-slot="{ Component }"
+      >
+        <component
+          :is="Component"
+          :base-url="baseUrl"
+        />
+      </RouterView>
     </div>
-  </div>
+  </AppShell>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import {
-  ChevronRight,
   Menu,
   Moon,
   Sun,
-  SunMoon
+  SunMoon,
+  ChevronRight,
+  X
 } from 'lucide-vue-next'
 import GithubIcon from '@/components/icons/GithubIcon.vue'
 import HeaderLogo from '@/components/HeaderLogo.vue'
+import AppShell from '@/components/layout/AppShell.vue'
 import { useDarkMode } from '@/composables/useDarkMode'
 import { useSiteInfo } from '@/composables/useSiteInfo'
 import { guideNavItems } from './guide-config'
@@ -207,57 +311,68 @@ const route = useRoute()
 const { themeMode, toggleDarkMode } = useDarkMode()
 const { siteName, siteSubtitle } = useSiteInfo()
 
-const showMobileNav = ref(false)
+const mobileMenuOpen = ref(false)
 const baseUrl = ref(typeof window !== 'undefined' ? window.location.origin : 'https://your-aether.com')
+const activeHash = ref('#production')
+
+// 快速开始子导航
+const overviewSubItems = [
+  { name: '部署', hash: '#production' },
+  { name: '配置流程', hash: '#config-steps' },
+  { name: 'API 格式', hash: '#api-formats' },
+  { name: '推荐帖子', hash: '#recommended-posts' }
+]
+
+function scrollToHash(hash: string) {
+  activeHash.value = hash
+  const el = document.querySelector(hash)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
+// 路由变化时关闭移动端菜单
+watch(() => route.path, () => {
+  mobileMenuOpen.value = false
+})
 
 const currentNavItem = computed(() => {
   return guideNavItems.find(item => item.path === route.path)
 })
 
-function isActive(path: string): boolean {
-  if (path === '/guide') {
+function isNavActive(href: string) {
+  if (href === '/guide') {
     return route.path === '/guide'
   }
-  return route.path.startsWith(path)
+  return route.path === href || route.path.startsWith(`${href}/`)
 }
+
+// 移动端菜单用的导航数据
+const navigation = computed(() => [
+  {
+    items: guideNavItems.map(item => ({
+      name: item.name,
+      href: item.path,
+      icon: item.icon
+    }))
+  }
+])
+
+// 样式类 - 与 MainLayout 保持一致
+const sidebarClasses = computed(() => {
+  return 'w-[260px] flex flex-col hidden lg:flex border-r border-[#3d3929]/5 dark:border-white/5 bg-[#faf9f5] dark:bg-[#1e1c19] h-screen sticky top-0'
+})
+
+const contentClasses = computed(() => {
+  return 'flex-1 min-w-0 bg-[#faf9f5] dark:bg-[#191714] text-[#3d3929] dark:text-[#d4a27f]'
+})
+
+const mainClasses = computed(() => {
+  return 'pt-24 lg:pt-6'
+})
 </script>
 
 <style scoped>
-/* Typography */
-h1, h2, h3 {
-  font-family: var(--serif);
-  letter-spacing: -0.02em;
-  font-weight: 500;
-}
-
-p {
-  font-family: var(--serif);
-  letter-spacing: 0.01em;
-  line-height: 1.7;
-}
-
-button, nav, a, .inline-flex, input, label {
-  font-family: var(--sans-serif);
-}
-
-/* Transitions */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-.slide-left-enter-active,
-.slide-left-leave-active {
-  transition: transform 0.2s ease;
-}
-
-.slide-left-enter-from,
-.slide-left-leave-to {
-  transform: translateX(-100%);
-}
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 </style>
