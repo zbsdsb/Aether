@@ -25,94 +25,100 @@
         </div>
 
         <!-- 并排 Diff 内容 -->
-        <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
-          <div class="flex font-mono text-xs">
-            <!-- 左侧：客户端 -->
-            <div class="flex-1 border-r">
-              <template
-                v-for="entry in sortedEntries"
-                :key="'left-' + entry.key"
+        <div class="flex font-mono text-xs max-h-[500px]">
+          <!-- 左侧：客户端 -->
+          <div
+            ref="leftPanelRef"
+            class="w-1/2 min-w-0 border-r overflow-x-auto overflow-y-auto"
+            @scroll="onLeftScroll"
+          >
+            <template
+              v-for="entry in sortedEntries"
+              :key="'left-' + entry.key"
+            >
+              <!-- 删除的行 -->
+              <div
+                v-if="entry.status === 'removed'"
+                class="flex items-start bg-destructive/10 px-3 py-0.5"
               >
-                <!-- 删除的行 -->
-                <div
-                  v-if="entry.status === 'removed'"
-                  class="flex items-start bg-destructive/10 px-3 py-0.5"
-                >
-                  <span class="text-destructive">
-                    "{{ entry.key }}": "{{ entry.clientValue }}"
-                  </span>
-                </div>
-                <!-- 修改的行 - 旧值 -->
-                <div
-                  v-else-if="entry.status === 'modified'"
-                  class="flex items-start bg-amber-500/10 px-3 py-0.5"
-                >
-                  <span class="text-amber-600 dark:text-amber-400">
-                    "{{ entry.key }}": "{{ entry.clientValue }}"
-                  </span>
-                </div>
-                <!-- 新增的行 - 左侧空白占位 -->
-                <div
-                  v-else-if="entry.status === 'added'"
-                  class="flex items-start bg-muted/30 px-3 py-0.5"
-                >
-                  <span class="text-muted-foreground/30 italic">（无）</span>
-                </div>
-                <!-- 未变化的行 -->
-                <div
-                  v-else
-                  class="flex items-start px-3 py-0.5 hover:bg-muted/50"
-                >
-                  <span class="text-muted-foreground">
-                    "{{ entry.key }}": "{{ entry.clientValue }}"
-                  </span>
-                </div>
-              </template>
-            </div>
-            <!-- 右侧：提供商 -->
-            <div class="flex-1">
-              <template
-                v-for="entry in sortedEntries"
-                :key="'right-' + entry.key"
+                <span class="text-destructive">
+                  "{{ entry.key }}": "{{ entry.clientValue }}"
+                </span>
+              </div>
+              <!-- 修改的行 - 旧值 -->
+              <div
+                v-else-if="entry.status === 'modified'"
+                class="flex items-start bg-amber-500/10 px-3 py-0.5"
               >
-                <!-- 删除的行 - 右侧空白占位 -->
-                <div
-                  v-if="entry.status === 'removed'"
-                  class="flex items-start bg-muted/30 px-3 py-0.5"
-                >
-                  <span class="text-muted-foreground/50 line-through">
-                    "{{ entry.key }}": "{{ entry.clientValue }}"
-                  </span>
-                </div>
-                <!-- 修改的行 - 新值 -->
-                <div
-                  v-else-if="entry.status === 'modified'"
-                  class="flex items-start bg-amber-500/10 px-3 py-0.5"
-                >
-                  <span class="text-amber-600 dark:text-amber-400">
-                    "{{ entry.key }}": "{{ entry.providerValue }}"
-                  </span>
-                </div>
-                <!-- 新增的行 -->
-                <div
-                  v-else-if="entry.status === 'added'"
-                  class="flex items-start bg-green-500/10 px-3 py-0.5"
-                >
-                  <span class="text-green-600 dark:text-green-400">
-                    "{{ entry.key }}": "{{ entry.providerValue }}"
-                  </span>
-                </div>
-                <!-- 未变化的行 -->
-                <div
-                  v-else
-                  class="flex items-start px-3 py-0.5 hover:bg-muted/50"
-                >
-                  <span class="text-muted-foreground">
-                    "{{ entry.key }}": "{{ entry.providerValue }}"
-                  </span>
-                </div>
-              </template>
-            </div>
+                <span class="text-amber-600 dark:text-amber-400">
+                  "{{ entry.key }}": "{{ entry.clientValue }}"
+                </span>
+              </div>
+              <!-- 新增的行 - 左侧空白占位 -->
+              <div
+                v-else-if="entry.status === 'added'"
+                class="flex items-start bg-muted/30 px-3 py-0.5"
+              >
+                <span class="text-muted-foreground/30 italic">（无）</span>
+              </div>
+              <!-- 未变化的行 -->
+              <div
+                v-else
+                class="flex items-start px-3 py-0.5 hover:bg-muted/50"
+              >
+                <span class="text-muted-foreground">
+                  "{{ entry.key }}": "{{ entry.clientValue }}"
+                </span>
+              </div>
+            </template>
+          </div>
+          <!-- 右侧：提供商 -->
+          <div
+            ref="rightPanelRef"
+            class="w-1/2 min-w-0 overflow-x-auto overflow-y-auto"
+            @scroll="onRightScroll"
+          >
+            <template
+              v-for="entry in sortedEntries"
+              :key="'right-' + entry.key"
+            >
+              <!-- 删除的行 - 右侧空白占位 -->
+              <div
+                v-if="entry.status === 'removed'"
+                class="flex items-start bg-muted/30 px-3 py-0.5"
+              >
+                <span class="text-muted-foreground/50 line-through">
+                  "{{ entry.key }}": "{{ entry.clientValue }}"
+                </span>
+              </div>
+              <!-- 修改的行 - 新值 -->
+              <div
+                v-else-if="entry.status === 'modified'"
+                class="flex items-start bg-amber-500/10 px-3 py-0.5"
+              >
+                <span class="text-amber-600 dark:text-amber-400">
+                  "{{ entry.key }}": "{{ entry.providerValue }}"
+                </span>
+              </div>
+              <!-- 新增的行 -->
+              <div
+                v-else-if="entry.status === 'added'"
+                class="flex items-start bg-green-500/10 px-3 py-0.5"
+              >
+                <span class="text-green-600 dark:text-green-400">
+                  "{{ entry.key }}": "{{ entry.providerValue }}"
+                </span>
+              </div>
+              <!-- 未变化的行 -->
+              <div
+                v-else
+                class="flex items-start px-3 py-0.5 hover:bg-muted/50"
+              >
+                <span class="text-muted-foreground">
+                  "{{ entry.key }}": "{{ entry.providerValue }}"
+                </span>
+              </div>
+            </template>
           </div>
         </div>
       </Card>
@@ -150,7 +156,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import Card from '@/components/ui/card.vue'
 import JsonContent from './JsonContent.vue'
 import type { RequestDetail } from '@/api/dashboard'
@@ -167,6 +173,28 @@ const props = defineProps<{
   headerStats: { added: number; modified: number; removed: number; unchanged: number }
   isDark: boolean
 }>()
+
+const leftPanelRef = ref<HTMLElement | null>(null)
+const rightPanelRef = ref<HTMLElement | null>(null)
+let isSyncingScroll = false
+
+function onLeftScroll() {
+  if (isSyncingScroll) return
+  isSyncingScroll = true
+  if (leftPanelRef.value && rightPanelRef.value) {
+    rightPanelRef.value.scrollTop = leftPanelRef.value.scrollTop
+  }
+  requestAnimationFrame(() => { isSyncingScroll = false })
+}
+
+function onRightScroll() {
+  if (isSyncingScroll) return
+  isSyncingScroll = true
+  if (leftPanelRef.value && rightPanelRef.value) {
+    leftPanelRef.value.scrollTop = rightPanelRef.value.scrollTop
+  }
+  requestAnimationFrame(() => { isSyncingScroll = false })
+}
 
 // 合并并排序的条目（用于并排显示）
 const sortedEntries = computed(() => {

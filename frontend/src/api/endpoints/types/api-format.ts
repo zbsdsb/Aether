@@ -67,6 +67,13 @@ export const API_FORMAT_ORDER: string[] = [
   API_FORMATS.GEMINI_VIDEO,
 ]
 
+// 工具函数：将 API 格式签名转为友好显示名称
+export function formatApiFormat(format: string | null | undefined): string {
+  if (!format) return '-'
+  const raw = format.trim()
+  return API_FORMAT_LABELS[raw] || API_FORMAT_LABELS[raw.toLowerCase()] || API_FORMAT_LABELS[raw.toUpperCase()] || raw
+}
+
 // 工具函数：按标准顺序排序 API 格式数组
 export function sortApiFormats(formats: string[]): string[] {
   return [...formats].sort((a, b) => {

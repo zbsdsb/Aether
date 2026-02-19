@@ -1559,20 +1559,32 @@ class AdminUsageCurlAdapter(AdminApiAdapter):
         usage_record = _find_usage_record(db, self.usage_id)
 
         # 获取端点和密钥
+        endpoint_id = usage_record.provider_endpoint_id
+        key_id = usage_record.provider_api_key_id
+
+        # 兜底：Usage 记录缺少 provider 信息时，从 RequestCandidate 表查找
+        if not endpoint_id or not key_id:
+            from src.models.database import RequestCandidate as RC
+
+            candidate = (
+                db.query(RC)
+                .filter(
+                    RC.request_id == usage_record.request_id,
+                    RC.status.in_(["success", "failed", "streaming"]),
+                )
+                .order_by(RC.candidate_index.desc(), RC.retry_index.desc())
+                .first()
+            )
+            if candidate:
+                endpoint_id = endpoint_id or candidate.endpoint_id
+                key_id = key_id or candidate.key_id
+
         endpoint = None
-        if usage_record.provider_endpoint_id:
-            endpoint = (
-                db.query(ProviderEndpoint)
-                .filter(ProviderEndpoint.id == usage_record.provider_endpoint_id)
-                .first()
-            )
+        if endpoint_id:
+            endpoint = db.query(ProviderEndpoint).filter(ProviderEndpoint.id == endpoint_id).first()
         provider_key = None
-        if usage_record.provider_api_key_id:
-            provider_key = (
-                db.query(ProviderAPIKey)
-                .filter(ProviderAPIKey.id == usage_record.provider_api_key_id)
-                .first()
-            )
+        if key_id:
+            provider_key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
 
         # 重建请求 URL
         url: str | None = None

@@ -83,7 +83,7 @@
                   variant="outline"
                   class="font-mono text-xs"
                 >
-                  {{ monitor.api_format }}
+                  {{ formatApiFormat(monitor.api_format) }}
                 </Badge>
                 <Badge
                   v-if="monitor.total_attempts > 0"
@@ -142,6 +142,7 @@ import EndpointHealthTimeline from './EndpointHealthTimeline.vue'
 import { getEndpointStatusMonitor, getPublicEndpointStatusMonitor } from '@/api/endpoints/health'
 import type { EndpointStatusMonitor, PublicEndpointStatusMonitor } from '@/api/endpoints/types'
 import { useToast } from '@/composables/useToast'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 
 const props = withDefaults(defineProps<{
   title?: string

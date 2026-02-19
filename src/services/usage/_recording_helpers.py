@@ -256,10 +256,13 @@ def update_existing_usage(
     existing_usage.actual_total_cost_usd = usage_params["actual_total_cost_usd"]
     existing_usage.rate_multiplier = usage_params["rate_multiplier"]
 
-    # 更新 Provider 侧追踪信息
-    existing_usage.provider_id = usage_params["provider_id"]
-    existing_usage.provider_endpoint_id = usage_params["provider_endpoint_id"]
-    existing_usage.provider_api_key_id = usage_params["provider_api_key_id"]
+    # 更新 Provider 侧追踪信息（仅在有新值时更新，避免覆盖已有数据）
+    if usage_params.get("provider_id"):
+        existing_usage.provider_id = usage_params["provider_id"]
+    if usage_params.get("provider_endpoint_id"):
+        existing_usage.provider_endpoint_id = usage_params["provider_endpoint_id"]
+    if usage_params.get("provider_api_key_id"):
+        existing_usage.provider_api_key_id = usage_params["provider_api_key_id"]
 
     # 更新元数据（如 billing_snapshot/dimensions 等）
     if usage_params.get("request_metadata") is not None:

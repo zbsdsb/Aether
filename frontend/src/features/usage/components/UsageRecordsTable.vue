@@ -668,7 +668,7 @@ import { RefreshCcw, Search } from 'lucide-vue-next'
 import { formatTokens, formatCurrency } from '@/utils/format'
 import { formatDateTime } from '../composables'
 import { useRowClick } from '@/composables/useRowClick'
-import { API_FORMAT_LABELS } from '@/api/endpoints/types'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 import type { DateRangeParams, UsageRecord } from '../types'
 import { TimeRangePicker } from '@/components/common'
 
@@ -810,17 +810,6 @@ function handleRowClick(event: MouseEvent, id: string) {
 }
 
 // useIntervalFn 和 useDebounceFn 自动处理清理，无需 onUnmounted
-
-// 格式化 API 格式显示名称
-function formatApiFormat(format: string): string {
-  const raw = (format || '').trim()
-  return (
-    API_FORMAT_LABELS[raw] ||
-    API_FORMAT_LABELS[raw.toLowerCase()] ||
-    API_FORMAT_LABELS[raw.toUpperCase()] ||
-    raw
-  )
-}
 
 // 判断是否应该显示格式转换信息
 // 包括：1. 跨格式转换（has_format_conversion=true）2. 同族格式差异（如 CLAUDE_CLI → CLAUDE）

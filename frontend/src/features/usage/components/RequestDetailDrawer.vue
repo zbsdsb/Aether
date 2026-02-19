@@ -640,7 +640,7 @@ import Tabs from '@/components/ui/tabs.vue'
 import TabsContent from '@/components/ui/tabs-content.vue'
 import { Copy, Check, Maximize2, Minimize2, Columns2, RefreshCw, X, Monitor, Server, MessageSquareText, Code2, Terminal, Play } from 'lucide-vue-next'
 import { dashboardApi, type RequestDetail } from '@/api/dashboard'
-import { API_FORMAT_LABELS } from '@/api/endpoints/types'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 import { log } from '@/utils/logger'
 
 // 子组件
@@ -1072,17 +1072,6 @@ function getTaskTypeLabel(taskType: string): string {
     default:
       return taskType
   }
-}
-
-function formatApiFormat(format: string | null | undefined): string {
-  if (!format) return '-'
-  const raw = (format || '').trim()
-  return (
-    API_FORMAT_LABELS[raw] ||
-    API_FORMAT_LABELS[raw.toLowerCase()] ||
-    API_FORMAT_LABELS[raw.toUpperCase()] ||
-    raw
-  )
 }
 
 function formatNumber(num: number): string {

@@ -92,14 +92,6 @@
                 </div>
               </div>
 
-              <!-- 格式转换标记（节点下方） -->
-              <div
-                v-if="group.hasConversion"
-                class="conversion-indicator"
-              >
-                {{ group.primary.extra_data?.provider_api_format || '转换' }}
-              </div>
-
               <!-- 连接线 -->
               <div
                 v-if="groupIndex < groupedTimeline.length - 1"
@@ -202,25 +194,31 @@
                     <span class="info-value mono">{{ formatLatency(currentAttempt.extra_data.first_byte_time_ms) }}</span>
                   </div>
                   <div
-                    v-if="currentAttempt.extra_data?.needs_conversion"
+                    v-if="currentAttempt.extra_data?.provider_api_format"
                     class="info-item"
                   >
                     <span class="info-label">格式</span>
                     <span class="info-value">
-                      <span class="conversion-badge">格式转换</span>
-                      <code
-                        v-if="currentAttempt.extra_data?.provider_api_format"
-                        class="ml-1.5 text-xs"
-                      >{{ currentAttempt.extra_data.provider_api_format }}</code>
+                      <code class="format-code">{{ formatApiFormat(currentAttempt.extra_data.provider_api_format) }}</code>
+                      <span
+                        v-if="currentAttempt.extra_data?.needs_conversion"
+                        class="conversion-badge ml-1.5"
+                      >格式转换</span>
                     </span>
                   </div>
                   <div
                     v-if="currentAttempt.key_name || currentAttempt.key_id"
                     class="info-item"
                   >
-                    <span class="info-label">密钥</span>
+                    <span class="info-label">{{ isOAuthType(currentAttempt.key_auth_type) ? '账号' : '密钥' }}</span>
                     <span class="info-value info-value-stacked">
-                      <span class="key-name">{{ currentAttempt.key_name || '未知' }}</span>
+                      <span class="key-name">
+                        {{ currentAttempt.key_name || '未知' }}
+                        <span
+                          v-if="currentAttempt.key_auth_type && currentAttempt.key_auth_type !== 'api_key'"
+                          class="auth-type-tag"
+                        >{{ formatAuthTypeWithPlan(currentAttempt.key_auth_type, currentAttempt.key_oauth_plan_type) }}</span>
+                      </span>
                       <code
                         v-if="currentAttempt.key_preview"
                         class="key-preview"
@@ -373,6 +371,7 @@ import Skeleton from '@/components/ui/skeleton.vue'
 import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-vue-next'
 import { requestTraceApi, type RequestTrace, type CandidateRecord } from '@/api/requestTrace'
 import { log } from '@/utils/logger'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 
 // 节点组类型
 interface NodeGroup {
@@ -386,6 +385,7 @@ interface NodeGroup {
   startIndex: number
   endIndex: number
   hasConversion: boolean  // 组内是否有格式转换候选
+  providerApiFormat: string | null  // 提供商 API 格式（如 openai:cli）
 }
 
 // 用量数据类型
@@ -615,6 +615,7 @@ const groupedTimeline = computed<NodeGroup[]>(() => {
         startIndex: index,
         endIndex: index,
         hasConversion: candidate.extra_data?.needs_conversion === true,
+        providerApiFormat: candidate.extra_data?.provider_api_format || null,
       }
       groups.push(currentGroup)
     }
@@ -720,6 +721,30 @@ const mergedCapabilities = computed(() => {
 // 检查某个能力是否被请求使用
 const isCapabilityUsed = (cap: string): boolean => {
   return activeCapabilities.value.includes(cap)
+}
+
+// 判断是否为 OAuth 类型（provider_type 为具体值时也算 OAuth）
+const isOAuthType = (authType?: string): boolean => {
+  if (!authType) return false
+  return !['api_key', 'vertex_ai'].includes(authType)
+}
+
+// 格式化认证类型（合并 plan 信息，避免冗余）
+const formatAuthTypeWithPlan = (authType: string, planType?: string): string => {
+  const labels: Record<string, string> = {
+    'oauth': 'OAuth',
+    'vertex_ai': 'Vertex AI',
+    'kiro': 'Kiro',
+    'codex': 'Codex',
+    'antigravity': 'Antigravity',
+    'claude_code': 'Claude Code',
+    'gemini_cli': 'Gemini CLI',
+  }
+  const typeName = labels[authType] || authType
+  if (planType) {
+    return `${typeName} ${planType}`
+  }
+  return typeName
 }
 
 // 格式化能力标签显示
@@ -1143,24 +1168,6 @@ const getStatusColorClass = (status: string) => {
 .node-dot.status-skipped { color: hsl(var(--primary)); }
 .node-dot.status-available { color: #d1d5db; }
 
-/* 格式转换标记（节点下方） */
-.conversion-indicator {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.55rem;
-  color: hsl(var(--muted-foreground) / 0.7);
-  white-space: nowrap;
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 1px 4px;
-  border: 1px dashed hsl(var(--border));
-  border-radius: 3px;
-  background: hsl(var(--muted) / 0.3);
-}
-
 /* 连接线容器 */
 .node-line-wrapper {
   position: absolute;
@@ -1426,6 +1433,16 @@ const getStatusColorClass = (status: string) => {
   gap: 0.2rem;
 }
 
+/* 格式代码 */
+.format-code {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.3rem;
+  background: hsl(var(--muted));
+  border-radius: 3px;
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, monospace;
+}
+
 /* Key 信息 */
 .key-name {
   font-weight: 500;
@@ -1438,6 +1455,20 @@ const getStatusColorClass = (status: string) => {
   border-radius: 3px;
   color: hsl(var(--muted-foreground));
   font-family: ui-monospace, monospace;
+}
+
+/* 认证类型标签 */
+.auth-type-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.35rem;
+  margin-left: 0.375rem;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: hsl(var(--primary) / 0.8);
+  background: hsl(var(--primary) / 0.08);
+  border: 1px solid hsl(var(--primary) / 0.2);
+  border-radius: 3px;
 }
 
 /* 代理信息 */

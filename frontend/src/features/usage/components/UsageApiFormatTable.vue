@@ -78,23 +78,12 @@ import TableRow from '@/components/ui/table-row.vue'
 import TableHead from '@/components/ui/table-head.vue'
 import TableCell from '@/components/ui/table-cell.vue'
 import { formatTokens, formatCurrency } from '@/utils/format'
-import { API_FORMAT_LABELS } from '@/api/endpoints/types'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 import type { ApiFormatStatsItem } from '../types'
 
 defineProps<{
   data: ApiFormatStatsItem[]
   isAdmin: boolean
 }>()
-
-// 格式化 API 格式显示名称
-function formatApiFormat(format: string): string {
-  const raw = (format || '').trim()
-  return (
-    API_FORMAT_LABELS[raw] ||
-    API_FORMAT_LABELS[raw.toLowerCase()] ||
-    API_FORMAT_LABELS[raw.toUpperCase()] ||
-    raw
-  )
-}
 
 </script>

@@ -125,7 +125,7 @@
               <span
                 class="text-sm whitespace-nowrap"
                 :class="form.api_formats.includes(format) ? 'text-primary' : 'text-muted-foreground'"
-              >{{ API_FORMAT_LABELS[format] || format }}</span>
+              >{{ formatApiFormat(format) }}</span>
             </div>
             <div
               class="flex items-center shrink-0 ml-2 text-xs text-muted-foreground gap-1"
@@ -321,7 +321,6 @@ import {
   addProviderKey,
   updateProviderKey,
   getAllCapabilities,
-  API_FORMAT_LABELS,
   sortApiFormats,
   type EndpointAPIKey,
   type EndpointAPIKeyUpdate,
@@ -329,6 +328,7 @@ import {
   type CapabilityDefinition,
   type ProviderType
 } from '@/api/endpoints'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 
 const props = defineProps<{
   open: boolean

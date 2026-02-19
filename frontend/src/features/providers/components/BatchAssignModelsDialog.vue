@@ -169,7 +169,7 @@
                           :key="fmt"
                           class="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground shrink-0"
                         >
-                          {{ API_FORMAT_LABELS[fmt] || fmt }}
+                          {{ formatApiFormat(fmt) }}
                         </span>
                       </div>
                       <p
@@ -250,9 +250,9 @@ import {
   batchAssignModelsToProvider,
   deleteModel,
   importModelsFromUpstream,
-  API_FORMAT_LABELS,
   type Model
 } from '@/api/endpoints'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 import { useUpstreamModelsCache, type UpstreamModel } from '../composables/useUpstreamModelsCache'
 
 const props = defineProps<{

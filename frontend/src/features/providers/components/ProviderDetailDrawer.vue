@@ -98,9 +98,9 @@
                   <span
                     class="text-xs px-2 py-0.5 rounded-md border border-border bg-background hover:bg-accent hover:border-accent-foreground/20 cursor-pointer transition-colors font-medium"
                     :class="{ 'opacity-40': !endpoint.is_active }"
-                    :title="`编辑 ${API_FORMAT_LABELS[endpoint.api_format]} 端点`"
+                    :title="`编辑 ${formatApiFormat(endpoint.api_format)} 端点`"
                     @click="handleEditEndpoint(endpoint)"
-                  >{{ API_FORMAT_LABELS[endpoint.api_format] || endpoint.api_format }}</span>
+                  >{{ formatApiFormat(endpoint.api_format) }}</span>
                 </template>
                 <span
                   v-if="endpoints.length > 0"
@@ -1053,12 +1053,12 @@ import {
   type ProviderEndpoint,
   type EndpointAPIKey,
   type Model,
-  API_FORMAT_LABELS,
   API_FORMAT_ORDER,
   API_FORMAT_SHORT,
   sortApiFormats,
 } from '@/api/endpoints'
 import type { UpstreamMetadata, AntigravityModelQuota } from '@/api/endpoints/types'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 
 // 扩展端点类型,包含密钥列表
 interface ProviderEndpointWithKeys extends ProviderEndpoint {

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -38,7 +39,9 @@ class CandidateResponse(BaseModel):
     endpoint_name: str | None = None  # 端点显示名称（api_format）
     key_id: str | None = None
     key_name: str | None = None  # 密钥名称
-    key_preview: str | None = None  # 密钥脱敏预览（如 sk-***abc）
+    key_preview: str | None = None  # 密钥脱敏预览（如 sk-***abc），OAuth 类型不返回
+    key_auth_type: str | None = None  # 密钥认证类型（api_key, oauth, vertex_ai 等）
+    key_oauth_plan_type: str | None = None  # OAuth 账号套餐类型（free/plus/team/enterprise）
     key_capabilities: dict | None = None  # Key 支持的能力
     required_capabilities: dict | None = None  # 请求实际需要的能力标签
     status: str  # 'pending', 'success', 'failed', 'skipped'
@@ -208,13 +211,15 @@ class AdminGetRequestTraceAdapter(AdminApiAdapter):
 
         # 批量加载 provider 信息，避免 N+1 查询
         provider_ids = {c.provider_id for c in candidates if c.provider_id}
-        provider_map = {}
-        provider_website_map = {}
+        provider_map: dict[str, str] = {}
+        provider_website_map: dict[str, str | None] = {}
+        provider_type_map: dict[str, str] = {}
         if provider_ids:
             providers = db.query(Provider).filter(Provider.id.in_(provider_ids)).all()
             for p in providers:
                 provider_map[p.id] = p.name
                 provider_website_map[p.id] = p.website
+                provider_type_map[p.id] = getattr(p, "provider_type", "custom") or "custom"
 
         # 批量加载 endpoint 信息
         endpoint_ids = {c.endpoint_id for c in candidates if c.endpoint_id}
@@ -227,15 +232,64 @@ class AdminGetRequestTraceAdapter(AdminApiAdapter):
 
         # 批量加载 key 信息
         key_ids = {c.key_id for c in candidates if c.key_id}
-        key_map = {}
-        key_preview_map = {}
-        key_capabilities_map = {}
+        key_map: dict[str, str] = {}
+        key_preview_map: dict[str, str] = {}
+        key_capabilities_map: dict[str, dict | None] = {}
+        key_auth_type_map: dict[str, str] = {}
+        key_oauth_plan_map: dict[str, str | None] = {}
+        # 建立 key_id -> provider_id 的映射（用于获取 provider_type）
+        key_provider_map: dict[str, str | None] = {
+            c.key_id: c.provider_id for c in candidates if c.key_id
+        }
         if key_ids:
             keys = db.query(ProviderAPIKey).filter(ProviderAPIKey.id.in_(key_ids)).all()
             for k in keys:
                 key_map[k.id] = k.name
                 key_capabilities_map[k.id] = k.capabilities
-                # 生成脱敏预览：先解密再脱敏
+
+                is_oauth = k.auth_type == "oauth"
+
+                if is_oauth:
+                    # OAuth: auth_type 使用具体的 provider_type（如 kiro/codex/antigravity）
+                    pid = key_provider_map.get(k.id)
+                    key_auth_type_map[k.id] = (
+                        provider_type_map.get(pid, "oauth") if pid else "oauth"
+                    )
+                    # 提取 plan_type（不同 provider 存储位置不同）
+                    oauth_plan_type = None
+                    # 1. Codex: auth_config.plan_type
+                    # 2. Antigravity: auth_config.tier
+                    if k.auth_config:
+                        try:
+                            decrypted_config = crypto_service.decrypt(k.auth_config)
+                            auth_config = json.loads(decrypted_config)
+                            oauth_plan_type = auth_config.get("plan_type")
+                            if not oauth_plan_type:
+                                ag_tier = auth_config.get("tier")
+                                if ag_tier and isinstance(ag_tier, str):
+                                    oauth_plan_type = ag_tier.lower()
+                        except Exception:
+                            pass
+                    # 3. Kiro: upstream_metadata.kiro.subscription_title
+                    #    subscription_title 通常为 "KIRO FREE" / "KIRO PRO+" 等，
+                    #    去掉 provider 名称前缀，只保留等级部分
+                    if not oauth_plan_type:
+                        um = getattr(k, "upstream_metadata", None) or {}
+                        kiro_meta = um.get("kiro") if isinstance(um, dict) else None
+                        if isinstance(kiro_meta, dict):
+                            sub_title = kiro_meta.get("subscription_title")
+                            if sub_title and isinstance(sub_title, str):
+                                # "KIRO FREE" -> "Free", "KIRO PRO+" -> "Pro+"
+                                ptype = provider_type_map.get(pid, "") if pid else ""
+                                if ptype and sub_title.upper().startswith(ptype.upper()):
+                                    sub_title = sub_title[len(ptype) :].strip()
+                                oauth_plan_type = sub_title
+                    key_oauth_plan_map[k.id] = oauth_plan_type
+                    continue
+                else:
+                    key_auth_type_map[k.id] = k.auth_type or "api_key"
+
+                # 非 OAuth：生成脱敏预览
                 try:
                     decrypted_key = crypto_service.decrypt(k.api_key)
                     if len(decrypted_key) > 8:
@@ -272,6 +326,10 @@ class AdminGetRequestTraceAdapter(AdminApiAdapter):
             )
             key_name = key_map.get(candidate.key_id) if candidate.key_id else None
             key_preview = key_preview_map.get(candidate.key_id) if candidate.key_id else None
+            key_auth_type = key_auth_type_map.get(candidate.key_id) if candidate.key_id else None
+            key_oauth_plan_type = (
+                key_oauth_plan_map.get(candidate.key_id) if candidate.key_id else None
+            )
             key_capabilities = (
                 key_capabilities_map.get(candidate.key_id) if candidate.key_id else None
             )
@@ -290,6 +348,8 @@ class AdminGetRequestTraceAdapter(AdminApiAdapter):
                     key_id=candidate.key_id,
                     key_name=key_name,
                     key_preview=key_preview,
+                    key_auth_type=key_auth_type,
+                    key_oauth_plan_type=key_oauth_plan_type,
                     key_capabilities=key_capabilities,
                     required_capabilities=candidate.required_capabilities,
                     status=candidate.status,

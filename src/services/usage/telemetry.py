@@ -172,6 +172,10 @@ class MessageTelemetry:
         response_body: dict[str, Any] | None = None,
         response_headers: dict[str, Any] | None = None,
         client_response_headers: dict[str, Any] | None = None,
+        # Provider 侧追踪信息（用于 curl 复现等场景）
+        provider_id: str | None = None,
+        provider_endpoint_id: str | None = None,
+        provider_api_key_id: str | None = None,
         # 格式转换追踪
         endpoint_api_format: str | None = None,
         has_format_conversion: bool = False,
@@ -182,9 +186,6 @@ class MessageTelemetry:
     ) -> None:
         """
         记录失败请求
-
-        注意：Provider 链路信息（provider_id, endpoint_id, key_id）不在此处记录，
-        因为 RequestCandidate 表已经记录了完整的请求链路追踪信息。
 
         Args:
             input_tokens: 预估输入 tokens（来自 message_start，用于中断请求的成本估算）
@@ -228,6 +229,10 @@ class MessageTelemetry:
             client_response_headers=client_response_headers,
             response_body=response_body or {"error": error_message},
             request_id=self.request_id,
+            # Provider 侧追踪信息
+            provider_id=provider_id,
+            provider_endpoint_id=provider_endpoint_id,
+            provider_api_key_id=provider_api_key_id,
             # 模型映射信息
             target_model=target_model,
             # 请求元数据
@@ -254,6 +259,10 @@ class MessageTelemetry:
         response_body: dict[str, Any] | None = None,
         response_headers: dict[str, Any] | None = None,
         client_response_headers: dict[str, Any] | None = None,
+        # Provider 侧追踪信息
+        provider_id: str | None = None,
+        provider_endpoint_id: str | None = None,
+        provider_api_key_id: str | None = None,
         # 格式转换追踪
         endpoint_api_format: str | None = None,
         has_format_conversion: bool = False,
@@ -294,6 +303,10 @@ class MessageTelemetry:
             client_response_headers=client_response_headers,
             response_body=response_body or {},
             request_id=self.request_id,
+            # Provider 侧追踪信息
+            provider_id=provider_id,
+            provider_endpoint_id=provider_endpoint_id,
+            provider_api_key_id=provider_api_key_id,
             target_model=target_model,
             metadata=request_metadata,
         )

@@ -84,7 +84,7 @@
                 variant="secondary"
                 class="text-xs font-semibold px-2.5 py-1"
               >
-                {{ formatGroup.api_format }}
+                {{ formatApiFormat(formatGroup.api_format) }}
               </Badge>
             </div>
             <div class="flex items-center gap-3">
@@ -604,6 +604,7 @@ import {
   type RoutingEndpointInfo
 } from '@/api/global-models'
 import { API_FORMAT_ORDER } from '@/api/endpoints/types'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 import { recoverKeyHealth } from '@/api/endpoints/health'
 import { useToast } from '@/composables/useToast'
 import { useCountdownTimer, getProbeCountdown } from '@/composables/useCountdownTimer'

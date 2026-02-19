@@ -126,7 +126,7 @@
                   variant="outline"
                   class="text-[10px] px-1.5 py-0 shrink-0"
                 >
-                  {{ API_FORMAT_LABELS[fmt] || fmt }}
+                  {{ formatApiFormat(fmt) }}
                 </Badge>
                 <Badge
                   v-if="isModelExisting(model.id)"
@@ -197,8 +197,8 @@ import {
   getProviderModels,
   type EndpointAPIKey,
   type UpstreamModel,
-  API_FORMAT_LABELS,
 } from '@/api/endpoints'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 import { useUpstreamModelsCache } from '../composables/useUpstreamModelsCache'
 
 const props = defineProps<{

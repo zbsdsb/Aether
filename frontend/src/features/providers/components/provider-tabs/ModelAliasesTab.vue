@@ -67,7 +67,7 @@
                 variant="outline"
                 class="text-xs"
               >
-                {{ API_FORMAT_LABELS[format] || format }}
+                {{ formatApiFormat(format) }}
               </Badge>
             </div>
             <!-- 映射数量 -->
@@ -201,6 +201,7 @@ import {
 } from '@/api/endpoints'
 import { updateModel } from '@/api/endpoints/models'
 import { parseTestModelError } from '@/utils/errorParser'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 
 const props = defineProps<{
   provider: any
@@ -296,7 +297,7 @@ const deleteConfirmDescription = computed(() => {
   if (!deletingGroup.value) return ''
   const { model, aliases, apiFormats } = deletingGroup.value
   const modelName = model.global_model_display_name || model.provider_model_name
-  const scopeText = apiFormats.length === 0 ? '全部' : apiFormats.map(f => API_FORMAT_LABELS[f] || f).join(', ')
+  const scopeText = apiFormats.length === 0 ? '全部' : apiFormats.map(f => formatApiFormat(f)).join(', ')
   const aliasNames = aliases.map(a => a.name).join(', ')
   return `确定要删除模型「${modelName}」在作用域「${scopeText}」下的 ${aliases.length} 个映射吗？\n\n映射名称：${aliasNames}`
 })

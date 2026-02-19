@@ -188,7 +188,7 @@
                 ]"
                 @click="activeFormatTab = format"
               >
-                {{ API_FORMAT_LABELS[format] || format }}
+                {{ formatApiFormat(format) }}
               </button>
             </div>
 
@@ -436,7 +436,8 @@ import { updateProvider, updateProviderKey } from '@/api/endpoints'
 import type { ProviderWithEndpointsSummary } from '@/api/endpoints'
 import { adminApi } from '@/api/admin'
 import { batchQueryBalance, type ActionResultResponse, type BalanceInfo } from '@/api/providerOps'
-import { API_FORMAT_SHORT, API_FORMAT_LABELS } from '@/api/endpoints/types'
+import { API_FORMAT_SHORT } from '@/api/endpoints/types'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 
 interface KeyWithMeta {
   id: string

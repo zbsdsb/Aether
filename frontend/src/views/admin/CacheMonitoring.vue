@@ -32,6 +32,7 @@ import {
   getFrequencyClass
 } from '@/composables/useTTLAnalysis'
 import { log } from '@/utils/logger'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 
 // ==================== 缓存统计与亲和性列表 ====================
 
@@ -660,7 +661,7 @@ onBeforeUnmount(() => {
             </TableCell>
             <TableCell>
               <div class="text-sm">
-                {{ item.api_format || '---' }}
+                {{ formatApiFormat(item.api_format) }}
               </div>
               <div class="text-xs text-muted-foreground font-mono">
                 {{ item.key_prefix || '---' }}
@@ -740,7 +741,7 @@ onBeforeUnmount(() => {
             <span class="truncate max-w-[100px]">{{ item.model_display_name || '---' }}</span>
           </div>
           <div class="flex items-center justify-between text-xs">
-            <span class="text-muted-foreground">{{ item.api_format || '---' }}</span>
+            <span class="text-muted-foreground">{{ formatApiFormat(item.api_format) }}</span>
             <span>{{ getRemainingTime(item.expire_at) }} · {{ item.request_count }}次</span>
           </div>
         </div>

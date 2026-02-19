@@ -26,7 +26,7 @@
             <!-- 卡片头部：格式名称 + 状态 + 操作 -->
             <div class="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b">
               <div class="flex items-center gap-3">
-                <span class="font-medium">{{ API_FORMAT_LABELS[endpoint.api_format] || endpoint.api_format }}</span>
+                <span class="font-medium">{{ formatApiFormat(endpoint.api_format) }}</span>
                 <Badge
                   v-if="!endpoint.is_active"
                   variant="secondary"
@@ -737,7 +737,6 @@ import {
   createEndpoint,
   updateEndpoint,
   deleteEndpoint,
-  API_FORMAT_LABELS,
   type ProviderEndpoint,
   type ProviderWithEndpointsSummary,
   type HeaderRule,
@@ -747,6 +746,7 @@ import {
   type BodyRuleConditionOp,
 } from '@/api/endpoints'
 import { adminApi } from '@/api/admin'
+import { formatApiFormat } from '@/api/endpoints/types/api-format'
 
 // 编辑用的规则类型（统一的可编辑结构）
 interface EditableRule {
@@ -1032,7 +1032,7 @@ const availableFormats = computed(() => {
 // 删除确认弹窗描述
 const deleteConfirmDescription = computed(() => {
   if (!endpointToDelete.value) return ''
-  const formatLabel = API_FORMAT_LABELS[endpointToDelete.value.api_format] || endpointToDelete.value.api_format
+  const formatLabel = formatApiFormat(endpointToDelete.value.api_format)
   return `确定要删除 ${formatLabel} 端点吗？关联密钥将移除对该 API 格式的支持。`
 })
 
@@ -2040,7 +2040,7 @@ async function handleAddEndpoint() {
       custom_path: newEndpoint.value.custom_path || undefined,
       is_active: true,
     })
-    success(`已添加 ${API_FORMAT_LABELS[newEndpoint.value.api_format] || newEndpoint.value.api_format} 端点`)
+    success(`已添加 ${formatApiFormat(newEndpoint.value.api_format)} 端点`)
     // 重置表单，保留 URL
     newEndpoint.value = { api_format: '', base_url: baseUrl, custom_path: '' }
     emit('endpointCreated')
@@ -2082,7 +2082,7 @@ async function confirmDeleteEndpoint() {
 
   try {
     await deleteEndpoint(endpoint.id)
-    success(`已删除 ${API_FORMAT_LABELS[endpoint.api_format] || endpoint.api_format} 端点`)
+    success(`已删除 ${formatApiFormat(endpoint.api_format)} 端点`)
     emit('endpointUpdated')
   } catch (error: any) {
     showError(error.response?.data?.detail || '删除失败', '错误')

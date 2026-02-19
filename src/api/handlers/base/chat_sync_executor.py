@@ -255,6 +255,9 @@ class ChatSyncExecutor:
                 request_body=actual_request_body,
                 error_message=str(e),
                 is_stream=False,
+                provider_id=ctx.provider_id,
+                provider_endpoint_id=ctx.endpoint_id,
+                provider_api_key_id=ctx.key_id,
                 request_metadata=request_metadata or None,
             )
             client_format = (ctx.client_api_format_for_error or "").upper()
@@ -289,6 +292,9 @@ class ChatSyncExecutor:
                 provider_request_headers=ctx.provider_request_headers,
                 response_headers=ctx.response_headers,
                 client_response_headers={"content-type": "application/json"},
+                provider_id=ctx.provider_id,
+                provider_endpoint_id=ctx.endpoint_id,
+                provider_api_key_id=ctx.key_id,
                 # 格式转换追踪
                 endpoint_api_format=ctx.provider_api_format_for_error or None,
                 has_format_conversion=is_format_converted(
@@ -347,6 +353,9 @@ class ChatSyncExecutor:
                 response_headers=error_response_headers,
                 # 非流式失败返回给客户端的是 JSON 错误响应
                 client_response_headers={"content-type": "application/json"},
+                provider_id=ctx.provider_id,
+                provider_endpoint_id=ctx.endpoint_id,
+                provider_api_key_id=ctx.key_id,
                 # 格式转换追踪
                 endpoint_api_format=ctx.provider_api_format_for_error or None,
                 has_format_conversion=is_format_converted(
@@ -377,6 +386,9 @@ class ChatSyncExecutor:
         ctx = self._ctx
 
         ctx.provider_name = str(provider.name)
+        ctx.provider_id = str(provider.id)
+        ctx.endpoint_id = str(endpoint.id)
+        ctx.key_id = str(key.id)
         provider_api_format = str(endpoint.api_format or api_format)
         client_api_format = api_format.value if hasattr(api_format, "value") else str(api_format)
 
@@ -710,6 +722,9 @@ class ChatSyncExecutor:
             provider_request_headers=ctx.provider_request_headers,
             response_headers=ctx.response_headers,
             client_response_headers=client_response_headers,
+            provider_id=ctx.provider_id,
+            provider_endpoint_id=ctx.endpoint_id,
+            provider_api_key_id=ctx.key_id,
             # 格式转换追踪
             endpoint_api_format=ctx.provider_api_format or None,
             has_format_conversion=ctx.has_format_conversion,
