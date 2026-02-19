@@ -20,6 +20,7 @@ class CodexRequestContext:
     """
 
     account_id: str | None = None
+    is_compact: bool = False
 
 
 _codex_request_context: contextvars.ContextVar[CodexRequestContext | None] = contextvars.ContextVar(

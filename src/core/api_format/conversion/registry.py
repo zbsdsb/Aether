@@ -438,7 +438,7 @@ _REGISTRATION_LOCK = threading.Lock()
 
 
 def register_default_normalizers() -> None:
-    """注册默认 Normalizers（OPENAI/CLAUDE/GEMINI + *_CLI）"""
+    """自动发现并注册 normalizers/ 目录下的所有 FormatNormalizer 实现"""
     global _DEFAULT_NORMALIZERS_REGISTERED  # noqa: PLW0603 - module-level 缓存
 
     # 快速路径：已注册则直接返回（无锁）
@@ -450,23 +450,44 @@ def register_default_normalizers() -> None:
         if _DEFAULT_NORMALIZERS_REGISTERED:
             return
 
-        from src.core.api_format.conversion.normalizers.claude import ClaudeNormalizer
-        from src.core.api_format.conversion.normalizers.claude_cli import ClaudeCliNormalizer
-        from src.core.api_format.conversion.normalizers.gemini import GeminiNormalizer
-        from src.core.api_format.conversion.normalizers.gemini_cli import GeminiCliNormalizer
-        from src.core.api_format.conversion.normalizers.openai import OpenAINormalizer
-        from src.core.api_format.conversion.normalizers.openai_cli import OpenAICliNormalizer
+        import importlib
+        import inspect
+        from pathlib import Path
 
-        format_conversion_registry.register(OpenAINormalizer())
-        format_conversion_registry.register(OpenAICliNormalizer())
-        format_conversion_registry.register(ClaudeNormalizer())
-        format_conversion_registry.register(ClaudeCliNormalizer())
-        format_conversion_registry.register(GeminiNormalizer())
-        format_conversion_registry.register(GeminiCliNormalizer())
+        normalizers_dir = Path(__file__).parent / "normalizers"
+        for py_file in sorted(normalizers_dir.glob("*.py")):
+            if py_file.name.startswith("_"):
+                continue
+            module_name = py_file.stem
+            module_path = f"src.core.api_format.conversion.normalizers.{module_name}"
+            try:
+                mod = importlib.import_module(module_path)
+            except Exception as e:
+                logger.error("[FormatConversionRegistry] 导入 {} 失败: {}", module_path, e)
+                continue
+            for _attr_name, obj in inspect.getmembers(mod, inspect.isclass):
+                if (
+                    issubclass(obj, FormatNormalizer)
+                    and obj is not FormatNormalizer
+                    and hasattr(obj, "FORMAT_ID")
+                    and obj.__module__ == mod.__name__
+                ):
+                    fmt_id = str(obj.FORMAT_ID).upper()
+                    if format_conversion_registry.get_normalizer(fmt_id) is not None:
+                        logger.warning(
+                            "[FormatConversionRegistry] FORMAT_ID '{}' 重复注册，{} 将覆盖已有实现",
+                            fmt_id,
+                            obj.__name__,
+                        )
+                    try:
+                        format_conversion_registry.register(obj())
+                    except Exception as e:
+                        logger.error("[FormatConversionRegistry] 注册 {} 失败: {}", obj.__name__, e)
 
         _DEFAULT_NORMALIZERS_REGISTERED = True
         logger.info(
-            f"[FormatConversionRegistry] 已注册 {len(format_conversion_registry.list_normalizers())} 个 normalizer"
+            "[FormatConversionRegistry] 已注册 {} 个 normalizer",
+            len(format_conversion_registry.list_normalizers()),
         )
 
 

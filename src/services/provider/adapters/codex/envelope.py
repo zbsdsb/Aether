@@ -35,6 +35,10 @@ class CodexOAuthEnvelope:
         # These headers are best-effort: Codex upstream is stricter than public OpenAI API.
         # Keep them provider-scoped (via ProviderEnvelope) to avoid leaking to other upstreams.
         headers: dict[str, str] = {
+            "OpenAI-Beta": "responses=experimental",
+            # Codex upstream is strict about Content-Type; variants like
+            # "application/json; charset=utf-8" are rejected.
+            "Content-Type": "application/json",
             "x-oai-web-search-eligible": "true",
             "session_id": str(uuid.uuid4()),
             "originator": "codex_cli_rs",
@@ -46,11 +50,11 @@ class CodexOAuthEnvelope:
         if ua:
             headers["User-Agent"] = ua
 
-        # Add chatgpt-account-id from context (set by wrap_request), then clear.
+        # Add chatgpt-account-id from context (set by wrap_request).
+        # Context is NOT cleared here — build_codex_url reads is_compact from it later.
         ctx = get_codex_request_context()
         if ctx and ctx.account_id:
             headers["chatgpt-account-id"] = ctx.account_id
-        set_codex_request_context(None)
 
         return headers
 
@@ -64,11 +68,20 @@ class CodexOAuthEnvelope:
     ) -> tuple[dict[str, Any], str | None]:
         # Extract account_id from auth_config and set context for extra_headers()
         account_id = (decrypted_auth_config or {}).get("account_id")
+        # Compact sentinel may have been popped earlier by finalize_provider_request;
+        # prefer the pre-set context var (set by adapter), fall back to request body.
+        existing_ctx = get_codex_request_context()
+        is_compact = (existing_ctx.is_compact if existing_ctx else False) or bool(
+            request_body.pop("_aether_compact", False)
+        )
         set_codex_request_context(
             CodexRequestContext(
                 account_id=str(account_id) if account_id else None,
+                is_compact=is_compact,
             )
         )
+        # Context 不需要手动清理: FastAPI 每个请求运行在独立的 asyncio Task 中,
+        # contextvars 天然隔离, Task 结束后自动回收。
         # No wire envelope for Codex; keep request body as-is.
         return request_body, url_model
 

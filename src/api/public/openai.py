@@ -3,6 +3,7 @@ OpenAI API 端点
 
 - /v1/chat/completions - OpenAI Chat API
 - /v1/responses - OpenAI Responses API (CLI)
+- /v1/responses/compact - OpenAI Responses Compaction API (CLI)
 
 注意: /v1/models 端点由 models.py 统一处理，根据请求头返回对应格式
 """
@@ -45,6 +46,29 @@ async def create_chat_completion(
     **支持的参数**: model, messages, stream, temperature, max_tokens 等标准 OpenAI 参数
     """
     adapter = OpenAIChatAdapter()
+    return await pipeline.run(
+        adapter=adapter,
+        http_request=http_request,
+        db=db,
+        mode=adapter.mode,
+        api_format_hint=adapter.allowed_api_formats[0],
+    )
+
+
+@router.post("/v1/responses/compact")
+async def create_responses_compact(
+    http_request: Request,
+    db: Session = Depends(get_db),
+) -> Any:
+    """
+    OpenAI Responses Compaction API (CLI)
+
+    用于压缩/总结之前的 responses，永远非流式。
+    Codex CLI 使用 compact 模型后缀（如 gpt-5-compact）时调用此端点。
+
+    **认证方式**: Bearer Token（API Key 或 JWT Token）
+    """
+    adapter = OpenAICliAdapter(compact=True)
     return await pipeline.run(
         adapter=adapter,
         http_request=http_request,

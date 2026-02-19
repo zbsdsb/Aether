@@ -253,28 +253,53 @@ class ApiRequestPipeline:
 
         return user, api_key
 
+    async def _try_token_prefix_auth(
+        self, token: str, request: Request, db: Session
+    ) -> tuple[User, Any] | None:
+        """尝试通过模块注册的 token 前缀认证器认证
+
+        Returns:
+            (User, token_record) 元组，或 None（无前缀匹配）
+
+        Raises:
+            HTTPException: 前缀匹配但认证失败时抛出 401
+        """
+        from src.core.modules.hooks import AUTH_TOKEN_PREFIX_AUTHENTICATORS, get_hook_dispatcher
+        from src.utils.request_utils import get_client_ip
+
+        authenticators = await get_hook_dispatcher().dispatch(
+            AUTH_TOKEN_PREFIX_AUTHENTICATORS, db=db
+        )
+        for auth_info in authenticators or []:
+            prefix = auth_info.get("prefix", "")
+            authenticate_fn = auth_info.get("authenticate")
+            if prefix and token.startswith(prefix):
+                if not authenticate_fn:
+                    logger.warning("Token prefix '{}' has no authenticate callback", prefix)
+                    raise HTTPException(status_code=401, detail="认证服务不可用")
+                client_ip = get_client_ip(request)
+                result = await authenticate_fn(db, token, client_ip)
+                if result:
+                    return result
+                # 前缀匹配但认证失败
+                module_name = auth_info.get("module", "unknown")
+                raise HTTPException(status_code=401, detail=f"无效或过期的 Token ({module_name})")
+        return None  # 无前缀匹配
+
     async def _authenticate_admin(
         self, request: Request, db: Session
     ) -> tuple[User, ManagementToken | None]:
         """管理员认证，支持 JWT 和 Management Token 两种方式"""
-        from src.models.database import ManagementToken
-        from src.utils.request_utils import get_client_ip
-
         authorization = request.headers.get("authorization")
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(status_code=401, detail="缺少管理员凭证")
 
         token = authorization[7:].strip()
 
-        # 检查是否为 Management Token（ae_ 前缀）
-        if token.startswith(ManagementToken.TOKEN_PREFIX):
-            client_ip = get_client_ip(request)
-            result = await self.auth_service.authenticate_management_token(db, token, client_ip)
-
-            if not result:
-                raise HTTPException(status_code=401, detail="无效或过期的 Management Token")
-
-            user, management_token = result
+        # 通过钩子检查是否匹配模块注册的 token 前缀（如 ae_）
+        token_auth_result = await self._try_token_prefix_auth(token, request, db)
+        if token_auth_result is not None:
+            user, management_token = token_auth_result
 
             # 检查管理员权限
             if user.role != UserRole.ADMIN:
@@ -320,24 +345,16 @@ class ApiRequestPipeline:
         self, request: Request, db: Session
     ) -> tuple[User, ManagementToken | None]:
         """用户认证，支持 JWT 和 Management Token 两种方式"""
-        from src.models.database import ManagementToken
-        from src.utils.request_utils import get_client_ip
-
         authorization = request.headers.get("authorization")
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(status_code=401, detail="缺少用户凭证")
 
         token = authorization[7:].strip()
 
-        # 检查是否为 Management Token（ae_ 前缀）
-        if token.startswith(ManagementToken.TOKEN_PREFIX):
-            client_ip = get_client_ip(request)
-            result = await self.auth_service.authenticate_management_token(db, token, client_ip)
-
-            if not result:
-                raise HTTPException(status_code=401, detail="无效或过期的 Management Token")
-
-            user, management_token = result
+        # 通过钩子检查是否匹配模块注册的 token 前缀（如 ae_）
+        token_auth_result = await self._try_token_prefix_auth(token, request, db)
+        if token_auth_result is not None:
+            user, management_token = token_auth_result
 
             request.state.user_id = user.id
             request.state.management_token_id = management_token.id
@@ -371,36 +388,28 @@ class ApiRequestPipeline:
         self, request: Request, db: Session
     ) -> tuple[User, ManagementToken]:
         """Management Token 认证"""
-        from src.models.database import ManagementToken
-        from src.utils.request_utils import get_client_ip
-
         authorization = request.headers.get("authorization")
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(status_code=401, detail="缺少 Management Token")
 
         token = authorization[7:].strip()
 
-        # 检查是否为 Management Token 格式
-        if not token.startswith(ManagementToken.TOKEN_PREFIX):
-            raise HTTPException(
-                status_code=401,
-                detail=f"无效的 Token 格式，需要 Management Token ({ManagementToken.TOKEN_PREFIX}xxx)",
-            )
+        # 通过钩子检查是否匹配模块注册的 token 前缀
+        # _try_token_prefix_auth 会在前缀匹配但认证失败时直接抛 HTTPException
+        token_auth_result = await self._try_token_prefix_auth(token, request, db)
+        if token_auth_result is not None:
+            user, management_token = token_auth_result
 
-        client_ip = get_client_ip(request)
+            # 存储到 request.state
+            request.state.user_id = user.id
+            request.state.management_token_id = management_token.id
 
-        result = await self.auth_service.authenticate_management_token(db, token, client_ip)
+            return user, management_token
 
-        if not result:
-            raise HTTPException(status_code=401, detail="无效或过期的 Management Token")
-
-        user, management_token = result
-
-        # 存储到 request.state
-        request.state.user_id = user.id
-        request.state.management_token_id = management_token.id
-
-        return user, management_token
+        raise HTTPException(
+            status_code=401,
+            detail="无效的 Token 格式，需要 Management Token",
+        )
 
     def _calculate_quota_remaining(self, user: User | None) -> float | None:
         if not user:

@@ -53,6 +53,29 @@ def _validate_config(db: Session) -> tuple[bool, str]:
     return True, ""
 
 
+# ==================== 钩子实现 ====================
+
+
+async def _authenticate_by_token(db: Any, token: str, client_ip: str) -> tuple[Any, Any] | None:
+    """执行 Management Token 认证"""
+    from src.services.auth.service import AuthService
+
+    return await AuthService.authenticate_management_token(db, token, client_ip)
+
+
+def _hook_token_prefix_authenticators(**_kwargs: Any) -> list[dict[str, Any]]:
+    """auth.token_prefix_authenticators: 声明 ae_ 前缀认证器"""
+    from src.models.database import ManagementToken
+
+    return [
+        {
+            "prefix": ManagementToken.TOKEN_PREFIX,
+            "module": "management_tokens",
+            "authenticate": _authenticate_by_token,
+        }
+    ]
+
+
 # 访问令牌模块定义
 management_tokens_module = ModuleDefinition(
     metadata=ModuleMetadata(
@@ -75,4 +98,7 @@ management_tokens_module = ModuleDefinition(
     router_factory=_get_router,
     health_check=_health_check,
     validate_config=_validate_config,
+    hooks={
+        "auth.token_prefix_authenticators": _hook_token_prefix_authenticators,
+    },
 )

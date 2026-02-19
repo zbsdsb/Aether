@@ -35,7 +35,6 @@ from src.models.api import (
     VerifyEmailResponse,
 )
 from src.models.database import AuditEventType, User, UserRole
-from src.services.auth.ldap import LDAPService
 from src.services.auth.service import AuthService
 from src.services.email import EmailSenderService, EmailVerificationService
 from src.services.rate_limit.ip_limiter import IPRateLimiter
@@ -414,10 +413,16 @@ class AuthRegistrationSettingsAdapter(AuthPublicAdapter):
 class AuthSettingsAdapter(AuthPublicAdapter):
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         """公开返回认证设置"""
-        db = context.db
+        from src.core.modules.hooks import AUTH_GET_METHODS, get_hook_dispatcher
 
-        ldap_enabled = LDAPService.is_ldap_enabled(db)
-        ldap_exclusive = LDAPService.is_ldap_exclusive(db)
+        db = context.db
+        dispatcher = get_hook_dispatcher()
+        auth_methods = await dispatcher.dispatch(AUTH_GET_METHODS, db=db)
+
+        # 从钩子返回的认证方法列表中解析各模块状态
+        ldap_info = next((m for m in auth_methods if m.get("type") == "ldap"), None)
+        ldap_enabled = ldap_info is not None
+        ldap_exclusive = ldap_info.get("exclusive", False) if ldap_info else False
 
         return {
             "local_enabled": not ldap_exclusive,
@@ -445,11 +450,14 @@ class AuthRegisterAdapter(AuthPublicAdapter):
                 detail=f"注册请求过于频繁，请在 {reset_after} 秒后重试",
             )
 
-        # 仅允许 LDAP 登录时拒绝本地注册
-        if LDAPService.is_ldap_exclusive(db):
+        # 通过钩子检查是否有模块阻止本地注册（如 LDAP 排他模式）
+        from src.core.modules.hooks import AUTH_CHECK_REGISTRATION, get_hook_dispatcher
+
+        block_result = await get_hook_dispatcher().dispatch(AUTH_CHECK_REGISTRATION, db=db)
+        if block_result and block_result.get("blocked"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="系统已启用 LDAP 专属登录，禁止本地注册",
+                detail=block_result.get("reason", "注册已被禁止"),
             )
 
         allow_registration = db.query(SystemConfig).filter_by(key="enable_registration").first()

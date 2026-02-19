@@ -91,6 +91,11 @@ class ModuleDefinition:
     # 配置验证（可选，启用模块时调用，返回 (success, error_message)）
     validate_config: Callable[[Session], tuple[bool, str]] | None = None
 
+    # 钩子实现（可选）
+    # {hook_name: handler_callable}
+    # 模块通过此字段声明自己对核心扩展点的实现
+    hooks: dict[str, Callable[..., Any]] = field(default_factory=dict)
+
 
 @dataclass
 class ModuleStatus:

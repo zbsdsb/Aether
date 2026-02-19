@@ -16,7 +16,6 @@ from src.core.exceptions import ConfirmationRequiredException, InvalidRequestExc
 from src.core.logger import logger
 from src.core.modules import get_module_registry
 from src.models.database import OAuthProvider, User, UserOAuthLink
-from src.services.auth.ldap import LDAPService
 from src.services.auth.oauth.base import OAuthProviderBase
 from src.services.auth.oauth.models import OAuthFlowError, OAuthUserInfo
 from src.services.auth.oauth.registry import get_oauth_provider_registry
@@ -629,7 +628,9 @@ class OAuthService:
         - OAUTH 用户：禁用后必须仍有其它启用的 OAuth provider 绑定
         - LOCAL 用户：ldap_exclusive=true 且非 admin 时，同上
         """
-        ldap_exclusive = LDAPService.is_ldap_exclusive(db)
+        from src.core.modules.hooks import AUTH_CHECK_EXCLUSIVE_MODE, get_hook_dispatcher
+
+        ldap_exclusive = get_hook_dispatcher().dispatch_sync(AUTH_CHECK_EXCLUSIVE_MODE, db=db)
 
         users = (
             db.query(User.id, User.auth_source, User.role)
@@ -1002,11 +1003,10 @@ class OAuthService:
         if user.auth_source == AuthSource.LOCAL and not user.password_hash and total_links <= 1:
             raise InvalidRequestException("请先设置密码后再解绑")
 
-        if (
-            LDAPService.is_ldap_exclusive(db)
-            and user.auth_source == AuthSource.LOCAL
-            and user.role != UserRole.ADMIN
-        ):
+        from src.core.modules.hooks import AUTH_CHECK_EXCLUSIVE_MODE, get_hook_dispatcher
+
+        is_exclusive = get_hook_dispatcher().dispatch_sync(AUTH_CHECK_EXCLUSIVE_MODE, db=db)
+        if is_exclusive and user.auth_source == AuthSource.LOCAL and user.role != UserRole.ADMIN:
             # ldap_exclusive=true 时，普通本地用户解绑最后一个 OAuth 会锁死（密码登录被禁用）
             if total_links <= 1:
                 raise InvalidRequestException("当前处于 LDAP 专属模式，解绑后将无法登录")

@@ -73,6 +73,95 @@ def _validate_config(db: Session) -> tuple[bool, str]:
     return True, ""
 
 
+# ==================== 钩子实现 ====================
+
+
+def _hook_get_auth_methods(db: Session) -> list[dict[str, Any]]:
+    """auth.get_methods: 返回 LDAP 认证方法信息"""
+    from src.services.auth.ldap import LDAPService
+
+    if not LDAPService.is_ldap_enabled(db):
+        return []
+    is_exclusive = LDAPService.is_ldap_exclusive(db)
+    return [
+        {
+            "type": "ldap",
+            "enabled": True,
+            "exclusive": is_exclusive,
+        }
+    ]
+
+
+async def _hook_authenticate(db: Session, email: str, password: str, auth_type: str) -> Any:
+    """auth.authenticate: LDAP 认证
+
+    仅当 auth_type == "ldap" 时处理，否则返回 None 让其他模块尝试。
+    """
+    if auth_type != "ldap":
+        return None
+
+    import asyncio
+
+    from starlette.concurrency import run_in_threadpool
+
+    from src.core.logger import logger
+    from src.services.auth.ldap import LDAPService
+
+    # 预取配置，避免将 Session 传递到线程池
+    config_data = LDAPService.get_config_data(db)
+    if not config_data:
+        logger.warning("登录失败 - LDAP 未启用或配置无效")
+        return None
+
+    # 计算总体超时
+    single_timeout = config_data.get("connect_timeout", 10)
+    total_timeout = max(20, min(int(single_timeout * 4 * 1.1), 60))
+
+    try:
+        ldap_user = await asyncio.wait_for(
+            run_in_threadpool(LDAPService.authenticate_with_config, config_data, email, password),
+            timeout=total_timeout,
+        )
+    except TimeoutError:
+        logger.error("LDAP 认证总体超时({}秒): {}", total_timeout, email)
+        return None
+
+    if not ldap_user:
+        return None
+
+    # 获取或创建本地用户
+    from src.services.auth.service import AuthService
+
+    user = await AuthService.get_or_create_ldap_user(db, ldap_user)
+    if not user:
+        return None
+    if user.is_deleted:
+        logger.warning("登录失败 - 用户已删除: {}", email)
+        return None
+    if not user.is_active:
+        logger.warning("登录失败 - 用户已禁用: {}", email)
+        return None
+    return user
+
+
+def _hook_check_exclusive_mode(db: Session) -> bool | None:
+    """auth.check_exclusive_mode: 检查 LDAP 排他登录模式"""
+    from src.services.auth.ldap import LDAPService
+
+    if LDAPService.is_ldap_exclusive(db):
+        return True
+    return None
+
+
+def _hook_check_registration(db: Session) -> dict[str, Any] | None:
+    """auth.check_registration: LDAP 排他模式下阻止本地注册"""
+    from src.services.auth.ldap import LDAPService
+
+    if LDAPService.is_ldap_exclusive(db):
+        return {"blocked": True, "reason": "系统已启用 LDAP 专属登录，禁止本地注册"}
+    return None
+
+
 # LDAP 模块定义
 ldap_module = ModuleDefinition(
     metadata=ModuleMetadata(
@@ -95,4 +184,10 @@ ldap_module = ModuleDefinition(
     router_factory=_get_router,
     health_check=_health_check,
     validate_config=_validate_config,
+    hooks={
+        "auth.get_methods": _hook_get_auth_methods,
+        "auth.authenticate": _hook_authenticate,
+        "auth.check_exclusive_mode": _hook_check_exclusive_mode,
+        "auth.check_registration": _hook_check_registration,
+    },
 )

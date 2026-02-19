@@ -185,6 +185,14 @@ async def lifespan(app: FastAPI) -> Any:
     for module in ALL_MODULES:
         module_registry.register(module)
 
+    # 注册模块钩子
+    from src.core.modules.hooks import get_hook_dispatcher
+
+    hook_dispatcher = get_hook_dispatcher()
+    for module in ALL_MODULES:
+        for hook_name, handler in module.hooks.items():
+            hook_dispatcher.register(hook_name, module.metadata.name, handler)
+
     # 注册可用模块的路由
     # 注意：模块的 router 自带 prefix，api_prefix 字段仅用于日志和文档
     available_modules = module_registry.get_available_modules()

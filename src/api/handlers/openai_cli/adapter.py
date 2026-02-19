@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from src.api.base.context import ApiRequestContext
 from src.api.handlers.base.cli_adapter_base import CliAdapterBase, register_cli_adapter
 from src.api.handlers.base.cli_handler_base import CliMessageHandlerBase
 from src.api.handlers.openai.adapter import OpenAIChatAdapter
@@ -38,8 +39,32 @@ class OpenAICliAdapter(CliAdapterBase):
 
         return OpenAICliMessageHandler
 
-    def __init__(self, allowed_api_formats: list[str] | None = None):
+    def __init__(
+        self,
+        allowed_api_formats: list[str] | None = None,
+        *,
+        compact: bool = False,
+    ):
         super().__init__(allowed_api_formats)
+        self._compact = compact
+
+    async def handle(self, context: ApiRequestContext) -> Any:
+        """处理 CLI API 请求 -- compact 模式下注入标记并强制非流式"""
+        if self._compact:
+            body = context.ensure_json_body()
+            body["_aether_compact"] = True
+            # compact 端点永远非流式
+            body.pop("stream", None)
+            # 预设 Codex compact 上下文 -- finalize_provider_request 在 envelope
+            # 之前运行，会清除 _aether_compact sentinel，所以在此处提前设置
+            # context var 供 Codex envelope 和 build_codex_url 读取
+            from src.services.provider.adapters.codex.context import (
+                CodexRequestContext,
+                set_codex_request_context,
+            )
+
+            set_codex_request_context(CodexRequestContext(is_compact=True))
+        return await super().handle(context)
 
     # =========================================================================
     # 模型列表查询
@@ -66,22 +91,29 @@ class OpenAICliAdapter(CliAdapterBase):
 
     @classmethod
     def build_endpoint_url(
-        cls, base_url: str, request_data: dict[str, Any], model_name: str | None = None
+        cls,
+        base_url: str,
+        request_data: dict[str, Any],
+        model_name: str | None = None,
+        *,
+        compact: bool = False,
     ) -> str:
         """构建OpenAI CLI API端点URL（使用 Responses API）
 
         对于 Codex OAuth 端点（如 chatgpt.com/backend-api/codex），直接追加 /responses；
         对于标准 OpenAI API，使用 /v1/responses。
+        compact=True 时追加 /compact 后缀。
         """
+        suffix = "/responses/compact" if compact else "/responses"
         base_url = base_url.rstrip("/")
-        # Codex OAuth 端点：chatgpt.com/backend-api/codex -> /responses
+        # Codex OAuth 端点：chatgpt.com/backend-api/codex -> /responses[/compact]
         if is_codex_url(base_url):
-            return f"{base_url}/responses"
+            return f"{base_url}{suffix}"
         # 标准 OpenAI API
         if base_url.endswith("/v1"):
-            return f"{base_url}/responses"
+            return f"{base_url}{suffix}"
         else:
-            return f"{base_url}/v1/responses"
+            return f"{base_url}/v1{suffix}"
 
     # build_request_body 使用基类实现
     # OpenAI CLI normalizer 会自动添加 instructions 字段

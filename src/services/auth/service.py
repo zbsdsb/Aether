@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 
 from src.models.database import ApiKey, User, UserRole
 from src.services.auth.jwt_blacklist import JWTBlacklistService
-from src.services.auth.ldap import LDAPService
 from src.services.cache.user_cache import UserCacheService
 from src.services.user.apikey import ApiKeyService
 
@@ -189,55 +188,23 @@ class AuthService:
             db: 数据库会话
             email: 邮箱/用户名
             password: 密码
-            auth_type: 认证类型 ("local" 或 "ldap")
+            auth_type: 认证类型 ("local" 或由模块钩子处理的其他类型)
         """
-        if auth_type == "ldap":
-            # LDAP 认证
-            # 预取配置，避免将 Session 传递到线程池
-            config_data = LDAPService.get_config_data(db)
-            if not config_data:
-                logger.warning("登录失败 - LDAP 未启用或配置无效")
-                return None
+        # 非本地认证：通过钩子分发给对应模块处理
+        if auth_type != "local":
+            from src.core.modules.hooks import AUTH_AUTHENTICATE, get_hook_dispatcher
 
-            # 计算总体超时：LDAP 认证包含多次网络操作（连接、管理员绑定、搜索、用户绑定）
-            # 超时策略：
-            # - 单次操作超时(connect_timeout)：控制每次网络操作的最大等待时间
-            # - 总体超时：防止异常场景（如服务器响应缓慢但未超时）导致请求堆积
-            # - 公式：单次超时 × 4（覆盖 4 次主要网络操作）+ 10% 缓冲
-            # - 最小 20 秒（保证基本操作），最大 60 秒（避免用户等待过长）
-            single_timeout = config_data.get("connect_timeout", 10)
-            total_timeout = max(20, min(int(single_timeout * 4 * 1.1), 60))
-
-            # 在线程池中执行阻塞的 LDAP 网络请求，避免阻塞事件循环
-            # 添加总体超时保护，防止异常场景下请求堆积
-            import asyncio
-
-            try:
-                ldap_user = await asyncio.wait_for(
-                    run_in_threadpool(
-                        LDAPService.authenticate_with_config, config_data, email, password
-                    ),
-                    timeout=total_timeout,
-                )
-            except TimeoutError:
-                logger.error(f"LDAP 认证总体超时({total_timeout}秒): {email}")
-                return None
-
-            if not ldap_user:
-                return None
-
-            # 获取或创建本地用户
-            user = await AuthService._get_or_create_ldap_user(db, ldap_user)
-            if not user:
-                # 已有本地账号但来源不匹配等情况
-                return None
-            if user.is_deleted:
-                logger.warning(f"登录失败 - 用户已删除: {email}")
-                return None
-            if not user.is_active:
-                logger.warning(f"登录失败 - 用户已禁用: {email}")
-                return None
-            return user
+            result = await get_hook_dispatcher().dispatch(
+                AUTH_AUTHENTICATE,
+                db=db,
+                email=email,
+                password=password,
+                auth_type=auth_type,
+            )
+            if result is not None:
+                return result
+            logger.warning("No handler for auth_type: {}", auth_type)
+            return None
 
         # 本地认证
         # 登录校验必须读取密码哈希，不能使用不包含 password_hash 的缓存对象
@@ -254,12 +221,15 @@ class AuthService:
             logger.warning(f"登录失败 - 用户已删除: {email}")
             return None
 
-        # 检查 LDAP exclusive 模式：仅允许本地管理员登录（紧急恢复通道）
-        if LDAPService.is_ldap_exclusive(db):
+        # 检查排他登录模式（如 LDAP exclusive）：仅允许本地管理员登录（紧急恢复通道）
+        from src.core.modules.hooks import AUTH_CHECK_EXCLUSIVE_MODE, get_hook_dispatcher
+
+        is_exclusive = get_hook_dispatcher().dispatch_sync(AUTH_CHECK_EXCLUSIVE_MODE, db=db)
+        if is_exclusive:
             if user.role != UserRole.ADMIN or user.auth_source != AuthSource.LOCAL:
-                logger.warning(f"登录失败 - 仅允许 LDAP 登录（管理员除外）: {email}")
+                logger.warning(f"登录失败 - 排他登录模式下仅管理员可本地登录: {email}")
                 return None
-            logger.warning(f"[LDAP-EXCLUSIVE] 紧急恢复通道：本地管理员登录: {email}")
+            logger.warning(f"[EXCLUSIVE-MODE] 紧急恢复通道：本地管理员登录: {email}")
 
         # 检查用户认证来源
         if user.auth_source == AuthSource.LDAP:
@@ -285,7 +255,7 @@ class AuthService:
         return user
 
     @staticmethod
-    async def _get_or_create_ldap_user(db: Session, ldap_user: dict) -> User | None:
+    async def get_or_create_ldap_user(db: Session, ldap_user: dict) -> User | None:
         """获取或创建 LDAP 用户
 
         Args:

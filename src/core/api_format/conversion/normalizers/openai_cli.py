@@ -55,6 +55,31 @@ from src.core.api_format.conversion.stream_events import (
     UnknownStreamEvent,
 )
 from src.core.api_format.conversion.stream_state import StreamState
+from src.core.logger import logger
+
+
+def _is_chat_completions_response(data: dict[str, Any]) -> bool:
+    """检测数据是否为 OpenAI Chat Completions 格式（而非 Responses API 格式）。
+
+    Chat Completions 的特征：
+    - 非流式：有 choices 数组且 object == "chat.completion"
+    - 流式：有 choices 数组且 object == "chat.completion.chunk"
+    """
+    if not isinstance(data, dict):
+        return False
+    obj = data.get("object", "")
+    if isinstance(obj, str) and obj.startswith("chat.completion"):
+        return True
+    if isinstance(data.get("choices"), list) and "type" not in data:
+        return True
+    return False
+
+
+def _get_openai_chat_normalizer() -> "FormatNormalizer | None":
+    """获取已注册的 openai:chat normalizer 实例（延迟获取避免循环导入）。"""
+    from src.core.api_format.conversion.registry import format_conversion_registry
+
+    return format_conversion_registry.get_normalizer("openai:chat")
 
 
 class OpenAICliNormalizer(FormatNormalizer):
@@ -126,7 +151,9 @@ class OpenAICliNormalizer(FormatNormalizer):
         *,
         target_variant: str | None = None,
     ) -> dict[str, Any]:
-        is_codex = str(target_variant or "").lower() == "codex"
+        openai_cli_extra = internal.extra.get("openai_cli", {})
+        is_compact = bool(openai_cli_extra.get("_aether_compact"))
+        is_codex = str(target_variant or "").lower() == "codex" and not is_compact
 
         result: dict[str, Any] = {
             "model": internal.model,
@@ -178,7 +205,6 @@ class OpenAICliNormalizer(FormatNormalizer):
             result["tool_choice"] = self._tool_choice_to_openai(internal.tool_choice)
 
         # 还原 OpenAI Responses API 的其他字段（黑名单：已单独处理的字段不还原）
-        openai_cli_extra = internal.extra.get("openai_cli", {})
         handled_keys = {
             "model",
             "input",
@@ -228,16 +254,25 @@ class OpenAICliNormalizer(FormatNormalizer):
     def response_to_internal(self, response: dict[str, Any]) -> InternalResponse:
         payload = self._unwrap_response_object(response)
 
+        # 检测 Chat Completions 格式回退
+        if _is_chat_completions_response(payload):
+            chat_norm = _get_openai_chat_normalizer()
+            if chat_norm is not None:
+                logger.debug(
+                    "[OpenAICliNormalizer] 检测到 Chat Completions 响应格式，委托给 openai:chat normalizer"
+                )
+                return chat_norm.response_to_internal(payload)
+
         rid = str(payload.get("id") or "")
         model = str(payload.get("model") or "")
 
-        blocks, extra = self._extract_output_text_blocks(payload)
+        blocks, extra, has_tool_use = self._extract_output_blocks(payload)
         usage = self._usage_to_internal(payload.get("usage"))
 
         stop_reason = StopReason.UNKNOWN
         status = payload.get("status")
         if isinstance(status, str) and status == "completed":
-            stop_reason = StopReason.END_TURN
+            stop_reason = StopReason.TOOL_USE if has_tool_use else StopReason.END_TURN
 
         return InternalResponse(
             id=rid,
@@ -254,14 +289,49 @@ class OpenAICliNormalizer(FormatNormalizer):
         *,
         requested_model: str | None = None,
     ) -> dict[str, Any]:
-        text = self._collapse_internal_text(internal.content)
+        output_items: list[dict[str, Any]] = []
 
-        output_message = {
-            "type": "message",
-            "id": f"msg_{internal.id or 'stream'}",
-            "role": "assistant",
-            "content": [{"type": "output_text", "text": text}],
-        }
+        # 构建 output items：message（文本）和 function_call（工具调用）
+        text = self._collapse_internal_text(internal.content)
+        if text:
+            output_items.append(
+                {
+                    "type": "message",
+                    "id": f"msg_{internal.id or 'stream'}",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": text}],
+                }
+            )
+
+        for block in internal.content:
+            if isinstance(block, ToolUseBlock):
+                output_items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": block.tool_id,
+                        "id": block.tool_id,
+                        "name": block.tool_name,
+                        "arguments": (
+                            json.dumps(block.tool_input, ensure_ascii=False)
+                            if block.tool_input
+                            else "{}"
+                        ),
+                        "status": "completed",
+                    }
+                )
+
+        # 如果没有任何 output item，添加空 message（保持结构完整）
+        if not output_items:
+            output_items.append(
+                {
+                    "type": "message",
+                    "id": f"msg_{internal.id or 'stream'}",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": ""}],
+                }
+            )
 
         usage = internal.usage or UsageInfo()
         usage_obj: dict[str, Any] = {
@@ -279,7 +349,7 @@ class OpenAICliNormalizer(FormatNormalizer):
             "created": int(time.time()),
             "model": model_name,
             "status": "completed",
-            "output": [output_message],
+            "output": output_items,
             "usage": usage_obj,
         }
 
@@ -302,6 +372,18 @@ class OpenAICliNormalizer(FormatNormalizer):
             except Exception:
                 pass
             return events
+
+        # 检测 Chat Completions 流式格式回退
+        # 某些 Provider 即使配置为 openai:cli 也可能返回 Chat Completions 格式
+        if _is_chat_completions_response(chunk):
+            chat_norm = _get_openai_chat_normalizer()
+            if chat_norm is not None:
+                if not ss.get("_chat_fallback_logged"):
+                    ss["_chat_fallback_logged"] = True
+                    logger.debug(
+                        "[OpenAICliNormalizer] 检测到 Chat Completions 流式格式，委托给 openai:chat"
+                    )
+                return chat_norm.stream_chunk_to_internal(chunk, state)
 
         etype = str(chunk.get("type") or "")
 
@@ -376,7 +458,17 @@ class OpenAICliNormalizer(FormatNormalizer):
             ss["text_block_stopped"] = True
             events.append(ContentBlockStopEvent(block_index=0))
 
-        events.append(MessageStopEvent(stop_reason=StopReason.END_TURN, usage=usage))
+        # 补齐所有已开始但未结束的 tool_call block
+        active_tools = ss.get("active_tool_blocks")
+        if isinstance(active_tools, dict):
+            for tool_id, bi in list(active_tools.items()):
+                events.append(ContentBlockStopEvent(block_index=bi))
+            active_tools.clear()
+
+        # 根据流中是否出现过工具调用来判断 stop_reason
+        has_tool_calls = bool(ss.get("tool_calls"))
+        stop_reason = StopReason.TOOL_USE if has_tool_calls else StopReason.END_TURN
+        events.append(MessageStopEvent(stop_reason=stop_reason, usage=usage))
         return events
 
     def _handle_response_failed(
@@ -411,21 +503,29 @@ class OpenAICliNormalizer(FormatNormalizer):
         if isinstance(item, dict):
             item_type = item.get("type")
             if item_type == "function_call":
-                if not ss.get("tool_block_started"):
-                    ss["tool_block_started"] = True
-                    ss["current_tool_id"] = item.get("call_id") or item.get("id") or ""
-                    ss["current_tool_name"] = item.get("name") or ""
-                    events.append(
-                        ContentBlockStartEvent(
-                            block_index=ss.get("block_index", 0),
-                            block_type=ContentType.TOOL_USE,
-                            extra={
-                                "tool_id": ss["current_tool_id"],
-                                "tool_name": ss["current_tool_name"],
-                            },
-                        )
+                tool_id = str(item.get("call_id") or item.get("id") or "")
+                tool_name = str(item.get("name") or "")
+                block_index = int(ss.get("block_index", 0))
+
+                # 记录当前活跃的工具调用（支持并行）
+                active_tools = ss.setdefault("active_tool_blocks", {})
+                active_tools[tool_id] = block_index
+                ss["current_tool_id"] = tool_id
+                ss["current_tool_name"] = tool_name
+
+                # 初始化工具调用收集
+                tool_calls = ss.setdefault("tool_calls", {})
+                tool_calls.setdefault(tool_id, {"name": tool_name, "args": ""})
+
+                events.append(
+                    ContentBlockStartEvent(
+                        block_index=block_index,
+                        block_type=ContentType.TOOL_USE,
+                        tool_id=tool_id,
+                        tool_name=tool_name,
                     )
-                    ss["block_index"] = ss.get("block_index", 0) + 1
+                )
+                ss["block_index"] = block_index + 1
         return events
 
     def _handle_output_item_done(
@@ -435,9 +535,11 @@ class OpenAICliNormalizer(FormatNormalizer):
         item = chunk.get("item")
         if isinstance(item, dict):
             item_type = item.get("type")
-            if item_type == "function_call" and ss.get("tool_block_started"):
-                ss["tool_block_started"] = False
-                events.append(ContentBlockStopEvent(block_index=ss.get("block_index", 1) - 1))
+            if item_type == "function_call":
+                tool_id = str(item.get("call_id") or item.get("id") or "")
+                active_tools = ss.get("active_tool_blocks", {})
+                block_index = active_tools.pop(tool_id, ss.get("block_index", 1) - 1)
+                events.append(ContentBlockStopEvent(block_index=block_index))
         return events
 
     def _handle_function_call_delta(
@@ -446,10 +548,20 @@ class OpenAICliNormalizer(FormatNormalizer):
         events: list[InternalStreamEvent] = []
         delta = chunk.get("delta") or ""
         if delta:
+            # 确定当前工具调用的 block_index 和 tool_id
+            tool_id = str(chunk.get("item_id") or ss.get("current_tool_id", ""))
+            active_tools = ss.get("active_tool_blocks", {})
+            block_index = active_tools.get(tool_id, ss.get("block_index", 1) - 1)
+
+            # 累积参数
+            tool_calls = ss.setdefault("tool_calls", {})
+            entry = tool_calls.setdefault(tool_id, {"name": "", "args": ""})
+            entry["args"] = str(entry.get("args") or "") + delta
+
             events.append(
                 ToolCallDeltaEvent(
-                    block_index=ss.get("block_index", 1) - 1,
-                    tool_id=ss.get("current_tool_id", ""),
+                    block_index=block_index,
+                    tool_id=tool_id,
                     input_delta=delta,
                 )
             )
@@ -904,17 +1016,27 @@ class OpenAICliNormalizer(FormatNormalizer):
             return resp_inner
         return response
 
-    def _extract_output_text_blocks(
+    def _extract_output_blocks(
         self, payload: dict[str, Any]
-    ) -> tuple[list[ContentBlock], dict[str, Any]]:
+    ) -> tuple[list[ContentBlock], dict[str, Any], bool]:
+        """从 Responses API 的 output 提取所有内容块。
+
+        Returns:
+            (blocks, extra, has_tool_use): 内容块列表、extra 信息、是否包含工具调用
+        """
         text_parts: list[str] = []
+        blocks: list[ContentBlock] = []
+        has_tool_use = False
 
         output = payload.get("output")
         if isinstance(output, list):
             for item in output:
                 if not isinstance(item, dict):
                     continue
-                if item.get("type") == "message":
+
+                item_type = item.get("type")
+
+                if item_type == "message":
                     content = item.get("content")
                     if isinstance(content, list):
                         for part in content:
@@ -927,22 +1049,44 @@ class OpenAICliNormalizer(FormatNormalizer):
                                 text_parts.append(part.get("text") or "")
                     continue
 
-                if item.get("type") in ("output_text", "text") and isinstance(
-                    item.get("text"), str
-                ):
+                if item_type == "function_call":
+                    has_tool_use = True
+                    tool_id = str(item.get("call_id") or item.get("id") or "")
+                    tool_name = str(item.get("name") or "")
+                    args_raw = item.get("arguments") or "{}"
+                    try:
+                        tool_input = (
+                            json.loads(args_raw)
+                            if isinstance(args_raw, str)
+                            else (args_raw if isinstance(args_raw, dict) else {})
+                        )
+                    except (json.JSONDecodeError, TypeError):
+                        tool_input = {"_raw": args_raw}
+                    blocks.append(
+                        ToolUseBlock(
+                            tool_id=tool_id,
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                        )
+                    )
+                    continue
+
+                if item_type in ("output_text", "text") and isinstance(item.get("text"), str):
                     text_parts.append(item.get("text") or "")
 
         # 兼容：部分实现可能直接给 output_text
         if not text_parts and isinstance(payload.get("output_text"), str):
             text_parts.append(payload.get("output_text") or "")
 
-        blocks: list[ContentBlock] = []
+        # 文本块放在前面，工具调用块在后面（与 Claude 的 content 顺序一致）
+        result_blocks: list[ContentBlock] = []
         text = "".join(text_parts)
         if text:
-            blocks.append(TextBlock(text=text))
+            result_blocks.append(TextBlock(text=text))
+        result_blocks.extend(blocks)
 
         extra: dict[str, Any] = {"raw": {"openai_cli_output": output}} if output is not None else {}
-        return blocks, extra
+        return result_blocks, extra, has_tool_use
 
     def _usage_to_internal(self, usage: Any) -> UsageInfo:
         if not isinstance(usage, dict):

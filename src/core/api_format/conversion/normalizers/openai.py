@@ -609,21 +609,33 @@ class OpenAINormalizer(FormatNormalizer):
         # tool_calls delta
         tool_calls = delta.get("tool_calls")
         if isinstance(tool_calls, list):
+            # index -> tool_id 映射（用于后续 delta 缺少 id 时查找）
+            index_to_id: dict[str, str] = ss.setdefault("tool_index_to_id", {})
+
             for tool_call in tool_calls:
                 if not isinstance(tool_call, dict):
                     continue
 
                 tc_id = str(tool_call.get("id") or "")
+                raw_index = tool_call.get("index")
+                tc_index = str(raw_index) if raw_index is not None else ""
                 fn = tool_call.get("function") or {}
                 fn = fn if isinstance(fn, dict) else {}
                 tc_name = str(fn.get("name") or "")
                 tc_args = fn.get("arguments")
 
-                block_index = self._ensure_tool_block_index(
-                    ss, tc_id or str(tool_call.get("index") or "")
-                )
+                # 首次出现的 delta 同时有 id 和 index，记录映射
+                if tc_id and tc_index:
+                    index_to_id[tc_index] = tc_id
+                # 后续 delta 只有 index 没有 id，通过映射恢复 id
+                elif not tc_id and tc_index and tc_index in index_to_id:
+                    tc_id = index_to_id[tc_index]
 
-                # tool start（只在首次见到该 tool_id 时发）
+                # 用 tool_id 作为优先 key（确保同一 tool call 始终同一 block_index）
+                tool_key = tc_id or tc_index
+                block_index = self._ensure_tool_block_index(ss, tool_key)
+
+                # tool start（只在首次见到该 tool_key 时发）
                 started_key = f"tool_started:{block_index}"
                 if not ss.get(started_key):
                     ss[started_key] = True
@@ -649,7 +661,7 @@ class OpenAINormalizer(FormatNormalizer):
         finish_reason = c0.get("finish_reason")
         if finish_reason is not None:
             stop_reason = self._FINISH_REASON_TO_STOP.get(str(finish_reason), StopReason.UNKNOWN)
-            # 先补齐 content_block_stop（thinking + text），再发送 MessageStop
+            # 先补齐 content_block_stop（thinking + text + tool_calls），再发送 MessageStop
             if ss.get("thinking_block_started") and not ss.get("thinking_block_stopped"):
                 ss["thinking_block_stopped"] = True
                 events.append(
@@ -660,6 +672,14 @@ class OpenAINormalizer(FormatNormalizer):
                 events.append(
                     ContentBlockStopEvent(block_index=_reserve_block_index("text_block_index"))
                 )
+            # 补齐所有已开始但未结束的 tool_call block
+            tool_id_map = ss.get("tool_id_to_block_index")
+            if isinstance(tool_id_map, dict):
+                for _tk, bi in tool_id_map.items():
+                    stopped_key = f"tool_stopped:{bi}"
+                    if ss.get(f"tool_started:{bi}") and not ss.get(stopped_key):
+                        ss[stopped_key] = True
+                        events.append(ContentBlockStopEvent(block_index=int(bi)))
             # 解析 usage（需要请求时设置 stream_options.include_usage: true）
             usage_info = self._openai_usage_to_internal(chunk.get("usage"))
             events.append(MessageStopEvent(stop_reason=stop_reason, usage=usage_info))

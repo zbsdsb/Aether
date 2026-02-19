@@ -130,12 +130,14 @@ def _extract_embedded_status_code(error_info: dict[str, Any] | None) -> int | No
 class OpenAIResponseParser(ResponseParser):
     """OpenAI 格式响应解析器"""
 
+    API_FORMAT = "openai:chat"
+
     def __init__(self) -> None:
         from src.api.handlers.openai.stream_parser import OpenAIStreamParser
 
         self._parser = OpenAIStreamParser()
-        self.name = "openai:chat"
-        self.api_format = "openai:chat"
+        self.name = self.API_FORMAT
+        self.api_format = self.API_FORMAT
 
     def parse_sse_line(self, line: str, stats: StreamStats) -> ParsedChunk | None:
         if not line or not line.strip():
@@ -249,10 +251,12 @@ class OpenAICliResponseParser(OpenAIResponseParser):
     - 流式事件: response.completed 事件中 usage 嵌套在 response 对象内
     """
 
+    API_FORMAT = "openai:cli"
+
     def __init__(self) -> None:
         super().__init__()
-        self.name = "openai:cli"
-        self.api_format = "openai:cli"
+        self.name = self.API_FORMAT
+        self.api_format = self.API_FORMAT
 
     def parse_response(self, response: dict[str, Any], status_code: int) -> ParsedResponse:
         result = ParsedResponse(
@@ -384,12 +388,14 @@ class OpenAICliResponseParser(OpenAIResponseParser):
 class ClaudeResponseParser(ResponseParser):
     """Claude 格式响应解析器"""
 
+    API_FORMAT = "claude:chat"
+
     def __init__(self) -> None:
         from src.api.handlers.claude.stream_parser import ClaudeStreamParser
 
         self._parser = ClaudeStreamParser()
-        self.name = "claude:chat"
-        self.api_format = "claude:chat"
+        self.name = self.API_FORMAT
+        self.api_format = self.API_FORMAT
 
     def parse_sse_line(self, line: str, stats: StreamStats) -> ParsedChunk | None:
         if not line or not line.strip():
@@ -522,21 +528,25 @@ class ClaudeResponseParser(ResponseParser):
 class ClaudeCliResponseParser(ClaudeResponseParser):
     """Claude CLI 格式响应解析器"""
 
+    API_FORMAT = "claude:cli"
+
     def __init__(self) -> None:
         super().__init__()
-        self.name = "claude:cli"
-        self.api_format = "claude:cli"
+        self.name = self.API_FORMAT
+        self.api_format = self.API_FORMAT
 
 
 class GeminiResponseParser(ResponseParser):
     """Gemini 格式响应解析器"""
 
+    API_FORMAT = "gemini:chat"
+
     def __init__(self) -> None:
         from src.api.handlers.gemini.stream_parser import GeminiStreamParser
 
         self._parser = GeminiStreamParser()
-        self.name = "gemini:chat"
-        self.api_format = "gemini:chat"
+        self.name = self.API_FORMAT
+        self.api_format = self.API_FORMAT
 
     def parse_sse_line(self, line: str, stats: StreamStats) -> ParsedChunk | None:
         """
@@ -687,10 +697,12 @@ class GeminiResponseParser(ResponseParser):
 class GeminiCliResponseParser(GeminiResponseParser):
     """Gemini CLI 格式响应解析器"""
 
+    API_FORMAT = "gemini:cli"
+
     def __init__(self) -> None:
         super().__init__()
-        self.name = "gemini:cli"
-        self.api_format = "gemini:cli"
+        self.name = self.API_FORMAT
+        self.api_format = self.API_FORMAT
 
 
 # 注册解析器到 core 层注册表（供 services 层通过 format_id 获取）
@@ -698,12 +710,20 @@ from src.core.stream_types import get_parser_for_format, register_parser
 
 
 def register_default_parsers() -> None:
-    register_parser("claude:chat", ClaudeResponseParser)
-    register_parser("claude:cli", ClaudeCliResponseParser)
-    register_parser("openai:chat", OpenAIResponseParser)
-    register_parser("openai:cli", OpenAICliResponseParser)
-    register_parser("gemini:chat", GeminiResponseParser)
-    register_parser("gemini:cli", GeminiCliResponseParser)
+    """自动发现所有 ResponseParser 子类并注册
+
+    通过 __subclasses__() 递归收集所有 ResponseParser 子类，
+    使用类级别 API_FORMAT 属性获取格式 ID，无需实例化。
+    """
+
+    def _collect_subclasses(base: type) -> list[type]:
+        subs = base.__subclasses__()
+        return subs + [s for c in subs for s in _collect_subclasses(c)]
+
+    for cls in _collect_subclasses(ResponseParser):
+        api_format = getattr(cls, "API_FORMAT", None)
+        if api_format:
+            register_parser(api_format, cls)
 
 
 # 模块加载时自动注册（保证 import parsers 即可用，测试也不需要手动初始化）

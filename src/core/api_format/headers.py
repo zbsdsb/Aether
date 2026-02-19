@@ -334,19 +334,21 @@ class HeaderBuilder:
     def build(self) -> dict[str, str]:
         """构建最终的头部字典
 
-        Safety net: 跳过值中包含非 ASCII 字符的头部并记录警告，
-        防止 httpx 发送时抛出 ``UnicodeEncodeError``。
+        httpx 要求 header 值可被 latin-1 编码。对于包含非 latin-1 字符
+        （如中文）的值，先 UTF-8 编码再按 latin-1 解码，使 httpx 将原始
+        UTF-8 字节逐字节发送到上游 —— 与 Go net/http 的行为一致。
         """
         result: dict[str, str] = {}
         for original_key, value in self._headers.values():
             try:
-                value.encode("ascii")
+                value.encode("latin-1")
             except (UnicodeEncodeError, UnicodeDecodeError):
-                logger.warning(
-                    "Dropping non-ASCII header before upstream request: {}",
+                # 将 UTF-8 字节逐字节映射为 latin-1 字符串，httpx 会原样发送
+                logger.debug(
+                    "Header '{}' contains non-latin-1 chars, encoding as raw UTF-8 bytes",
                     original_key,
                 )
-                continue
+                value = value.encode("utf-8").decode("latin-1")
             result[original_key] = value
         return result
 
