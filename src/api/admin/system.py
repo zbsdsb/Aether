@@ -587,7 +587,7 @@ class AdminGetSystemConfigAdapter(AdminApiAdapter):
 
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         value = SystemConfigService.get_config(context.db, self.key)
-        if value is None:
+        if value is None and self.key not in SystemConfigService.DEFAULT_CONFIGS:
             raise NotFoundException(f"配置项 '{self.key}' 不存在")
         # 对敏感配置，只返回是否已设置的标志，不返回实际值
         if self.key in self.SENSITIVE_KEYS:
@@ -894,6 +894,12 @@ class AdminExportConfigAdapter(AdminApiAdapter):
                 try:
                     key_data["api_key"] = crypto_service.decrypt(key.api_key)
                 except Exception:
+                    logger.warning(
+                        "API Key 解密失败: provider={}, key_id={}, api_formats={}",
+                        provider.name,
+                        key.id,
+                        key.api_formats,
+                    )
                     key_data["api_key"] = ""
                 # 解密 auth_config（OAuth 等认证配置）
                 # 导出值为解密后的 JSON 字符串（非 dict），导入时需按字符串重新加密
@@ -901,6 +907,11 @@ class AdminExportConfigAdapter(AdminApiAdapter):
                     try:
                         key_data["auth_config"] = crypto_service.decrypt(key.auth_config)
                     except Exception:
+                        logger.warning(
+                            "auth_config 解密失败: provider={}, key_id={}",
+                            provider.name,
+                            key.id,
+                        )
                         pass  # 解密失败则不导出 auth_config
                 keys_data.append(key_data)
 

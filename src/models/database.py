@@ -9,7 +9,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 from enum import Enum as PyEnum
-from typing import Any
+from typing import Any, ClassVar
 
 import bcrypt
 from sqlalchemy import (
@@ -37,6 +37,33 @@ from ..config import config
 from ..core.enums import AuthSource, ProviderBillingType, UserRole
 
 Base = declarative_base()
+
+
+class ExportMixin:
+    """配置导出 Mixin -- 基于排除列表自动收集字段。"""
+
+    _export_exclude: ClassVar[frozenset[str]] = frozenset()
+
+    def to_export_dict(self) -> dict[str, Any]:
+        """将模型实例转为可导出的字典（排除 _export_exclude 中的字段）。"""
+        result: dict[str, Any] = {}
+        for col in self.__table__.columns:  # type: ignore[attr-defined]
+            if col.name in self._export_exclude:
+                continue
+            value = getattr(self, col.name)
+            if isinstance(value, PyEnum):
+                value = value.value
+            result[col.name] = value
+        return result
+
+    @classmethod
+    def get_export_fields(cls) -> frozenset[str]:
+        """返回可导出字段名集合。"""
+        return frozenset(
+            col.name
+            for col in cls.__table__.columns  # type: ignore[attr-defined]
+            if col.name not in cls._export_exclude
+        )
 
 
 class User(Base):
@@ -628,10 +655,21 @@ class UserOAuthLink(Base):
     )
 
 
-class Provider(Base):
+class Provider(ExportMixin, Base):
     """提供商配置表"""
 
     __tablename__ = "providers"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "monthly_used_usd",
+            "quota_last_reset_at",
+            "quota_expires_at",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)  # 提供商名称（唯一）
@@ -728,10 +766,21 @@ class Provider(Base):
     )
 
 
-class ProviderEndpoint(Base):
+class ProviderEndpoint(ExportMixin, Base):
     """提供商端点 - 一个提供商可以有多个 API 格式端点"""
 
     __tablename__ = "provider_endpoints"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "provider_id",
+            "api_family",
+            "endpoint_kind",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     provider_id = Column(String(36), ForeignKey("providers.id", ondelete="CASCADE"), nullable=False)
@@ -882,7 +931,7 @@ class ProxyNode(Base):
     __table_args__ = (UniqueConstraint("ip", "port", name="uq_proxy_node_ip_port"),)
 
 
-class GlobalModel(Base):
+class GlobalModel(ExportMixin, Base):
     """全局统一模型定义 - 包含价格和能力配置
 
     设计原则:
@@ -892,6 +941,15 @@ class GlobalModel(Base):
     """
 
     __tablename__ = "global_models"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "usage_count",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)  # 统一模型名（唯一）
@@ -970,7 +1028,7 @@ class GlobalModel(Base):
     models = relationship("Model", back_populates="global_model")
 
 
-class Model(Base):
+class Model(ExportMixin, Base):
     """Provider 模型配置表 - Provider 如何使用某个 GlobalModel
 
     设计原则:
@@ -983,6 +1041,17 @@ class Model(Base):
     """
 
     __tablename__ = "models"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "provider_id",
+            "global_model_id",
+            "is_available",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     provider_id = Column(String(36), ForeignKey("providers.id"), nullable=False)
@@ -1368,10 +1437,45 @@ class DimensionCollector(Base):
     )
 
 
-class ProviderAPIKey(Base):
+class ProviderAPIKey(ExportMixin, Base):
     """Provider API密钥表 - 直接归属于 Provider，支持多种 API 格式"""
 
     __tablename__ = "provider_api_keys"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "provider_id",
+            "api_key",
+            "auth_config",
+            "learned_rpm_limit",
+            "concurrent_429_count",
+            "rpm_429_count",
+            "last_429_at",
+            "last_429_type",
+            "last_rpm_peak",
+            "adjustment_history",
+            "utilization_samples",
+            "last_probe_increase_at",
+            "health_by_format",
+            "circuit_breaker_by_format",
+            "request_count",
+            "success_count",
+            "error_count",
+            "total_response_time_ms",
+            "last_used_at",
+            "last_error_at",
+            "last_error_msg",
+            "expires_at",
+            "last_models_fetch_at",
+            "last_models_fetch_error",
+            "upstream_metadata",
+            "oauth_invalid_at",
+            "oauth_invalid_reason",
+            "created_at",
+            "updated_at",
+        }
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
 

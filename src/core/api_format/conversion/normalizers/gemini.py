@@ -1846,6 +1846,10 @@ class GeminiNormalizer(FormatNormalizer):
     def _is_antigravity_thinking_enabled(self, internal: InternalRequest) -> bool:
         """Best-effort detection of Claude-style `thinking` flag for Antigravity conversions."""
         try:
+            # 标准路径：跨格式转换时 ClaudeNormalizer 会将 thinking 写入 internal.thinking
+            if internal.thinking and internal.thinking.enabled:
+                return True
+
             extra = internal.extra if isinstance(internal.extra, dict) else {}
             claude_extra = extra.get("claude")
             if not isinstance(claude_extra, dict):
