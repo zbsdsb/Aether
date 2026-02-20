@@ -431,7 +431,7 @@ def _check_duplicate_oauth_account(
                     is_duplicate = True
 
             if is_duplicate:
-                # 如果已有账号已失效（is_active=False），允许覆盖
+                # 失效账号允许覆盖
                 if not existing_key.is_active:
                     logger.info(
                         "重复 OAuth 账号已失效，将覆盖更新（key_id={}, name={}）",
@@ -440,26 +440,12 @@ def _check_duplicate_oauth_account(
                     )
                     return existing_key
 
-                # Kiro 类型：活跃的重复账号也允许覆盖（用户可能重新导入同一账号）
-                is_kiro = new_provider_type == "kiro" or existing_provider_type == "kiro"
-                if is_kiro:
-                    logger.info(
-                        "Kiro 重复账号将覆盖更新（key_id={}, name={}）",
-                        existing_key.id,
-                        existing_key.name,
-                    )
-                    return existing_key
-
-                # 非 Kiro 的活跃重复账号，拒绝添加
-                if new_email:
-                    raise InvalidRequestException(
-                        f"该 OAuth 账号 ({new_email}) 已存在于当前 Provider 中"
-                        f"（名称: {existing_key.name}）"
-                    )
-                else:
-                    raise InvalidRequestException(
-                        f"该 OAuth 账号已存在于当前 Provider 中（名称: {existing_key.name}）"
-                    )
+                # 活跃的重复账号，拒绝添加
+                identifier = new_email or new_user_id or ""
+                raise InvalidRequestException(
+                    f"该 OAuth 账号 ({identifier}) 已存在于当前 Provider 中"
+                    f"（名称: {existing_key.name}）"
+                )
         except InvalidRequestException:
             raise
         except Exception:
