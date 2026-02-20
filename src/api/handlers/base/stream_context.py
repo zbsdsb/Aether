@@ -133,6 +133,7 @@ class StreamContext:
 
     # 流式格式转换状态（跨 chunk 追踪）
     stream_conversion_state: StreamState | None = None
+    stream_conversion_event_count: int = 0  # 流式转换成功的 event 计数
 
     def reset_for_retry(self) -> None:
         """
@@ -163,6 +164,7 @@ class StreamContext:
         self.final_response = None
         self.proxy_info = None
         self.stream_conversion_state = None
+        self.stream_conversion_event_count = 0
         self.needs_conversion = False
         self.selected_base_url = None
 

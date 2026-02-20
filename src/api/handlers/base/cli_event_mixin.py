@@ -122,10 +122,6 @@ class CliEventMixin:
                 provider_parser = get_parser_for_format(ctx.provider_api_format)
                 if provider_parser:
                     parser = provider_parser
-                    logger.debug(
-                        f"[{getattr(ctx, 'request_id', 'unknown')}] 使用 Provider 解析器: "
-                        f"{ctx.provider_api_format} (client={ctx.client_api_format})"
-                    )
             except KeyError:
                 logger.debug(
                     f"[{getattr(ctx, 'request_id', 'unknown')}] 未找到 Provider 格式解析器: "
@@ -538,11 +534,7 @@ class CliEventMixin:
             )
             result = _format_converted_events_to_sse(converted_events, client_format)
             if result:
-                logger.debug(
-                    f"[{getattr(ctx, 'request_id', 'unknown')}] 流式转换: "
-                    f"{provider_format}->{client_format}, events={len(converted_events)}, "
-                    f"first_output={result[0][:100] if result else 'empty'}..."
-                )
+                ctx.stream_conversion_event_count += len(converted_events)
             return result, converted_events
 
         except Exception as e:

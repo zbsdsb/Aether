@@ -301,6 +301,16 @@ class CliMonitorMixin:
                     # 在记录统计前，允许子类从 parsed_chunks 中提取额外的元数据
                     self._finalize_stream_metadata(ctx)
 
+                    # 流式格式转换汇总日志
+                    if ctx.stream_conversion_event_count > 0:
+                        logger.debug(
+                            "[{}] 流式转换完成: {}->{}, total_events={}",
+                            self.request_id[:8],
+                            ctx.provider_api_format,
+                            ctx.client_api_format,
+                            ctx.stream_conversion_event_count,
+                        )
+
                     # 流未正常完成（如上游截断/连接中断）且无 token 数据时，
                     # 从已收集的文本和请求体估算 tokens，避免 usage 记录为 0
                     if (
