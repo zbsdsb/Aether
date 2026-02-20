@@ -168,9 +168,11 @@ export interface RequestDetail {
   request_headers?: Record<string, any>
   request_body?: Record<string, any>
   provider_request_headers?: Record<string, any>
+  provider_request_body?: Record<string, any>
   response_headers?: Record<string, any>
   client_response_headers?: Record<string, any>
   response_body?: Record<string, any>
+  client_response_body?: Record<string, any>
   metadata?: Record<string, any>
   // 阶梯计费信息
   tiered_pricing?: {

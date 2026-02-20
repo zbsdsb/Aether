@@ -72,6 +72,8 @@ class MessageTelemetry:
         cache_read_tokens: int = 0,
         is_stream: bool = False,
         provider_request_headers: dict[str, Any] | None = None,
+        provider_request_body: Any | None = None,
+        client_response_body: Any | None = None,
         # 时间指标
         first_byte_time_ms: int | None = None,  # 首字时间/TTFB
         # Provider 侧追踪信息（用于记录真实成本）
@@ -117,9 +119,11 @@ class MessageTelemetry:
             request_headers=request_headers,
             request_body=request_body,
             provider_request_headers=provider_request_headers or {},
+            provider_request_body=provider_request_body,
             response_headers=response_headers,
             client_response_headers=client_response_headers,
             response_body=response_body,
+            client_response_body=client_response_body,
             request_id=self.request_id,
             # Provider 侧追踪信息（用于记录真实成本）
             provider_id=provider_id,
@@ -164,6 +168,7 @@ class MessageTelemetry:
         is_stream: bool,
         api_format: str | None = None,
         provider_request_headers: dict[str, Any] | None = None,
+        provider_request_body: Any | None = None,
         # 预估 token 信息（来自 message_start 事件，用于中断请求的成本估算）
         input_tokens: int = 0,
         output_tokens: int = 0,
@@ -172,6 +177,7 @@ class MessageTelemetry:
         response_body: dict[str, Any] | None = None,
         response_headers: dict[str, Any] | None = None,
         client_response_headers: dict[str, Any] | None = None,
+        client_response_body: Any | None = None,
         # Provider 侧追踪信息（用于 curl 复现等场景）
         provider_id: str | None = None,
         provider_endpoint_id: str | None = None,
@@ -225,9 +231,11 @@ class MessageTelemetry:
             request_headers=request_headers,
             request_body=request_body,
             provider_request_headers=provider_request_headers or {},
+            provider_request_body=provider_request_body,
             response_headers=response_headers or {},
             client_response_headers=client_response_headers,
             response_body=response_body or {"error": error_message},
+            client_response_body=client_response_body,
             request_id=self.request_id,
             # Provider 侧追踪信息
             provider_id=provider_id,
@@ -252,6 +260,7 @@ class MessageTelemetry:
         is_stream: bool,
         api_format: str | None = None,
         provider_request_headers: dict[str, Any] | None = None,
+        provider_request_body: Any | None = None,
         input_tokens: int = 0,
         output_tokens: int = 0,
         cache_creation_tokens: int = 0,
@@ -259,6 +268,7 @@ class MessageTelemetry:
         response_body: dict[str, Any] | None = None,
         response_headers: dict[str, Any] | None = None,
         client_response_headers: dict[str, Any] | None = None,
+        client_response_body: Any | None = None,
         # Provider 侧追踪信息
         provider_id: str | None = None,
         provider_endpoint_id: str | None = None,
@@ -299,9 +309,11 @@ class MessageTelemetry:
             request_headers=request_headers,
             request_body=request_body,
             provider_request_headers=provider_request_headers or {},
+            provider_request_body=provider_request_body,
             response_headers=response_headers or {},
             client_response_headers=client_response_headers,
             response_body=response_body or {},
+            client_response_body=client_response_body,
             request_id=self.request_id,
             # Provider 侧追踪信息
             provider_id=provider_id,

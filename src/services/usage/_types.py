@@ -34,9 +34,11 @@ class UsageRecordParams:
     request_headers: dict[str, Any] | None
     request_body: Any | None
     provider_request_headers: dict[str, Any] | None
+    provider_request_body: Any | None
     response_headers: dict[str, Any] | None
     client_response_headers: dict[str, Any] | None
     response_body: Any | None
+    client_response_body: Any | None
     request_id: str
     provider_id: str | None
     provider_endpoint_id: str | None

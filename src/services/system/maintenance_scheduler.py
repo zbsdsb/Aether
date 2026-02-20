@@ -928,9 +928,20 @@ class MaintenanceScheduler:
                 # 1. 查询需要压缩的记录
                 # 注意：排除已经是 NULL 或 JSON null 的记录
                 records = (
-                    batch_db.query(Usage.id, Usage.request_body, Usage.response_body)
+                    batch_db.query(
+                        Usage.id,
+                        Usage.request_body,
+                        Usage.response_body,
+                        Usage.provider_request_body,
+                        Usage.client_response_body,
+                    )
                     .filter(Usage.created_at < cutoff_time)
-                    .filter((Usage.request_body.isnot(None)) | (Usage.response_body.isnot(None)))
+                    .filter(
+                        (Usage.request_body.isnot(None))
+                        | (Usage.response_body.isnot(None))
+                        | (Usage.provider_request_body.isnot(None))
+                        | (Usage.client_response_body.isnot(None))
+                    )
                     .limit(batch_size)
                     .all()
                 )
@@ -940,9 +951,12 @@ class MaintenanceScheduler:
 
                 # 过滤掉实际值为 None 的记录（JSON null 被解析为 Python None）
                 valid_records = [
-                    (rid, req, resp)
-                    for rid, req, resp in records
-                    if req is not None or resp is not None
+                    r
+                    for r in records
+                    if r.request_body is not None
+                    or r.response_body is not None
+                    or r.provider_request_body is not None
+                    or r.client_response_body is not None
                 ]
 
                 if not valid_records:
@@ -950,17 +964,22 @@ class MaintenanceScheduler:
                     logger.warning(
                         f"检测到 {len(records)} 条记录的 body 字段为 JSON null，进行清理"
                     )
-                    for record_id, _, _ in records:
+                    for r in records:
                         batch_db.execute(
                             update(Usage)
-                            .where(Usage.id == record_id)
-                            .values(request_body=null(), response_body=null())
+                            .where(Usage.id == r.id)
+                            .values(
+                                request_body=null(),
+                                response_body=null(),
+                                provider_request_body=null(),
+                                client_response_body=null(),
+                            )
                         )
                     batch_db.commit()
                     continue
 
                 # 检测是否有重复的 ID（说明更新未生效）
-                current_ids = {r[0] for r in valid_records}
+                current_ids = {r.id for r in valid_records}
                 repeated_ids = current_ids & processed_ids
                 if repeated_ids:
                     logger.error(
@@ -972,28 +991,40 @@ class MaintenanceScheduler:
                 batch_success = 0
 
                 # 2. 逐条更新（确保每条都正确处理）
-                for record_id, req_body, resp_body in valid_records:
+                for r in valid_records:
                     try:
                         # 使用 null() 确保设置的是 SQL NULL 而不是 JSON null
                         result = batch_db.execute(
                             update(Usage)
-                            .where(Usage.id == record_id)
+                            .where(Usage.id == r.id)
                             .values(
                                 request_body=null(),
                                 response_body=null(),
+                                provider_request_body=null(),
+                                client_response_body=null(),
                                 request_body_compressed=(
-                                    compress_json(req_body) if req_body else None
+                                    compress_json(r.request_body) if r.request_body else None
                                 ),
                                 response_body_compressed=(
-                                    compress_json(resp_body) if resp_body else None
+                                    compress_json(r.response_body) if r.response_body else None
+                                ),
+                                provider_request_body_compressed=(
+                                    compress_json(r.provider_request_body)
+                                    if r.provider_request_body
+                                    else None
+                                ),
+                                client_response_body_compressed=(
+                                    compress_json(r.client_response_body)
+                                    if r.client_response_body
+                                    else None
                                 ),
                             )
                         )
                         if result.rowcount > 0:
                             batch_success += 1
-                            processed_ids.add(record_id)
+                            processed_ids.add(r.id)
                     except Exception as e:
-                        logger.warning(f"压缩记录 {record_id} 失败: {e}")
+                        logger.warning(f"压缩记录 {r.id} 失败: {e}")
                         continue
 
                 batch_db.commit()
@@ -1050,6 +1081,8 @@ class MaintenanceScheduler:
                     .filter(
                         (Usage.request_body_compressed.isnot(None))
                         | (Usage.response_body_compressed.isnot(None))
+                        | (Usage.provider_request_body_compressed.isnot(None))
+                        | (Usage.client_response_body_compressed.isnot(None))
                     )
                     .limit(batch_size)
                     .all()
@@ -1067,6 +1100,8 @@ class MaintenanceScheduler:
                     .values(
                         request_body_compressed=null(),
                         response_body_compressed=null(),
+                        provider_request_body_compressed=null(),
+                        client_response_body_compressed=null(),
                     )
                 )
 

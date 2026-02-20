@@ -243,6 +243,7 @@ class CliStreamMixin:
 
         # 重置上下文状态（重试时清除之前的数据，避免累积）
         ctx.parsed_chunks = []
+        ctx.provider_parsed_chunks = []
         ctx.chunk_count = 0
         ctx.data_count = 0
         ctx.has_completion = False

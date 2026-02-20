@@ -211,19 +211,8 @@ class CliMonitorMixin:
                     bg_db, user, api_key, ctx.request_id, self.client_ip
                 )
 
-                response_body = {
-                    "chunks": ctx.parsed_chunks,
-                    "metadata": {
-                        "stream": True,
-                        "total_chunks": len(ctx.parsed_chunks),
-                        "data_count": ctx.data_count,
-                        "has_completion": ctx.has_completion,
-                        "response_time_ms": response_time_ms,
-                    },
-                }
-
-                # 使用实际发送给 Provider 的请求体（如果有），否则用原始请求体
-                actual_request_body = ctx.provider_request_body or original_request_body
+                response_body = ctx.build_response_body(response_time_ms)
+                client_response_body = ctx.build_client_response_body(response_time_ms)
 
                 # 根据状态码决定记录成功还是失败
                 # 499 = 客户端取消（不算系统失败）；其他 4xx/5xx 视为失败
@@ -242,15 +231,17 @@ class CliMonitorMixin:
                             first_byte_time_ms=ctx.first_byte_time_ms,
                             status_code=ctx.status_code,
                             request_headers=original_headers,
-                            request_body=actual_request_body,
+                            request_body=original_request_body,
                             is_stream=True,
                             api_format=ctx.api_format,
                             provider_request_headers=ctx.provider_request_headers,
+                            provider_request_body=ctx.provider_request_body,
                             input_tokens=ctx.input_tokens,
                             output_tokens=ctx.output_tokens,
                             cache_creation_tokens=ctx.cache_creation_tokens,
                             cache_read_tokens=ctx.cached_tokens,
                             response_body=response_body,
+                            client_response_body=client_response_body,
                             response_headers=ctx.response_headers,
                             client_response_headers=client_response_headers,
                             endpoint_api_format=ctx.provider_api_format or None,
@@ -273,16 +264,18 @@ class CliMonitorMixin:
                             status_code=ctx.status_code,
                             error_message=ctx.error_message or f"HTTP {ctx.status_code}",
                             request_headers=original_headers,
-                            request_body=actual_request_body,
+                            request_body=original_request_body,
                             is_stream=True,
                             api_format=ctx.api_format,
                             provider_request_headers=ctx.provider_request_headers,
+                            provider_request_body=ctx.provider_request_body,
                             # 预估 token 信息（来自 message_start 事件）
                             input_tokens=ctx.input_tokens,
                             output_tokens=ctx.output_tokens,
                             cache_creation_tokens=ctx.cache_creation_tokens,
                             cache_read_tokens=ctx.cached_tokens,
                             response_body=response_body,
+                            client_response_body=client_response_body,
                             response_headers=ctx.response_headers,
                             client_response_headers=client_response_headers,
                             # 格式转换追踪
@@ -319,7 +312,10 @@ class CliMonitorMixin:
                         and ctx.input_tokens == 0
                         and ctx.output_tokens == 0
                     ):
-                        self._estimate_tokens_for_incomplete_stream(ctx, actual_request_body)
+                        # 用实际发给 Provider 的请求体估算 token（格式转换时与客户端请求体不同）
+                        self._estimate_tokens_for_incomplete_stream(
+                            ctx, ctx.provider_request_body or original_request_body
+                        )
 
                     # 流式成功时，返回给客户端的是提供商响应头 + SSE 必需头
                     client_response_headers = filter_proxy_response_headers(ctx.response_headers)
@@ -346,10 +342,12 @@ class CliMonitorMixin:
                         first_byte_time_ms=ctx.first_byte_time_ms,  # 传递首字时间
                         status_code=ctx.status_code,
                         request_headers=original_headers,
-                        request_body=actual_request_body,
+                        request_body=original_request_body,
                         response_headers=ctx.response_headers,
                         client_response_headers=client_response_headers,
                         response_body=response_body,
+                        client_response_body=client_response_body,
+                        provider_request_body=ctx.provider_request_body,
                         cache_creation_tokens=ctx.cache_creation_tokens,
                         cache_read_tokens=ctx.cached_tokens,
                         is_stream=True,
@@ -487,9 +485,6 @@ class CliMonitorMixin:
         ctx.status_code = status_code
         ctx.error_message = str(error)
 
-        # 使用实际发送给 Provider 的请求体（如果有），否则用原始请求体
-        actual_request_body = ctx.provider_request_body or original_request_body
-
         # 失败时返回给客户端的是 JSON 错误响应
         client_response_headers = {"content-type": "application/json"}
 
@@ -501,10 +496,11 @@ class CliMonitorMixin:
             status_code=status_code,
             error_message=extract_client_error_message(error),
             request_headers=original_headers,
-            request_body=actual_request_body,
+            request_body=original_request_body,
             is_stream=True,
             api_format=ctx.api_format,
             provider_request_headers=ctx.provider_request_headers,
+            provider_request_body=ctx.provider_request_body,
             response_headers=ctx.response_headers,
             client_response_headers=client_response_headers,
             # 格式转换追踪

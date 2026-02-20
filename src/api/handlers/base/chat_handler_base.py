@@ -1046,6 +1046,10 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
 
             output_state = {"started": False}
 
+            # 保留提供商原始响应到 provider_parsed_chunks
+            if ctx.record_parsed_chunks and isinstance(response_json, dict):
+                ctx.provider_parsed_chunks.append(response_json)
+
             async def _streamified() -> AsyncGenerator[bytes]:
                 for ev in iter_internal_response_as_stream_events(internal_resp):
                     converted_events = tgt_norm.stream_event_from_internal(ev, state)

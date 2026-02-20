@@ -56,9 +56,11 @@ def build_usage_params(
     request_headers: dict[str, Any] | None,
     request_body: Any | None,
     provider_request_headers: dict[str, Any] | None,
+    provider_request_body: Any | None,
     response_headers: dict[str, Any] | None,
     client_response_headers: dict[str, Any] | None,
     response_body: Any | None,
+    client_response_body: Any | None,
     request_id: str,
     provider_id: str | None,
     provider_endpoint_id: str | None,
@@ -103,15 +105,25 @@ def build_usage_params(
 
     # 处理请求体和响应体（可能需要截断）
     processed_request_body = None
+    processed_provider_request_body = None
     processed_response_body = None
+    processed_client_response_body = None
     if should_log_body:
         if request_body:
             processed_request_body = SystemConfigService.truncate_body(
                 db, request_body, is_request=True
             )
+        if provider_request_body:
+            processed_provider_request_body = SystemConfigService.truncate_body(
+                db, provider_request_body, is_request=True
+            )
         if response_body:
             processed_response_body = SystemConfigService.truncate_body(
                 db, response_body, is_request=False
+            )
+        if client_response_body:
+            processed_client_response_body = SystemConfigService.truncate_body(
+                db, client_response_body, is_request=False
             )
 
     # 处理响应头
@@ -197,9 +209,11 @@ def build_usage_params(
         "request_headers": processed_request_headers,
         "request_body": processed_request_body,
         "provider_request_headers": processed_provider_request_headers,
+        "provider_request_body": processed_provider_request_body,
         "response_headers": processed_response_headers,
         "client_response_headers": processed_client_response_headers,
         "response_body": processed_response_body,
+        "client_response_body": processed_client_response_body,
     }
 
 
@@ -231,9 +245,12 @@ def update_existing_usage(
         existing_usage.request_body = usage_params["request_body"]
     if usage_params["provider_request_headers"] is not None:
         existing_usage.provider_request_headers = usage_params["provider_request_headers"]
+    if usage_params["provider_request_body"] is not None:
+        existing_usage.provider_request_body = usage_params["provider_request_body"]
     existing_usage.response_body = usage_params["response_body"]
     existing_usage.response_headers = usage_params["response_headers"]
     existing_usage.client_response_headers = usage_params["client_response_headers"]
+    existing_usage.client_response_body = usage_params["client_response_body"]
 
     # 更新 token 和费用信息
     existing_usage.input_tokens = usage_params["input_tokens"]

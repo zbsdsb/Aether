@@ -449,6 +449,46 @@
                           </button>
                         </template>
 
+                        <!-- 响应头：客户端/提供商切换 -->
+                        <template v-if="activeTab === 'response-headers' && hasProviderResponseHeaders">
+                          <button
+                            title="客户端"
+                            class="p-1.5 rounded transition-colors"
+                            :class="dataSource === 'client' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
+                            @click="dataSource = 'client'"
+                          >
+                            <Monitor class="w-4 h-4" />
+                          </button>
+                          <button
+                            title="提供商"
+                            class="p-1.5 rounded transition-colors"
+                            :class="dataSource === 'provider' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
+                            @click="dataSource = 'provider'"
+                          >
+                            <Server class="w-4 h-4" />
+                          </button>
+                        </template>
+
+                        <!-- 请求体/响应体：客户端/提供商切换 -->
+                        <template v-if="['request-body', 'response-body'].includes(activeTab) && hasProviderBody">
+                          <button
+                            title="客户端"
+                            class="p-1.5 rounded transition-colors"
+                            :class="dataSource === 'client' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
+                            @click="dataSource = 'client'"
+                          >
+                            <Monitor class="w-4 h-4" />
+                          </button>
+                          <button
+                            title="提供商"
+                            class="p-1.5 rounded transition-colors"
+                            :class="dataSource === 'provider' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
+                            @click="dataSource = 'provider'"
+                          >
+                            <Server class="w-4 h-4" />
+                          </button>
+                        </template>
+
                         <!-- 请求体/响应体专用：JSON/对话 视图切换（单按钮） -->
                         <template v-if="supportsConversationView">
                           <button
@@ -562,7 +602,7 @@
                         <!-- JSON 视图 -->
                         <JsonContent
                           v-else
-                          :data="detail.request_body"
+                          :data="currentRequestBody"
                           :view-mode="viewMode"
                           :expand-depth="currentExpandDepth"
                           :is-dark="isDark"
@@ -572,7 +612,7 @@
 
                       <TabsContent value="response-headers">
                         <JsonContent
-                          :data="actualResponseHeaders"
+                          :data="currentResponseHeaderData"
                           :view-mode="viewMode"
                           :expand-depth="currentExpandDepth"
                           :is-dark="isDark"
@@ -590,7 +630,7 @@
                         <!-- JSON 视图 -->
                         <JsonContent
                           v-else
-                          :data="detail.response_body"
+                          :data="currentResponseBody"
                           :view-mode="viewMode"
                           :expand-depth="currentExpandDepth"
                           :is-dark="isDark"
@@ -713,6 +753,38 @@ const hasProviderHeaders = computed(() => {
          Object.keys(detail.value.provider_request_headers).length > 0)
 })
 
+// 检测是否有提供商请求体（格式转换后的）
+const hasProviderBody = computed(() => {
+  return !!(detail.value?.provider_request_body && hasContent(detail.value.provider_request_body))
+    || !!(detail.value?.client_response_body && hasContent(detail.value.client_response_body))
+})
+
+// 检测是否有两套响应头（客户端侧 + 提供商侧）
+const hasProviderResponseHeaders = computed(() => {
+  return !!(detail.value?.response_headers &&
+         Object.keys(detail.value.response_headers).length > 0) &&
+         !!(detail.value?.client_response_headers &&
+         Object.keys(detail.value.client_response_headers).length > 0)
+})
+
+// 获取当前数据源的请求体数据
+const currentRequestBody = computed(() => {
+  if (!detail.value) return null
+  if (dataSource.value === 'provider' && detail.value.provider_request_body) {
+    return detail.value.provider_request_body
+  }
+  return detail.value.request_body
+})
+
+// 获取当前数据源的响应体数据
+const currentResponseBody = computed(() => {
+  if (!detail.value) return null
+  if (dataSource.value === 'client' && detail.value.client_response_body) {
+    return detail.value.client_response_body
+  }
+  return detail.value.response_body
+})
+
 // 获取当前数据源的请求头数据
 const currentHeaderData = computed(() => {
   if (!detail.value) return null
@@ -723,18 +795,20 @@ const currentHeaderData = computed(() => {
 
 // 请求体渲染结果
 const requestRenderResult = computed<RenderResult>(() => {
-  if (!detail.value?.request_body) {
+  const body = currentRequestBody.value
+  if (!body) {
     return { blocks: [], isStream: false }
   }
-  return renderRequest(detail.value.request_body, detail.value.response_body, detail.value.api_format)
+  return renderRequest(body, currentResponseBody.value, detail.value?.api_format)
 })
 
 // 响应体渲染结果
 const responseRenderResult = computed<RenderResult>(() => {
-  if (!detail.value?.response_body) {
+  const body = currentResponseBody.value
+  if (!body) {
     return { blocks: [], isStream: false }
   }
-  return renderResponse(detail.value.response_body, detail.value.request_body, detail.value.api_format)
+  return renderResponse(body, currentRequestBody.value, detail.value?.api_format)
 })
 
 // 当前 Tab 是否支持对话视图
@@ -874,10 +948,16 @@ function hasContent(data: unknown): boolean {
   return true
 }
 
-// 获取实际的响应头（优先 client_response_headers，回退到 response_headers）
-const actualResponseHeaders = computed(() => {
+// 获取当前数据源的响应头数据
+const currentResponseHeaderData = computed(() => {
   if (!detail.value) return null
-  // 优先返回客户端响应头，如果没有则回退到提供商响应头
+  if (dataSource.value === 'client' && hasContent(detail.value.client_response_headers)) {
+    return detail.value.client_response_headers
+  }
+  if (dataSource.value === 'provider' && hasContent(detail.value.response_headers)) {
+    return detail.value.response_headers
+  }
+  // 回退：优先 client，再 provider
   if (hasContent(detail.value.client_response_headers)) {
     return detail.value.client_response_headers
   }
@@ -893,11 +973,11 @@ const visibleTabs = computed(() => {
       case 'request-headers':
         return hasContent(detail.value!.request_headers)
       case 'request-body':
-        return hasContent(detail.value!.request_body)
+        return hasContent(detail.value!.request_body) || hasContent(detail.value!.provider_request_body)
       case 'response-headers':
-        return hasContent(actualResponseHeaders.value)
+        return hasContent(detail.value!.response_headers) || hasContent(detail.value!.client_response_headers)
       case 'response-body':
-        return hasContent(detail.value!.response_body)
+        return hasContent(detail.value!.response_body) || hasContent(detail.value!.client_response_body)
       case 'metadata':
         return hasContent(detail.value!.metadata)
       default:
@@ -932,9 +1012,9 @@ async function loadDetail(id: string, silent = false) {
     // 首次加载时选择默认 tab
     if (!silent) {
       const visibleTabNames = visibleTabs.value.map(t => t.name)
-      if (detail.value.request_body && visibleTabNames.includes('request-body')) {
+      if ((detail.value.request_body || detail.value.provider_request_body) && visibleTabNames.includes('request-body')) {
         activeTab.value = 'request-body'
-      } else if (detail.value.response_body && visibleTabNames.includes('response-body')) {
+      } else if ((detail.value.response_body || detail.value.client_response_body) && visibleTabNames.includes('response-body')) {
         activeTab.value = 'response-body'
       } else if (visibleTabNames.length > 0) {
         activeTab.value = visibleTabNames[0]
@@ -1192,13 +1272,13 @@ function copyContent(tabName: string) {
           : detail.value.request_headers
         break
       case 'request-body':
-        data = detail.value.request_body
+        data = currentRequestBody.value
         break
       case 'response-headers':
-        data = actualResponseHeaders.value
+        data = currentResponseHeaderData.value
         break
       case 'response-body':
-        data = detail.value.response_body
+        data = currentResponseBody.value
         break
       case 'metadata':
         data = detail.value.metadata

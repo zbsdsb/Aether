@@ -100,8 +100,6 @@ class StreamTelemetryRecorder:
                 writer = await self._get_telemetry_writer(bg_db, ctx, response_time_ms)
                 if writer is None:
                     return
-                actual_request_body = ctx.provider_request_body or original_request_body
-
                 # 兜底估算：流未正常完成且 token 均为 0 时，从请求体粗略估算
                 # 覆盖 Chat Handler 路径（CLI Handler 在更早的位置已做估算，
                 # 若已估算过则 token > 0，此处条件不会触发）
@@ -112,7 +110,10 @@ class StreamTelemetryRecorder:
                     and ctx.input_tokens == 0
                     and ctx.output_tokens == 0
                 ):
-                    self._estimate_tokens_for_incomplete_stream(ctx, actual_request_body)
+                    # 用实际发给 Provider 的请求体估算 token（格式转换时与客户端请求体不同）
+                    self._estimate_tokens_for_incomplete_stream(
+                        ctx, ctx.provider_request_body or original_request_body
+                    )
 
                 should_log_body = SystemConfigService.should_log_body(bg_db)
                 include_bodies = (
@@ -123,6 +124,9 @@ class StreamTelemetryRecorder:
                 response_body = (
                     ctx.build_response_body(response_time_ms) if include_bodies else None
                 )
+                client_response_body = (
+                    ctx.build_client_response_body(response_time_ms) if include_bodies else None
+                )
 
                 try:
                     await self._dispatch_record(
@@ -130,9 +134,10 @@ class StreamTelemetryRecorder:
                         writer,
                         ctx,
                         original_headers,
-                        actual_request_body,
+                        original_request_body,
                         response_body,
                         response_time_ms,
+                        client_response_body=client_response_body,
                     )
                 except Exception as writer_error:
                     if not isinstance(writer, QueueTelemetryWriter):
@@ -151,14 +156,17 @@ class StreamTelemetryRecorder:
                         return
                     if response_body is None and should_log_body:
                         response_body = ctx.build_response_body(response_time_ms)
+                    if client_response_body is None and should_log_body:
+                        client_response_body = ctx.build_client_response_body(response_time_ms)
                     await self._dispatch_record(
                         bg_db,
                         db_writer,
                         ctx,
                         original_headers,
-                        actual_request_body,
+                        original_request_body,
                         response_body,
                         response_time_ms,
+                        client_response_body=client_response_body,
                     )
 
                 # 更新候选记录状态
@@ -180,9 +188,10 @@ class StreamTelemetryRecorder:
         writer: TelemetryWriter,
         ctx: StreamContext,
         original_headers: dict[str, str],
-        actual_request_body: dict[str, Any],
+        original_request_body: dict[str, Any],
         response_body: dict[str, Any] | None,
         response_time_ms: int,
+        client_response_body: dict[str, Any] | None = None,
     ) -> None:
         """记录成功的请求"""
         # 流式成功时，返回给客户端的是提供商响应头 + SSE 必需头
@@ -209,10 +218,12 @@ class StreamTelemetryRecorder:
             first_byte_time_ms=ctx.first_byte_time_ms,  # 传递首字时间
             status_code=ctx.status_code,
             request_headers=original_headers,
-            request_body=actual_request_body,
+            request_body=original_request_body,
             response_headers=ctx.response_headers,
             client_response_headers=client_response_headers,
             response_body=response_body,
+            client_response_body=client_response_body,
+            provider_request_body=ctx.provider_request_body,
             cache_creation_tokens=ctx.cache_creation_tokens,
             cache_read_tokens=ctx.cached_tokens,
             is_stream=True,
@@ -236,9 +247,10 @@ class StreamTelemetryRecorder:
         writer: TelemetryWriter,
         ctx: StreamContext,
         original_headers: dict[str, str],
-        actual_request_body: dict[str, Any],
+        original_request_body: dict[str, Any],
         response_body: dict[str, Any] | None,
         response_time_ms: int,
+        client_response_body: dict[str, Any] | None = None,
     ) -> None:
         """记录失败的请求"""
         # 失败时返回给客户端的是 JSON 错误响应，如果没有设置则使用默认值
@@ -258,15 +270,17 @@ class StreamTelemetryRecorder:
             status_code=ctx.status_code,
             error_message=ctx.error_message or f"HTTP {ctx.status_code}",
             request_headers=original_headers,
-            request_body=actual_request_body,
+            request_body=original_request_body,
             is_stream=True,
             api_format=ctx.api_format,
             provider_request_headers=ctx.provider_request_headers,
+            provider_request_body=ctx.provider_request_body,
             input_tokens=ctx.input_tokens,
             output_tokens=ctx.output_tokens,
             cache_creation_tokens=ctx.cache_creation_tokens,
             cache_read_tokens=ctx.cached_tokens,
             response_body=response_body,
+            client_response_body=client_response_body,
             response_headers=ctx.response_headers,
             client_response_headers=client_response_headers,
             provider_id=ctx.provider_id,
@@ -289,9 +303,10 @@ class StreamTelemetryRecorder:
         writer: TelemetryWriter,
         ctx: StreamContext,
         original_headers: dict[str, str],
-        actual_request_body: dict[str, Any],
+        original_request_body: dict[str, Any],
         response_body: dict[str, Any] | None,
         response_time_ms: int,
+        client_response_body: dict[str, Any] | None = None,
     ) -> None:
         """记录客户端取消的请求"""
         client_response_headers = ctx.client_response_headers or {
@@ -310,15 +325,17 @@ class StreamTelemetryRecorder:
             first_byte_time_ms=ctx.first_byte_time_ms,
             status_code=ctx.status_code,
             request_headers=original_headers,
-            request_body=actual_request_body,
+            request_body=original_request_body,
             is_stream=True,
             api_format=ctx.api_format,
             provider_request_headers=ctx.provider_request_headers,
+            provider_request_body=ctx.provider_request_body,
             input_tokens=ctx.input_tokens,
             output_tokens=ctx.output_tokens,
             cache_creation_tokens=ctx.cache_creation_tokens,
             cache_read_tokens=ctx.cached_tokens,
             response_body=response_body,
+            client_response_body=client_response_body,
             response_headers=ctx.response_headers,
             client_response_headers=client_response_headers,
             provider_id=ctx.provider_id,
@@ -481,9 +498,10 @@ class StreamTelemetryRecorder:
         writer: TelemetryWriter,
         ctx: StreamContext,
         original_headers: dict[str, str],
-        actual_request_body: dict[str, Any],
+        original_request_body: dict[str, Any],
         response_body: dict[str, Any] | None,
         response_time_ms: int,
+        client_response_body: dict[str, Any] | None = None,
     ) -> None:
         """根据上下文状态分发到对应的记录方法"""
         if ctx.is_success():
@@ -491,9 +509,10 @@ class StreamTelemetryRecorder:
                 writer,
                 ctx,
                 original_headers,
-                actual_request_body,
+                original_request_body,
                 response_body,
                 response_time_ms,
+                client_response_body=client_response_body,
             )
             # Queue writer 异步落库可能造成 UI 延迟，先直接更新 Usage 状态
             if isinstance(writer, QueueTelemetryWriter):
@@ -508,9 +527,10 @@ class StreamTelemetryRecorder:
                 writer,
                 ctx,
                 original_headers,
-                actual_request_body,
+                original_request_body,
                 response_body,
                 response_time_ms,
+                client_response_body=client_response_body,
             )
             # Queue writer 异步落库可能造成 UI 延迟，先直接更新 Usage 状态
             if isinstance(writer, QueueTelemetryWriter):
@@ -525,9 +545,10 @@ class StreamTelemetryRecorder:
                 writer,
                 ctx,
                 original_headers,
-                actual_request_body,
+                original_request_body,
                 response_body,
                 response_time_ms,
+                client_response_body=client_response_body,
             )
             # Queue writer 异步落库可能造成 UI 延迟，先直接更新 Usage 状态
             if isinstance(writer, QueueTelemetryWriter):

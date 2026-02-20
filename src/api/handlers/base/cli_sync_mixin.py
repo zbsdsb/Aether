@@ -480,6 +480,7 @@ class CliSyncMixin:
                 response_json = {}
 
             # 跨格式：响应转换回 client_format（失败不触发 failover，保守回退为原始响应）
+            provider_response_json: dict[str, Any] | None = None
             if (
                 needs_conversion
                 and provider_api_format
@@ -487,6 +488,7 @@ class CliSyncMixin:
                 and isinstance(response_json, dict)
             ):
                 try:
+                    provider_response_json = response_json.copy()
                     registry = get_format_converter_registry()
                     response_json = registry.convert_response(
                         response_json,
@@ -499,6 +501,7 @@ class CliSyncMixin:
                     )
                 except Exception as conv_err:
                     logger.warning("非流式响应格式转换失败，使用原始响应: {}", conv_err)
+                    provider_response_json = None
 
             # 使用解析器提取 usage
             usage = self.parser.extract_usage_from_response(response_json)
@@ -508,9 +511,6 @@ class CliSyncMixin:
             cache_creation_tokens = usage.get("cache_creation_tokens", 0)
 
             output_text = self.parser.extract_text_content(response_json)[:200]
-
-            # 使用实际发送给 Provider 的请求体（如果有），否则用原始请求体
-            actual_request_body = provider_request_body or original_request_body
 
             # 非流式成功时，返回给客户端的是提供商响应头（透传）
             client_response_headers = filter_proxy_response_headers(response_headers)
@@ -527,10 +527,12 @@ class CliSyncMixin:
                 response_time_ms=response_time_ms,
                 status_code=status_code,
                 request_headers=original_headers,
-                request_body=actual_request_body,
+                request_body=original_request_body,
                 response_headers=response_headers,
                 client_response_headers=client_response_headers,
-                response_body=response_json,
+                response_body=provider_response_json or response_json,
+                client_response_body=response_json if provider_response_json else None,
+                provider_request_body=provider_request_body,
                 cache_creation_tokens=cache_creation_tokens,
                 cache_read_tokens=cached_tokens,
                 is_stream=False,
@@ -563,7 +565,6 @@ class CliSyncMixin:
             # Thinking 签名错误：TaskService 层已处理整流重试但仍失败
             # 记录实际发送给 Provider 的请求体，便于排查问题根因
             response_time_ms = int((time.time() - sync_start_time) * 1000)
-            actual_request_body = provider_request_body or original_request_body
             request_metadata = self._build_request_metadata() or {}
             if sync_proxy_info:
                 request_metadata["proxy"] = sync_proxy_info
@@ -573,7 +574,8 @@ class CliSyncMixin:
                 response_time_ms=response_time_ms,
                 status_code=e.status_code or 400,
                 request_headers=original_headers,
-                request_body=actual_request_body,
+                request_body=original_request_body,
+                provider_request_body=provider_request_body,
                 error_message=str(e),
                 is_stream=False,
                 api_format=api_format,
@@ -592,9 +594,6 @@ class CliSyncMixin:
             elif isinstance(e, ProviderTimeoutException):
                 status_code = 504
 
-            # 使用实际发送给 Provider 的请求体（如果有），否则用原始请求体
-            actual_request_body = provider_request_body or original_request_body
-
             # 尝试从异常中提取响应头
             error_response_headers: dict[str, str] = {}
             if isinstance(e, ProviderRateLimitException) and e.response_headers:
@@ -612,7 +611,8 @@ class CliSyncMixin:
                 status_code=status_code,
                 error_message=extract_client_error_message(e),
                 request_headers=original_headers,
-                request_body=actual_request_body,
+                request_body=original_request_body,
+                provider_request_body=provider_request_body,
                 is_stream=False,
                 api_format=api_format,
                 provider_request_headers=provider_request_headers,

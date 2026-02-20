@@ -70,6 +70,7 @@ class SyncRequestContext:
     key_id: str | None = None
     mapped_model_result: str | None = None
     sync_proxy_info: dict[str, Any] | None = None
+    provider_response_json: dict[str, Any] | None = None  # 格式转换前的提供商原始响应
 
 
 class ChatSyncExecutor:
@@ -182,8 +183,6 @@ class ChatSyncExecutor:
             cache_creation_tokens = usage_info.get("cache_creation_input_tokens", 0)
             cached_tokens = usage_info.get("cache_read_input_tokens", 0)
 
-            actual_request_body = ctx.provider_request_body or original_request_body
-
             # 非流式成功时，返回给客户端的是提供商响应头（透传）
             # JSONResponse 会自动设置 content-type，但我们记录实际返回的完整头
             client_response_headers = filter_proxy_response_headers(ctx.response_headers)
@@ -200,10 +199,12 @@ class ChatSyncExecutor:
                 response_time_ms=response_time_ms,
                 status_code=ctx.status_code,
                 request_headers=original_headers,
-                request_body=actual_request_body,
+                request_body=original_request_body,
                 response_headers=ctx.response_headers,
                 client_response_headers=client_response_headers,
-                response_body=ctx.response_json,
+                response_body=ctx.provider_response_json or ctx.response_json,
+                client_response_body=ctx.response_json if ctx.provider_response_json else None,
+                provider_request_body=ctx.provider_request_body,
                 cache_creation_tokens=cache_creation_tokens,
                 cache_read_tokens=cached_tokens,
                 is_stream=False,
@@ -242,7 +243,6 @@ class ChatSyncExecutor:
             # Thinking 签名错误：TaskService 层已处理整流重试但仍失败
             # 记录实际发送给 Provider 的请求体，便于排查问题根因
             response_time_ms = handler.elapsed_ms()
-            actual_request_body = ctx.provider_request_body or original_request_body
             request_metadata = handler._build_request_metadata() or {}
             if ctx.sync_proxy_info:
                 request_metadata["proxy"] = ctx.sync_proxy_info
@@ -252,7 +252,8 @@ class ChatSyncExecutor:
                 response_time_ms=response_time_ms,
                 status_code=e.status_code or 400,
                 request_headers=original_headers,
-                request_body=actual_request_body,
+                request_body=original_request_body,
+                provider_request_body=ctx.provider_request_body,
                 error_message=str(e),
                 is_stream=False,
                 provider_id=ctx.provider_id,
@@ -275,7 +276,6 @@ class ChatSyncExecutor:
 
         except UpstreamClientException as e:
             response_time_ms = handler.elapsed_ms()
-            actual_request_body = ctx.provider_request_body or original_request_body
             request_metadata = handler._build_request_metadata() or {}
             if ctx.sync_proxy_info:
                 request_metadata["proxy"] = ctx.sync_proxy_info
@@ -285,7 +285,8 @@ class ChatSyncExecutor:
                 response_time_ms=response_time_ms,
                 status_code=_get_error_status_code(e),
                 request_headers=original_headers,
-                request_body=actual_request_body,
+                request_body=original_request_body,
+                provider_request_body=ctx.provider_request_body,
                 error_message=str(e),
                 is_stream=False,
                 api_format=api_format,
@@ -327,8 +328,6 @@ class ChatSyncExecutor:
             elif isinstance(e, ProviderTimeoutException):
                 status_code = 504
 
-            actual_request_body = ctx.provider_request_body or original_request_body
-
             # 尝试从异常中提取响应头
             error_response_headers: dict[str, str] = {}
             if isinstance(e, ProviderRateLimitException) and e.response_headers:
@@ -346,7 +345,8 @@ class ChatSyncExecutor:
                 status_code=status_code,
                 error_message=extract_client_error_message(e),
                 request_headers=original_headers,
-                request_body=actual_request_body,
+                request_body=original_request_body,
+                provider_request_body=ctx.provider_request_body,
                 is_stream=False,
                 api_format=api_format,
                 provider_request_headers=ctx.provider_request_headers,
@@ -667,6 +667,7 @@ class ChatSyncExecutor:
 
         # 跨格式：响应转换回 client_format（失败触发 failover）
         if needs_conversion and isinstance(ctx.response_json, dict):
+            ctx.provider_response_json = ctx.response_json.copy()
             registry = get_format_converter_registry()
             ctx.response_json = registry.convert_response(
                 ctx.response_json,
@@ -700,8 +701,6 @@ class ChatSyncExecutor:
         elif isinstance(error, ProviderTimeoutException):
             status_code = 504
 
-        actual_request_body = ctx.provider_request_body or original_request_body
-
         # 失败时返回给客户端的是 JSON 错误响应
         client_response_headers = {"content-type": "application/json"}
 
@@ -716,7 +715,8 @@ class ChatSyncExecutor:
             status_code=status_code,
             error_message=extract_client_error_message(error),
             request_headers=original_headers,
-            request_body=actual_request_body,
+            request_body=original_request_body,
+            provider_request_body=ctx.provider_request_body,
             is_stream=True,
             api_format=ctx.api_format,
             provider_request_headers=ctx.provider_request_headers,

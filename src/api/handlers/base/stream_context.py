@@ -121,6 +121,8 @@ class StreamContext:
     data_count: int = 0
     chunk_count: int = 0
     parsed_chunks: list[dict[str, Any]] = field(default_factory=list)
+    # 格式转换时保留提供商原始 chunks（转换前的数据）
+    provider_parsed_chunks: list[dict[str, Any]] = field(default_factory=list)
     # 是否记录 parsed_chunks（可用于降低高并发/长流式响应的内存占用）
     record_parsed_chunks: bool = True
 
@@ -143,6 +145,7 @@ class StreamContext:
         保留 model 和 api_format，重置其他所有状态。
         """
         self.parsed_chunks = []
+        self.provider_parsed_chunks = []
         self.chunk_count = 0
         self.data_count = 0
         self.has_completion = False
@@ -299,7 +302,29 @@ class StreamContext:
         构建响应体元数据
 
         用于记录到 Usage 表的 response_body 字段。
+        当有格式转换时，返回提供商原始 chunks；否则返回 parsed_chunks。
         """
+        chunks = self.provider_parsed_chunks if self.provider_parsed_chunks else self.parsed_chunks
+        return {
+            "chunks": chunks,
+            "metadata": {
+                "stream": True,
+                "total_chunks": len(chunks),
+                "data_count": self.data_count,
+                "has_completion": self.has_completion,
+                "response_time_ms": response_time_ms,
+            },
+        }
+
+    def build_client_response_body(self, response_time_ms: int) -> dict[str, Any] | None:
+        """
+        构建客户端侧响应体元数据
+
+        仅当有格式转换时返回（parsed_chunks 是转换后的客户端格式）；
+        无格式转换时返回 None（此时 parsed_chunks 已在 response_body 中）。
+        """
+        if not self.provider_parsed_chunks:
+            return None
         return {
             "chunks": self.parsed_chunks,
             "metadata": {

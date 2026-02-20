@@ -80,6 +80,10 @@ class CliEventMixin:
             ctx.data_count += 1
             if ctx.record_parsed_chunks:
                 ctx.parsed_chunks.append(data)
+        else:
+            # 格式转换场景：保留提供商原始数据
+            if ctx.record_parsed_chunks:
+                ctx.provider_parsed_chunks.append(data)
 
         event_type = event_name or data.get("type", "")
 

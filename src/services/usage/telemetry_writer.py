@@ -268,14 +268,28 @@ class QueueTelemetryWriter(TelemetryWriter):
                 max_size=self._max_request_body_size,
                 is_request=True,
             )
+            provider_request_body = self._truncate_body(
+                kwargs.get("provider_request_body"),
+                max_size=self._max_request_body_size,
+                is_request=True,
+            )
             response_body = self._truncate_body(
                 kwargs.get("response_body"),
                 max_size=self._max_response_body_size,
                 is_request=False,
             )
+            client_response_body = self._truncate_body(
+                kwargs.get("client_response_body"),
+                max_size=self._max_response_body_size,
+                is_request=False,
+            )
             if request_body is not None:
                 data["request_body"] = request_body
+            if provider_request_body is not None:
+                data["provider_request_body"] = provider_request_body
             if response_body is not None:
                 data["response_body"] = response_body
+            if client_response_body is not None:
+                data["client_response_body"] = client_response_body
 
         return data

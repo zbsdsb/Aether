@@ -392,15 +392,19 @@ class Usage(Base):
 
     # 完整请求和响应记录
     request_headers = Column(JSON, nullable=True)  # 客户端请求头
-    request_body = Column(JSON, nullable=True)  # 请求体（7天内未压缩）
+    request_body = Column(JSON, nullable=True)  # 客户端原始请求体（7天内未压缩）
     provider_request_headers = Column(JSON, nullable=True)  # 向提供商发送的请求头
+    provider_request_body = Column(JSON, nullable=True)  # 发给提供商的请求体（格式转换后）
     response_headers = Column(JSON, nullable=True)  # 提供商响应头
+    response_body = Column(JSON, nullable=True)  # 提供商原始响应体（7天内未压缩）
     client_response_headers = Column(JSON, nullable=True)  # 返回给客户端的响应头
-    response_body = Column(JSON, nullable=True)  # 响应体（7天内未压缩）
+    client_response_body = Column(JSON, nullable=True)  # 返回给客户端的响应体（格式转换后）
 
     # 压缩存储字段（7天后自动压缩到这里）
-    request_body_compressed = Column(LargeBinary, nullable=True)  # gzip压缩的请求体
-    response_body_compressed = Column(LargeBinary, nullable=True)  # gzip压缩的响应体
+    request_body_compressed = Column(LargeBinary, nullable=True)  # gzip压缩的客户端请求体
+    provider_request_body_compressed = Column(LargeBinary, nullable=True)  # gzip压缩的提供商请求体
+    response_body_compressed = Column(LargeBinary, nullable=True)  # gzip压缩的提供商响应体
+    client_response_body_compressed = Column(LargeBinary, nullable=True)  # gzip压缩的客户端响应体
 
     # 元数据
     request_metadata = Column(JSON, nullable=True)  # 存储额外信息
@@ -421,7 +425,7 @@ class Usage(Base):
     provider_api_key = relationship("ProviderAPIKey")
 
     def get_request_body(self) -> Any:
-        """获取请求体（自动解压）"""
+        """获取客户端原始请求体（自动解压）"""
         if self.request_body is not None:
             return self.request_body
         if self.request_body_compressed is not None:
@@ -430,14 +434,34 @@ class Usage(Base):
             return decompress_json(self.request_body_compressed)
         return None
 
+    def get_provider_request_body(self) -> Any:
+        """获取发给提供商的请求体（自动解压）"""
+        if self.provider_request_body is not None:
+            return self.provider_request_body
+        if self.provider_request_body_compressed is not None:
+            from src.utils.compression import decompress_json
+
+            return decompress_json(self.provider_request_body_compressed)
+        return None
+
     def get_response_body(self) -> Any:
-        """获取响应体（自动解压）"""
+        """获取提供商原始响应体（自动解压）"""
         if self.response_body is not None:
             return self.response_body
         if self.response_body_compressed is not None:
             from src.utils.compression import decompress_json
 
             return decompress_json(self.response_body_compressed)
+        return None
+
+    def get_client_response_body(self) -> Any:
+        """获取返回给客户端的响应体（自动解压）"""
+        if self.client_response_body is not None:
+            return self.client_response_body
+        if self.client_response_body_compressed is not None:
+            from src.utils.compression import decompress_json
+
+            return decompress_json(self.client_response_body_compressed)
         return None
 
 
