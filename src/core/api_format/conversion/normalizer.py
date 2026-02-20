@@ -48,6 +48,21 @@ class FormatNormalizer(ABC):
         """
         raise NotImplementedError
 
+    # ============ 同格式变体补丁（可选） ============
+
+    def patch_for_variant(
+        self,
+        request: dict[str, Any],
+        variant: str,
+    ) -> dict[str, Any] | None:
+        """同格式 + variant 场景下的轻量补丁（跳过 internal 转换）。
+
+        子类可覆盖此方法，对已知 variant 直接在原始请求体上做最小修改。
+        返回 None 表示不支持该 variant 的快速路径，registry 将回退到完整的
+        request_to_internal -> request_from_internal 流程。
+        """
+        return None
+
     # ============ 响应转换 ============
 
     @abstractmethod

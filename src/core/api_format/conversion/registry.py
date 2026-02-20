@@ -110,6 +110,16 @@ class FormatConversionRegistry:
         if str(source_format).upper() == str(target_format).upper() and not target_variant:
             return request
 
+        # 同格式 + variant: 优先尝试轻量补丁（跳过 internal 转换）
+        if str(source_format).upper() == str(target_format).upper() and target_variant:
+            normalizer = self._require_normalizer(source_format)
+            with _track_conversion_metrics(
+                "request_patch", str(source_format).upper(), str(target_format).upper()
+            ):
+                patched = normalizer.patch_for_variant(request, target_variant)
+            if patched is not None:
+                return patched
+
         src = self._require_normalizer(source_format)
         tgt = self._require_normalizer(target_format)
 
@@ -136,6 +146,16 @@ class FormatConversionRegistry:
         """异步版本的 convert_request，在 internal 阶段执行图片 URL 下载等异步操作。"""
         if str(source_format).upper() == str(target_format).upper() and not target_variant:
             return request
+
+        # 同格式 + variant: 优先尝试轻量补丁（跳过 internal 转换）
+        if str(source_format).upper() == str(target_format).upper() and target_variant:
+            normalizer = self._require_normalizer(source_format)
+            with _track_conversion_metrics(
+                "request_patch", str(source_format).upper(), str(target_format).upper()
+            ):
+                patched = normalizer.patch_for_variant(request, target_variant)
+            if patched is not None:
+                return patched
 
         src = self._require_normalizer(source_format)
         tgt = self._require_normalizer(target_format)

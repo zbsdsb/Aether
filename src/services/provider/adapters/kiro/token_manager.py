@@ -150,12 +150,13 @@ async def refresh_social_token(
     )
 
     if resp.status_code < 200 or resp.status_code >= 300:
-        logger.debug(
+        body_text = (resp.text or "").strip()[:500]
+        logger.warning(
             "kiro social refresh error: HTTP {} | {}",
             resp.status_code,
-            (resp.text or "").strip()[:200],
+            body_text,
         )
-        raise RuntimeError(f"kiro social refresh failed: HTTP {resp.status_code}")
+        raise RuntimeError(f"kiro social refresh failed: HTTP {resp.status_code} | {body_text}")
 
     data: dict[str, Any]
     try:
@@ -242,12 +243,13 @@ async def refresh_idc_token(
     )
 
     if resp.status_code < 200 or resp.status_code >= 300:
-        logger.debug(
+        body_text = (resp.text or "").strip()[:500]
+        logger.warning(
             "kiro idc refresh error: HTTP {} | {}",
             resp.status_code,
-            (resp.text or "").strip()[:200],
+            body_text,
         )
-        raise RuntimeError(f"kiro idc refresh failed: HTTP {resp.status_code}")
+        raise RuntimeError(f"kiro idc refresh failed: HTTP {resp.status_code} | {body_text}")
 
     data: dict[str, Any]
     try:

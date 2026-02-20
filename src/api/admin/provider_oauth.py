@@ -342,6 +342,21 @@ async def _fetch_kiro_email(
     return None
 
 
+def _build_kiro_key_name(
+    email: str | None,
+    auth_method: str | None,
+    refresh_token: str | None,
+) -> str:
+    """根据 email / auth_method / refresh_token 生成 Kiro Key 名称。"""
+    method = auth_method or "social"
+    if not email:
+        token_hash = hashlib.sha256((refresh_token or "").encode()).hexdigest()[:6]
+        base = f"kiro_{token_hash}"
+    else:
+        base = email
+    return f"{base} ({method})"
+
+
 def _check_duplicate_oauth_account(
     db: Session,
     provider_id: str,
@@ -425,17 +440,18 @@ def _check_duplicate_oauth_account(
                     )
                     return existing_key
 
-                # 活跃的重复账号，拒绝添加
+                # Kiro 类型：活跃的重复账号也允许覆盖（用户可能重新导入同一账号）
                 is_kiro = new_provider_type == "kiro" or existing_provider_type == "kiro"
-                if is_kiro and new_email:
-                    auth_method_display = (
-                        "Social" if (new_auth_method or "").lower() == "social" else "IdC"
+                if is_kiro:
+                    logger.info(
+                        "Kiro 重复账号将覆盖更新（key_id={}, name={}）",
+                        existing_key.id,
+                        existing_key.name,
                     )
-                    raise InvalidRequestException(
-                        f"该 Kiro 账号 ({new_email}, {auth_method_display}) "
-                        f"已存在于当前 Provider 中（名称: {existing_key.name}）"
-                    )
-                elif new_email:
+                    return existing_key
+
+                # 非 Kiro 的活跃重复账号，拒绝添加
+                if new_email:
                     raise InvalidRequestException(
                         f"该 OAuth 账号 ({new_email}) 已存在于当前 Provider 中"
                         f"（名称: {existing_key.name}）"
@@ -1337,8 +1353,8 @@ async def import_refresh_token(
         try:
             access_token, new_cfg = await refresh_access_token(cfg, proxy_config=proxy_config)
         except Exception as e:
-            logger.warning("Kiro Refresh Token 验证失败: {}", e)
-            raise InvalidRequestException("Kiro Refresh Token 验证失败，请检查凭据是否有效")
+            logger.warning("Kiro Refresh Token 验证失败: {} | {}", type(e).__name__, e)
+            raise InvalidRequestException(f"Kiro Refresh Token 验证失败: {type(e).__name__}")
 
         # 先获取 email，确保重复检查时有 email 可用
         email = await _fetch_kiro_email(new_cfg.to_dict(), proxy_config=proxy_config)
@@ -1349,10 +1365,10 @@ async def import_refresh_token(
         existing_key = _check_duplicate_oauth_account(db, provider_id, new_cfg.to_dict())
         replaced = False
 
-        # Kiro 确定账号名称（与 Codex/Antigravity 保持一致，使用 email）
+        # Kiro 确定账号名称：email + auth_method 区分不同来源
         name = (payload.name or "").strip()
         if not name:
-            name = email or f"账号_{int(time.time())}"
+            name = _build_kiro_key_name(email, new_cfg.auth_method, new_cfg.refresh_token)
 
         if existing_key:
             new_key = _update_existing_oauth_key(
@@ -1904,7 +1920,7 @@ async def _batch_import_kiro_internal(
                 name = existing_key.name
                 replaced = True
             else:
-                name = email or f"账号_{int(time.time())}"
+                name = _build_kiro_key_name(email, new_cfg.auth_method, new_cfg.refresh_token)
                 new_key = _create_oauth_key(
                     db,
                     provider_id=provider_id,

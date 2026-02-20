@@ -1,20 +1,21 @@
 """
-Codex provider request patching helpers (standalone / passthrough path).
+Codex provider request patching helpers (passthrough path).
 
-In the main request pipeline, Codex-specific transformations are handled by the
-``openai:cli`` normalizer with ``target_variant="codex"`` (triggered automatically
-via ``register_behavior_variant("codex", same_format=True)``).
-
-This module provides an **equivalent** standalone patcher for contexts where the full
-normalizer pipeline is not used (e.g. external tooling, one-off scripts, or future
-passthrough-only paths). It is intentionally kept in sync with the normalizer logic.
+This is the **primary** Codex request transformation used by the normalizer's
+``patch_for_variant("codex")`` fast path.  It applies minimal, non-destructive
+patches directly on the original request dict -- no internal representation
+round-trip, so every field the client sent is preserved as-is unless explicitly
+modified here.
 
 Transformations applied:
 - Force ``store=false`` (avoid persistence features not supported by some gateways).
+- Force ``stream=true`` (Codex gateways require streaming).
+- Force ``parallel_tool_calls=true``.
 - Ensure ``instructions`` exists (Codex expects it in some deployments).
 - Convert ``role=system`` messages to ``role=developer`` (Codex may not accept ``system``).
 - Drop request parameters known to be rejected by Codex gateways.
 - Ensure ``include`` contains ``"reasoning.encrypted_content"`` for parity with CLI behavior.
+- Remove ``previous_response_id`` (not supported by Codex gateways).
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ _REJECTED_PARAMS: frozenset[str] = frozenset(
         "temperature",
         "top_p",
         "service_tier",
+        "previous_response_id",
     }
 )
 
@@ -50,6 +52,12 @@ def patch_openai_cli_request_for_codex(request_body: dict[str, Any]) -> dict[str
 
     # Codex gateways often reject/ignore persistence; be explicit.
     out["store"] = False
+
+    # Codex gateways require streaming.
+    out["stream"] = True
+
+    # Codex expects parallel tool calls enabled.
+    out["parallel_tool_calls"] = True
 
     # Ensure instructions exists (some gateways require it even if empty).
     instructions = out.get("instructions")
