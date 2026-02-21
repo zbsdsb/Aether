@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 
 from alembic import op
 
@@ -39,12 +39,16 @@ NEW_INDEXES = [
 
 def upgrade() -> None:
     conn = op.get_bind()
-    inspector = inspect(conn)
-    existing_columns = {col["name"] for col in inspector.get_columns("usage")}
 
-    for col_name, col_type in NEW_COLUMNS:
-        if col_name not in existing_columns:
-            op.add_column("usage", sa.Column(col_name, col_type, nullable=True))
+    # 使用 PostgreSQL 原生 IF NOT EXISTS，比 inspect 更可靠（避免同一事务内缓存问题）
+    col_definitions = {
+        "api_family": "VARCHAR(50)",
+        "endpoint_kind": "VARCHAR(50)",
+        "provider_api_family": "VARCHAR(50)",
+        "provider_endpoint_kind": "VARCHAR(50)",
+    }
+    for col_name, col_type_sql in col_definitions.items():
+        conn.execute(text(f"ALTER TABLE usage ADD COLUMN IF NOT EXISTS {col_name} {col_type_sql}"))
 
     # 数据迁移：从 api_format 解析 api_family + endpoint_kind
     conn.execute(text("""
