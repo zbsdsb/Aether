@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from alembic import op
 
@@ -69,6 +69,7 @@ def upgrade() -> None:
         """))
 
     # 创建索引
+    inspector = inspect(conn)
     existing_indexes = {idx["name"] for idx in inspector.get_indexes("usage")}
     for idx_name, table, columns in NEW_INDEXES:
         if idx_name not in existing_indexes:
