@@ -19,7 +19,13 @@ docker compose up -d
 ### 下载预编译二进制
 
 <!-- DOWNLOAD_TABLE_START -->
-在 [GitHub Releases](https://github.com/fawney19/Aether/releases?q=proxy-v) 页面下载对应平台的预编译文件，无需安装 Rust 环境。
+| Platform | Download |
+|----------|----------|
+| Linux x86_64 | [aether-proxy-linux-amd64.tar.gz](https://github.com/fawney19/Aether/releases/download/proxy-v0.1.6/aether-proxy-linux-amd64.tar.gz) |
+| Linux ARM64 | [aether-proxy-linux-arm64.tar.gz](https://github.com/fawney19/Aether/releases/download/proxy-v0.1.6/aether-proxy-linux-arm64.tar.gz) |
+| macOS x86_64 | [aether-proxy-macos-amd64.tar.gz](https://github.com/fawney19/Aether/releases/download/proxy-v0.1.6/aether-proxy-macos-amd64.tar.gz) |
+| macOS ARM64 | [aether-proxy-macos-arm64.tar.gz](https://github.com/fawney19/Aether/releases/download/proxy-v0.1.6/aether-proxy-macos-arm64.tar.gz) |
+| Windows x86_64 | [aether-proxy-windows-amd64.zip](https://github.com/fawney19/Aether/releases/download/proxy-v0.1.6/aether-proxy-windows-amd64.zip) |
 <!-- DOWNLOAD_TABLE_END -->
 
 ## 快速开始
