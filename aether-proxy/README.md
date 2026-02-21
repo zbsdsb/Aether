@@ -4,9 +4,23 @@ Aether 正向代理节点，部署在海外 VPS 上，为墙内的 Aether 实例
 
 ## 安装
 
+### Docker 部署
+
+```bash
+# 拉取镜像
+docker pull ghcr.io/fawney19/aether-proxy:latest
+
+# 或使用 docker compose
+cp .env.example .env
+# 编辑 .env 填入 AETHER_PROXY_AETHER_URL, MANAGEMENT_TOKEN, HMAC_KEY
+docker compose up -d
+```
+
 ### 下载预编译二进制
 
-在 [GitHub Releases](https://github.com/fawney19/Aether/releases) 页面下载对应平台的预编译文件，无需安装 Rust 环境。
+<!-- DOWNLOAD_TABLE_START -->
+在 [GitHub Releases](https://github.com/fawney19/Aether/releases?q=proxy-v) 页面下载对应平台的预编译文件，无需安装 Rust 环境。
+<!-- DOWNLOAD_TABLE_END -->
 
 ## 快速开始
 
@@ -89,7 +103,10 @@ sudo aether-proxy uninstall
 
 ## 发布新版本
 
-推送 `proxy-v*` 格式的 tag，GitHub Actions 会自动编译所有平台并发布到 Releases：
+推送 `proxy-v*` 格式的 tag，GitHub Actions 会自动：
+- 编译所有平台二进制并发布到 Releases
+- 构建 Docker 镜像并推送到 GHCR 和 Docker Hub
+- 更新 README 中的下载链接表格
 
 ```bash
 git tag proxy-v0.1.0

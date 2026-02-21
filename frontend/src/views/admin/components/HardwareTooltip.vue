@@ -7,61 +7,89 @@ import { computed } from 'vue'
 const props = defineProps<{ node: ProxyNode }>()
 
 const hardwareInfo = computed<Record<string, unknown> | null>(() => {
-  const info = props.node.hardware_info
-  if (info == null) return null
-  if (typeof info === 'string') {
-    try {
-      const parsed = JSON.parse(info)
-      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>
-    } catch {
-      return {}
-    }
-    return {}
-  }
-  if (typeof info === 'object') return info as Record<string, unknown>
-  return {}
+  return normalizeHardwareInfo(props.node.hardware_info)
 })
 
 const hardwareRows = computed(() => {
   const info = hardwareInfo.value ?? {}
   const rows: Array<{ label: string; value: string }> = []
 
-  const cpuObj = info.cpu as Record<string, unknown> | undefined
-  const cpuCores = pickNumber(info.cpu_cores, info.cpu_count, cpuObj?.cores)
+  const cpuObj = pickRecord(info.cpu, info.cpu_info, info.cpuInfo)
+  const cpuCores = pickNumber(
+    info.cpu_cores,
+    info.cpuCores,
+    info.cpu_count,
+    info.cpuCount,
+    cpuObj?.cores,
+    cpuObj?.core_count,
+    cpuObj?.coreCount
+  )
   if (cpuCores != null) {
     rows.push({ label: 'CPU', value: `${cpuCores} cores` })
   }
 
-  const memObj = info.memory as Record<string, unknown> | undefined
+  const memObj = pickRecord(info.memory, info.mem, info.ram)
   const memoryMb = pickNumber(
     info.total_memory_mb,
+    info.totalMemoryMb,
     info.memory_total_mb,
+    info.memoryTotalMb,
     info.memory_mb,
-    memObj?.total_mb
+    info.memoryMb,
+    memObj?.total_mb,
+    memObj?.totalMb,
+    memObj?.mb
   )
   if (memoryMb != null) {
     rows.push({ label: 'RAM', value: formatMemory(memoryMb) })
   }
 
-  const osInfo = pickString(info.os_info, info.os, info.platform)
+  const osObj = pickRecord(info.os, info.os_info, info.osInfo, info.platform_info, info.platformInfo)
+  const osInfo = pickString(
+    info.os_info,
+    info.osInfo,
+    info.os,
+    info.platform,
+    osObj?.display,
+    osObj?.name && osObj?.version ? `${String(osObj.name)} ${String(osObj.version)}` : null,
+    osObj?.name
+  )
   if (osInfo) {
     rows.push({ label: 'OS', value: osInfo })
   }
 
-  if (props.node.estimated_max_concurrency != null) {
+  const maxConcurrency = pickNumber(
+    props.node.estimated_max_concurrency,
+    info.estimated_max_concurrency,
+    info.estimatedMaxConcurrency
+  )
+  if (maxConcurrency != null) {
     rows.push({
       label: 'Max Concurrency',
-      value: `~${formatNumber(props.node.estimated_max_concurrency)}`,
+      value: `~${formatNumber(maxConcurrency)}`,
     })
   }
 
-  const fdLimit = pickNumber(info.fd_limit, info.file_descriptor_limit, info.ulimit_nofile)
+  const fdLimit = pickNumber(
+    info.fd_limit,
+    info.fdLimit,
+    info.file_descriptor_limit,
+    info.fileDescriptorLimit,
+    info.ulimit_nofile,
+    info.ulimitNofile
+  )
   if (fdLimit != null) {
     rows.push({ label: 'FD Limit', value: formatNumber(fdLimit) })
   }
 
   return rows
 })
+
+const nativeTooltipText = computed(() =>
+  hardwareRows.value.length > 0
+    ? hardwareRows.value.map((row) => `${row.label}: ${row.value}`).join('\n')
+    : '暂无硬件信息上报'
+)
 
 const showHardwareInfo = computed(
   () =>
@@ -81,11 +109,45 @@ function formatNumber(n: number) {
   return String(n)
 }
 
+function normalizeHardwareInfo(info: unknown): Record<string, unknown> | null {
+  if (info == null) return null
+
+  let current: unknown = info
+  for (let i = 0; i < 3; i++) {
+    if (typeof current !== 'string') break
+    const text = current.trim()
+    if (!text) return {}
+    try {
+      current = JSON.parse(text)
+    } catch {
+      return {}
+    }
+  }
+
+  if (!current || typeof current !== 'object') {
+    return {}
+  }
+
+  const obj = current as Record<string, unknown>
+  const nested = pickRecord(obj.hardware_info, obj.hardwareInfo, obj.hardware)
+  if (nested) return nested
+  return obj
+}
+
 function pickNumber(...values: unknown[]): number | null {
   for (const value of values) {
     if (value == null) continue
     const parsed = typeof value === 'number' ? value : Number(value)
     if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function pickRecord(...values: unknown[]): Record<string, unknown> | null {
+  for (const value of values) {
+    if (value && typeof value === 'object') {
+      return value as Record<string, unknown>
+    }
   }
   return null
 }
@@ -99,7 +161,6 @@ function pickString(...values: unknown[]): string {
   return ''
 }
 
-
 </script>
 
 <template>
@@ -109,12 +170,14 @@ function pickString(...values: unknown[]): string {
   >
     <Tooltip>
       <TooltipTrigger as-child>
-        <span
+        <button
+          type="button"
           aria-label="硬件信息"
-          class="inline-flex items-center justify-center rounded-sm p-0.5 hover:bg-muted/60 transition-colors cursor-help"
+          :title="nativeTooltipText"
+          class="inline-flex items-center justify-center rounded-sm p-0.5 hover:bg-muted/60 transition-colors cursor-pointer"
         >
           <Cpu class="h-3.5 w-3.5 text-muted-foreground" />
-        </span>
+        </button>
       </TooltipTrigger>
       <TooltipContent
         side="right"
