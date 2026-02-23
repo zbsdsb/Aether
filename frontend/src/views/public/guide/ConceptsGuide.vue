@@ -1,408 +1,398 @@
 <script setup lang="ts">
-import { RouterLink } from 'vue-router'
-import {
-  ArrowRight,
-  Server,
-  Box,
-  Key,
-  Link,
-  Layers,
-  Users,
-  Info,
-  Tag
-} from 'lucide-vue-next'
-import { providerExamples, panelClasses } from './guide-config'
-import { useSiteInfo } from '@/composables/useSiteInfo'
-
-withDefaults(
-  defineProps<{
-    baseUrl?: string
-  }>(),
-  {
-    baseUrl: typeof window !== 'undefined' ? window.location.origin : 'https://your-aether.com'
-  }
-)
-
-const { siteName } = useSiteInfo()
-
-// 核心概念列表
-const concepts = [
-  {
-    name: '供应商 (Provider)',
-    icon: Server,
-    description: '上游 AI 服务商的逻辑抽象，用于组织和管理多个端点。',
-    details: [
-      '一个供应商代表一个 AI 服务提供商（如 OpenAI、Anthropic）',
-      '供应商下可以有多个端点（不同区域、不同账号）',
-      '供应商级别可以配置格式转换开关',
-      '供应商的优先级影响候选排序'
-    ]
-  },
-  {
-    name: '端点 (ProviderEndpoint)',
-    icon: Box,
-    description: '实际的 API 配置单元，包含调用上游所需的全部信息。',
-    details: [
-      '包含 URL、API 格式（api_family:endpoint_kind 签名）',
-      '可配置代理、超时、请求头/请求体规则',
-      '端点下挂载一个或多个 API Key（ProviderAPIKey）',
-      '端点是系统实际发起调用的最小单元'
-    ]
-  },
-  {
-    name: '供应商密钥 (ProviderAPIKey)',
-    icon: Key,
-    description: '端点的鉴权凭据，是调度系统操作的核心对象。',
-    details: [
-      '包含 internal_priority（内部优先级），影响候选排序',
-      '可设置能力标签（如 1M 上下文、1H 缓存支持）',
-      '可限定模型白名单，只允许特定模型使用此 Key',
-      '包含上游配额元信息（RPM 等）'
-    ]
-  },
-  {
-    name: '候选 (ProviderCandidate)',
-    icon: Link,
-    description: 'Provider + Endpoint + Key 的组合，是调度和故障转移的基本单位。',
-    details: [
-      '每次请求会构建一组候选列表',
-      '候选按调度策略排序后依次尝试',
-      '失败时自动切换到下一个候选（故障转移）',
-      '候选上附带并发检查、缓存亲和性等元数据'
-    ]
-  }
-]
-
-// 模型相关概念
-const modelConcepts = [
-  {
-    name: '全局模型 (GlobalModel)',
-    description: '用户请求中使用的模型名定义。用户在 API 调用中指定的 model 参数值必须是已注册的 GlobalModel。',
-    example: 'claude-sonnet-4-20250514、gpt-4o、gemini-2.5-pro'
-  },
-  {
-    name: '模型 (Model)',
-    description: '供应商侧的模型实现。一个 GlobalModel 可以关联到多个 Provider 的 Model，每个 Model 可以映射不同的上游模型名。',
-    example: '用户请求 gpt-4 -> 端点 A 发送 gpt-4-turbo，端点 B 发送 gpt-4o'
-  },
-  {
-    name: '模型别名',
-    description: '一个 GlobalModel 可以设置多个别名，用户可以用任意别名调用。适合版本迁移时保持向后兼容。',
-    example: 'claude-3-5-sonnet -> claude-3.5-sonnet (别名)'
-  }
-]
-
-// 用户与密钥
-const userConcepts = [
-  {
-    name: 'API Key（用户密钥）',
-    description: '用户访问系统的凭证，与上游 ProviderAPIKey 不同。每个 API Key 归属一个用户，可以设置：',
-    features: ['允许访问的模型列表', '请求/Token 配额（日/月）', 'IP 白名单', '有效期', '1H 缓存策略']
-  },
-  {
-    name: '亲和性键 (affinity_key)',
-    description: '缓存亲和性的维度标识，通常取值为用户 API Key ID。系统会尝试为同一个 affinity_key 稳定选择相同的 ProviderAPIKey，以最大化利用上游的 Prompt Caching。',
-    features: []
-  }
-]
+import { BookOpen } from 'lucide-vue-next'
 </script>
 
 <template>
-  <div class="space-y-8">
-    <!-- 标题 -->
-    <div class="space-y-3">
+  <div class="space-y-12">
+    <!-- Hero 区域 -->
+    <div class="space-y-4">
+      <div class="inline-flex items-center gap-1.5 rounded-full bg-[#cc785c]/10 dark:bg-[#cc785c]/20 border border-[#cc785c]/20 dark:border-[#cc785c]/40 px-3 py-1 text-xs font-medium text-[#cc785c] dark:text-[#d4a27f]">
+        <BookOpen class="h-3 w-3" />
+        文档核心
+      </div>
       <h1 class="text-3xl font-bold text-[#262624] dark:text-[#f1ead8]">
         相关概念
       </h1>
-      <p class="text-base text-[#666663] dark:text-[#a3a094]">
-        深入理解 {{ siteName }} 中的核心概念及其关系。
+      <p class="text-base text-[#666663] dark:text-[#a3a094] max-w-2xl">
+        深入理解 Aether 运行时的核心模块和层级结构。
       </p>
     </div>
 
-    <!-- 概念关系 -->
-    <section class="space-y-3">
-      <h2 class="text-xl font-semibold text-[#262624] dark:text-[#f1ead8]">
-        概念关系
-      </h2>
-
-      <div
-        class="overflow-hidden"
-        :class="[panelClasses.section]"
-      >
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] bg-[#fafaf7]/50 dark:bg-[#1f1d1a]/50">
-                <th class="px-4 py-2.5 text-left font-medium text-[#666663] dark:text-[#a3a094]">
-                  关系
-                </th>
-                <th class="px-4 py-2.5 text-left font-medium text-[#666663] dark:text-[#a3a094]">
-                  说明
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="border-b border-[#e5e4df] dark:border-[rgba(227,224,211,0.08)]">
-                <td class="px-4 py-2.5 font-medium text-[#262624] dark:text-[#f1ead8] whitespace-nowrap">
-                  供应商 → 端点 <span class="text-[#999] font-normal text-xs ml-1">1:N</span>
-                </td>
-                <td class="px-4 py-2.5 text-[#666663] dark:text-[#a3a094]">
-                  一个供应商包含多个端点（不同区域、不同账号等）
-                </td>
-              </tr>
-              <tr class="border-b border-[#e5e4df] dark:border-[rgba(227,224,211,0.08)]">
-                <td class="px-4 py-2.5 font-medium text-[#262624] dark:text-[#f1ead8] whitespace-nowrap">
-                  端点 → 供应商密钥 <span class="text-[#999] font-normal text-xs ml-1">1:N</span>
-                </td>
-                <td class="px-4 py-2.5 text-[#666663] dark:text-[#a3a094]">
-                  一个端点下挂载多个 API Key
-                </td>
-              </tr>
-              <tr class="border-b border-[#e5e4df] dark:border-[rgba(227,224,211,0.08)]">
-                <td class="px-4 py-2.5 font-medium text-[#262624] dark:text-[#f1ead8] whitespace-nowrap">
-                  全局模型 → 端点 <span class="text-[#999] font-normal text-xs ml-1">N:M</span>
-                </td>
-                <td class="px-4 py-2.5 text-[#666663] dark:text-[#a3a094]">
-                  全局模型与端点是多对多关系，通过 Model 关联
-                </td>
-              </tr>
-              <tr class="last:border-0">
-                <td class="px-4 py-2.5 font-medium text-[#262624] dark:text-[#f1ead8] whitespace-nowrap">
-                  用户 API Key → 全局模型 <span class="text-[#999] font-normal text-xs ml-1">N:M</span>
-                </td>
-                <td class="px-4 py-2.5 text-[#666663] dark:text-[#a3a094]">
-                  用户 API Key 可限制可访问的模型列表
-                </td>
-              </tr>
-            </tbody>
-          </table>
+    <!-- 1. 创建统一模型 -->
+    <section
+      id="create-model"
+      class="scroll-mt-24 lg:scroll-mt-20"
+    >
+      <h2>1. 创建统一模型</h2>
+      <div class="space-y-4 mt-4">
+        <div>
+          <h4 class="font-medium text-[#262624] dark:text-[#f1ead8]">
+            1. 左侧模型选择、搜索区域
+          </h4>
+          <ul class="list-disc pl-5 mt-2 space-y-1 text-sm text-[#666663] dark:text-[#a3a094]">
+            <li>模型来源：opencode 维护的 https://models.dev</li>
+            <li>仅显示几个官方模型提供商，可以通过搜索获取更多模型。</li>
+          </ul>
         </div>
-      </div>
-    </section>
-
-    <!-- 供应商侧核心概念 -->
-    <section class="space-y-3">
-      <h2 class="text-xl font-semibold text-[#262624] dark:text-[#f1ead8]">
-        供应商侧概念
-      </h2>
-
-      <div class="space-y-3">
-        <div
-          v-for="concept in concepts"
-          :key="concept.name"
-          class="p-4"
-          :class="[panelClasses.section]"
-        >
-          <div class="flex items-center gap-2.5 mb-2">
-            <component
-              :is="concept.icon"
-              class="h-4 w-4 text-[#cc785c]"
-            />
-            <h3 class="font-semibold text-sm text-[#262624] dark:text-[#f1ead8]">
-              {{ concept.name }}
-            </h3>
-          </div>
-          <p class="text-sm text-[#666663] dark:text-[#a3a094] mb-2.5">
-            {{ concept.description }}
-          </p>
-          <ul class="space-y-1">
-            <li
-              v-for="detail in concept.details"
-              :key="detail"
-              class="flex items-start gap-2 text-sm text-[#666663] dark:text-[#a3a094]"
-            >
-              <span class="text-[#cc785c] mt-1.5 flex-shrink-0 text-[6px]">&#9679;</span>
-              <span>{{ detail }}</span>
+        <div>
+          <h4 class="font-medium text-[#262624] dark:text-[#f1ead8]">
+            2. 右侧参数配置区域
+          </h4>
+          <ul class="list-disc pl-5 mt-2 space-y-1 text-sm text-[#666663] dark:text-[#a3a094]">
+            <li>手动添加模型 或 选择模型后自动填写。</li>
+            <li>模型偏好：标定这个模型是否支持这些能力，一般情况下可不选。</li>
+            <li>
+              价格配置：
+              <ul class="list-[circle] pl-5 mt-1 space-y-1">
+                <li>计费方式：Token价格 + 按次价格 + 视频计费 = 最终计费</li>
+                <li>价格阶梯：以总Token数落在哪个区间为准，并非按阶梯溢出补全式计费</li>
+              </ul>
             </li>
           </ul>
         </div>
-      </div>
-    </section>
-
-    <!-- 常见供应商配置 -->
-    <section class="space-y-3">
-      <h2 class="text-xl font-semibold text-[#262624] dark:text-[#f1ead8]">
-        常见供应商配置
-      </h2>
-
-      <div
-        class="overflow-hidden"
-        :class="[panelClasses.section]"
-      >
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] bg-[#fafaf7]/50 dark:bg-[#1f1d1a]/50">
-                <th class="px-4 py-2.5 text-left font-medium text-[#666663] dark:text-[#a3a094]">
-                  供应商
-                </th>
-                <th class="px-4 py-2.5 text-left font-medium text-[#666663] dark:text-[#a3a094]">
-                  URL
-                </th>
-                <th class="px-4 py-2.5 text-left font-medium text-[#666663] dark:text-[#a3a094]">
-                  格式
-                </th>
-                <th class="px-4 py-2.5 text-left font-medium text-[#666663] dark:text-[#a3a094]">
-                  备注
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="example in providerExamples"
-                :key="example.name"
-                class="border-b border-[#e5e4df] dark:border-[rgba(227,224,211,0.08)] last:border-0"
-              >
-                <td class="px-4 py-2.5 font-medium text-[#262624] dark:text-[#f1ead8] whitespace-nowrap">
-                  {{ example.name }}
-                </td>
-                <td class="px-4 py-2.5 font-mono text-xs text-[#666663] dark:text-[#a3a094]">
-                  {{ example.url }}
-                </td>
-                <td class="px-4 py-2.5 whitespace-nowrap">
-                  <span :class="panelClasses.badgeBlue">{{ example.format }}</span>
-                </td>
-                <td class="px-4 py-2.5 text-xs text-[#999]">
-                  {{ example.note }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- 模型概念 -->
-    <section class="space-y-3">
-      <h2 class="text-xl font-semibold text-[#262624] dark:text-[#f1ead8]">
-        模型体系
-      </h2>
-
-      <div class="space-y-3">
-        <div
-          v-for="model in modelConcepts"
-          :key="model.name"
-          class="p-4"
-          :class="[panelClasses.section]"
+        <img
+          loading="lazy"
+          src="/guide/concepts-create-model.webp"
+          alt="创建统一模型"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm mt-4 w-full"
         >
-          <div class="flex items-center gap-2.5 mb-2">
-            <Layers class="h-4 w-4 text-[#cc785c]" />
-            <h3 class="font-semibold text-sm text-[#262624] dark:text-[#f1ead8]">
-              {{ model.name }}
-            </h3>
-          </div>
-          <p class="text-sm text-[#666663] dark:text-[#a3a094]">
-            {{ model.description }}
-          </p>
-          <div class="mt-2 flex items-center gap-2 text-xs text-[#666663] dark:text-[#a3a094]">
-            <Tag class="h-3 w-3 text-[#999]" />
-            <span>示例: </span>
-            <code class="text-[#262624] dark:text-[#f1ead8] bg-[#f5f5f0] dark:bg-[#1f1d1a] px-1.5 py-0.5 rounded">{{ model.example }}</code>
-          </div>
-        </div>
-      </div>
-
-      <!-- 模型名映射示例 -->
-      <div
-        class="p-4"
-        :class="[panelClasses.section]"
-      >
-        <h3 class="font-semibold text-sm text-[#262624] dark:text-[#f1ead8] mb-3">
-          模型名映射示例
-        </h3>
-        <div class="space-y-2">
-          <div class="flex items-center gap-3 text-sm flex-wrap">
-            <code class="text-xs bg-[#f5f5f0] dark:bg-[#1f1d1a] px-2 py-1 rounded text-[#262624] dark:text-[#f1ead8]">用户请求 gpt-4</code>
-            <ArrowRight class="h-3.5 w-3.5 text-[#999]" />
-            <code class="text-xs bg-[#f5f5f0] dark:bg-[#1f1d1a] px-2 py-1 rounded text-[#262624] dark:text-[#f1ead8]">端点 A: gpt-4-turbo</code>
-          </div>
-          <div class="flex items-center gap-3 text-sm flex-wrap">
-            <code class="text-xs bg-[#f5f5f0] dark:bg-[#1f1d1a] px-2 py-1 rounded text-[#262624] dark:text-[#f1ead8]">用户请求 gpt-4</code>
-            <ArrowRight class="h-3.5 w-3.5 text-[#999]" />
-            <code class="text-xs bg-[#f5f5f0] dark:bg-[#1f1d1a] px-2 py-1 rounded text-[#262624] dark:text-[#f1ead8]">端点 B: gpt-4o</code>
-          </div>
-        </div>
-        <p class="text-sm text-[#666663] dark:text-[#a3a094] mt-2.5">
-          同一个模型名可以映射到不同端点的不同上游模型名，系统根据调度策略选择端点后使用对应的映射。
-        </p>
       </div>
     </section>
 
-    <!-- 用户与密钥 -->
-    <section class="space-y-3">
-      <h2 class="text-xl font-semibold text-[#262624] dark:text-[#f1ead8]">
-        用户与 API Key
-      </h2>
-
-      <div class="space-y-3">
-        <div
-          v-for="concept in userConcepts"
-          :key="concept.name"
-          class="p-4"
-          :class="[panelClasses.section]"
+    <!-- 2. 添加提供商 -->
+    <section
+      id="add-provider"
+      class="scroll-mt-24 lg:scroll-mt-20"
+    >
+      <h2>2. 添加提供商</h2>
+      <div class="space-y-4 mt-4 text-[#666663] dark:text-[#a3a094] text-sm">
+        <ul class="list-decimal pl-5 space-y-2">
+          <li><strong class="text-[#262624] dark:text-[#f1ead8] font-medium">提供商类型：</strong>自定义或反代；一般自定义即可，反代请进入反代章节。</li>
+          <li>
+            <strong class="text-[#262624] dark:text-[#f1ead8] font-medium">计费类型：</strong>
+            <ul class="list-disc pl-5 mt-1 space-y-1">
+              <li>按量付费：持续使用</li>
+              <li>月卡额度：按周期(天)限额</li>
+              <li>免费套餐：不计入成本即倍率为0</li>
+            </ul>
+          </li>
+          <li><strong class="text-[#262624] dark:text-[#f1ead8] font-medium">最大重试次数：</strong>在缓存亲和调度模式下，首次请求失败后的重试次数。</li>
+          <li>
+            <strong class="text-[#262624] dark:text-[#f1ead8] font-medium">超时时间：</strong>
+            <ul class="list-disc pl-5 mt-1 space-y-1">
+              <li>流式首字超时时间：流式请求收到首字前的超时时间</li>
+              <li>非流请求超时时间：非流请求的总超时时间</li>
+            </ul>
+          </li>
+          <li><strong class="text-[#262624] dark:text-[#f1ead8] font-medium">保持优先级：</strong>通过格式转换的请求，是否保持当前优先级。</li>
+        </ul>
+        <img
+          loading="lazy"
+          src="/guide/concepts-add-provider.webp"
+          alt="添加提供商"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm mt-4 w-full"
         >
-          <div class="flex items-center gap-2.5 mb-2">
-            <Users class="h-4 w-4 text-[#cc785c]" />
-            <h3 class="font-semibold text-sm text-[#262624] dark:text-[#f1ead8]">
-              {{ concept.name }}
-            </h3>
-          </div>
-          <p class="text-sm text-[#666663] dark:text-[#a3a094]">
-            {{ concept.description }}
-          </p>
-          <ul
-            v-if="concept.features.length > 0"
-            class="mt-2 space-y-1"
+      </div>
+    </section>
+
+    <!-- 3. 添加端点 -->
+    <section
+      id="add-endpoint"
+      class="scroll-mt-24 lg:scroll-mt-20"
+    >
+      <h2>3. 添加端点</h2>
+      <p class="text-sm text-[#666663] dark:text-[#a3a094] mb-4">
+        添加端点是添加上游支持的端点，并非你需要使用的端点。比如 Anyrouter 只支持 Claude Code 接入，那么就应该仅添加 Claude CLI 端点。
+      </p>
+      <ul class="list-decimal pl-5 space-y-2 text-[#666663] dark:text-[#a3a094] text-sm">
+        <li><strong class="text-[#262624] dark:text-[#f1ead8] font-medium">选择格式：</strong>选择上游支持的端点格式。</li>
+        <li><strong class="text-[#262624] dark:text-[#f1ead8] font-medium">自定义 Base URL、Path：</strong>根据上游提供的信息填写。为空则使用提示的默认值。</li>
+      </ul>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+        <img
+          loading="lazy"
+          src="/guide/concepts-add-endpoint-1.webp"
+          alt="添加端点选择格式"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+        >
+        <img
+          loading="lazy"
+          src="/guide/concepts-add-endpoint-2.webp"
+          alt="端点自定义"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+        >
+      </div>
+    </section>
+
+    <!-- 4. 添加密钥 -->
+    <section
+      id="add-key"
+      class="scroll-mt-24 lg:scroll-mt-20"
+    >
+      <h2>4. 添加密钥</h2>
+      <ul class="list-decimal pl-5 space-y-3 mt-4 text-[#666663] dark:text-[#a3a094] text-sm">
+        <li>
+          <strong class="text-[#262624] dark:text-[#f1ead8] font-medium">认证类型：</strong>
+          <ul class="list-disc pl-5 mt-1">
+            <li>API Key: 传统密钥</li>
+            <li>Vertex AI: 用于 Google Cloud</li>
+          </ul>
+        </li>
+        <li><strong class="text-[#262624] dark:text-[#f1ead8] font-medium">支持的API格式：</strong>勾选Key可以使用的API格式，同时可以设置key访问该端点时的倍率。</li>
+        <li><strong class="text-[#262624] dark:text-[#f1ead8] font-medium">优先级：</strong>在提供商优先的调度模式下，不同优先级的Key按顺序故障转移，同优先级的Key进行负载均衡。</li>
+        <li>
+          <strong class="text-[#262624] dark:text-[#f1ead8] font-medium">RPM限制：</strong>Key的使用速率限制，会预留10%给已有用户进行提高缓存命中率。
+          <ul class="list-disc pl-5 mt-1">
+            <li>填写固定数值。</li>
+            <li>不填为空，采用一定策略自适应学习。</li>
+          </ul>
+        </li>
+        <li>
+          <strong class="text-[#262624] dark:text-[#f1ead8] font-medium">缓存TTL：</strong>
+          <ul class="list-disc pl-5 mt-1">
+            <li>0: 不使用缓存优先</li>
+            <li>N: 同一个用户Key在N分钟内，优先使用之前使用的提供商、Key响应请求。</li>
+          </ul>
+        </li>
+        <li>
+          <strong class="text-[#262624] dark:text-[#f1ead8] font-medium">熔断探测：</strong><br>
+          当同一个提供商Key字连续若干次请求失败后，会进入熔断状态，之后每间N分钟进行探测请求，若请求成功解除熔断后续正常请求，否则按以指数级增长探测时间以待下次探测，最大探测间隔不会增长超过32分钟。
+        </li>
+        <li><strong class="text-[#262624] dark:text-[#f1ead8] font-medium">能力标签：</strong>定义该Key可以使用的能力。</li>
+        <li>
+          <strong class="text-[#262624] dark:text-[#f1ead8] font-medium">自动获取上游模型：</strong><br>
+          在上游获取模型端点支持的情况下，从接口自动获取可以用模型列表。且按一定时间自动刷新，不开启则默认任意模型可用，或在后续模型权限中手动添加。
+        </li>
+      </ul>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+        <img
+          loading="lazy"
+          src="/guide/concepts-add-key-1.webp"
+          alt="添加密钥认证"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+        >
+        <img
+          loading="lazy"
+          src="/guide/concepts-add-key-2.webp"
+          alt="密钥倍率与优先级"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+        >
+      </div>
+    </section>
+
+    <!-- 5. 模型权限 -->
+    <section
+      id="model-permission"
+      class="scroll-mt-24 lg:scroll-mt-20"
+    >
+      <h2>5. 模型权限</h2>
+      <ul class="list-decimal pl-5 space-y-2 mt-4 text-[#666663] dark:text-[#a3a094] text-sm">
+        <li>在编辑密钥中开启自动获取/刷新上游全部模型。</li>
+        <li>手动限制/创建该Key的可用模型。</li>
+        <li>不开启自动获取且勾选任意模型，即模型权限为空，则认为可以使用提供商的全部关联模型。</li>
+        <li>只有在模型权限不为空的情况下，才可以配合正则映射模型。</li>
+      </ul>
+      <div class="grid grid-cols-1 gap-4 mt-6">
+        <img
+          loading="lazy"
+          src="/guide/concepts-model-perms-1.webp"
+          alt="模型权限 1"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+        >
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <img
+            loading="lazy"
+            src="/guide/concepts-model-perms-2.webp"
+            alt="模型权限 2"
+            class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
           >
-            <li
-              v-for="feature in concept.features"
-              :key="feature"
-              class="flex items-start gap-2 text-sm text-[#666663] dark:text-[#a3a094]"
-            >
-              <span class="text-[#cc785c] mt-1.5 flex-shrink-0 text-[6px]">&#9679;</span>
-              <span>{{ feature }}</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <div
-        class="p-4"
-        :class="[panelClasses.section]"
-      >
-        <div class="flex items-start gap-3">
-          <Info class="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
-          <div class="text-sm text-[#666663] dark:text-[#a3a094]">
-            <p class="font-medium text-[#262624] dark:text-[#f1ead8]">
-              两种 Key 的区别
-            </p>
-            <p class="mt-1">
-              <strong>用户 API Key</strong>：用户用来访问 {{ siteName }} 的凭证（外部面向用户）。<br>
-              <strong>ProviderAPIKey</strong>：{{ siteName }} 用来调用上游服务的凭证（内部面向供应商）。
-              两者是独立的概念，用户 API Key 的请求会被路由到合适的 ProviderAPIKey。
-            </p>
-          </div>
+          <img
+            loading="lazy"
+            src="/guide/concepts-model-perms-3.webp"
+            alt="模型权限 3"
+            class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+          >
         </div>
       </div>
     </section>
 
-    <!-- 下一步 -->
-    <section class="pt-2">
-      <RouterLink
-        to="/guide/strategy"
-        class="p-4 flex items-center gap-3 group"
-        :class="[panelClasses.section, panelClasses.cardHover]"
-      >
-        <div class="flex-1">
-          <div class="font-medium text-sm text-[#262624] dark:text-[#f1ead8]">
-            下一步：关键策略
+    <!-- 6. 关联模型 -->
+    <section
+      id="link-model"
+      class="scroll-mt-24 lg:scroll-mt-20"
+    >
+      <h2>6. 关联模型</h2>
+      <p class="text-sm text-[#666663] dark:text-[#a3a094] mb-4">
+        从全局模型关联提供商模型，即设置该提供商可以访问的模型，同时可以在这里设置提供商自己的模型价格。默认继承全局模型的价格。
+      </p>
+      <div class="grid grid-cols-1 gap-4 mt-6">
+        <img
+          loading="lazy"
+          src="/guide/concepts-link-model-1.webp"
+          alt="关联模型 1"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+        >
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <img
+            loading="lazy"
+            src="/guide/concepts-link-model-2.webp"
+            alt="关联模型 2"
+            class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+          >
+          <img
+            loading="lazy"
+            src="/guide/concepts-link-model-3.webp"
+            alt="关联模型 3"
+            class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+          >
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. 模型映射 -->
+    <section
+      id="model-mapping"
+      class="scroll-mt-24 lg:scroll-mt-20"
+    >
+      <h2>7. 模型映射</h2>
+      <p class="text-sm text-[#666663] dark:text-[#a3a094] mb-4">
+        如果该提供商的请求名称并非标准名称，即可通过映射改变在实际请求提供时的模型 id。
+      </p>
+      <div class="bg-[#f5f5f0]/80 dark:bg-[rgba(227,224,211,0.05)] p-4 rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.06)] text-sm mb-6">
+        <p class="mb-2">
+          <span class="text-[#cc785c] font-medium mr-2">名称修正示例:</span>官方标准名称为 <code class="bg-black/5 dark:bg-white/10 px-1 py-0.5 rounded text-xs">claude-opus-4-6</code> ，实际提供商叫 <code class="bg-black/5 dark:bg-white/10 px-1 py-0.5 rounded text-xs">claude-opus-4-6-last</code>。
+        </p>
+        <p><span class="text-[#cc785c] font-medium mr-2">降/升级请求示例:</span>官方标准名称为 <code class="bg-black/5 dark:bg-white/10 px-1 py-0.5 rounded text-xs">claude-opus-4-6</code> ，实际请求提供商用 <code class="bg-black/5 dark:bg-white/10 px-1 py-0.5 rounded text-xs">claude-sonnet-4-6</code>。</p>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+        <img
+          loading="lazy"
+          src="/guide/concepts-model-mapping-1.webp"
+          alt="模型映射 1"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+        >
+        <img
+          loading="lazy"
+          src="/guide/concepts-model-mapping-2.webp"
+          alt="模型映射 2"
+          class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+        >
+      </div>
+    </section>
+
+    <!-- 8. 反向代理 -->
+    <section
+      id="reverse-proxy"
+      class="scroll-mt-24 lg:scroll-mt-20"
+    >
+      <h2>8. 反向代理</h2>
+      <div class="space-y-6 mt-6">
+        <div>
+          <h4 class="font-medium text-[#262624] dark:text-[#f1ead8] mb-3">
+            1. Codex
+          </h4>
+          <img
+            loading="lazy"
+            src="/guide/concepts-reverse-proxy-codex.webp"
+            alt="Codex 反向代理"
+            class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full max-w-2xl"
+          >
+        </div>
+        <div>
+          <h4 class="font-medium text-[#262624] dark:text-[#f1ead8] mb-3">
+            2. Krio
+          </h4>
+          <img
+            loading="lazy"
+            src="/guide/concepts-reverse-proxy-kiro.webp"
+            alt="Krio 反向代理"
+            class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full max-w-2xl"
+          >
+        </div>
+        <div>
+          <h4 class="font-medium text-[#262624] dark:text-[#f1ead8] mb-3">
+            3. Antigravity
+          </h4>
+          <img
+            loading="lazy"
+            src="/guide/concepts-reverse-proxy-antigravity.webp"
+            alt="Antigravity 反向代理"
+            class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full max-w-2xl"
+          >
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. 优先级管理 -->
+    <section
+      id="priority-management"
+      class="scroll-mt-24 lg:scroll-mt-20 pb-8"
+    >
+      <h2>9. 优先级管理</h2>
+      <p class="text-sm text-[#666663] dark:text-[#a3a094] mb-4">
+        允许拖动、或者直接点击数字输入调整优先级。
+      </p>
+      
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+        <div class="space-y-4">
+          <div class="bg-white/50 dark:bg-white/5 p-4 rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.06)] shadow-sm">
+            <h4 class="font-bold text-[#262624] dark:text-[#f1ead8] flex items-center gap-2">
+              1. 提供商优先
+            </h4>
+            <p class="text-sm text-[#666663] dark:text-[#a3a094] mt-1">
+              按提供商顺序调度，同优先级负载均衡。
+            </p>
           </div>
-          <div class="text-xs text-[#666663] dark:text-[#a3a094]">
-            了解调度、缓存亲和性、故障转移等核心策略
+          <div class="bg-white/50 dark:bg-white/5 p-4 rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.06)] shadow-sm">
+            <h4 class="font-bold text-[#262624] dark:text-[#f1ead8] flex items-center gap-2">
+              2. Key优先
+            </h4>
+            <p class="text-sm text-[#666663] dark:text-[#a3a094] mt-1">
+              全局Key统一调度，同优先级负载均衡。
+            </p>
+          </div>
+          <div class="bg-white/50 dark:bg-white/5 p-4 rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.06)] shadow-sm">
+            <h4 class="font-bold text-[#262624] dark:text-[#f1ead8] flex items-center gap-2">
+              3. 缓存亲和模式
+            </h4>
+            <p class="text-sm text-[#666663] dark:text-[#a3a094] mt-1">
+              在Key TTL时间的约束下，优先使用上一次请求使用的Key。
+            </p>
+          </div>
+          <div class="bg-white/50 dark:bg-white/5 p-4 rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.06)] shadow-sm">
+            <h4 class="font-bold text-[#262624] dark:text-[#f1ead8] flex items-center gap-2">
+              4. 负载均衡模式
+            </h4>
+            <ul class="list-disc pl-5 mt-1 text-sm text-[#666663] dark:text-[#a3a094] space-y-1">
+              <li>取消全局提供商优先级，提供商内部Key依然保持优先级。</li>
+              <li>取消全局Key优先级，乱序使用。</li>
+            </ul>
+          </div>
+          <div class="bg-white/50 dark:bg-white/5 p-4 rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.06)] shadow-sm">
+            <h4 class="font-bold text-[#262624] dark:text-[#f1ead8] flex items-center gap-2">
+              5. 固定顺序模式
+            </h4>
+            <p class="text-sm text-[#666663] dark:text-[#a3a094] mt-1">
+              取消缓存亲和，始终使用固定顺序Key请求。
+            </p>
           </div>
         </div>
-        <ArrowRight class="h-4 w-4 text-[#999] group-hover:text-[#cc785c] transition-colors" />
-      </RouterLink>
+        
+        <div class="space-y-4">
+          <img
+            loading="lazy"
+            src="/guide/concepts-priority-1.webp"
+            alt="优先级管理 1"
+            class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+          >
+          <img
+            loading="lazy"
+            src="/guide/concepts-priority-2.webp"
+            alt="优先级管理 2"
+            class="rounded-xl border border-[#e5e4df] dark:border-[rgba(227,224,211,0.12)] shadow-sm w-full"
+          >
+        </div>
+      </div>
     </section>
   </div>
 </template>

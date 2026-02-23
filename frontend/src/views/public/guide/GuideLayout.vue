@@ -62,13 +62,13 @@
                 />
               </RouterLink>
 
-              <!-- 快速开始子导航 -->
+              <!-- 子导航 -->
               <div
-                v-if="item.id === 'overview' && isNavActive(item.path)"
-                class="ml-7 space-y-0.5 mt-0.5"
+                v-if="item.subItems && isNavActive(item.path)"
+                class="ml-7 space-y-0.5 mt-0.5 mb-2"
               >
                 <a
-                  v-for="sub in overviewSubItems"
+                  v-for="sub in item.subItems"
                   :key="sub.hash"
                   :href="sub.hash"
                   class="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12px] transition-colors"
@@ -273,21 +273,55 @@
       </header>
     </template>
 
-    <div class="max-w-4xl mx-auto">
+    <article
+      class="max-w-4xl mx-auto pb-24"
+      @click="onArticleClick"
+    >
       <RouterView
         v-slot="{ Component }"
       >
-        <component
-          :is="Component"
-          :base-url="baseUrl"
-        />
+        <transition
+          name="fade"
+          mode="out-in"
+        >
+          <component
+            :is="Component"
+            :base-url="baseUrl"
+            class="literary-content"
+          />
+        </transition>
       </RouterView>
-    </div>
+    </article>
+
+    <!-- Image Lightbox -->
+    <Teleport to="body">
+      <Transition
+        enter-active-class="transition duration-200 ease-out"
+        enter-from-class="opacity-0"
+        enter-to-class="opacity-100"
+        leave-active-class="transition duration-150 ease-in"
+        leave-from-class="opacity-100"
+        leave-to-class="opacity-0"
+      >
+        <div
+          v-if="lightboxSrc"
+          class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-zoom-out"
+          @click="lightboxSrc = ''"
+        >
+          <img
+            :src="lightboxSrc"
+            :alt="lightboxAlt"
+            class="max-w-[90vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
+            @click.stop
+          >
+        </div>
+      </Transition>
+    </Teleport>
   </AppShell>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import {
   Menu,
@@ -310,27 +344,92 @@ const { siteName, siteSubtitle } = useSiteInfo()
 
 const mobileMenuOpen = ref(false)
 const baseUrl = ref(typeof window !== 'undefined' ? window.location.origin : 'https://your-aether.com')
-const activeHash = ref('#production')
+const activeHash = ref('')
+const lightboxSrc = ref('')
+const lightboxAlt = ref('')
 
-// 快速开始子导航
-const overviewSubItems = [
-  { name: '部署', hash: '#production' },
-  { name: '配置流程', hash: '#config-steps' },
-  { name: 'API 格式', hash: '#api-formats' },
-  { name: '推荐帖子', hash: '#recommended-posts' }
-]
+function onArticleClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (target.tagName === 'IMG' && target.closest('.literary-content')) {
+    const img = target as HTMLImageElement
+    lightboxSrc.value = img.src
+    lightboxAlt.value = img.alt || ''
+  }
+}
+
+let observer: IntersectionObserver | null = null
+
+function getScrollContainer(): Element | null {
+  return document.querySelector('.app-shell__content')
+}
+
+function setupIntersectionObserver() {
+  if (observer) {
+    observer.disconnect()
+  }
+
+  const scrollRoot = getScrollContainer()
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      const visibleEntries = entries.filter((entry) => entry.isIntersecting)
+      if (visibleEntries.length > 0) {
+        const topEntry = visibleEntries.reduce((prev, current) => {
+          return (current.boundingClientRect.top < prev.boundingClientRect.top) ? current : prev
+        })
+        activeHash.value = `#${topEntry.target.id}`
+      }
+    },
+    {
+      root: scrollRoot,
+      rootMargin: '-80px 0px -70% 0px',
+      threshold: 0
+    }
+  )
+
+  const sections = document.querySelectorAll('article section[id]')
+  sections.forEach((section) => observer?.observe(section))
+}
 
 function scrollToHash(hash: string) {
   activeHash.value = hash
   const el = document.querySelector(hash)
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const container = getScrollContainer()
+  if (el && container) {
+    const elTop = el.getBoundingClientRect().top
+    const containerTop = container.getBoundingClientRect().top
+    const offset = elTop - containerTop + container.scrollTop - 80
+    container.scrollTo({ top: offset, behavior: 'smooth' })
   }
 }
 
-// 路由变化时关闭移动端菜单
-watch(() => route.path, () => {
-  mobileMenuOpen.value = false
+// 路由变化时管理状态和观察者
+watch(
+  () => route.path,
+  () => {
+    mobileMenuOpen.value = false
+    activeHash.value = ''
+    nextTick(() => {
+      setupIntersectionObserver()
+      const firstSection = document.querySelector('article section[id]')
+      if (!activeHash.value && firstSection) {
+        activeHash.value = `#${firstSection.id}`
+      }
+    })
+  },
+  { immediate: true }
+)
+
+onMounted(() => {
+  nextTick(() => {
+    setupIntersectionObserver()
+  })
+})
+
+onUnmounted(() => {
+  if (observer) {
+    observer.disconnect()
+  }
 })
 
 const currentNavItem = computed(() => {
@@ -347,6 +446,7 @@ function isNavActive(href: string) {
 // 移动端菜单用的导航数据
 const navigation = computed(() => [
   {
+    title: '',
     items: guideNavItems.map(item => ({
       name: item.name,
       href: item.path,
@@ -365,11 +465,64 @@ const contentClasses = computed(() => {
 })
 
 const mainClasses = computed(() => {
-  return 'pt-24 lg:pt-6'
+  return 'pt-24 lg:pt-8'
 })
 </script>
 
 <style scoped>
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Literary Tech Typography Overrides for Guide Content */
+:deep(.literary-content) h2 {
+  @apply text-2xl mb-8 mt-12 flex items-center gap-3 transition-colors;
+  font-family: var(--serif);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--color-text);
+}
+
+:deep(.literary-content) h3 {
+  @apply text-xl mb-6 mt-10 transition-colors;
+  font-family: var(--serif);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+:deep(.literary-content) p:not([class*="text-sm"]):not([class*="text-xs"]) {
+  font-family: var(--serif);
+  font-weight: 400;
+  @apply leading-relaxed text-[1.05rem] mb-4;
+  color: var(--color-text);
+  opacity: 0.9;
+}
+
+:deep(.literary-content) li:not([class*="text-sm"]):not([class*="text-xs"]) {
+  font-family: var(--serif);
+  font-weight: 400;
+  @apply leading-relaxed text-[1.05rem] mb-2;
+  color: var(--color-text);
+  opacity: 0.9;
+}
+
+/* UI Elements inside content should remain sans-serif */
+:deep(.literary-content) button,
+:deep(.literary-content) input,
+:deep(.literary-content) select,
+:deep(.literary-content) label,
+:deep(.literary-content) table,
+:deep(.literary-content) .font-mono,
+:deep(.literary-content) [class*="font-mono"] {
+  font-family: var(--sans-serif);
+}
+
+:deep(.literary-content) pre,
+:deep(.literary-content) code {
+  font-family: var(--monospace) !important;
+}
+
+:deep(.literary-content) img {
+  cursor: zoom-in;
+}
 </style>

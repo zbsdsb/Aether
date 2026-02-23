@@ -59,6 +59,12 @@ const routes: RouteRecordRaw[] = [
         name: 'GuideFaq',
         component: () => importWithRetry(() => import('@/views/public/guide/GuideFaq.vue')),
         meta: { requiresAuth: false }
+      },
+      {
+        path: 'modules',
+        name: 'GuideModules',
+        component: () => importWithRetry(() => import('@/views/public/guide/ModulesGuide.vue')),
+        meta: { requiresAuth: false }
       }
     ]
   },
