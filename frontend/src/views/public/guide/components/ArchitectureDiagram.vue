@@ -319,7 +319,7 @@ const shadows = computed(() => {
           >
             统一模型规范 / 协议聚合
           </div>
-          <div class="w-full flex gap-2">
+          <div class="w-full flex gap-1.5">
             <div
               class="flex-1 rounded-full flex items-center justify-center h-[26px] font-sans font-semibold text-[10px]"
               :style="{ backgroundColor: colors.brandSoft, color: colors.textMain }"
@@ -338,12 +338,18 @@ const shadows = computed(() => {
             >
               全局并发
             </div>
+            <div
+              class="flex-1 rounded-full flex items-center justify-center h-[26px] font-sans font-semibold text-[10px]"
+              :style="{ backgroundColor: colors.brandSoft, color: colors.textMain }"
+            >
+              缓存亲和
+            </div>
           </div>
           <div
             class="w-full h-[28px] rounded-xl flex items-center justify-center font-sans text-[10px] font-bold"
             :style="{ border: `1px solid ${colors.coreBorder}`, color: colors.textMain, backgroundColor: colors.brandSoft }"
           >
-            分布式智能路由抉择
+            智能调度 / 故障转移
           </div>
         </div>
 
