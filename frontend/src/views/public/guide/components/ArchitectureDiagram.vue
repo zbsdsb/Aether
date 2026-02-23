@@ -1,682 +1,465 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useDarkMode } from '@/composables/useDarkMode'
 
 const { isDark } = useDarkMode()
 
-// Ultra-premium floating aesthetic palette
-const colors = computed(() => {
-  const brandVal = isDark.value ? '#d4a27f' : '#cc785c'
-  return {
-    // Pure, infinite canvas 
-    bg: isDark.value ? '#080808' : '#fafafa',
-    grid: isDark.value ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-    
-    // Floating Cards - completely solid, crisp edges
-    cardBg: isDark.value ? '#121212' : '#ffffff',
-    cardBorder: isDark.value ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
-    
-    // Core Card 
-    coreBg: isDark.value ? '#171615' : '#ffffff',
-    coreBorder: isDark.value ? 'rgba(212, 162, 127, 0.3)' : 'rgba(204, 120, 92, 0.25)',
-    
-    // Text
-    textMain: isDark.value ? '#f5f5f5' : '#111111',
-    textMuted: isDark.value ? '#888888' : '#777777',
-    
-    // Thematic Flow Colors
-    brand: brandVal, // Ingress
-    convertAccent: '#a855f7', // Conversion
-    passAccent: '#3b82f6', // Passthrough
-    returnAccent: '#10b981', // Loop
-    proxyAccent: '#f59e0b', // Proxies
+const DESIGN_W = 760
+const DESIGN_H = 420
 
-    // The fluid river tracks
-    trackMain: isDark.value ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'
+const wrapperRef = ref<HTMLElement>()
+const scale = ref(1)
+const wrapperWidth = ref(DESIGN_W)
+
+function updateScale() {
+  if (!wrapperRef.value) return
+  const w = wrapperRef.value.clientWidth
+  wrapperWidth.value = w
+  scale.value = Math.min(w / DESIGN_W, 1)
+}
+
+const offsetLeft = computed(() => {
+  return Math.max(0, (wrapperWidth.value - DESIGN_W * scale.value) / 2)
+})
+
+let ro: ResizeObserver | null = null
+onMounted(() => {
+  updateScale()
+  ro = new ResizeObserver(updateScale)
+  if (wrapperRef.value) ro.observe(wrapperRef.value)
+})
+onUnmounted(() => ro?.disconnect())
+
+const colors = computed(() => {
+  const brand = '#cc7154'
+  return {
+    bg: isDark.value ? '#121212' : '#fcfcfc',
+    grid: isDark.value ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+    cardBg: isDark.value ? '#1a1a1c' : '#ffffff',
+    cardBorder: isDark.value ? '#2a2a2c' : '#e8e8ec',
+    track: isDark.value ? 'rgba(255,255,255,0.08)' : '#e5e7eb',
+    textMain: isDark.value ? '#f3f4f6' : '#1f2937',
+    textSecondary: isDark.value ? '#9ca3af' : '#4b5563',
+    textMuted: isDark.value ? '#6b7280' : '#8c94a1',
+    brand,
+    brandSoft: isDark.value ? 'rgba(204,113,84,0.12)' : 'rgba(204,113,84,0.06)',
+    coreBorder: isDark.value ? 'rgba(204,113,84,0.4)' : 'rgba(204,113,84,0.25)',
+    convert: isDark.value ? '#d4845c' : '#b8654a',
+    pass: isDark.value ? '#8a9bb5' : '#5a7094',
+    proxy: isDark.value ? '#a78bba' : '#7c5e99',
   }
 })
 
-// Clean, precise floating shadow
 const shadows = computed(() => {
-  return isDark.value 
-    ? {
-        node: '0 8px 30px rgba(0,0,0,0.6)',
-        coreGlow: '0 0 40px rgba(212, 162, 127, 0.03)',
-      }
-    : {
-        node: '0 8px 30px rgba(0,0,0,0.06)',
-        coreGlow: '0 0 40px rgba(204, 120, 92, 0.03)',
-      }
+  return isDark.value
+    ? { sm: '0 2px 4px -1px rgba(0,0,0,0.5)', lg: '0 8px 24px -8px rgba(0,0,0,0.7)' }
+    : { sm: '0 2px 6px -2px rgba(0,0,0,0.04)', lg: '0 6px 20px -6px rgba(0,0,0,0.06)' }
 })
+
+/*
+ * Coordinate system (all absolute px within the 760x420 container):
+ *
+ * Three columns at X = 188, 380, 572
+ *
+ * SOURCES label:          Y = 8
+ * Source pills:           top=24, h=36  => bottom = 60
+ *   Line: 3 merge to 1 at Gateway top Y=78, then straight to dashed box top Y=88
+ * Gateway box:            top=78, h=240 => bottom = 318
+ * Dashed box:             top=88, h=112 => bottom=200 (left=180, w=400)
+ *
+ * Junction dots (3 total, all at X=380):
+ *   [dot] Y=78   Gateway top merge    (3 sources -> 1)
+ *   [dot] Y=200  Route node           (1 -> 3 engines)
+ *   [dot] Y=318  Merge/exit node      (3 engines -> 1 -> 3 outputs, at Gateway bottom)
+ *
+ * Engine cards:           top=230, h=28 => bottom=258
+ *   Line: Y=258 stub Y=264, curve to merge/exit Y=318
+ *   Line: Y=318 diverge to output pills top Y=360
+ * OUTPUTS label:          Y = 342
+ * Output pills:           top=360, h=36
+ *
+ * Engine card positions:
+ *   w=170, left=103/295/487 => center=188/380/572
+ *
+ * Animated dots: 8 total (curves only, no straight-line anims)
+ *   2x Sources->dashed box | 2x Route->Engines
+ *   2x Engines->merge/exit | 2x exit->outputs
+ */
 </script>
 
 <template>
   <div
-    class="relative w-full overflow-hidden rounded-[32px] border diagram-container"
-    :style="{ 
-      backgroundColor: colors.bg, 
-      borderColor: colors.cardBorder,
-      /* Hyper-clean infinite Dot Grid Background */
-      backgroundImage: `radial-gradient(${colors.grid} 1px, transparent 1px)`,
-      backgroundSize: '24px 24px'
-    }"
+    ref="wrapperRef"
+    class="w-full overflow-hidden"
+    :style="{ height: `${DESIGN_H * scale}px` }"
   >
-    <!-- Horizontal scroll wrapper for the dynamic wide canvas -->
-    <div class="w-full overflow-x-auto pb-4 custom-scrollbar">
-      <!-- Absolute, unconstrained canvas simulating an infinite whiteboard -->
-      <!-- Width extends far enough to fit all spaced-out floating nodes -->
-      <div class="relative min-w-[1300px] h-[680px] mx-auto overflow-visible py-16 px-10">
-        <!-- ==================== FLUID SVG "RIVERS" (The glowing tracks) ==================== -->
-        <!-- Placed perfectly behind the HTML nodes. Z-0 -->
+    <div
+      class="relative w-[760px] overflow-hidden rounded-[24px] border diagram-container transition-colors duration-300"
+      :style="{
+        backgroundColor: colors.bg,
+        borderColor: colors.cardBorder,
+        backgroundImage: `radial-gradient(${colors.grid} 1px, transparent 1px)`,
+        backgroundSize: '20px 20px',
+        transform: `scale(${scale})`,
+        transformOrigin: 'top left',
+        marginLeft: `${offsetLeft}px`,
+      }"
+    >
+      <div class="relative w-[760px] h-[420px]">
+        <!-- SVG connection lines -->
         <svg
-          class="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-visible"
-          viewBox="0 0 1300 680"
-          preserveAspectRatio="none"
+          class="absolute inset-0 w-full h-full pointer-events-none z-30"
+          xmlns="http://www.w3.org/2000/svg"
         >
-          
-          <!-- Defs for beautiful organic gradients -->
-          <defs>
-            <linearGradient
-              id="grad-convert"
-              x1="0%"
-              y1="0%"
-              x2="100%"
-              y2="0%"
-            >
-              <stop
-                offset="0%"
-                :stop-color="colors.brand"
-              />
-              <stop
-                offset="100%"
-                :stop-color="colors.convertAccent"
-              />
-            </linearGradient>
-            <linearGradient
-              id="grad-pass"
-              x1="0%"
-              y1="0%"
-              x2="100%"
-              y2="100%"
-            >
-              <stop
-                offset="0%"
-                :stop-color="colors.brand"
-              />
-              <stop
-                offset="100%"
-                :stop-color="colors.passAccent"
-              />
-            </linearGradient>
-            <!-- Soft glow filter for the tracks themselves -->
-            <filter
-              id="glow-track"
-              x="-20%"
-              y="-20%"
-              width="140%"
-              height="140%"
-            >
-              <feGaussianBlur
-                stdDeviation="3"
-                result="blur"
-              />
-              <feComposite
-                in="SourceGraphic"
-                in2="blur"
-                operator="over"
-              />
-            </filter>
-          </defs>
-
-          <!-- The Base Tracks (Ghost Rivers) -->
+          <!-- Track lines -->
           <g
-            :stroke="colors.trackMain"
-            stroke-width="2"
+            :stroke="colors.track"
+            stroke-width="1.5"
             fill="none"
             stroke-linecap="round"
           >
-            
-            <!-- Ingress Tributaries: 3 Clients -> 1 Core -->
-            <!-- Starting X: 220 (clients), Ending X: 380 (core) -->
+            <!-- Sources (Y=60) -> merge at Gateway top (Y=78) -> dashed box top (Y=88) -->
             <path
-              id="flow-in-1"
-              d="M 220 180 C 300 180, 270 300, 380 300"
+              id="f-in-1"
+              d="M 188 60 L 188 66 C 188 72, 380 72, 380 78 L 380 88"
             />
             <path
-              id="flow-in-2"
-              d="M 220 300 L 380 300"
+              id="f-in-2"
+              d="M 380 60 L 380 88"
             />
             <path
-              id="flow-in-3"
-              d="M 220 420 C 300 420, 270 300, 380 300"
+              id="f-in-3"
+              d="M 572 60 L 572 66 C 572 72, 380 72, 380 78 L 380 88"
             />
-            
-            <!-- Egress Delta: Core -> 2 Flow Engines -->
-            <!-- Starting X: 580 (core), Ending X: 750 (engines) -->
-            <!-- Beautiful fluid Bezier splits -->
+            <!-- Route dot (Y=200) -> Engine cards top (Y=230) -->
             <path
-              id="flow-out-top"
-              d="M 580 300 C 650 300, 650 200, 750 200"
+              id="f-sL"
+              d="M 380 200 C 380 214, 188 214, 188 230"
             />
             <path
-              id="flow-out-bot"
-              d="M 580 300 C 650 300, 650 400, 750 400"
-            />
-
-            <!-- To the Cloud Delta: Processors -> Destinations -->
-            <!-- Starting X: 950 (engines), Ending X: 1100 (destinations) -->
-            
-            <!-- From Purple Mapping Engine -->
-            <path
-              id="flow-cloud-1"
-              d="M 950 200 C 1030 200, 1030 140, 1100 140"
+              id="f-sM"
+              d="M 380 200 L 380 230"
             />
             <path
-              id="flow-cloud-2"
-              d="M 950 200 C 1020 200, 1020 200, 1100 200"
+              id="f-sR"
+              d="M 380 200 C 380 214, 572 214, 572 230"
+            />
+            <!-- Engine bottom (Y=258) -> merge/exit node at Gateway bottom (Y=318) -->
+            <path
+              id="f-oL"
+              d="M 188 258 L 188 264 C 188 292, 380 292, 380 318"
             />
             <path
-              id="flow-cloud-3"
-              d="M 950 200 C 1030 200, 1030 260, 1100 260"
-            />
-
-            <!-- From Blue Passthrough Engine -->
-            <path
-              id="flow-proxy-1"
-              d="M 950 400 C 1030 400, 1030 360, 1100 360"
+              id="f-oM"
+              d="M 380 258 L 380 318"
             />
             <path
-              id="flow-proxy-2"
-              d="M 950 400 C 1030 400, 1030 420, 1100 420"
+              id="f-oR"
+              d="M 572 258 L 572 264 C 572 292, 380 292, 380 318"
+            />
+            <!-- Merge/exit node at Gateway bottom (Y=318) -> output pills top (Y=360) -->
+            <path
+              id="f-oL2"
+              d="M 380 318 C 380 338, 188 338, 188 360"
             />
             <path
-              id="flow-proxy-3"
-              d="M 950 400 C 1030 400, 1030 480, 1100 480"
+              id="f-oM2"
+              d="M 380 318 L 380 360"
+            />
+            <path
+              id="f-oR2"
+              d="M 380 318 C 380 338, 572 338, 572 360"
             />
           </g>
-
-          <!-- The Majestic Return Arch (Response Loop) -->
-          <g
-            :stroke="colors.returnAccent"
-            stroke-width="2"
-            fill="none"
-            opacity="0.25"
-          >
-            <path
-              id="flow-return"
-              d="M 1150 510 C 1150 630, 950 640, 600 640 C 250 640, 120 600, 120 480"
-            />
-          </g>
-
-          <!-- ==================== GLOWING DATA PACKET ANIMATIONS ==================== -->
-          <!-- We use slightly larger, softer glowing circles to emphasize the "fluid" nature -->
-          
-          <g style="filter: drop-shadow(0 0 8px currentColor)">
-            <!-- Ingress Flow -->
+          <!-- Animated dots -->
+          <g>
+            <!-- Sources -> dashed box top (curves only, ~220px each, ~100px/s) -->
             <circle
-              r="4"
+              r="2.5"
               :fill="colors.brand"
-            >
-              <animateMotion
-                dur="2.2s"
-                repeatCount="indefinite"
-                keyPoints="0;1"
-                keyTimes="0;1"
-                calcMode="spline"
-                keySplines="0.4 0 0.2 1"
-              ><mpath href="#flow-in-1" /></animateMotion>
-            </circle>
-            <circle
-              r="4"
-              :fill="colors.brand"
-            >
-              <animateMotion
-                dur="1.8s"
-                begin="0.5s"
-                repeatCount="indefinite"
-                keyPoints="0;1"
-                keyTimes="0;1"
-                calcMode="spline"
-                keySplines="0.4 0 0.2 1"
-              ><mpath href="#flow-in-2" /></animateMotion>
-            </circle>
-            <circle
-              r="4"
-              :fill="colors.brand"
-            >
-              <animateMotion
-                dur="2.4s"
-                begin="0.2s"
-                repeatCount="indefinite"
-                keyPoints="0;1"
-                keyTimes="0;1"
-                calcMode="spline"
-                keySplines="0.4 0 0.2 1"
-              ><mpath href="#flow-in-3" /></animateMotion>
-            </circle>
-
-            <!-- Delta Splits (Using gradients) -->
-            <circle
-              r="4.5"
-              :fill="colors.convertAccent"
-            >
-              <animateMotion
-                dur="2s"
-                repeatCount="indefinite"
-                keyPoints="0;1"
-                keyTimes="0;1"
-                calcMode="spline"
-                keySplines="0.4 0 0.2 1"
-              ><mpath href="#flow-out-top" /></animateMotion>
-            </circle>
-            <circle
-              r="4.5"
-              :fill="colors.passAccent"
-            >
-              <!-- Make this packet slightly pulsing -->
-              <animate
-                attributeName="r"
-                values="4;5;4"
-                dur="1s"
-                repeatCount="indefinite"
-              />
-              <animateMotion
-                dur="2.1s"
-                begin="0.8s"
-                repeatCount="indefinite"
-                keyPoints="0;1"
-                keyTimes="0;1"
-                calcMode="spline"
-                keySplines="0.4 0 0.2 1"
-              ><mpath href="#flow-out-bot" /></animateMotion>
-            </circle>
-
-            <!-- Cloud Destiny -->
-            <circle
-              r="3.5"
-              :fill="colors.convertAccent"
-            >
-              <animateMotion
-                dur="1.5s"
-                repeatCount="indefinite"
-                keyPoints="0;1"
-                keyTimes="0;1"
-                calcMode="spline"
-                keySplines="0.4 0 0.2 1"
-              ><mpath href="#flow-cloud-1" /></animateMotion>
-            </circle>
-            <circle
-              r="3.5"
-              :fill="colors.convertAccent"
-            >
-              <animateMotion
-                dur="1.4s"
-                begin="0.4s"
-                repeatCount="indefinite"
-                keyPoints="0;1"
-                keyTimes="0;1"
-                calcMode="spline"
-                keySplines="0.4 0 0.2 1"
-              ><mpath href="#flow-cloud-3" /></animateMotion>
-            </circle>
-            <circle
-              r="3.5"
-              :fill="colors.passAccent"
-            >
-              <animateMotion
-                dur="1.6s"
-                repeatCount="indefinite"
-                keyPoints="0;1"
-                keyTimes="0;1"
-                calcMode="spline"
-                keySplines="0.4 0 0.2 1"
-              ><mpath href="#flow-proxy-1" /></animateMotion>
-            </circle>
-            <circle
-              r="3.5"
-              :fill="colors.passAccent"
-            >
-              <animateMotion
-                dur="1.5s"
-                begin="0.7s"
-                repeatCount="indefinite"
-                keyPoints="0;1"
-                keyTimes="0;1"
-                calcMode="spline"
-                keySplines="0.4 0 0.2 1"
-              ><mpath href="#flow-proxy-3" /></animateMotion>
-            </circle>
-          </g>
-
-          <!-- Return Path Slow Comets -->
-          <circle
-            r="5"
-            :fill="colors.returnAccent"
-            style="filter: drop-shadow(0 0 10px currentColor)"
-          >
-            <animateMotion
-              dur="6s"
+            ><animateMotion
+              dur="2.2s"
               repeatCount="indefinite"
-            ><mpath href="#flow-return" /></animateMotion>
-          </circle>
-          <circle
-            r="5"
-            :fill="colors.returnAccent"
-            style="filter: drop-shadow(0 0 10px currentColor)"
-          >
-            <animateMotion
-              dur="6s"
-              begin="3s"
+            ><mpath href="#f-in-1" /></animateMotion></circle>
+            <circle
+              r="2.5"
+              :fill="colors.brand"
+            ><animateMotion
+              dur="2.2s"
               repeatCount="indefinite"
-            ><mpath href="#flow-return" /></animateMotion>
-          </circle>
-
+            ><mpath href="#f-in-3" /></animateMotion></circle>
+            <!-- Route -> Engines (curves only, ~210px each) -->
+            <circle
+              r="2.5"
+              :fill="colors.brand"
+            ><animateMotion
+              dur="1.2s"
+              repeatCount="indefinite"
+            ><mpath href="#f-sL" /></animateMotion></circle>
+            <circle
+              r="2.5"
+              :fill="colors.brand"
+            ><animateMotion
+              dur="1.2s"
+              repeatCount="indefinite"
+            ><mpath href="#f-sR" /></animateMotion></circle>
+            <!-- Engines -> merge/exit node (curves only, ~260px each) -->
+            <circle
+              r="2.5"
+              :fill="colors.brand"
+            ><animateMotion
+              dur="1.6s"
+              repeatCount="indefinite"
+            ><mpath href="#f-oL" /></animateMotion></circle>
+            <circle
+              r="2.5"
+              :fill="colors.brand"
+            ><animateMotion
+              dur="1.6s"
+              repeatCount="indefinite"
+            ><mpath href="#f-oR" /></animateMotion></circle>
+            <!-- Exit -> outputs (curves only, ~210px each) -->
+            <circle
+              r="2.5"
+              :fill="colors.brand"
+            ><animateMotion
+              dur="1.2s"
+              repeatCount="indefinite"
+            ><mpath href="#f-oL2" /></animateMotion></circle>
+            <circle
+              r="2.5"
+              :fill="colors.brand"
+            ><animateMotion
+              dur="1.2s"
+              repeatCount="indefinite"
+            ><mpath href="#f-oR2" /></animateMotion></circle>
+          </g>
         </svg>
 
-        <!-- ========================================================================= -->
-        <!-- FREE FLOATING HTML NODES                                                  -->
-        <!-- Beautifully positioned to align exactly with the ends of the SVG rivers   -->
-        <!-- ========================================================================= -->
-        
-        <!-- 1. INGRESS CLIENTS -->
-        <div class="absolute left-10 top-[160px] flex flex-col gap-[80px] z-10 w-[140px]">
-          <div class="absolute -top-[45px] font-sans text-[11px] font-bold tracking-[0.2em] uppercase opacity-40 ml-4 flex gap-2 items-center">
+        <!-- SOURCES label -->
+        <div class="absolute w-full top-[8px] flex justify-center items-center gap-1.5 z-10">
+          <div
+            class="w-1 h-1 rounded-full"
+            :style="{ backgroundColor: colors.textMuted }"
+          />
+          <span
+            class="font-sans text-[9px] font-extrabold tracking-[0.2em] uppercase"
+            :style="{ color: colors.textMuted }"
+          >SOURCES</span>
+        </div>
+
+        <!-- Source pills: top=24, h=36, centerY=42 -->
+        <!-- Anthropic: center X=188, w=100 => left=138 -->
+        <!-- OpenAI:    center X=380, w=100 => left=330 -->
+        <!-- Google:    center X=572, w=100 => left=522 -->
+        <div class="absolute w-full top-[24px] z-10">
+          <div
+            class="absolute left-[138px] w-[100px] h-[36px] rounded-full flex items-center justify-center gap-2 transition-transform hover:-translate-y-0.5 cursor-pointer"
+            :style="{ backgroundColor: colors.cardBg, border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.sm }"
+          >
             <div
               class="w-1.5 h-1.5 rounded-full"
-              :style="{ backgroundColor: colors.textMuted }"
-            />Sources
-          </div>
-          <!-- Nodes -->
-          <div
-            class="h-[40px] rounded-xl flex items-center px-4 gap-3 bg-white dark:bg-[#121212] transition-transform hover:-translate-y-1 cursor-pointer"
-            :style="{ border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.node }"
-          >
-            <div
-              class="w-2 h-2 rounded-full"
               :style="{ backgroundColor: colors.brand }"
             />
             <span
-              class="font-sans text-[12px] font-semibold tracking-wide"
+              class="font-sans text-[11px] font-bold"
               :style="{ color: colors.textMain }"
-            >Claude</span>
+            >Anthropic</span>
           </div>
           <div
-            class="h-[40px] rounded-xl flex items-center px-4 gap-3 bg-white dark:bg-[#121212] transition-transform hover:-translate-y-1 cursor-pointer"
-            :style="{ border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.node }"
+            class="absolute left-[330px] w-[100px] h-[36px] rounded-full flex items-center justify-center gap-2 transition-transform hover:-translate-y-0.5 cursor-pointer"
+            :style="{ backgroundColor: colors.cardBg, border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.sm }"
           >
             <div
-              class="w-2 h-2 rounded-full"
+              class="w-1.5 h-1.5 rounded-full"
               :style="{ backgroundColor: colors.brand }"
             />
             <span
-              class="font-sans text-[12px] font-semibold tracking-wide"
+              class="font-sans text-[11px] font-bold"
               :style="{ color: colors.textMain }"
             >OpenAI</span>
           </div>
           <div
-            class="h-[40px] rounded-xl flex items-center px-4 gap-3 bg-white dark:bg-[#121212] transition-transform hover:-translate-y-1 cursor-pointer"
-            :style="{ border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.node }"
+            class="absolute left-[522px] w-[100px] h-[36px] rounded-full flex items-center justify-center gap-2 transition-transform hover:-translate-y-0.5 cursor-pointer"
+            :style="{ backgroundColor: colors.cardBg, border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.sm }"
           >
             <div
-              class="w-2 h-2 rounded-full"
+              class="w-1.5 h-1.5 rounded-full"
               :style="{ backgroundColor: colors.brand }"
             />
             <span
-              class="font-sans text-[12px] font-semibold tracking-wide"
+              class="font-sans text-[11px] font-bold"
               :style="{ color: colors.textMain }"
-            >Gemini</span>
+            >Google</span>
           </div>
         </div>
 
-
-        <!-- 2. THE AETHER NEXUS (Core Gateway) -->
-        <!-- Perfectly centered vertically. Y anchors to 300px -->
+        <!-- AETHER GATEWAY: top=78, h=240, w=600, left=80 -->
         <div
-          class="absolute left-[380px] top-[140px] w-[200px] rounded-[24px] py-8 px-5 z-20 flex flex-col items-center transition-transform hover:scale-[1.02]"
-          :style="{ backgroundColor: colors.coreBg, border: `1px solid ${colors.coreBorder}`, boxShadow: `${shadows.node}, ${shadows.coreGlow}` }"
+          class="absolute left-[80px] top-[78px] w-[600px] h-[240px] rounded-[24px] z-20"
+          :style="{ backgroundColor: colors.cardBg, border: `1px solid ${colors.coreBorder}`, boxShadow: shadows.lg }"
         >
           <div
-            class="absolute -top-3.5 px-3 py-0.5 rounded-full shadow-sm bg-white dark:bg-[#111] text-[10px] font-bold tracking-[0.2em] font-sans" 
-            :style="{ color: colors.brand, border: `1px solid ${colors.cardBorder}` }"
+            class="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center gap-px px-[4px] py-1.5 rounded-full font-sans text-[7px] font-black leading-none"
+            :style="{ backgroundColor: colors.cardBg, color: colors.brand }"
           >
-            AETHER
+            <span>A</span><span>E</span><span>T</span><span>H</span><span>E</span><span>R</span>
           </div>
-           
-          <h3 class="text-xl font-bold font-sans tracking-[0.1em] mb-8 text-transparent bg-clip-text bg-gradient-to-r from-neutral-800 to-neutral-400 dark:from-white dark:to-neutral-500">
-            GATEWAY
-          </h3>
+        </div>
 
-          <!-- Internal Micro-Pills -->
-          <div class="flex flex-col gap-2.5 w-full">
+        <!-- Dashed box: abs positioned in outer 760x420 container -->
+        <!-- center X=380, w=400 => left=180. top=88, h=112 => bottom=200 -->
+        <div
+          class="absolute left-[180px] top-[88px] w-[400px] h-[112px] rounded-2xl flex flex-col items-center gap-1.5 px-5 py-[10px] z-20"
+          :style="{ border: `1.5px dashed ${colors.coreBorder}` }"
+        >
+          <div
+            class="w-full h-[26px] rounded-xl flex items-center justify-center font-sans text-[10px] font-semibold"
+            :style="{ border: `1px solid ${colors.cardBorder}`, color: colors.textMain }"
+          >
+            统一模型规范 / 协议聚合
+          </div>
+          <div class="w-full flex gap-2">
             <div
-              class="h-[32px] rounded-lg border-b flex items-center justify-center font-sans text-[10px] font-medium opacity-70"
-              :style="{ borderColor: colors.cardBorder, color: colors.textMain }"
+              class="flex-1 rounded-full flex items-center justify-center h-[26px] font-sans font-semibold text-[10px]"
+              :style="{ backgroundColor: colors.brandSoft, color: colors.textMain }"
             >
-              统一模型名 / 格式聚合
+              多端鉴权
             </div>
-              
-            <div class="flex gap-2">
-              <div
-                class="flex-1 rounded-lg flex items-center justify-center py-[7px] font-sans font-bold text-[10px] bg-black/[0.04] dark:bg-white/[0.04]"
-                :style="{ color: colors.textMain }"
-              >
-                鉴定
-              </div>
-              <div
-                class="flex-1 rounded-lg flex items-center justify-center py-[7px] font-sans font-bold text-[10px] bg-black/[0.04] dark:bg-white/[0.04]"
-                :style="{ color: colors.textMain }"
-              >
-                并发
-              </div>
-            </div>
-              
             <div
-              class="h-[36px] rounded-lg border flex items-center justify-center font-sans text-[10px] font-bold relative mt-2" 
-              :style="{ borderColor: colors.coreBorder, color: colors.textMain, backgroundColor: isDark ? 'rgba(212, 162, 127, 0.05)' : 'rgba(204, 120, 92, 0.03)' }"
+              class="flex-1 rounded-full flex items-center justify-center h-[26px] font-sans font-semibold text-[10px]"
+              :style="{ backgroundColor: colors.brandSoft, color: colors.textMain }"
             >
-              智能分发引擎
-              <div
-                class="absolute -right-[5px] w-2 h-2 rounded-full bg-current"
-                :style="{ color: colors.brand }"
-              />
+              配额管控
+            </div>
+            <div
+              class="flex-1 rounded-full flex items-center justify-center h-[26px] font-sans font-semibold text-[10px]"
+              :style="{ backgroundColor: colors.brandSoft, color: colors.textMain }"
+            >
+              全局并发
             </div>
           </div>
-        </div>
-
-
-        <!-- 3. EGRESS DELTA ENGINES -->
-        <!-- Y perfectly aligned to the flow-out-top (y=200) and flow-out-bot (y=400) -->
-        
-        <!-- Format Engine (Purple) -->
-        <div
-          class="absolute left-[750px] top-[165px] w-[200px] h-[70px] rounded-2xl flex flex-col justify-center px-6 z-10 transition-transform hover:-translate-y-1 cursor-pointer"
-          :style="{ backgroundColor: colors.cardBg, border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.node }"
-        >
           <div
-            class="absolute -left-1 w-2 h-6 rounded-full"
-            :style="{ backgroundColor: colors.convertAccent }"
-          />
-          <span
-            class="font-sans text-[14px] font-bold tracking-wide flex items-center gap-2 mb-1"
-            :style="{ color: colors.textMain }"
-          >格式转换流 <div
-            class="w-1.5 h-1.5 rounded-full animate-pulse"
-            :style="{ backgroundColor: colors.convertAccent }"
-          /></span>
-          <span
-            class="font-sans text-[9px] opacity-50"
-            :style="{ color: colors.textMain }"
-          >双向翻译协议与模型还原</span>
-        </div>
-
-        <!-- Passthrough Engine (Blue) -->
-        <div
-          class="absolute left-[750px] top-[365px] w-[200px] h-[70px] rounded-2xl flex flex-col justify-center px-6 z-10 transition-transform hover:-translate-y-1 cursor-pointer border-dashed"
-          :style="{ backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: '2px', boxShadow: shadows.node }"
-        >
-          <div
-            class="absolute -left-1.5 w-2.5 h-6 rounded-full border-2 bg-transparent"
-            :style="{ borderColor: colors.passAccent }"
-          />
-          <span
-            class="font-sans text-[14px] font-bold tracking-wide flex items-center gap-2 mb-1"
-            :style="{ color: colors.passAccent }"
-          >原生直通管道</span>
-          <span
-            class="font-sans text-[9px] opacity-60"
-            :style="{ color: colors.textMain }"
-          >同源生态双向超低延迟透传</span>
-        </div>
-
-
-        <!-- 4. UPSTREAM CLOUDS & PROXIES -->
-        
-        <!-- Standard Cloud Targets (Top Flow: Y=140, 200, 260) -->
-        <div class="absolute left-[1100px] top-[120px] flex flex-col gap-[20px] w-[140px] z-10">
-          <div
-            class="absolute -top-[30px] font-sans text-[11px] font-bold tracking-[0.2em] uppercase"
-            :style="{ color: colors.convertAccent }"
+            class="w-full h-[28px] rounded-xl flex items-center justify-center font-sans text-[10px] font-bold"
+            :style="{ border: `1px solid ${colors.coreBorder}`, color: colors.textMain, backgroundColor: colors.brandSoft }"
           >
-            Providers
+            分布式智能路由抉择
           </div>
-           
+        </div>
+
+        <!-- Engine cards: bar style matching feature bars, w=170, h=28 -->
+        <div
+          class="absolute left-[103px] top-[230px] w-[170px] h-[28px] rounded-full flex items-center justify-center gap-1.5 z-20"
+          :style="{ backgroundColor: colors.brandSoft, border: `1px solid ${colors.cardBorder}` }"
+        >
           <div
-            class="h-[40px] rounded-xl flex items-center justify-between px-4 bg-white dark:bg-[#121212] transition-all hover:ring-2 hover:ring-purple-500/30"
-            :style="{ border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.node }"
+            class="w-1.5 h-1.5 rounded-full"
+            :style="{ backgroundColor: colors.brand }"
+          />
+          <span
+            class="font-sans text-[10px] font-bold"
+            :style="{ color: colors.textMain }"
+          >格式转换</span>
+        </div>
+        <div
+          class="absolute left-[295px] top-[230px] w-[170px] h-[28px] rounded-full flex items-center justify-center gap-1.5 z-20"
+          :style="{ backgroundColor: colors.brandSoft, border: `1px solid ${colors.cardBorder}` }"
+        >
+          <div
+            class="w-1.5 h-1.5 rounded-full"
+            :style="{ backgroundColor: colors.brand }"
+          />
+          <span
+            class="font-sans text-[10px] font-bold"
+            :style="{ color: colors.textMain }"
+          >反向代理</span>
+        </div>
+        <div
+          class="absolute left-[487px] top-[230px] w-[170px] h-[28px] rounded-full flex items-center justify-center gap-1.5 z-20"
+          :style="{ backgroundColor: colors.brandSoft, border: `1px solid ${colors.cardBorder}` }"
+        >
+          <div
+            class="w-1.5 h-1.5 rounded-full"
+            :style="{ backgroundColor: colors.brand }"
+          />
+          <span
+            class="font-sans text-[10px] font-bold"
+            :style="{ color: colors.textMain }"
+          >原生直通</span>
+        </div>
+
+        <!-- Junction dots (z-40, above SVG lines) -->
+        <!-- Gateway top merge: center (380, 78) — 3 sources merge here -->
+        <div
+          class="absolute left-[376px] top-[74px] w-2 h-2 rounded-full border border-white dark:border-[#1e1e1e] z-40"
+          :style="{ backgroundColor: colors.brand }"
+        />
+        <!-- Route node: center (380, 200) — 1 diverges to 3 engines -->
+        <div
+          class="absolute left-[376px] top-[196px] w-2 h-2 rounded-full border border-white dark:border-[#1e1e1e] z-40"
+          :style="{ backgroundColor: colors.brand }"
+        />
+        <!-- Merge/exit node: center (380, 318) at Gateway bottom border -->
+        <div
+          class="absolute left-[376px] top-[314px] w-2 h-2 rounded-full border border-white dark:border-[#1e1e1e] z-40"
+          :style="{ backgroundColor: colors.brand }"
+        />
+
+        <!-- OUTPUTS label -->
+        <div class="absolute w-full top-[342px] flex justify-center items-center gap-1.5 z-10">
+          <div
+            class="w-1 h-1 rounded-full"
+            :style="{ backgroundColor: colors.textMuted }"
+          />
+          <span
+            class="font-sans text-[9px] font-extrabold tracking-[0.2em] uppercase"
+            :style="{ color: colors.textMuted }"
+          >OUTPUTS</span>
+        </div>
+
+        <!-- Output pills: top=360, h=36 -->
+        <!-- Anthropic: center X=188, w=120 => left=128 -->
+        <!-- OpenAI:    center X=380, w=120 => left=320 -->
+        <!-- Google:    center X=572, w=120 => left=512 -->
+        <div class="absolute w-full top-[360px] z-10">
+          <div
+            class="absolute left-[128px] w-[120px] h-[36px] rounded-full flex items-center justify-center gap-2"
+            :style="{ backgroundColor: colors.cardBg, border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.sm }"
           >
-            <span
-              class="font-sans text-[12px] font-semibold tracking-wide"
-              :style="{ color: colors.textMain }"
-            >Claude</span>
             <div
               class="w-1.5 h-1.5 rounded-full"
-              :style="{ backgroundColor: colors.textMuted }"
+              :style="{ backgroundColor: colors.brand }"
             />
+            <span
+              class="font-sans text-[10px] font-bold"
+              :style="{ color: colors.textMain }"
+            >Anthropic 响应</span>
           </div>
           <div
-            class="h-[40px] rounded-xl flex items-center justify-between px-4 bg-white dark:bg-[#121212] transition-all hover:ring-2 hover:ring-purple-500/30"
-            :style="{ border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.node }"
+            class="absolute left-[320px] w-[120px] h-[36px] rounded-full flex items-center justify-center gap-2"
+            :style="{ backgroundColor: colors.cardBg, border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.sm }"
           >
-            <span
-              class="font-sans text-[12px] font-semibold tracking-wide"
-              :style="{ color: colors.textMain }"
-            >OpenAI</span>
             <div
               class="w-1.5 h-1.5 rounded-full"
-              :style="{ backgroundColor: colors.textMuted }"
+              :style="{ backgroundColor: colors.brand }"
             />
+            <span
+              class="font-sans text-[10px] font-bold"
+              :style="{ color: colors.textMain }"
+            >OpenAI 响应</span>
           </div>
           <div
-            class="h-[40px] rounded-xl flex items-center justify-between px-4 bg-white dark:bg-[#121212] transition-all hover:ring-2 hover:ring-purple-500/30"
-            :style="{ border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.node }"
+            class="absolute left-[512px] w-[120px] h-[36px] rounded-full flex items-center justify-center gap-2"
+            :style="{ backgroundColor: colors.cardBg, border: `1px solid ${colors.cardBorder}`, boxShadow: shadows.sm }"
           >
-            <span
-              class="font-sans text-[12px] font-semibold tracking-wide"
-              :style="{ color: colors.textMain }"
-            >Gemini</span>
             <div
               class="w-1.5 h-1.5 rounded-full"
-              :style="{ backgroundColor: colors.textMuted }"
+              :style="{ backgroundColor: colors.brand }"
             />
-          </div>
-        </div>
-
-        <!-- Proxy Targets (Bottom Flow: Y=360, 420, 480) -->
-        <div class="absolute left-[1100px] top-[340px] flex flex-col gap-[20px] w-[140px] z-10">
-          <div
-            class="absolute -top-[30px] font-sans text-[11px] font-bold tracking-[0.2em] uppercase"
-            :style="{ color: colors.passAccent }"
-          >
-            Proxies
-          </div>
-           
-          <div
-            class="h-[40px] rounded-xl flex items-center justify-between px-4 bg-white dark:bg-[#121212] transition-all hover:ring-2 hover:ring-blue-500/30"
-            :style="{ border: `1px dashed ${colors.cardBorder}`, boxShadow: shadows.node }"
-          >
             <span
-              class="font-sans text-[12px] font-semibold tracking-wide"
+              class="font-sans text-[10px] font-bold"
               :style="{ color: colors.textMain }"
-            >Codex</span>
-          </div>
-          <div
-            class="h-[40px] rounded-xl flex items-center justify-between px-4 bg-white dark:bg-[#121212] transition-all hover:ring-2 hover:ring-blue-500/30"
-            :style="{ border: `1px dashed ${colors.cardBorder}`, boxShadow: shadows.node }"
-          >
-            <span
-              class="font-sans text-[12px] font-semibold tracking-wide"
-              :style="{ color: colors.textMain }"
-            >Kiro</span>
-          </div>
-          <div
-            class="h-[40px] rounded-xl flex items-center justify-between px-4 bg-white dark:bg-[#121212] transition-all hover:ring-2 hover:ring-blue-500/30"
-            :style="{ border: `1px dashed ${colors.cardBorder}`, boxShadow: shadows.node }"
-          >
-            <span
-              class="font-sans text-[12px] font-semibold tracking-wide"
-              :style="{ color: colors.textMain }"
-            >Antigrav</span>
-          </div>
-        </div>
-
-
-        <!-- 5. THE ORGANIC RETURN LOOP OVERLAYS -->
-        <!-- Floating labels sitting precisely on the huge bottom elliptic sweep -->
-        
-        <!-- Left anchor label -->
-        <div
-          class="absolute left-[120px] bottom-[20px] bg-white/80 dark:bg-black/60 backdrop-blur-md px-4 py-2 rounded-2xl border" 
-          :style="{ borderColor: colors.cardBorder, color: colors.returnAccent, boxShadow: shadows.node }"
-        >
-          <div class="font-sans text-[10px] font-bold tracking-wide flex items-center gap-2">
-            <svg
-              class="w-3 h-3"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            ><polyline points="15 18 9 12 15 6" /></svg>返回兼容格式响应
-          </div>
-        </div>
-
-        <!-- Center massive anchor -->
-        <div
-          class="absolute left-[540px] bottom-[15px] bg-white dark:bg-[#121212] px-6 py-2.5 rounded-full border-2 flex items-center gap-4 z-20 cursor-default" 
-          :style="{ borderColor: colors.returnAccent, boxShadow: shadows.node }"
-        >
-          <div
-            class="w-2.5 h-2.5 rounded-full animate-ping absolute"
-            :style="{ backgroundColor: colors.returnAccent, opacity: 0.4 }"
-          />
-          <div
-            class="w-2.5 h-2.5 rounded-full relative"
-            :style="{ backgroundColor: colors.returnAccent }"
-          />
-          <div class="flex flex-col">
-            <span
-              class="font-sans text-[13px] font-bold tracking-widest uppercase"
-              :style="{ color: colors.returnAccent }"
-            >Response Loop</span>
-            <span
-              class="font-sans text-[10px] font-semibold opacity-60 mt-0.5"
-              :style="{ color: colors.textMain }"
-            >响应逆向格式转换 / 上游模型实体还原</span>
-          </div>
-        </div>
-
-        <!-- Right anchor label -->
-        <div
-          class="absolute right-[120px] bottom-[90px] bg-white/80 dark:bg-black/60 backdrop-blur-md px-4 py-2 rounded-2xl border" 
-          :style="{ borderColor: colors.cardBorder, color: colors.returnAccent, boxShadow: shadows.node }"
-        >
-          <div class="font-sans text-[10px] font-bold tracking-wide flex items-center gap-2">
-            拉取上游原始流端<svg
-              class="w-3 h-3"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            ><polyline points="9 18 15 12 9 6" /></svg>
+            >Google 响应</span>
           </div>
         </div>
       </div>
@@ -685,22 +468,5 @@ const shadows = computed(() => {
 </template>
 
 <style scoped>
-.font-sans {
-  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-/* Custom horizontal scrollbar for tight spaces */
-.custom-scrollbar::-webkit-scrollbar {
-  height: 6px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(150, 150, 150, 0.2);
-  border-radius: 20px;
-}
-.custom-scrollbar:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(150, 150, 150, 0.4);
-}
+.font-sans { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
 </style>
