@@ -155,6 +155,26 @@ class SystemConfigService:
             "value": 1,
             "description": "用户配额重置周期（天数）",
         },
+        "enable_standalone_key_quota_reset": {
+            "value": False,
+            "description": "是否启用独立密钥额度自动重置任务（按配置时间触发，按周期执行）",
+        },
+        "standalone_key_quota_reset_time": {
+            "value": "05:00",
+            "description": "独立密钥额度自动重置执行时间（HH:MM 格式，24小时制）",
+        },
+        "standalone_key_quota_reset_interval_days": {
+            "value": 1,
+            "description": "独立密钥额度重置周期（天数）",
+        },
+        "standalone_key_quota_reset_mode": {
+            "value": "all",
+            "description": "独立密钥额度重置模式：all(全部独立密钥) 或 selected(指定密钥)",
+        },
+        "standalone_key_quota_reset_key_ids": {
+            "value": [],
+            "description": "独立密钥额度重置指定的密钥 ID 列表（仅 mode=selected 时生效）",
+        },
         "provider_priority_mode": {
             "value": "provider",
             "description": "优先级策略：provider(提供商优先模式) 或 global_key(全局Key优先模式)",

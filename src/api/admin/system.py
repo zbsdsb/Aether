@@ -684,6 +684,16 @@ class AdminSetSystemConfigAdapter(AdminApiAdapter):
             except Exception as e:
                 logger.warning(f"更新用户配额重置任务时间失败: {e}")
 
+        # 如果更新的是独立密钥额度重置任务时间，动态更新调度器
+        if self.key == "standalone_key_quota_reset_time" and value:
+            try:
+                from src.services.system.maintenance_scheduler import get_maintenance_scheduler
+
+                scheduler = get_maintenance_scheduler()
+                scheduler.update_standalone_key_quota_reset_time(value)
+            except Exception as e:
+                logger.warning(f"更新独立密钥额度重置任务时间失败: {e}")
+
         # 如果更新的是调度模式或优先级模式，立即更新当前 Worker 的 Scheduler 单例
         if self.key in ("scheduling_mode", "provider_priority_mode"):
             try:
@@ -2444,9 +2454,7 @@ class AdminPurgeUsersAdapter(AdminApiAdapter):
 
         db = context.db
 
-        user_ids = [
-            uid for (uid,) in db.query(User.id).filter(User.role != UserRole.ADMIN).all()
-        ]
+        user_ids = [uid for (uid,) in db.query(User.id).filter(User.role != UserRole.ADMIN).all()]
         users_count = len(user_ids)
 
         if user_ids:

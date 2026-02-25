@@ -518,6 +518,14 @@ export const adminApi = {
     return response.data
   },
 
+  // 重置独立余额Key的已使用额度
+  async resetApiKeyUsage(keyId: string): Promise<AdminApiKey & { message: string }> {
+    const response = await apiClient.patch<AdminApiKey & { message: string }>(
+      `/api/admin/api-keys/${keyId}/reset-usage`
+    )
+    return response.data
+  },
+
   // 获取API密钥详情（可选包含完整密钥）
   async getApiKeyDetail(keyId: string, includeKey: boolean = false): Promise<AdminApiKey & { key?: string }> {
     const response = await apiClient.get<AdminApiKey & { key?: string }>(

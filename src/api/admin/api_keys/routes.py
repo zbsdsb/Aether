@@ -292,6 +292,26 @@ async def add_balance_to_key(
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
+@router.patch("/{key_id}/reset-usage")
+async def reset_api_key_usage(key_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+    """
+    重置独立余额 API Key 的已使用额度
+
+    将 balance_used_usd 重置为 0，不改变 current_balance_usd。
+
+    **路径参数**:
+    - `key_id`: API Key ID
+
+    **返回字段**:
+    - `id`: API Key ID
+    - `current_balance_usd`: 当前余额
+    - `balance_used_usd`: 已使用余额（重置后为 0）
+    - `message`: 提示信息
+    """
+    adapter = AdminResetKeyUsageAdapter(key_id=key_id)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
 @router.get("/{key_id}")
 async def get_api_key_detail(
     key_id: str,
@@ -660,6 +680,48 @@ class AdminAddBalanceAdapter(AdminApiAdapter):
             "current_balance_usd": updated_key.current_balance_usd,
             "balance_used_usd": float(updated_key.balance_used_usd or 0),
             "message": f"余额充值成功，充值 ${self.amount_usd:.2f}，当前余额 ${updated_key.current_balance_usd:.2f}",
+        }
+
+
+class AdminResetKeyUsageAdapter(AdminApiAdapter):
+    """重置独立余额Key的已使用额度"""
+
+    def __init__(self, key_id: str):
+        self.key_id = key_id
+
+    async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
+        db = context.db
+        api_key = db.query(ApiKey).filter(ApiKey.id == self.key_id).first()
+        if not api_key:
+            raise NotFoundException("API密钥不存在", "api_key")
+
+        if not api_key.is_standalone:
+            raise InvalidRequestException("只能重置独立余额Key的使用额度")
+
+        previous_used = float(api_key.balance_used_usd or 0)
+        api_key.balance_used_usd = 0.0
+        api_key.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(api_key)
+
+        logger.info(
+            f"管理员重置独立余额Key使用额度: Key ID {self.key_id}, "
+            f"重置前已使用 ${previous_used:.4f}"
+        )
+
+        context.add_audit_metadata(
+            action="reset_key_usage",
+            key_id=self.key_id,
+            current_balance_usd=api_key.current_balance_usd,
+            previous_balance_used_usd=previous_used,
+        )
+
+        return {
+            "id": api_key.id,
+            "name": api_key.name,
+            "current_balance_usd": api_key.current_balance_usd,
+            "balance_used_usd": 0.0,
+            "message": "使用额度已重置",
         }
 
 

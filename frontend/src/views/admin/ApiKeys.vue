@@ -283,6 +283,15 @@
                       variant="ghost"
                       size="icon"
                       class="h-8 w-8"
+                      title="重置额度"
+                      @click="resetKeyUsage(apiKey)"
+                    >
+                      <RotateCcw class="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-8 w-8"
                       :title="apiKey.is_locked ? '解锁' : '锁定'"
                       @click="toggleLockApiKey(apiKey)"
                     >
@@ -479,6 +488,15 @@
                 >
                   <DollarSign class="h-3.5 w-3.5 mr-1.5" />
                   调整
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="text-amber-600"
+                  @click="resetKeyUsage(apiKey)"
+                >
+                  <RotateCcw class="h-3.5 w-3.5 mr-1.5" />
+                  重置
                 </Button>
                 <Button
                   variant="outline"
@@ -727,7 +745,8 @@ import {
   SquarePen,
   Search,
   Lock,
-  LockOpen
+  LockOpen,
+  RotateCcw
 } from 'lucide-vue-next'
 
 import { StandaloneKeyFormDialog, type StandaloneKeyFormData } from '@/features/api-keys'
@@ -968,6 +987,23 @@ async function handleAddBalance() {
     error(parseApiError(err, '调整失败'))
   } finally {
     addingBalance.value = false
+  }
+}
+
+async function resetKeyUsage(apiKey: AdminApiKey) {
+  const confirmed = await confirmDanger(
+    `确定要重置此 Key 的已使用额度吗？\n\n${apiKey.name || apiKey.key_display || 'sk-****'}\n\n已使用额度将归零，当前余额不变。`,
+    '重置使用额度'
+  )
+  if (!confirmed) return
+
+  try {
+    const response = await adminApi.resetApiKeyUsage(apiKey.id)
+    await loadApiKeys()
+    success(response.message)
+  } catch (err: unknown) {
+    log.error('重置使用额度失败:', err)
+    error(parseApiError(err, '重置失败'))
   }
 }
 

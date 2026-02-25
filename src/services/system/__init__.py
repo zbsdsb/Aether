@@ -7,7 +7,6 @@
 from src.services.system.announcement import AnnouncementService
 from src.services.system.audit import AuditService
 from src.services.system.config import SystemConfigService
-from src.services.system.maintenance_scheduler import CleanupScheduler  # 兼容旧名称
 from src.services.system.maintenance_scheduler import (
     MaintenanceScheduler,
     get_maintenance_scheduler,
@@ -20,7 +19,6 @@ __all__ = [
     "AuditService",
     "AnnouncementService",
     "MaintenanceScheduler",
-    "CleanupScheduler",  # 兼容旧名称
     "get_maintenance_scheduler",
     "SyncStatsService",
     "TaskScheduler",

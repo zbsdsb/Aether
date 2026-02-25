@@ -38,6 +38,12 @@ export interface SystemConfig {
   user_quota_reset_time: string
   user_quota_reset_interval_days: number
   enable_oauth_token_refresh: boolean
+  // 独立密钥额度重置
+  enable_standalone_key_quota_reset: boolean
+  standalone_key_quota_reset_time: string
+  standalone_key_quota_reset_interval_days: number
+  standalone_key_quota_reset_mode: string
+  standalone_key_quota_reset_key_ids: string[]
 }
 
 const CONFIG_KEYS = [
@@ -74,6 +80,12 @@ const CONFIG_KEYS = [
   'user_quota_reset_time',
   'user_quota_reset_interval_days',
   'enable_oauth_token_refresh',
+  // 独立密钥额度重置
+  'enable_standalone_key_quota_reset',
+  'standalone_key_quota_reset_time',
+  'standalone_key_quota_reset_interval_days',
+  'standalone_key_quota_reset_mode',
+  'standalone_key_quota_reset_key_ids',
 ]
 
 function createDefaultConfig(): SystemConfig {
@@ -111,6 +123,12 @@ function createDefaultConfig(): SystemConfig {
     user_quota_reset_time: '05:00',
     user_quota_reset_interval_days: 1,
     enable_oauth_token_refresh: true,
+    // 独立密钥额度重置
+    enable_standalone_key_quota_reset: false,
+    standalone_key_quota_reset_time: '05:00',
+    standalone_key_quota_reset_interval_days: 1,
+    standalone_key_quota_reset_mode: 'all',
+    standalone_key_quota_reset_key_ids: [],
   }
 }
 
