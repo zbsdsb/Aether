@@ -14,9 +14,9 @@
 
 转换逻辑：
 1. 格式完全匹配 -> 透传（无需转换）
-2. 格式不同 -> 需要检查三层开关
-   - data_format_id 相同 -> 可透传（无需数据转换）
-   - data_format_id 不同 -> 需要转换，检查转换器能力
+2. data_format_id 相同 -> 透传（无需数据转换，如 claude:chat / claude:cli）
+3. 格式不同且 data_format_id 不同 -> 需要检查三层开关
+   - 通过开关检查后，检查转换器能力
 """
 
 from __future__ import annotations
@@ -78,20 +78,25 @@ def is_format_compatible(
     if provider_key == client_key:
         return True, False, None
 
-    # 2. 格式不同 -> 需要检查格式转换开关（分层开关）
+    # 2. data_format_id 相同 -> 透传（无需数据转换，也无需格式转换开关）
+    # 例如：claude:chat / claude:cli 的 data_format_id 都是 “claude”，只是认证方式不同
+    if can_passthrough_endpoint(client_key, provider_key):
+        return True, False, None
+
+    # 3. 格式不同且 data_format_id 不同 -> 需要检查格式转换开关（分层开关）
     #
     # 设计语义（与模块顶部注释一致）：
     # - 全局开关 ON  -> 强制允许跨格式（通常 caller 会传 skip_endpoint_check=True）
-    # - 全局开关 OFF -> 不再“一刀切”拒绝，而是回退到 provider/endpoint 开关：
+    # - 全局开关 OFF -> 不再”一刀切”拒绝，而是回退到 provider/endpoint 开关：
     #   - provider 开关 ON  -> 强制允许（skip_endpoint_check=True，跳过端点检查）
     #   - provider 开关 OFF -> 由端点 format_acceptance_config 决定（skip_endpoint_check=False）
     #
     # 说明：
-    # - effective_conversion_enabled 表示“全局默认允许”，不是“全局总闸/kill switch”
+    # - effective_conversion_enabled 表示”全局默认允许”，不是”全局总闸/kill switch”
     # - 当它为 False 时，我们仍然会继续执行后续检查（provider/endpoint），
-    #   兼容“按 Provider/Endpoint 精细化开启转换”的场景。
+    #   兼容”按 Provider/Endpoint 精细化开启转换”的场景。
 
-    # 3. 如果全局或提供商开关为 ON，跳过端点配置检查
+    # 4. 如果全局或提供商开关为 ON，跳过端点配置检查
     if not skip_endpoint_check:
         # 检查端点配置（第三层开关）
         if endpoint_format_acceptance_config is None:
@@ -116,13 +121,6 @@ def is_format_compatible(
         # 检查流式转换
         if is_stream and not config.get("stream_conversion", True):
             return False, False, "端点不支持流式格式转换"
-
-    # 4. 检查是否可以透传（data_format_id 相同）
-    # 例如：claude:chat / claude:cli 的 data_format_id 都是 "claude"，数据格式相同可透传
-    #      openai:chat 是 "openai_chat"，openai:cli 是 "openai_responses"，需要转换
-    if can_passthrough_endpoint(client_key, provider_key):
-        # data_format_id 相同，可透传（无需数据转换）
-        return True, False, None
 
     # 5. 需要数据转换的情况（data_format_id 不同）
     # 检查转换器能力

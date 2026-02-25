@@ -11,6 +11,8 @@ is_format_compatible 单元测试
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from src.core.api_format.conversion.compatibility import is_format_compatible
 
 
@@ -186,79 +188,29 @@ def test_conversion_allowed_when_converter_supports_full() -> None:
 # ==================== 同族格式测试 ====================
 
 
-def test_claude_cli_to_claude_no_conversion_needed() -> None:
-    """CLAUDE 和 CLAUDE_CLI 格式相同，只是认证不同，可透传（需开关启用）"""
+@pytest.mark.parametrize(
+    "client_format, endpoint_format",
+    [
+        ("claude:cli", "claude:chat"),
+        ("claude:chat", "claude:cli"),
+        ("gemini:cli", "gemini:chat"),
+        ("gemini:chat", "gemini:cli"),
+    ],
+)
+def test_same_data_format_passthrough(client_format: str, endpoint_format: str) -> None:
+    """data_format_id 相同的格式对（如 claude:chat / claude:cli）无需开关即可透传"""
+    # 即使全局开关 OFF、端点未配置，也应直接透传
     ok, needs_conv, reason = is_format_compatible(
-        "claude:cli",
-        "claude:chat",
-        endpoint_format_acceptance_config={"enabled": True},
-        is_stream=False,
-        effective_conversion_enabled=True,
-        registry=MagicMock(),
-    )
-    assert ok is True
-    assert needs_conv is False
-    assert reason is None
-
-
-def test_claude_to_claude_cli_no_conversion_needed() -> None:
-    """CLAUDE 和 CLAUDE_CLI 格式相同，只是认证不同，可透传（需开关启用）"""
-    ok, needs_conv, reason = is_format_compatible(
-        "claude:chat",
-        "claude:cli",
-        endpoint_format_acceptance_config={"enabled": True},
-        is_stream=False,
-        effective_conversion_enabled=True,
-        registry=MagicMock(),
-    )
-    assert ok is True
-    assert needs_conv is False
-    assert reason is None
-
-
-def test_gemini_cli_to_gemini_no_conversion_needed() -> None:
-    """GEMINI 和 GEMINI_CLI 格式相同，只是认证不同，可透传（需开关启用）"""
-    ok, needs_conv, reason = is_format_compatible(
-        "gemini:cli",
-        "gemini:chat",
-        endpoint_format_acceptance_config={"enabled": True},
-        is_stream=False,
-        effective_conversion_enabled=True,
-        registry=MagicMock(),
-    )
-    assert ok is True
-    assert needs_conv is False
-    assert reason is None
-
-
-def test_claude_cli_to_claude_allowed_when_endpoint_enabled() -> None:
-    """透传格式（CLAUDE_CLI -> CLAUDE）全局 OFF 时回退到端点配置"""
-    ok, needs_conv, reason = is_format_compatible(
-        "claude:cli",
-        "claude:chat",
-        endpoint_format_acceptance_config={"enabled": True},
+        client_format,
+        endpoint_format,
+        endpoint_format_acceptance_config=None,
         is_stream=False,
         effective_conversion_enabled=False,
         registry=MagicMock(),
     )
-    # 全局 OFF + 端点 enabled -> 允许（同族透传无需转换）
     assert ok is True
     assert needs_conv is False
     assert reason is None
-
-
-def test_claude_cli_to_claude_blocked_when_endpoint_not_configured() -> None:
-    """透传格式（CLAUDE_CLI -> CLAUDE）也需要端点配置"""
-    ok, needs_conv, reason = is_format_compatible(
-        "claude:cli",
-        "claude:chat",
-        endpoint_format_acceptance_config=None,
-        is_stream=False,
-        effective_conversion_enabled=True,
-        registry=MagicMock(),
-    )
-    assert ok is False
-    assert reason and "未配置" in reason
 
 
 def test_openai_cli_to_openai_needs_conversion() -> None:
