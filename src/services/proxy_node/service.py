@@ -170,6 +170,60 @@ def _build_test_proxy_url(node: ProxyNode) -> str:
         raise InvalidRequestException("aether-proxy tunnel 节点不支持代理 URL 连通性测试")
 
 
+async def _test_tunnel_connectivity(node_id: str) -> dict[str, Any]:
+    """通过 WebSocket tunnel 测试连通性，返回标准化结果 dict"""
+    import time as _time
+
+    from .tunnel_transport import TunnelTransport
+
+    test_url = "https://1.1.1.1/cdn-cgi/trace"
+    transport = TunnelTransport(node_id, timeout=15.0)
+    start = _time.monotonic()
+
+    try:
+        async with httpx.AsyncClient(transport=transport) as client:
+            response = await client.get(test_url)
+            elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
+
+            exit_ip = None
+            if response.status_code == 200:
+                for line in response.text.splitlines():
+                    if line.startswith("ip="):
+                        exit_ip = line.split("=", 1)[1].strip()
+                        break
+
+            return {
+                "success": True,
+                "latency_ms": elapsed_ms,
+                "exit_ip": exit_ip,
+                "error": None,
+            }
+    except httpx.ConnectError as exc:
+        elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
+        return {
+            "success": False,
+            "latency_ms": elapsed_ms,
+            "exit_ip": None,
+            "error": f"tunnel 连接失败: {_sanitize_proxy_error(exc)}",
+        }
+    except httpx.TimeoutException:
+        elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
+        return {
+            "success": False,
+            "latency_ms": elapsed_ms,
+            "exit_ip": None,
+            "error": "连接超时（15秒）",
+        }
+    except Exception as exc:
+        elapsed_ms = round((_time.monotonic() - start) * 1000, 1)
+        return {
+            "success": False,
+            "latency_ms": elapsed_ms,
+            "exit_ip": None,
+            "error": _sanitize_proxy_error(exc),
+        }
+
+
 # ---------------------------------------------------------------------------
 # ProxyNodeService
 # ---------------------------------------------------------------------------
@@ -476,6 +530,18 @@ class ProxyNodeService:
         if not node:
             raise NotFoundException(f"ProxyNode {node_id} 不存在", "proxy_node")
 
+        # tunnel 节点：通过 WebSocket tunnel 测试
+        if not node.is_manual:
+            if not node.tunnel_connected:
+                return {
+                    "success": False,
+                    "latency_ms": None,
+                    "exit_ip": None,
+                    "error": "tunnel 未连接",
+                }
+            return await _test_tunnel_connectivity(node.id)
+
+        # 手动节点：通过代理 URL 测试
         try:
             proxy_url = _build_test_proxy_url(node)
         except Exception as exc:
