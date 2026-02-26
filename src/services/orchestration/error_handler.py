@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -168,6 +169,14 @@ class ErrorHandlerService:
                 and self._is_account_validation_required(error_response_text)
             ):
                 self._mark_oauth_key_blocked(key, request_id)
+            # 403 suspended -> 标记 OAuth key 为账号被暂停
+            elif (
+                status_code == 403
+                and key
+                and str(getattr(key, "auth_type", "") or "").lower() == "oauth"
+                and self._is_account_suspended(error_response_text)
+            ):
+                self._mark_oauth_key_blocked(key, request_id, reason="AWS 账号被暂停")
             return
 
         # 限流错误
@@ -310,7 +319,33 @@ class ErrorHandlerService:
             return True
         return False
 
-    def _mark_oauth_key_blocked(self, key: ProviderAPIKey, request_id: str | None) -> None:
+    @staticmethod
+    def _is_account_suspended(error_text: str | None) -> bool:
+        """
+        检测 403 错误是否为 AWS 账号被暂停 (suspended)
+
+        匹配条件（满足任一即可）：
+        - 错误文本包含 "temporarily is suspended" 或 "temporarily suspended"
+        - 错误文本包含 "AccountSuspendedException"
+        - 错误文本匹配 User ID ... suspended 模式
+        """
+        if not error_text:
+            return False
+        search_text = error_text.lower()
+        if "temporarily is suspended" in search_text or "temporarily suspended" in search_text:
+            return True
+        if "accountsuspendedexception" in search_text:
+            return True
+        if re.search(r"user\s*id.*suspend", search_text):
+            return True
+        return False
+
+    def _mark_oauth_key_blocked(
+        self,
+        key: ProviderAPIKey,
+        request_id: str | None,
+        reason: str = "Google 要求验证账号",
+    ) -> None:
         """标记 OAuth key 为账号级别封禁"""
         try:
             from datetime import datetime, timezone
@@ -318,13 +353,14 @@ class ErrorHandlerService:
             from src.services.provider.oauth_token import OAUTH_ACCOUNT_BLOCK_PREFIX
 
             key.oauth_invalid_at = datetime.now(timezone.utc)
-            key.oauth_invalid_reason = f"{OAUTH_ACCOUNT_BLOCK_PREFIX}Google 要求验证账号"
+            key.oauth_invalid_reason = f"{OAUTH_ACCOUNT_BLOCK_PREFIX}{reason}"
             key.is_active = False
             self.db.commit()
             logger.warning(
-                "  [{}] {} 因 403 VALIDATION_REQUIRED 已标记为账号异常并自动停用",
+                "  [{}] {} 因 {} 已标记为账号异常并自动停用",
                 request_id,
                 self._format_key_display(key),
+                reason,
             )
         except Exception as mark_exc:
             logger.debug("  [{}] 标记 oauth_invalid 失败: {}", request_id, mark_exc)

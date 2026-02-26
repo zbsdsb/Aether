@@ -460,8 +460,16 @@ class ErrorClassifier:
 
         # 403: 检查是否为 Google VALIDATION_REQUIRED（账号需要手动验证）
         # 这类错误是永久性的，重试同一个 key 无意义，应视为认证错误
-        if status == 403 and self._is_account_validation_required(error_response_text):
+        if status == 403 and ErrorHandlerService._is_account_validation_required(
+            error_response_text
+        ):
             logger.warning("检测到 Google 账号验证要求 (VALIDATION_REQUIRED): {}", provider_name)
+            return ProviderAuthException(provider_name=provider_name)
+
+        # 403: 检查是否为 AWS 账号被暂停（suspended）
+        # 账号被封禁后所有请求都会返回 403，重试同一个 key 无意义
+        if status == 403 and ErrorHandlerService._is_account_suspended(error_response_text):
+            logger.warning("检测到 AWS 账号被暂停 (suspended): {}", provider_name)
             return ProviderAuthException(provider_name=provider_name)
 
         if status == 429:
