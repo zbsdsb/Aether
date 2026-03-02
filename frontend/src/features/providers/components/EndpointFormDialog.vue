@@ -208,12 +208,36 @@
                 </div>
                 <CollapsibleContent class="pt-3">
                   <div class="space-y-2">
+                    <div
+                      v-if="getEndpointRulesCount(endpoint) > 1 || getEndpointBodyRulesCount(endpoint) > 1"
+                      class="flex items-center gap-1.5 text-xs text-muted-foreground px-2"
+                    >
+                      <GripVertical class="w-3.5 h-3.5" />
+                      <span>拖拽左侧手柄可调整规则执行顺序</span>
+                    </div>
                     <!-- 请求头规则列表 - 主题色边框 -->
                     <div
                       v-for="(rule, index) in getEndpointEditRules(endpoint.id)"
                       :key="`header-${index}`"
                       class="flex items-center gap-1.5 px-2 py-1.5 rounded-md border-l-4 border-primary/60 bg-muted/30"
+                      :class="[
+                        isHeaderRuleDragging(endpoint.id, index) ? 'opacity-60 border-primary bg-primary/5' : '',
+                        isHeaderRuleDragOver(endpoint.id, index) ? 'ring-1 ring-primary/40 bg-primary/10' : ''
+                      ]"
+                      @dragover.prevent="handleHeaderRuleDragOver(endpoint.id, index)"
+                      @dragleave="handleHeaderRuleDragLeave(endpoint.id, index)"
+                      @drop.prevent="handleHeaderRuleDrop(endpoint.id, index)"
                     >
+                      <button
+                        type="button"
+                        class="h-7 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted cursor-grab active:cursor-grabbing"
+                        title="拖拽排序"
+                        draggable="true"
+                        @dragstart="(e) => handleHeaderRuleDragStart(endpoint.id, index, e)"
+                        @dragend="() => handleHeaderRuleDragEnd(endpoint.id)"
+                      >
+                        <GripVertical class="w-3.5 h-3.5" />
+                      </button>
                       <span
                         class="text-[10px] font-semibold text-primary shrink-0"
                         title="请求头"
@@ -382,7 +406,24 @@
                     >
                       <div
                         class="flex items-center gap-1.5 px-2 py-1.5 rounded-md border-l-4 border-muted-foreground/40 bg-muted/30"
+                        :class="[
+                          isBodyRuleDragging(endpoint.id, index) ? 'opacity-60 border-muted-foreground/70 bg-muted/50' : '',
+                          isBodyRuleDragOver(endpoint.id, index) ? 'ring-1 ring-muted-foreground/40 bg-muted/40' : ''
+                        ]"
+                        @dragover.prevent="handleBodyRuleDragOver(endpoint.id, index)"
+                        @dragleave="handleBodyRuleDragLeave(endpoint.id, index)"
+                        @drop.prevent="handleBodyRuleDrop(endpoint.id, index)"
                       >
+                        <button
+                          type="button"
+                          class="h-7 w-6 shrink-0 inline-flex items-center justify-center rounded-sm text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted cursor-grab active:cursor-grabbing"
+                          title="拖拽排序"
+                          draggable="true"
+                          @dragstart="(e) => handleBodyRuleDragStart(endpoint.id, index, e)"
+                          @dragend="() => handleBodyRuleDragEnd(endpoint.id)"
+                        >
+                          <GripVertical class="w-3.5 h-3.5" />
+                        </button>
                         <span
                           class="text-[10px] font-semibold text-muted-foreground shrink-0"
                           title="请求体"
@@ -781,7 +822,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/ui'
-import { Settings, Trash2, Check, X, Power, ChevronRight, Plus, Shuffle, RotateCcw, Radio, CheckCircle, Save, Filter, HelpCircle } from 'lucide-vue-next'
+import { Settings, Trash2, Check, X, Power, ChevronRight, Plus, Shuffle, RotateCcw, Radio, CheckCircle, Save, Filter, HelpCircle, GripVertical } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { parseApiError } from '@/utils/errorParser'
 import { log } from '@/utils/logger'
@@ -916,6 +957,130 @@ function handleBodyRuleSelectOpen(endpointId: string, index: number, open: boole
   bodyRuleSelectOpen.value[`${endpointId}-${index}`] = open
 }
 
+function clearHeaderRuleSelectOpen(endpointId: string) {
+  Object.keys(ruleSelectOpen.value).forEach((key) => {
+    if (key.startsWith(`${endpointId}-`)) {
+      delete ruleSelectOpen.value[key]
+    }
+  })
+}
+
+function clearBodyRuleSelectOpen(endpointId: string) {
+  Object.keys(bodyRuleSelectOpen.value).forEach((key) => {
+    if (key.startsWith(`${endpointId}-`)) {
+      delete bodyRuleSelectOpen.value[key]
+    }
+  })
+}
+
+function isHeaderRuleDragging(endpointId: string, index: number): boolean {
+  return headerRuleDraggedIndex.value[endpointId] === index
+}
+
+function isHeaderRuleDragOver(endpointId: string, index: number): boolean {
+  return headerRuleDragOverIndex.value[endpointId] === index
+}
+
+function isBodyRuleDragging(endpointId: string, index: number): boolean {
+  return bodyRuleDraggedIndex.value[endpointId] === index
+}
+
+function isBodyRuleDragOver(endpointId: string, index: number): boolean {
+  return bodyRuleDragOverIndex.value[endpointId] === index
+}
+
+function clearHeaderRuleDragState(endpointId: string) {
+  headerRuleDraggedIndex.value[endpointId] = null
+  headerRuleDragOverIndex.value[endpointId] = null
+}
+
+function clearBodyRuleDragState(endpointId: string) {
+  bodyRuleDraggedIndex.value[endpointId] = null
+  bodyRuleDragOverIndex.value[endpointId] = null
+}
+
+function handleHeaderRuleDragStart(endpointId: string, index: number, event: DragEvent) {
+  const rules = getEndpointEditRules(endpointId)
+  if (!rules[index]) return
+
+  headerRuleDraggedIndex.value[endpointId] = index
+  headerRuleDragOverIndex.value[endpointId] = null
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', `header:${endpointId}:${index}`)
+  }
+}
+
+function handleHeaderRuleDragOver(endpointId: string, index: number) {
+  const dragged = headerRuleDraggedIndex.value[endpointId]
+  if (dragged === null || dragged === undefined || dragged === index) return
+  headerRuleDragOverIndex.value[endpointId] = index
+}
+
+function handleHeaderRuleDragLeave(endpointId: string, index: number) {
+  if (headerRuleDragOverIndex.value[endpointId] === index) {
+    headerRuleDragOverIndex.value[endpointId] = null
+  }
+}
+
+function handleHeaderRuleDrop(endpointId: string, targetIndex: number) {
+  const dragIndex = headerRuleDraggedIndex.value[endpointId]
+  clearHeaderRuleDragState(endpointId)
+  if (dragIndex === null || dragIndex === undefined || dragIndex === targetIndex) return
+
+  const rules = getEndpointEditRules(endpointId)
+  if (dragIndex < 0 || dragIndex >= rules.length || targetIndex < 0 || targetIndex >= rules.length) return
+
+  const [draggedRule] = rules.splice(dragIndex, 1)
+  rules.splice(targetIndex, 0, draggedRule)
+  clearHeaderRuleSelectOpen(endpointId)
+}
+
+function handleHeaderRuleDragEnd(endpointId: string) {
+  clearHeaderRuleDragState(endpointId)
+}
+
+function handleBodyRuleDragStart(endpointId: string, index: number, event: DragEvent) {
+  const rules = getEndpointEditBodyRules(endpointId)
+  if (!rules[index]) return
+
+  bodyRuleDraggedIndex.value[endpointId] = index
+  bodyRuleDragOverIndex.value[endpointId] = null
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', `body:${endpointId}:${index}`)
+  }
+}
+
+function handleBodyRuleDragOver(endpointId: string, index: number) {
+  const dragged = bodyRuleDraggedIndex.value[endpointId]
+  if (dragged === null || dragged === undefined || dragged === index) return
+  bodyRuleDragOverIndex.value[endpointId] = index
+}
+
+function handleBodyRuleDragLeave(endpointId: string, index: number) {
+  if (bodyRuleDragOverIndex.value[endpointId] === index) {
+    bodyRuleDragOverIndex.value[endpointId] = null
+  }
+}
+
+function handleBodyRuleDrop(endpointId: string, targetIndex: number) {
+  const dragIndex = bodyRuleDraggedIndex.value[endpointId]
+  clearBodyRuleDragState(endpointId)
+  if (dragIndex === null || dragIndex === undefined || dragIndex === targetIndex) return
+
+  const rules = getEndpointEditBodyRules(endpointId)
+  if (dragIndex < 0 || dragIndex >= rules.length || targetIndex < 0 || targetIndex >= rules.length) return
+
+  const [draggedRule] = rules.splice(dragIndex, 1)
+  rules.splice(targetIndex, 0, draggedRule)
+  clearBodyRuleSelectOpen(endpointId)
+}
+
+function handleBodyRuleDragEnd(endpointId: string) {
+  clearBodyRuleDragState(endpointId)
+}
+
 // 状态
 const addingEndpoint = ref(false)
 const savingEndpointId = ref<string | null>(null)
@@ -936,6 +1101,12 @@ const bodyRuleSelectOpen = ref<Record<string, boolean>>({})
 
 // 请求体规则说明 Popover 的展开状态
 const bodyRuleHelpOpenEndpointId = ref<string | null>(null)
+
+// 规则拖拽状态（按 endpoint 维度）
+const headerRuleDraggedIndex = ref<Record<string, number | null>>({})
+const headerRuleDragOverIndex = ref<Record<string, number | null>>({})
+const bodyRuleDraggedIndex = ref<Record<string, number | null>>({})
+const bodyRuleDragOverIndex = ref<Record<string, number | null>>({})
 
 function setBodyRuleHelpOpen(endpointId: string, open: boolean) {
   bodyRuleHelpOpenEndpointId.value = open ? endpointId : null
@@ -1230,6 +1401,8 @@ function handleAddEndpointRule(endpointId: string) {
 function removeEndpointRule(endpointId: string, index: number) {
   const rules = getEndpointEditRules(endpointId)
   rules.splice(index, 1)
+  clearHeaderRuleDragState(endpointId)
+  clearHeaderRuleSelectOpen(endpointId)
 }
 
 // 更新规则类型
@@ -1368,6 +1541,8 @@ function handleAddEndpointBodyRule(endpointId: string) {
 function removeEndpointBodyRule(endpointId: string, index: number) {
   const rules = getEndpointEditBodyRules(endpointId)
   rules.splice(index, 1)
+  clearBodyRuleDragState(endpointId)
+  clearBodyRuleSelectOpen(endpointId)
 }
 
 // 更新请求体规则类型
@@ -1933,6 +2108,12 @@ onMounted(() => {
 // 监听 props 变化
 watch(() => props.modelValue, (open) => {
   bodyRuleHelpOpenEndpointId.value = null
+  ruleSelectOpen.value = {}
+  bodyRuleSelectOpen.value = {}
+  headerRuleDraggedIndex.value = {}
+  headerRuleDragOverIndex.value = {}
+  bodyRuleDraggedIndex.value = {}
+  bodyRuleDragOverIndex.value = {}
   if (open) {
     localEndpoints.value = [...(props.endpoints || [])]
     // 清空编辑状态，重新从端点加载

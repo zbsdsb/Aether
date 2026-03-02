@@ -9,9 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import sqlalchemy as sa
-from sqlalchemy import inspect
-
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -21,26 +18,12 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-def _column_exists(table_name: str, column_name: str) -> bool:
-    bind = op.get_bind()
-    insp = inspect(bind)
-    columns = [c["name"] for c in insp.get_columns(table_name)]
-    return column_name in columns
-
-
 def upgrade() -> None:
-    if not _column_exists("proxy_nodes", "proxy_metadata"):
-        op.add_column(
-            "proxy_nodes",
-            sa.Column(
-                "proxy_metadata",
-                sa.JSON(),
-                nullable=True,
-                comment="aether-proxy 上报元数据（版本等）",
-            ),
-        )
+    op.execute("ALTER TABLE public.proxy_nodes ADD COLUMN IF NOT EXISTS proxy_metadata json")
+    op.execute(
+        "COMMENT ON COLUMN public.proxy_nodes.proxy_metadata IS 'aether-proxy 上报元数据（版本等）'"
+    )
 
 
 def downgrade() -> None:
-    if _column_exists("proxy_nodes", "proxy_metadata"):
-        op.drop_column("proxy_nodes", "proxy_metadata")
+    op.execute("ALTER TABLE public.proxy_nodes DROP COLUMN IF EXISTS proxy_metadata")

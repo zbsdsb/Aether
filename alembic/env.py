@@ -51,7 +51,8 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # PostgreSQL 全局迁移锁，避免多进程并发执行 Alembic 导致竞态（重复加列/索引等）
-# ID 由 crc32("aether-alembic-migration") 拼接生成，仅需全局唯一即可
+# 使用事务级 advisory lock（pg_advisory_xact_lock），在迁移事务结束后自动释放。
+# ID 由 crc32("aether-alembic-migration") 拼接生成，仅需全局唯一即可。
 MIGRATION_ADVISORY_LOCK_ID = 582694137405821
 
 
@@ -89,31 +90,20 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        lock_acquired = False
-        try:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,  # 比较列类型变更
+            compare_server_default=True,  # 比较默认值变更
+        )
+
+        with context.begin_transaction():
             if connection.dialect.name == "postgresql":
                 connection.execute(
-                    text("SELECT pg_advisory_lock(:lock_id)"),
+                    text("SELECT pg_advisory_xact_lock(:lock_id)"),
                     {"lock_id": MIGRATION_ADVISORY_LOCK_ID},
                 )
-                lock_acquired = True
-
-            context.configure(
-                connection=connection,
-                target_metadata=target_metadata,
-                compare_type=True,  # 比较列类型变更
-                compare_server_default=True,  # 比较默认值变更
-            )
-
-            with context.begin_transaction():
-                context.run_migrations()
-        finally:
-            if lock_acquired:
-                connection.rollback()
-                connection.execute(
-                    text("SELECT pg_advisory_unlock(:lock_id)"),
-                    {"lock_id": MIGRATION_ADVISORY_LOCK_ID},
-                )
+            context.run_migrations()
 
 
 # 根据模式选择运行方式
