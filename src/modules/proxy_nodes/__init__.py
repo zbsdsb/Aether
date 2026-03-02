@@ -97,6 +97,19 @@ async def _on_startup() -> None:
             config.worker_processes,
         )
 
+    # Hub 模式下，worker 启动时主动建立 /worker 长连接：
+    # - 立即接收 NODE_STATUS 广播，避免“proxy 已连但 UI 仍显示离线”的窗口期
+    # - 确保后续 tunnel 请求不需要首请求触发懒连接
+    if hub_enabled:
+        from src.services.proxy_node.hub_transport import get_hub_connection_manager
+
+        try:
+            await get_hub_connection_manager().ensure_connected()
+            logger.info("Hub worker channel initialized on startup")
+        except Exception as e:
+            # ensure_connected 失败时内部会启动重连循环，这里仅记录告警不阻塞启动
+            logger.warning("Hub worker channel init failed, reconnecting in background: {}", e)
+
     from src.clients import get_redis_client
 
     redis_client = await get_redis_client()

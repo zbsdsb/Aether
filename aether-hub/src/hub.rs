@@ -258,7 +258,8 @@ impl HubRouter {
 
     pub fn register_worker(&self, conn: Arc<WorkerConn>) {
         info!(worker_id = conn.id, "worker connected");
-        self.worker_conns.insert(conn.id, conn);
+        self.worker_conns.insert(conn.id, conn.clone());
+        self.sync_node_status_to_worker(&conn);
     }
 
     pub fn unregister_worker(&self, conn_id: u64) {
@@ -664,6 +665,28 @@ impl HubRouter {
             conn_count = conn_count,
             workers_notified = sent,
             "broadcast NODE_STATUS"
+        );
+    }
+
+    /// When a worker connects, sync all current node statuses so worker state
+    /// is consistent even if proxies connected before this worker came online.
+    fn sync_node_status_to_worker(&self, worker: &Arc<WorkerConn>) {
+        let snapshot: Vec<(String, usize)> = {
+            let map = self.proxy_conns.read();
+            map.iter()
+                .map(|(node_id, conns)| (node_id.clone(), conns.len()))
+                .collect()
+        };
+
+        for (node_id, conn_count) in &snapshot {
+            let frame = protocol::encode_node_status(node_id, *conn_count > 0, *conn_count);
+            let _ = worker.send(Message::Binary(frame.into()));
+        }
+
+        debug!(
+            worker_id = worker.id,
+            nodes_synced = snapshot.len(),
+            "synced NODE_STATUS snapshot to worker"
         );
     }
 

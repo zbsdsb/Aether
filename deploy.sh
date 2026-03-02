@@ -2,12 +2,13 @@
 # 智能部署脚本 - 自动检测依赖/代码/迁移变化
 #
 # 用法:
-#   部署/更新:    ./deploy.sh  (自动检测所有变化)
-#   强制重建:     ./deploy.sh --rebuild-base
-#   更新 Hub:    ./deploy.sh --update-hub
-#   强制全部重建: ./deploy.sh --force
+#   部署/更新:     ./deploy.sh                    (自动检测所有变化)
+#   指定 Hub 版本: ./deploy.sh --hub-tag hub-v0.1.0
+#   更新 Hub:      ./deploy.sh --update-hub
+#   强制重建:      ./deploy.sh --rebuild-base
+#   强制全部重建:  ./deploy.sh --force
 
-set -e
+set -euo pipefail
 cd "$(dirname "$0")"
 
 # 兼容 docker-compose 和 docker compose
@@ -32,10 +33,69 @@ HASH_FILE=".deps-hash"
 CODE_HASH_FILE=".code-hash"
 MIGRATION_HASH_FILE=".migration-hash"
 
-# Hub 二进制配置
+# Hub release 配置
 GITHUB_REPO="fawney19/Aether"
-HUB_DIST_DIR="aether-hub/dist"
-HUB_VERSION_FILE="$HUB_DIST_DIR/.version"
+HUB_TAG_STATE_FILE=".hub-tag"
+
+usage() {
+    cat <<'EOF'
+Usage: ./deploy.sh [options]
+
+Options:
+  --hub-tag <hub-vX.Y.Z>  指定 Hub Release tag（例如 hub-v0.1.0）
+  --update-hub            强制刷新 Hub 版本标记（下次构建会重新下载）
+  --rebuild-base, -r      仅重建 base 镜像
+  --force, -f             强制重建全部（hub/base/app）并重启
+  -h, --help              显示帮助
+EOF
+}
+
+FORCE_REBUILD_ALL=false
+REBUILD_BASE_ONLY=false
+FORCE_UPDATE_HUB=false
+HUB_TAG="${HUB_TAG:-}"
+RESOLVED_HUB_TAG=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --hub-tag)
+            if [ $# -lt 2 ]; then
+                echo "❌ --hub-tag 需要一个值，例如 hub-v0.1.0"
+                exit 1
+            fi
+            HUB_TAG="$2"
+            shift 2
+            ;;
+        --update-hub)
+            FORCE_UPDATE_HUB=true
+            shift
+            ;;
+        --rebuild-base|-r)
+            REBUILD_BASE_ONLY=true
+            shift
+            ;;
+        --force|-f)
+            FORCE_REBUILD_ALL=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "❌ 未知参数: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+if [ -n "$HUB_TAG" ]; then
+    case "$HUB_TAG" in
+        hub-v*) ;;
+        *) echo "❌ --hub-tag 格式应为 hub-vX.Y.Z，例如 hub-v0.1.0"; exit 1 ;;
+    esac
+fi
 
 # 提取 pyproject.toml 中"会影响运行时依赖安装"的最小指纹（与 CI 保持一致）：
 # - [build-system] requires / build-backend
@@ -79,17 +139,6 @@ calc_code_hash() {
     } | md5sum | cut -d' ' -f1
 }
 
-# 检测目标平台架构
-detect_arch() {
-    local machine
-    machine=$(uname -m)
-    case "$machine" in
-        x86_64|amd64)  echo "amd64" ;;
-        aarch64|arm64) echo "arm64" ;;
-        *) echo "❌ 不支持的架构: $machine" >&2; exit 1 ;;
-    esac
-}
-
 # 获取最新 hub release tag
 get_latest_hub_tag() {
     curl -sL "https://api.github.com/repos/$GITHUB_REPO/releases" | \
@@ -104,58 +153,45 @@ for r in releases:
 " 2>/dev/null
 }
 
-# 下载 Hub 预编译二进制
-download_hub() {
-    local tag="$1"
-    local arch
-    arch=$(detect_arch)
+# 解析当前应使用的 Hub release tag（优先使用指定值，否则拉取最新）
+resolve_hub_tag() {
+    local requested_tag="${1:-}"
+    local latest_tag
 
-    if [ -z "$tag" ]; then
-        echo ">>> 正在查询最新 Hub 版本..."
-        tag=$(get_latest_hub_tag)
-        if [ -z "$tag" ]; then
-            echo "❌ 无法获取最新 Hub Release，请检查网络或手动指定版本"
-            exit 1
-        fi
-    fi
-
-    echo ">>> Hub 版本: $tag, 架构: $arch"
-
-    # 检查是否已下载
-    if [ -f "$HUB_VERSION_FILE" ] && [ "$(cat "$HUB_VERSION_FILE")" = "$tag-$arch" ] && [ -f "$HUB_DIST_DIR/aether-hub" ]; then
-        echo ">>> Hub 二进制已是最新 ($tag), 跳过下载."
+    if [ -n "$requested_tag" ]; then
+        echo "$requested_tag"
         return 0
     fi
 
-    mkdir -p "$HUB_DIST_DIR"
+    latest_tag="$(get_latest_hub_tag || true)"
+    if [ -n "$latest_tag" ]; then
+        echo "$latest_tag"
+        return 0
+    fi
 
-    local archive="aether-hub-linux-$arch.tar.gz"
-    local url="https://github.com/$GITHUB_REPO/releases/download/$tag/$archive"
+    if [ -f "$HUB_TAG_STATE_FILE" ]; then
+        echo "⚠️ 无法查询最新 Hub 版本，回退使用本地记录: $(cat "$HUB_TAG_STATE_FILE")" >&2
+        cat "$HUB_TAG_STATE_FILE"
+        return 0
+    fi
 
-    echo ">>> 下载 Hub 二进制: $url"
-    curl -L --fail -o "$HUB_DIST_DIR/$archive" "$url" || {
-        echo "❌ 下载失败: $url"
-        exit 1
-    }
-
-    # 解压
-    tar xzf "$HUB_DIST_DIR/$archive" -C "$HUB_DIST_DIR"
-    chmod +x "$HUB_DIST_DIR/aether-hub"
-    rm -f "$HUB_DIST_DIR/$archive"
-
-    # 记录版本
-    echo "$tag-$arch" > "$HUB_VERSION_FILE"
-    echo "✅ Hub 二进制下载完成."
+    echo "❌ 无法获取 Hub Release tag，请检查网络或手动指定 --hub-tag" >&2
+    exit 1
 }
 
-# 确保 Hub 二进制存在
-ensure_hub_binary() {
-    if [ ! -f "$HUB_DIST_DIR/aether-hub" ]; then
-        echo ">>> Hub 二进制不存在，正在下载..."
-        download_hub
-        return 0
+# 确保本次构建的 Hub tag 已解析（默认追踪最新 release，也可通过 --hub-tag 固定版本）
+ensure_hub_tag() {
+    local requested_tag="${1:-}"
+    RESOLVED_HUB_TAG="$(resolve_hub_tag "$requested_tag")"
+
+    if [ -f "$HUB_TAG_STATE_FILE" ] && [ "$(cat "$HUB_TAG_STATE_FILE")" = "$RESOLVED_HUB_TAG" ]; then
+        echo ">>> Hub 版本未变化: $RESOLVED_HUB_TAG"
+        return 1
     fi
-    return 1
+
+    echo "$RESOLVED_HUB_TAG" > "$HUB_TAG_STATE_FILE"
+    echo ">>> 使用 Hub 版本: $RESOLVED_HUB_TAG"
+    return 0
 }
 
 # 计算迁移文件的哈希值
@@ -235,8 +271,17 @@ EOF
 # 构建应用镜像
 build_app() {
     echo ">>> Building app image (code only)..."
+    if [ -z "${RESOLVED_HUB_TAG:-}" ]; then
+        echo "❌ RESOLVED_HUB_TAG 为空，无法构建 app 镜像"
+        exit 1
+    fi
+    echo ">>> Build args: HUB_TAG=$RESOLVED_HUB_TAG"
     generate_version_file
-    docker build --pull=false -f Dockerfile.app.local -t aether-app:latest .
+    docker build --pull=false \
+        --build-arg HUB_RELEASE_REPO="$GITHUB_REPO" \
+        --build-arg HUB_TAG="$RESOLVED_HUB_TAG" \
+        -f Dockerfile.app.local \
+        -t aether-app:latest .
     save_code_hash
 }
 
@@ -284,9 +329,12 @@ print('Old version cleared')
 }
 
 # 强制全部重建
-if [ "$1" = "--force" ] || [ "$1" = "-f" ]; then
+if [ "$FORCE_REBUILD_ALL" = true ]; then
     echo ">>> Force rebuilding everything..."
-    download_hub
+    if [ "$FORCE_UPDATE_HUB" = true ]; then
+        rm -f "$HUB_TAG_STATE_FILE"
+    fi
+    ensure_hub_tag "$HUB_TAG" || true
     build_base
     build_app
     compose_up --force-recreate
@@ -299,17 +347,18 @@ if [ "$1" = "--force" ] || [ "$1" = "-f" ]; then
 fi
 
 # 强制重建基础镜像
-if [ "$1" = "--rebuild-base" ] || [ "$1" = "-r" ]; then
+if [ "$REBUILD_BASE_ONLY" = true ]; then
     build_base
     echo ">>> Base image rebuilt. Run ./deploy.sh to deploy."
     exit 0
 fi
 
-# 更新 Hub 二进制
-if [ "$1" = "--update-hub" ]; then
-    rm -f "$HUB_VERSION_FILE"
-    download_hub
-    echo ">>> Hub binary updated. Run ./deploy.sh to deploy."
+# 更新 Hub 版本标记
+if [ "$FORCE_UPDATE_HUB" = true ]; then
+    rm -f "$HUB_TAG_STATE_FILE"
+    ensure_hub_tag "$HUB_TAG" || true
+    echo ">>> Hub tag updated: $RESOLVED_HUB_TAG"
+    echo ">>> Run ./deploy.sh to build app image with the new Hub release."
     exit 0
 fi
 
@@ -337,12 +386,12 @@ else
     echo ">>> Dependencies unchanged."
 fi
 
-# 确保 Hub 二进制存在
-if ensure_hub_binary; then
+# 解析/检查 Hub 版本（构建时由 Dockerfile 从 GitHub Release 下载）
+if ensure_hub_tag "$HUB_TAG"; then
     HUB_UPDATED=true
     NEED_RESTART=true
 else
-    echo ">>> Hub binary present."
+    echo ">>> Hub version unchanged."
 fi
 
 # 检查代码或迁移是否变化，或者 base 重建了（app 依赖 base）
@@ -361,7 +410,7 @@ elif [ "$BASE_REBUILT" = true ]; then
     build_app
     NEED_RESTART=true
 elif [ "$HUB_UPDATED" = true ]; then
-    echo ">>> Hub binary updated, rebuilding app image..."
+    echo ">>> Hub version updated, rebuilding app image..."
     build_app
     NEED_RESTART=true
 elif check_code_changed; then

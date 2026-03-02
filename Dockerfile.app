@@ -12,6 +12,11 @@ RUN cd frontend && npm run build
 # ==================== 运行时镜像 ====================
 FROM python:3.13-slim
 WORKDIR /app
+
+ARG HUB_RELEASE_REPO=fawney19/Aether
+ARG HUB_TAG
+ARG TARGETARCH
+
 # 运行时依赖（无 gcc/nodejs/npm，使用 BuildKit 缓存加速）
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -26,9 +31,32 @@ COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin/gunicorn /usr/local/bin/
 COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/
 COPY --from=builder /usr/local/bin/alembic /usr/local/bin/
-# Hub 预编译二进制（从 GitHub Release 下载）
-COPY aether-hub/dist/aether-hub /usr/local/bin/aether-hub
-RUN chmod +x /usr/local/bin/aether-hub
+# Hub 预编译二进制（构建时从 GitHub Release 下载）
+RUN set -eux; \
+    tag="${HUB_TAG:-}"; \
+    if [ -z "$tag" ]; then \
+        tag="$(curl -sL "https://api.github.com/repos/${HUB_RELEASE_REPO}/releases" | python3 -c "import json,sys;print(next((r['tag_name'] for r in json.load(sys.stdin) if r.get('tag_name','').startswith('hub-v') and not r.get('draft') and not r.get('prerelease')),''))")"; \
+    fi; \
+    if [ -z "$tag" ]; then \
+        echo "Failed to resolve hub release tag"; \
+        exit 1; \
+    fi; \
+    arch="${TARGETARCH:-}"; \
+    if [ -z "$arch" ]; then \
+        arch="$(dpkg --print-architecture)"; \
+    fi; \
+    case "$arch" in \
+        amd64|arm64) ;; \
+        x86_64) arch="amd64" ;; \
+        aarch64) arch="arm64" ;; \
+        *) echo "Unsupported architecture: $arch"; exit 1 ;; \
+    esac; \
+    echo "Using Hub release tag: $tag"; \
+    url="https://github.com/${HUB_RELEASE_REPO}/releases/download/${tag}/aether-hub-linux-${arch}.tar.gz"; \
+    curl -L --fail -o /tmp/aether-hub.tar.gz "$url"; \
+    tar xzf /tmp/aether-hub.tar.gz -C /usr/local/bin; \
+    chmod +x /usr/local/bin/aether-hub; \
+    rm -f /tmp/aether-hub.tar.gz
 # 从 builder 阶段复制前端构建产物
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 RUN chmod -R 755 /usr/share/nginx/html
