@@ -299,24 +299,26 @@ class CandidateSorter:
             group_keys = priority_groups[priority]
 
             if len(group_keys) > 1:
-                if use_random:
-                    # TTL=0 模式：使用随机排序实现 Key 轮换
+                should_randomize = (
+                    use_random
+                    or self._config.scheduling_mode == SchedulingConfig.SCHEDULING_MODE_LOAD_BALANCE
+                    or not affinity_key
+                )
+
+                if should_randomize:
+                    # 随机排序：TTL=0 / 负载均衡模式 / 无 affinity_key
                     shuffled = list(group_keys)
                     random.shuffle(shuffled)
                     result.extend(shuffled)
-                elif affinity_key:
-                    # 正常模式：使用哈希确定性打乱（保持缓存亲和性）
+                else:
+                    # 缓存亲和模式：使用哈希确定性排序（should_randomize=False 蕴含 affinity_key 非空）
                     key_scores = []
                     for key in group_keys:
-                        hash_value = affinity_hash(affinity_key, key.id)
+                        hash_value = affinity_hash(affinity_key, key.id)  # type: ignore[arg-type]
                         key_scores.append((hash_value, key))
 
-                    # 按哈希值排序
                     sorted_group = [key for _, key in sorted(key_scores, key=lambda x: x[0])]
                     result.extend(sorted_group)
-                else:
-                    # 没有 affinity_key 时按 ID 排序保持稳定性
-                    result.extend(sorted(group_keys, key=lambda k: k.id))
             else:
                 # 单个 Key 直接添加
                 result.extend(group_keys)
