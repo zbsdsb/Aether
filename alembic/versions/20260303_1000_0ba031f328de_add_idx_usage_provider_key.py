@@ -3,7 +3,7 @@
 Add composite index on usage(provider_id, provider_api_key_id) to support
 the pool management page's per-key usage stats aggregation query.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: 0ba031f328de
 Revises: dd0278c0a28c
 Create Date: 2026-03-03 10:00:00.000000+00:00
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "a1b2c3d4e5f6"
+revision = "0ba031f328de"
 down_revision = "dd0278c0a28c"
 branch_labels = None
 depends_on = None
