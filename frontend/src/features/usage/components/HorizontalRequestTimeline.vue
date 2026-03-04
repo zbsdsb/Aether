@@ -643,7 +643,16 @@ const normalizeTimelineStatus = (value: unknown): CandidateRecord['status'] => {
 }
 
 const isPlannedOnlyStatus = (status: CandidateRecord['status']): boolean => {
-  return status === 'available' || status === 'unused'
+  return status === 'available'
+}
+
+const extractPoolGroupId = (candidate: CandidateRecord): string | null => {
+  const extra = candidate.extra_data
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null
+  const value = (extra as Record<string, unknown>).pool_group_id
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  return text || null
 }
 
 // 候选时间线（按实际执行顺序排序）
@@ -662,9 +671,21 @@ const rawTimeline = computed<CandidateRecord[]>(() => {
     })
 })
 
-// 仅保留“已进入执行链路”的节点，过滤预创建但未执行的 available/unused 占位记录。
+// 仅保留”已进入执行链路”的节点，过滤预创建但未执行的 available 占位记录。
+// unused 候选：代表因前序候选成功而未被执行的备选项。
+//   - 号池内 unused key：不显示（号池只展示实际参与调度的 key）
+//   - 非号池 unused：每个 candidate_index 保留 retry_index=0（代表该候选存在但未执行）
 const executableTimeline = computed<CandidateRecord[]>(() => {
-  return rawTimeline.value.filter(candidate => !isPlannedOnlyStatus(candidate.status))
+  return rawTimeline.value.filter(candidate => {
+    if (isPlannedOnlyStatus(candidate.status)) return false
+    if (candidate.status === 'unused') {
+      // 号池内 unused key 不需要展示
+      if (extractPoolGroupId(candidate) !== null) return false
+      // 非号池的 unused retry slot 只保留首个
+      return candidate.retry_index === 0
+    }
+    return true
+  })
 })
 
 const schedulingAudit = computed<Record<string, unknown> | null>(() => {
@@ -674,15 +695,6 @@ const schedulingAudit = computed<Record<string, unknown> | null>(() => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   return raw as Record<string, unknown>
 })
-
-const extractPoolGroupId = (candidate: CandidateRecord): string | null => {
-  const extra = candidate.extra_data
-  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null
-  const value = (extra as Record<string, unknown>).pool_group_id
-  if (typeof value !== 'string') return null
-  const text = value.trim()
-  return text || null
-}
 
 const poolAttemptCandidates = computed<CandidateRecord[]>(() => {
   // 新链路：优先使用后端写入的 extra_data.pool_group_id。
@@ -814,13 +826,13 @@ const buildProviderGroups = (items: CandidateRecord[]): NodeGroup[] => {
   const groups: NodeGroup[] = []
   let currentGroup: NodeGroup | null = null
 
-  items.forEach((candidate, index) => {
+  items.forEach((candidate) => {
     const providerKey = candidate.provider_name || '未知'
 
     if (currentGroup && currentGroup.id === providerKey) {
       currentGroup.allAttempts.push(candidate)
       currentGroup.retryCount++
-      currentGroup.endIndex = index
+      currentGroup.endIndex = candidate.candidate_index
       currentGroup.totalLatency += candidate.latency_ms || 0
       if (candidate.extra_data?.needs_conversion) {
         currentGroup.hasConversion = true
@@ -841,8 +853,8 @@ const buildProviderGroups = (items: CandidateRecord[]): NodeGroup[] => {
       allAttempts: [candidate],
       retryCount: 0,
       totalLatency: candidate.latency_ms || 0,
-      startIndex: index,
-      endIndex: index,
+      startIndex: candidate.candidate_index,
+      endIndex: candidate.candidate_index,
       hasConversion: candidate.extra_data?.needs_conversion === true,
       providerApiFormat: candidate.extra_data?.provider_api_format || null,
       isPoolGroup: false,
@@ -920,8 +932,9 @@ const groupedTimeline = computed<NodeGroup[]>(() => {
     return true
   })
 
-  poolGroups.sort((a, b) => a.startIndex - b.startIndex)
-  return [...poolGroups, ...dedupedProviderGroups]
+  const allGroups = [...poolGroups, ...dedupedProviderGroups]
+  allGroups.sort((a, b) => a.startIndex - b.startIndex)
+  return allGroups
 })
 
 // 格式转换分界点索引（首个 hasConversion=true 的 group index）
