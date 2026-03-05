@@ -1274,6 +1274,8 @@ watch(
   [() => props.providerId, () => props.open],
   async ([newId, newOpen], [_oldId, oldOpen]) => {
     if (newOpen && newId) {
+      // mapping-preview 较慢，不阻塞首屏渲染
+      void loadMappingPreview()
       await Promise.all([
         loadProvider(),
         loadEndpoints(),
@@ -1958,6 +1960,7 @@ async function handleBatchAssignChanged() {
 
 // 处理模型映射变更
 async function handleModelMappingChanged() {
+  void loadMappingPreview()
   await loadEndpoints()
   emit('refresh')
 }
@@ -2621,18 +2624,17 @@ async function loadEndpoints() {
   const requestId = ++endpointsLoadRequestId
 
   try {
-    // 并行加载端点列表、Provider 级别的 keys、models 和映射预览
-    const [endpointsList, providerKeysResult, modelsResult, mappingPreviewResult] = await Promise.all([
+    // 并行加载端点列表、Provider 级别的 keys 和 models
+    // mapping-preview 较慢，拆到 loadMappingPreview 独立加载，不阻塞首屏
+    const [endpointsList, providerKeysResult, modelsResult] = await Promise.all([
       getProviderEndpoints(props.providerId),
       getProviderKeys(props.providerId).catch(() => []),
       getProviderModels(props.providerId).catch(() => []),
-      getProviderMappingPreview(props.providerId).catch(() => null),
     ])
     if (requestId !== endpointsLoadRequestId) return
 
     providerKeys.value = providerKeysResult
     providerModels.value = modelsResult
-    providerMappingPreview.value = mappingPreviewResult
     // 按 API 格式排序
     endpoints.value = endpointsList.sort((a, b) => {
       const aIdx = API_FORMAT_ORDER.indexOf(a.api_format)
@@ -2645,6 +2647,16 @@ async function loadEndpoints() {
   } catch (err: unknown) {
     if (requestId !== endpointsLoadRequestId) return
     showError(parseApiError(err, '加载端点失败'), '错误')
+  }
+}
+
+// 加载映射预览（独立于 loadEndpoints，不阻塞首屏渲染）
+async function loadMappingPreview() {
+  if (!props.providerId) return
+  try {
+    providerMappingPreview.value = await getProviderMappingPreview(props.providerId)
+  } catch {
+    providerMappingPreview.value = null
   }
 }
 

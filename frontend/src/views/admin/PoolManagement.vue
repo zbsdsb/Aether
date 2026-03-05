@@ -1083,9 +1083,11 @@
     <KeyFormDialog
       v-if="selectedProviderId"
       :open="keyFormDialogOpen"
+      :endpoint="null"
       :provider-type="selectedProviderData?.provider_type || selectedProviderType"
       :editing-key="editingKey"
       :provider-id="selectedProviderId"
+      :available-api-formats="selectedProviderData?.api_formats || []"
       @close="closeKeyFormDialog"
       @saved="handleDialogSaved"
     />
