@@ -184,6 +184,19 @@ class ErrorHandlerService:
                     reason="AWS 账号被暂停",
                     provider=provider,
                 )
+            # 401 account_deactivated -> 标记 OAuth key 为账号被永久停用
+            elif (
+                status_code == 401
+                and key
+                and str(getattr(key, "auth_type", "") or "").lower() == "oauth"
+                and self._is_account_deactivated(error_response_text)
+            ):
+                self._mark_oauth_key_blocked(
+                    key,
+                    request_id,
+                    reason="账号已被停用 (account_deactivated)",
+                    provider=provider,
+                )
             return
 
         # 限流错误
@@ -344,6 +357,27 @@ class ErrorHandlerService:
         if "accountsuspendedexception" in search_text:
             return True
         if re.search(r"user\s*id.*suspend", search_text):
+            return True
+        return False
+
+    @staticmethod
+    def _is_account_deactivated(error_text: str | None) -> bool:
+        """
+        检测 401 错误是否为账号被永久停用 (deactivated)
+
+        匹配条件：
+        - 错误文本包含 "account_deactivated" (OpenAI error code)
+        - 错误文本包含 "account has been deactivated"
+        - 错误文本包含 "account deactivated"
+        """
+        if not error_text:
+            return False
+        search_text = error_text.lower()
+        if "account_deactivated" in search_text:
+            return True
+        if "account has been deactivated" in search_text:
+            return True
+        if "account deactivated" in search_text:
             return True
         return False
 

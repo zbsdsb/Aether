@@ -1426,7 +1426,10 @@ async function selectProvider(id: string) {
     clearTimeout(keysSearchDebounceTimer)
     keysSearchDebounceTimer = null
   }
-  await Promise.all([loadKeys(), loadProviderData(id)])
+  const keysTask = loadKeys()
+  // Provider summary is non-blocking for key list rendering.
+  void loadProviderData(id)
+  await keysTask
   if (requestId !== selectProviderRequestId) return
 }
 

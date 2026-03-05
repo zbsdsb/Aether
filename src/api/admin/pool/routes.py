@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func
+from sqlalchemy.orm import Session, load_only
 
 from src.api.base.admin_adapter import AdminApiAdapter
 from src.api.base.context import ApiRequestContext
@@ -644,7 +644,20 @@ class AdminListSchedulingPresetsAdapter(AdminApiAdapter):
 class AdminPoolOverviewAdapter(AdminApiAdapter):
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         db = context.db
-        providers = db.query(Provider).order_by(Provider.provider_priority.asc()).all()
+        providers = (
+            db.query(Provider)
+            .options(
+                load_only(
+                    Provider.id,
+                    Provider.name,
+                    Provider.provider_type,
+                    Provider.provider_priority,
+                    Provider.config,
+                )
+            )
+            .order_by(Provider.provider_priority.asc())
+            .all()
+        )
 
         # 仅保留号池调度已开启的 Provider。
         enabled_providers: list[Provider] = []
@@ -655,53 +668,39 @@ class AdminPoolOverviewAdapter(AdminApiAdapter):
             enabled_providers.append(p)
             pool_provider_ids.append(str(p.id))
 
-        key_ids_by_provider: dict[str, list[str]] = {pid: [] for pid in pool_provider_ids}
-        key_stats_by_provider: dict[str, dict[str, int]] = {
-            pid: {"total": 0, "active": 0} for pid in pool_provider_ids
-        }
+        key_stats_by_provider: dict[str, dict[str, int]] = {}
         if pool_provider_ids:
             key_rows = (
                 db.query(
                     ProviderAPIKey.provider_id,
-                    ProviderAPIKey.id,
-                    ProviderAPIKey.is_active,
+                    func.count(ProviderAPIKey.id).label("total"),
+                    func.coalesce(
+                        func.sum(case((ProviderAPIKey.is_active.is_(True), 1), else_=0)),
+                        0,
+                    ).label("active"),
                 )
                 .filter(ProviderAPIKey.provider_id.in_(pool_provider_ids))
+                .group_by(ProviderAPIKey.provider_id)
                 .all()
             )
-            for provider_id, key_id, is_active in key_rows:
+            for provider_id, total, active in key_rows:
                 pid = str(provider_id)
-                kid = str(key_id)
-                key_ids_by_provider.setdefault(pid, []).append(kid)
-                stats = key_stats_by_provider.setdefault(pid, {"total": 0, "active": 0})
-                stats["total"] += 1
-                if is_active:
-                    stats["active"] += 1
+                key_stats_by_provider[pid] = {
+                    "total": int(total or 0),
+                    "active": int(active or 0),
+                }
 
-        # Redis 冷却状态并发获取，避免逐 Provider 串行等待。
+        # Redis 冷却状态按 Provider 统计，避免先拉取全量 key_id 再逐个检查。
         cooldown_count_by_provider: dict[str, int] = {}
         cooldown_targets = [
-            (pid, key_ids) for pid, key_ids in key_ids_by_provider.items() if key_ids
+            pid
+            for pid in pool_provider_ids
+            if key_stats_by_provider.get(pid, {}).get("total", 0) > 0
         ]
         if cooldown_targets:
-            cooldown_results = await asyncio.gather(
-                *[
-                    pool_redis.batch_get_cooldowns(pid, key_ids)
-                    for pid, key_ids in cooldown_targets
-                ],
-                return_exceptions=True,
+            cooldown_count_by_provider = await pool_redis.batch_count_provider_cooldowns(
+                cooldown_targets
             )
-            for (pid, _key_ids), result in zip(cooldown_targets, cooldown_results, strict=False):
-                if isinstance(result, Exception):
-                    logger.warning(
-                        "池管理概览读取冷却状态失败",
-                        extra={"provider_id": pid, "error": str(result)},
-                    )
-                    cooldown_count_by_provider[pid] = 0
-                else:
-                    cooldown_count_by_provider[pid] = sum(
-                        1 for value in result.values() if value is not None
-                    )
 
         items: list[PoolOverviewItem] = []
         for p in enabled_providers:
@@ -742,7 +741,44 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
         provider_type = str(getattr(provider, "provider_type", "custom") or "custom")
 
         # Base query
-        q = db.query(ProviderAPIKey).filter(ProviderAPIKey.provider_id == pid)
+        q = (
+            db.query(ProviderAPIKey)
+            .options(
+                load_only(
+                    ProviderAPIKey.id,
+                    ProviderAPIKey.provider_id,
+                    ProviderAPIKey.name,
+                    ProviderAPIKey.auth_type,
+                    ProviderAPIKey.auth_config,
+                    ProviderAPIKey.is_active,
+                    ProviderAPIKey.expires_at,
+                    ProviderAPIKey.oauth_invalid_at,
+                    ProviderAPIKey.oauth_invalid_reason,
+                    ProviderAPIKey.api_formats,
+                    ProviderAPIKey.rate_multipliers,
+                    ProviderAPIKey.internal_priority,
+                    ProviderAPIKey.rpm_limit,
+                    ProviderAPIKey.cache_ttl_minutes,
+                    ProviderAPIKey.max_probe_interval_minutes,
+                    ProviderAPIKey.note,
+                    ProviderAPIKey.allowed_models,
+                    ProviderAPIKey.capabilities,
+                    ProviderAPIKey.auto_fetch_models,
+                    ProviderAPIKey.locked_models,
+                    ProviderAPIKey.model_include_patterns,
+                    ProviderAPIKey.model_exclude_patterns,
+                    ProviderAPIKey.proxy,
+                    ProviderAPIKey.fingerprint,
+                    ProviderAPIKey.health_by_format,
+                    ProviderAPIKey.circuit_breaker_by_format,
+                    ProviderAPIKey.request_count,
+                    ProviderAPIKey.last_used_at,
+                    ProviderAPIKey.created_at,
+                    ProviderAPIKey.upstream_metadata,
+                )
+            )
+            .filter(ProviderAPIKey.provider_id == pid)
+        )
 
         if self.search:
             escaped = self.search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

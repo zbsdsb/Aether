@@ -642,10 +642,6 @@ const normalizeTimelineStatus = (value: unknown): CandidateRecord['status'] => {
   return 'failed'
 }
 
-const isPlannedOnlyStatus = (status: CandidateRecord['status']): boolean => {
-  return status === 'available'
-}
-
 const extractPoolGroupId = (candidate: CandidateRecord): string | null => {
   const extra = candidate.extra_data
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null
@@ -671,22 +667,6 @@ const rawTimeline = computed<CandidateRecord[]>(() => {
     })
 })
 
-// 仅保留”已进入执行链路”的节点，过滤预创建但未执行的 available 占位记录。
-// unused 候选：代表因前序候选成功而未被执行的备选项。
-//   - 号池内 unused key：不显示（号池只展示实际参与调度的 key）
-//   - 非号池 unused：每个 candidate_index 保留 retry_index=0（代表该候选存在但未执行）
-const executableTimeline = computed<CandidateRecord[]>(() => {
-  return rawTimeline.value.filter(candidate => {
-    if (isPlannedOnlyStatus(candidate.status)) return false
-    if (candidate.status === 'unused') {
-      // 号池内 unused key 不需要展示
-      if (extractPoolGroupId(candidate) !== null) return false
-      // 非号池的 unused retry slot 只保留首个
-      return candidate.retry_index === 0
-    }
-    return true
-  })
-})
 
 const schedulingAudit = computed<Record<string, unknown> | null>(() => {
   const metadata = props.requestMetadata
@@ -698,7 +678,7 @@ const schedulingAudit = computed<Record<string, unknown> | null>(() => {
 
 const poolAttemptCandidates = computed<CandidateRecord[]>(() => {
   // 新链路：优先使用后端写入的 extra_data.pool_group_id。
-  const fromTrace = executableTimeline.value.filter((candidate) => extractPoolGroupId(candidate) !== null)
+  const fromTrace = rawTimeline.value.filter((candidate) => extractPoolGroupId(candidate) !== null)
   if (fromTrace.length > 0) {
     return fromTrace
   }
@@ -823,8 +803,8 @@ const poolAttemptKeySet = computed<Set<string>>(() => {
 })
 
 const timeline = computed<CandidateRecord[]>(() => {
-  if (poolAttemptCandidates.value.length === 0) return executableTimeline.value
-  return executableTimeline.value.filter(
+  if (poolAttemptCandidates.value.length === 0) return rawTimeline.value
+  return rawTimeline.value.filter(
     (candidate) => !poolAttemptKeySet.value.has(makeAttemptKey(candidate.candidate_index, candidate.retry_index)),
   )
 })

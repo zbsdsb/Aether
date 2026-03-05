@@ -4,7 +4,7 @@ Maps upstream HTTP status codes to pool-level actions:
 
 | Code         | Action                                                     |
 |--------------|------------------------------------------------------------|
-| 401          | Invalidate OAuth token cache + short cooldown              |
+| 401          | Invalidate OAuth token cache; permanent (deactivated) 1h, else 60s |
 | 402          | Long cooldown (payment issue)                              |
 | 403          | Graded cooldown: severe (suspended/banned) 1h, else 300s+  |
 | 400          | Check body for "organization has been disabled" -> cooldown |
@@ -31,15 +31,20 @@ _ACCOUNT_DISABLE_PATTERNS = (
     "organization_disabled",
     "account has been disabled",
     "account_disabled",
+    "account has been deactivated",
+    "account_deactivated",
+    "account deactivated",
 )
 
 # 需要更长冷却的账号异常语义（403 body 关键字）。
 _FORBIDDEN_ACCOUNT_PATTERNS = (
     "account suspended",
     "account banned",
+    "account deactivated",
     "subscription inactive",
     "suspended",
     "banned",
+    "deactivated",
 )
 
 _TRANSIENT_STATUS_COOLDOWN_REASON: dict[int, str] = {
@@ -149,13 +154,25 @@ async def _apply(
     # --- 401 Unauthorized ---------------------------------------------------
     if status_code == 401:
         await redis_ops.invalidate_oauth_token_cache(key_id)
-        # Set a short cooldown to avoid hammering while refresh happens.
-        await redis_ops.set_cooldown(provider_id, key_id, "auth_failed_401", ttl=60)
-        logger.info(
-            "Pool[{}]: key {} got 401, token cache invalidated + 60s cooldown",
-            provider_id[:8],
-            key_id[:8],
-        )
+        # Check if the 401 body indicates a permanent account-level deactivation
+        # (e.g. OpenAI "account_deactivated"). These deserve a long cooldown.
+        error_lower = error_msg.lower()
+        is_permanent = any(p in error_lower for p in _ACCOUNT_DISABLE_PATTERNS)
+        if is_permanent:
+            await redis_ops.set_cooldown(provider_id, key_id, "account_deactivated_401", ttl=3600)
+            logger.warning(
+                "Pool[{}]: key {} got 401 with account deactivation, cooldown 1h",
+                provider_id[:8],
+                key_id[:8],
+            )
+        else:
+            # Transient auth failure (e.g. expired token) — short cooldown.
+            await redis_ops.set_cooldown(provider_id, key_id, "auth_failed_401", ttl=60)
+            logger.info(
+                "Pool[{}]: key {} got 401, token cache invalidated + 60s cooldown",
+                provider_id[:8],
+                key_id[:8],
+            )
         return
 
     # --- 402 Payment Required ------------------------------------------------

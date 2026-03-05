@@ -16,9 +16,10 @@ provider_oauth_token_cache:{key_id}        STRING  -> access_token (TTL: expires
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.clients.redis_client import get_redis_client
 from src.core.logger import logger
@@ -601,6 +602,44 @@ async def batch_get_cooldown_ttls(provider_id: str, key_ids: list[str]) -> dict[
         return out
     except Exception:
         return {k: None for k in key_ids}
+
+
+async def batch_count_provider_cooldowns(provider_ids: list[str]) -> dict[str, int]:
+    """Count cooldown entries per provider using per-provider SCAN.
+
+    Each provider's cooldown keys are scanned independently with a
+    targeted pattern ``ap:{pid}:cooldown:*``, avoiding full-keyspace traversal.
+    Multiple providers are scanned concurrently via ``asyncio.gather``.
+    """
+    if not provider_ids:
+        return {}
+
+    redis = await _get_redis()
+    if redis is None:
+        return {pid: 0 for pid in provider_ids}
+
+    async def _count_one(r: Any, pid: str) -> tuple[str, int]:
+        pattern = f"{PREFIX}:{pid}:cooldown:*"
+        count = 0
+        async for _key in r.scan_iter(match=pattern, count=200):
+            count += 1
+        return pid, count
+
+    try:
+        results = await asyncio.gather(
+            *[_count_one(redis, pid) for pid in provider_ids],
+            return_exceptions=True,
+        )
+        counts: dict[str, int] = {}
+        for r in results:
+            if isinstance(r, Exception):
+                continue
+            counts[r[0]] = r[1]
+        for pid in provider_ids:
+            counts.setdefault(pid, 0)
+        return counts
+    except Exception:
+        return {pid: 0 for pid in provider_ids}
 
 
 # ---------------------------------------------------------------------------

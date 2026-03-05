@@ -16,11 +16,15 @@ ACCOUNT_BLOCK_REASON_KEYWORDS: tuple[str, ...] = (
     "account blocked",
     "account has been disabled",
     "account disabled",
+    "account has been deactivated",
+    "account_deactivated",
+    "account deactivated",
     "organization has been disabled",
     "organization_disabled",
     "validation_required",
     "verify your account",
     "suspended",
+    "deactivated",
     # Kiro quota refresher 写入的确切文本
     "账户已封禁",
     # Antigravity quota refresher 写入的确切文本
