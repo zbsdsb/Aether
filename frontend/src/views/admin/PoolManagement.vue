@@ -1186,7 +1186,7 @@ import KeyFormDialog from '@/features/providers/components/KeyFormDialog.vue'
 import OAuthKeyEditDialog from '@/features/providers/components/OAuthKeyEditDialog.vue'
 import OAuthAccountDialog from '@/features/providers/components/OAuthAccountDialog.vue'
 import ProxyNodeSelect from '@/features/providers/components/ProxyNodeSelect.vue'
-import { isAccountLevelBlockReason, cleanAccountBlockReason } from '@/utils/accountBlock'
+import { isAccountLevelBlockReason, classifyAccountBlockLabel, cleanAccountBlockReason } from '@/utils/accountBlock'
 
 const { success, error: showError, warning: showWarning } = useToast()
 const { confirm } = useConfirm()
@@ -2339,7 +2339,11 @@ function getAccountAlertLabel(key: PoolKeyDetail): string | null {
   // 后端 _build_account_quota 返回的确切文本: "账号已封禁" / "访问受限"
   if (quotaText === '账号已封禁' || quotaText === '封禁') result = '账号封禁'
   else if (quotaText === '访问受限') result = '访问受限'
-  else if (isAccountLevelBlockReason(key.oauth_invalid_reason)) result = '账号异常'
+  else if (isAccountLevelBlockReason(key.oauth_invalid_reason)) {
+    const reason = String(key.oauth_invalid_reason || '').trim()
+    const cleaned = cleanAccountBlockReason(reason)
+    result = classifyAccountBlockLabel(cleaned || reason)
+  }
 
   _accountAlertCache.set(key, result)
   return result

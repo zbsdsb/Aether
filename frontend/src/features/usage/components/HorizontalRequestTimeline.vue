@@ -632,6 +632,19 @@ const makeAttemptKey = (candidateIndex: number, retryIndex: number): string => {
   return `${candidateIndex}:${retryIndex}`
 }
 
+const POOL_UNATTEMPTED_STATUS = new Set<CandidateRecord['status']>([
+  'available',
+  'unused',
+  'skipped',
+])
+
+const isPoolAttemptedCandidate = (candidate: CandidateRecord): boolean => {
+  if (POOL_UNATTEMPTED_STATUS.has(candidate.status)) return false
+  // pending 只有开始执行后才算真正进入号池内部尝试
+  if (candidate.status === 'pending' && !candidate.started_at) return false
+  return true
+}
+
 const normalizeTimelineStatus = (value: unknown): CandidateRecord['status'] => {
   if (typeof value !== 'string') return 'failed'
   const normalized = value.trim().toLowerCase()
@@ -677,8 +690,11 @@ const schedulingAudit = computed<Record<string, unknown> | null>(() => {
 })
 
 const poolAttemptCandidates = computed<CandidateRecord[]>(() => {
-  // 新链路：优先使用后端写入的 extra_data.pool_group_id。
-  const fromTrace = rawTimeline.value.filter((candidate) => extractPoolGroupId(candidate) !== null)
+  // 新链路：优先使用后端写入的 extra_data.pool_group_id，
+  // 但仅展示实际进入号池执行的 key（排除 available/unused/skipped）。
+  const fromTrace = rawTimeline.value.filter(
+    (candidate) => extractPoolGroupId(candidate) !== null && isPoolAttemptedCandidate(candidate),
+  )
   if (fromTrace.length > 0) {
     return fromTrace
   }

@@ -11,9 +11,21 @@ from typing import Any
 
 OAUTH_ACCOUNT_BLOCK_PREFIX = "[ACCOUNT_BLOCK] "
 
-ACCOUNT_BLOCK_REASON_KEYWORDS: tuple[str, ...] = (
+# -- 按原因细分的关键词组 --
+# 封禁类 (suspended / banned)
+_KEYWORDS_SUSPENDED: tuple[str, ...] = (
+    "suspended",
     "account_block",
     "account blocked",
+    "封禁",
+    "封号",
+    "被封",
+    "账户已封禁",
+    "账号异常",
+)
+
+# 停用类 (disabled / deactivated)
+_KEYWORDS_DISABLED: tuple[str, ...] = (
     "account has been disabled",
     "account disabled",
     "account has been deactivated",
@@ -21,20 +33,35 @@ ACCOUNT_BLOCK_REASON_KEYWORDS: tuple[str, ...] = (
     "account deactivated",
     "organization has been disabled",
     "organization_disabled",
+    "deactivated",
+    "访问被禁止",
+    "账户访问被禁止",
+)
+
+# 需要验证类
+_KEYWORDS_VERIFICATION: tuple[str, ...] = (
     "validation_required",
     "verify your account",
-    "suspended",
-    "deactivated",
-    # Kiro quota refresher 写入的确切文本
-    "账户已封禁",
-    # Antigravity quota refresher 写入的确切文本
-    "账户访问被禁止",
-    "封禁",
-    "封号",
-    "被封",
-    "访问被禁止",
-    "账号异常",
 )
+
+# 合并的完整列表（用于 is_account_level_block_reason 快速判断）
+ACCOUNT_BLOCK_REASON_KEYWORDS: tuple[str, ...] = (
+    *_KEYWORDS_SUSPENDED,
+    *_KEYWORDS_DISABLED,
+    *_KEYWORDS_VERIFICATION,
+)
+
+
+def _classify_block_reason(text: str) -> tuple[str, str]:
+    """Return (code, label) based on the oauth_invalid_reason text."""
+    lowered = text.lower()
+    if any(kw in lowered for kw in _KEYWORDS_VERIFICATION):
+        return "account_verification", "需要验证"
+    if any(kw in lowered for kw in _KEYWORDS_DISABLED):
+        return "account_disabled", "账号停用"
+    if any(kw in lowered for kw in _KEYWORDS_SUSPENDED):
+        return "account_suspended", "账号封禁"
+    return "account_blocked", "账号异常"
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,19 +174,23 @@ def _resolve_from_oauth_invalid_reason(reason: str | None) -> PoolAccountState |
 
     if text.startswith(OAUTH_ACCOUNT_BLOCK_PREFIX):
         cleaned = text[len(OAUTH_ACCOUNT_BLOCK_PREFIX) :].strip()
+        code, label = (
+            _classify_block_reason(cleaned) if cleaned else ("account_blocked", "账号异常")
+        )
         return PoolAccountState(
             blocked=True,
-            code="account_blocked",
-            label="账号异常",
+            code=code,
+            label=label,
             reason=cleaned or "账号异常",
         )
 
     lowered = text.lower()
     if any(keyword in lowered for keyword in ACCOUNT_BLOCK_REASON_KEYWORDS):
+        code, label = _classify_block_reason(text)
         return PoolAccountState(
             blocked=True,
-            code="account_blocked",
-            label="账号异常",
+            code=code,
+            label=label,
             reason=text,
         )
 
