@@ -187,6 +187,329 @@ class TaskService:
             request_body=request_body,
         )
 
+    async def execute_sync_candidates(
+        self,
+        *,
+        api_format: str,
+        model_name: str,
+        candidates: list[Any],
+        request_func: Callable[..., Any],
+        request_id: str | None = None,
+        current_user: User | None = None,
+        user_api_key: ApiKey | None = None,
+        is_stream: bool = False,
+        capability_requirements: dict[str, bool] | None = None,
+        request_body_ref: dict[str, Any] | None = None,
+        request_headers: dict[str, Any] | None = None,
+        request_body: dict[str, Any] | None = None,
+        affinity_key: str | None = None,
+        create_pending_usage: bool = False,
+        enable_cache_affinity: bool = False,
+    ) -> ExecutionResult:
+        """Execute a pre-built candidate set through the unified SYNC runtime."""
+        from src.services.rate_limit.adaptive_rpm import get_adaptive_rpm_manager
+        from src.services.rate_limit.concurrency_manager import get_concurrency_manager
+        from src.services.request.executor import RequestExecutor
+
+        if not request_id:
+            request_id = str(uuid4())
+
+        api_format_norm = normalize_endpoint_signature(api_format)
+
+        priority_mode = SystemConfigService.get_config(
+            self.db,
+            "provider_priority_mode",
+            CacheAwareScheduler.PRIORITY_MODE_PROVIDER,
+        )
+        scheduling_mode = SystemConfigService.get_config(
+            self.db,
+            "scheduling_mode",
+            CacheAwareScheduler.SCHEDULING_MODE_CACHE_AFFINITY,
+        )
+        cache_scheduler = await get_cache_aware_scheduler(
+            self.redis,
+            priority_mode=priority_mode,
+            scheduling_mode=scheduling_mode,
+        )
+        await cache_scheduler._ensure_initialized()
+
+        concurrency_manager = await get_concurrency_manager()
+        adaptive_manager = get_adaptive_rpm_manager()
+        request_executor = RequestExecutor(
+            db=self.db,
+            concurrency_manager=concurrency_manager,
+            adaptive_manager=adaptive_manager,
+        )
+        candidate_resolver = CandidateResolver(
+            db=self.db,
+            cache_scheduler=cache_scheduler,
+        )
+        error_classifier = ErrorClassifier(
+            db=self.db,
+            cache_scheduler=cache_scheduler,
+            adaptive_manager=adaptive_manager,
+        )
+        request_dispatcher = RequestDispatcher(
+            db=self.db,
+            request_executor=request_executor,
+            cache_scheduler=cache_scheduler if enable_cache_affinity else None,
+        )
+
+        resolved_user = current_user
+        if resolved_user is None and user_api_key is not None:
+            try:
+                resolved_user = user_api_key.user if hasattr(user_api_key, "user") else None
+            except Exception:
+                resolved_user = None
+            if resolved_user is None and getattr(user_api_key, "user_id", None):
+                resolved_user = self.db.query(User).filter(User.id == user_api_key.user_id).first()
+
+        user_id: str | None = None
+        if resolved_user is not None and getattr(resolved_user, "id", None):
+            user_id = str(resolved_user.id)
+        elif user_api_key is not None and getattr(user_api_key, "user_id", None):
+            user_id = str(user_api_key.user_id)
+
+        resolved_affinity_key = affinity_key
+        if not resolved_affinity_key:
+            api_key_id = getattr(user_api_key, "id", None) if user_api_key is not None else None
+            resolved_affinity_key = str(api_key_id) if api_key_id else f"internal-test:{request_id}"
+
+        if create_pending_usage:
+            try:
+                UsageService.create_pending_usage(
+                    db=self.db,
+                    request_id=request_id,
+                    user=resolved_user,
+                    api_key=user_api_key,
+                    model=model_name,
+                    is_stream=is_stream,
+                    api_format=api_format_norm,
+                    request_headers=request_headers,
+                    request_body=request_body,
+                )
+            except Exception as exc:
+                logger.warning("创建 pending 使用记录失败: {}", str(exc))
+
+        all_candidates = list(candidates)
+        all_candidates, pool_traces = await self._apply_pool_reorder(
+            all_candidates, request_body=request_body
+        )
+
+        candidate_record_map = candidate_resolver.create_candidate_records(
+            all_candidates=all_candidates,
+            request_id=request_id,
+            user_id=user_id,
+            user_api_key=user_api_key,
+            required_capabilities=capability_requirements,
+        )
+
+        max_attempts = candidate_resolver.count_total_attempts(all_candidates)
+        last_error: Exception | None = None
+        last_candidate: Any | None = all_candidates[-1] if all_candidates else None
+
+        async def _attempt(candidate: Any) -> AttemptResult:
+            nonlocal last_candidate
+            last_candidate = candidate
+
+            candidate_index = int(getattr(candidate, "_utf_candidate_index", -1))
+            retry_index = int(getattr(candidate, "_utf_retry_index", 0))
+            candidate_record_id = str(getattr(candidate, "_utf_candidate_record_id", "") or "")
+            attempt_counter = int(getattr(candidate, "_utf_attempt_count", 0))
+            max_attempts_local = int(getattr(candidate, "_utf_max_attempts", max_attempts))
+
+            if not candidate_record_id:
+                from src.services.scheduling.schemas import PoolCandidate
+
+                pool_extra = (
+                    getattr(candidate.key, "_pool_extra_data", None)
+                    if isinstance(getattr(candidate.key, "_pool_extra_data", None), dict)
+                    else {}
+                )
+                extra_data: dict[str, Any] = {
+                    "needs_conversion": bool(getattr(candidate, "needs_conversion", False)),
+                    "provider_api_format": getattr(candidate, "provider_api_format", None) or None,
+                    "mapping_matched_model": getattr(candidate, "mapping_matched_model", None)
+                    or None,
+                    **pool_extra,
+                }
+                if isinstance(candidate, PoolCandidate):
+                    extra_data["pool_group_id"] = str(candidate.provider.id)
+                    extra_data["pool_key_index"] = int(
+                        getattr(candidate, "_pool_key_index", 0) or 0
+                    )
+
+                candidate_record = RequestCandidateService.create_candidate(
+                    db=self.db,
+                    request_id=request_id,
+                    candidate_index=candidate_index,
+                    retry_index=retry_index,
+                    user_id=user_id,
+                    api_key_id=(getattr(user_api_key, "id", None) if user_api_key else None),
+                    provider_id=str(candidate.provider.id),
+                    endpoint_id=str(candidate.endpoint.id),
+                    key_id=str(candidate.key.id),
+                    status="available",
+                    is_cached=bool(getattr(candidate, "is_cached", False)),
+                    extra_data=extra_data,
+                )
+                self.db.flush()
+                candidate_record_id = str(candidate_record.id)
+                candidate_record_map[(candidate_index, retry_index)] = candidate_record_id
+                setattr(candidate, "_utf_candidate_record_id", candidate_record_id)
+
+            (
+                response,
+                _provider_name,
+                attempt_id,
+                _provider_id,
+                _endpoint_id,
+                _key_id,
+                _first_byte_time_ms,
+            ) = await request_dispatcher.dispatch(
+                candidate=candidate,
+                candidate_index=candidate_index,
+                retry_index=retry_index,
+                candidate_record_id=candidate_record_id,
+                user_api_key=user_api_key,
+                user_id=user_id,
+                request_func=request_func,
+                request_id=request_id,
+                api_format=api_format_norm,
+                model_name=model_name,
+                affinity_key=resolved_affinity_key,
+                global_model_id=model_name,
+                attempt_counter=attempt_counter,
+                max_attempts=max_attempts_local,
+                is_stream=is_stream,
+            )
+            _ = (attempt_id, _provider_name, _provider_id, _endpoint_id, _key_id)
+
+            await self._pool_on_success(
+                candidate,
+                request_body,
+                ttfb_ms=_first_byte_time_ms,
+            )
+
+            if is_stream:
+                return AttemptResult(
+                    kind=AttemptKind.STREAM,
+                    http_status=200,
+                    http_headers={},
+                    stream_iterator=response,
+                )
+            return AttemptResult(
+                kind=AttemptKind.SYNC_RESPONSE,
+                http_status=200,
+                http_headers={},
+                response_body=response,
+            )
+
+        async def _handle_exec_err(
+            *,
+            exec_err: Any,
+            candidate: Any,
+            candidate_index: int,
+            retry_index: int,
+            max_retries_for_candidate: int,
+            record_id: str | None,
+            attempt_count: int,
+            max_attempts: int | None,
+        ) -> tuple[Any, int | None]:
+            nonlocal last_error, last_candidate
+            last_candidate = candidate
+            last_error = getattr(exec_err, "cause", None)
+
+            candidate_record_id = str(record_id or "") or str(
+                candidate_record_map.get((candidate_index, 0), "")
+            )
+
+            action = await self._handle_candidate_error(
+                exec_err=exec_err,
+                candidate=candidate,
+                candidate_record_id=candidate_record_id,
+                retry_index=retry_index,
+                max_retries_for_candidate=max_retries_for_candidate,
+                affinity_key=resolved_affinity_key,
+                api_format=api_format_norm,
+                global_model_id=model_name,
+                request_id=request_id,
+                attempt=attempt_count,
+                max_attempts=int(max_attempts or 0),
+                request_body_ref=request_body_ref,
+                error_classifier=error_classifier,
+            )
+
+            if action == "continue":
+                new_max = None
+                if request_body_ref and request_body_ref.get("_rectified_this_turn", False):
+                    request_body_ref["_rectified_this_turn"] = False
+                    new_max = max(max_retries_for_candidate, retry_index + 2)
+                return ("retry", new_max)
+
+            if action == "break":
+                return ("continue", None)
+
+            if action == "raise":
+                if last_error is not None:
+                    self._attach_metadata_to_error(
+                        last_error, last_candidate, model_name, api_format_norm
+                    )
+                    raise last_error
+                raise
+
+            return ("continue", None)
+
+        engine = FailoverEngine(
+            self.db,
+            error_classifier=error_classifier,
+            recorder=self._recorder,
+        )
+        result = await engine.execute(
+            candidates=all_candidates,
+            attempt_func=_attempt,
+            retry_policy=RetryPolicy.for_sync_task(),
+            skip_policy=SkipPolicy(),
+            request_id=request_id,
+            user_id=user_id,
+            api_key_id=(
+                str(user_api_key.id) if user_api_key and getattr(user_api_key, "id", None) else None
+            ),
+            candidate_record_map=candidate_record_map,
+            max_attempts=max_attempts,
+            execution_error_handler=_handle_exec_err,
+        )
+
+        if result.success:
+            if pool_traces and result.key_id:
+                try:
+                    attempted_key_ids: set[str] = set()
+                    for ck in result.candidate_keys or []:
+                        status = str(getattr(ck, "status", "") or "").strip().lower()
+                        if status in {"", "available", "pending", "skipped", "unused"}:
+                            continue
+                        kid = getattr(ck, "key_id", None)
+                        if isinstance(kid, str) and kid:
+                            attempted_key_ids.add(kid)
+                    if not attempted_key_ids:
+                        attempted_key_ids.add(str(result.key_id))
+
+                    for pt in pool_traces:
+                        summary = pt.build_summary(
+                            result.key_id,
+                            attempted_key_ids=attempted_key_ids,
+                        )
+                        if summary:
+                            result.pool_summary = summary
+                            break
+                except Exception:
+                    pass
+            return result
+
+        self._raise_all_failed_exception(
+            request_id, max_attempts, last_candidate, model_name, api_format_norm, last_error
+        )
+
     @staticmethod
     def _extract_session_uuid(
         provider_type: str, request_body: dict[str, Any] | None
@@ -587,6 +910,7 @@ class TaskService:
                 retry_index=retry_index,
                 candidate_record_id=candidate_record_id,
                 user_api_key=user_api_key,
+                user_id=user_id,
                 request_func=request_func,
                 request_id=request_id,
                 api_format=api_format_norm,

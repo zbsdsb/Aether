@@ -41,22 +41,138 @@
 
     <div
       v-else-if="testing"
-      class="flex flex-col items-center justify-center gap-3 py-10 text-center"
+      class="space-y-4 py-6"
     >
-      <Loader2 class="w-8 h-8 animate-spin text-primary" />
-      <div class="space-y-1">
-        <p class="text-sm font-medium">
-          正在测试模型
-        </p>
-        <p class="text-xs text-muted-foreground">
-          {{ selectingModelName || '-' }}
-        </p>
-        <p
-          v-if="selectedEndpoint"
-          class="text-xs text-muted-foreground"
+      <div class="flex flex-col items-center justify-center gap-3 text-center">
+        <Loader2 class="w-8 h-8 animate-spin text-primary" />
+        <div class="space-y-1">
+          <p class="text-sm font-medium">
+            正在测试模型
+          </p>
+          <p class="text-xs text-muted-foreground">
+            {{ selectingModelName || '-' }}
+          </p>
+          <p
+            v-if="selectedEndpoint"
+            class="text-xs text-muted-foreground"
+          >
+            端点：{{ formatApiFormat(selectedEndpoint.api_format) }} · {{ selectedEndpoint.base_url }}
+          </p>
+        </div>
+      </div>
+
+      <div class="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-4">
+        <div class="space-y-2">
+          <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>实时进度</span>
+            <span>{{ liveTraceSummary.completed }}/{{ liveTraceSummary.total || 0 }}</span>
+          </div>
+          <div class="h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              class="h-full bg-primary transition-all duration-300"
+              :style="{ width: `${liveProgressPercent}%` }"
+            />
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <Badge
+              variant="secondary"
+              class="text-[10px] px-1.5 py-0"
+            >
+              待执行 {{ liveTraceSummary.available }}
+            </Badge>
+            <Badge
+              variant="outline"
+              class="text-[10px] px-1.5 py-0"
+            >
+              进行中 {{ liveTraceSummary.pending }}
+            </Badge>
+            <Badge
+              variant="success"
+              class="text-[10px] px-1.5 py-0"
+            >
+              成功 {{ liveTraceSummary.success }}
+            </Badge>
+            <Badge
+              variant="destructive"
+              class="text-[10px] px-1.5 py-0"
+            >
+              失败 {{ liveTraceSummary.failed }}
+            </Badge>
+            <Badge
+              variant="secondary"
+              class="text-[10px] px-1.5 py-0"
+            >
+              跳过 {{ liveTraceSummary.skipped }}
+            </Badge>
+          </div>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-md border border-border/60 bg-background/80 p-3 space-y-1">
+            <div class="text-xs text-muted-foreground">
+              测试账号
+            </div>
+            <div class="text-sm font-medium break-all">
+              {{ liveAccountTitle }}
+            </div>
+            <div class="text-xs text-muted-foreground break-all">
+              {{ liveAccountMeta }}
+            </div>
+          </div>
+          <div class="rounded-md border border-border/60 bg-background/80 p-3 space-y-1">
+            <div class="text-xs text-muted-foreground">
+              实时状态
+            </div>
+            <div class="text-sm font-medium">
+              {{ liveStatusTitle }}
+            </div>
+            <div class="text-xs text-muted-foreground break-all">
+              {{ liveStatusDetail }}
+            </div>
+          </div>
+        </div>
+
+        <div
+          v-if="requestId"
+          class="text-[11px] text-muted-foreground break-all"
         >
-          端点：{{ formatApiFormat(selectedEndpoint.api_format) }} · {{ selectedEndpoint.base_url }}
-        </p>
+          请求 ID：<code class="bg-muted px-1 py-0.5 rounded">{{ requestId }}</code>
+        </div>
+
+        <div
+          v-if="liveRecentCandidates.length > 0"
+          class="space-y-2"
+        >
+          <div class="text-xs font-medium text-muted-foreground">
+            最近状态
+          </div>
+          <div class="space-y-2">
+            <div
+              v-for="candidate in liveRecentCandidates"
+              :key="`${candidate.id}-${candidate.status}`"
+              class="flex items-start justify-between gap-3 rounded-md border border-border/50 bg-background/70 px-3 py-2 text-xs"
+            >
+              <div class="min-w-0 space-y-1">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-muted-foreground shrink-0">{{ formatTraceCandidateIndex(candidate) }}</span>
+                  <Badge
+                    :variant="statusVariant(candidate.status)"
+                    class="text-[10px] px-1.5 py-0 shrink-0"
+                  >
+                    {{ candidate.status_code || statusLabel(candidate.status) }}
+                  </Badge>
+                  <span class="truncate font-medium">{{ formatTraceCandidateAccount(candidate) }}</span>
+                </div>
+                <div class="text-muted-foreground break-all">
+                  {{ traceCandidateDetail(candidate) }}
+                </div>
+              </div>
+              <div class="shrink-0 text-muted-foreground tabular-nums">
+                {{ candidate.latency_ms != null ? `${candidate.latency_ms}ms` : '' }}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -118,7 +234,7 @@
         >
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-1.5 min-w-0">
-              <span class="text-muted-foreground shrink-0">#{{ attempt.candidate_index }}</span>
+              <span class="text-muted-foreground shrink-0">{{ formatAttemptIndex(attempt) }}</span>
               <Badge
                 :variant="statusVariant(attempt.status)"
                 class="text-[10px] px-1.5 py-0 shrink-0"
@@ -209,7 +325,7 @@
               :class="attemptRowClass(attempt.status)"
             >
               <td class="pl-3 pr-1 py-2 text-muted-foreground">
-                {{ attempt.candidate_index }}
+                {{ formatAttemptIndex(attempt) }}
               </td>
               <td class="px-3 py-2">
                 <div
@@ -292,6 +408,7 @@ import { Dialog, Badge } from '@/components/ui'
 import Button from '@/components/ui/button.vue'
 import { formatApiFormat } from '@/api/endpoints/types/api-format'
 import type { TestModelFailoverResponse, TestAttemptDetail } from '@/api/endpoints/providers'
+import type { CandidateRecord, RequestTrace } from '@/api/requestTrace'
 
 type TestEndpointOption = {
   id: string
@@ -308,6 +425,8 @@ const props = defineProps<{
   endpoints?: TestEndpointOption[]
   selectedEndpoint?: TestEndpointOption | null
   testing?: boolean
+  trace?: RequestTrace | null
+  requestId?: string | null
   showEndpointSelector?: boolean
 }>()
 
@@ -318,6 +437,7 @@ const emit = defineEmits<{
 }>()
 
 const endpoints = computed(() => props.endpoints ?? [])
+const traceCandidates = computed(() => props.trace?.candidates ?? [])
 const showSelection = computed(() => props.open && !!props.showEndpointSelector && !props.testing && !props.result)
 const showResult = computed(() => !!props.result)
 const canReselect = computed(() => !!props.showEndpointSelector && endpoints.value.length > 1)
@@ -354,6 +474,82 @@ const hasEffectiveModel = computed(() => {
   return props.result.attempts.some(a => a.effective_model && a.effective_model !== props.result?.model)
 })
 
+const liveTraceSummary = computed(() => {
+  const summary = {
+    total: traceCandidates.value.length,
+    available: 0,
+    pending: 0,
+    success: 0,
+    failed: 0,
+    skipped: 0,
+    completed: 0,
+  }
+
+  for (const candidate of traceCandidates.value) {
+    if (candidate.status === 'available' || candidate.status === 'unused') summary.available += 1
+    if (candidate.status === 'pending' || candidate.status === 'streaming') summary.pending += 1
+    if (candidate.status === 'success') summary.success += 1
+    if (candidate.status === 'failed' || candidate.status === 'cancelled' || candidate.status === 'stream_interrupted') summary.failed += 1
+    if (candidate.status === 'skipped') summary.skipped += 1
+  }
+
+  summary.completed = summary.success + summary.failed + summary.skipped
+  return summary
+})
+
+const liveProgressPercent = computed(() => {
+  if (liveTraceSummary.value.total <= 0) return 6
+  const raw = Math.round((liveTraceSummary.value.completed / liveTraceSummary.value.total) * 100)
+  return Math.min(100, Math.max(raw, liveTraceSummary.value.pending > 0 ? 12 : 6))
+})
+
+const activeTraceCandidate = computed(() => {
+  const preferredStatuses = ['pending', 'streaming', 'failed', 'success', 'skipped', 'cancelled']
+  for (let index = traceCandidates.value.length - 1; index >= 0; index -= 1) {
+    const candidate = traceCandidates.value[index]
+    if (preferredStatuses.includes(candidate.status)) return candidate
+  }
+  return traceCandidates.value[0] ?? null
+})
+
+const liveAccountTitle = computed(() => {
+  const candidate = activeTraceCandidate.value
+  if (!candidate) return '等待分配测试账号'
+  return candidate.key_account_label || candidate.key_name || candidate.key_preview || '等待分配测试账号'
+})
+
+const liveAccountMeta = computed(() => {
+  const candidate = activeTraceCandidate.value
+  if (!candidate) return '候选创建后会显示测试账号和认证方式'
+  const parts: string[] = []
+  if (candidate.key_auth_type) parts.push(formatAuthType(candidate.key_auth_type))
+  if (candidate.key_oauth_plan_type) parts.push(candidate.key_oauth_plan_type)
+  if (candidate.key_preview && candidate.key_preview !== candidate.key_account_label) parts.push(candidate.key_preview)
+  return parts.join(' · ') || '正在等待候选进入执行阶段'
+})
+
+const liveStatusTitle = computed(() => {
+  const candidate = activeTraceCandidate.value
+  if (!candidate) return '正在创建测试请求'
+  if (candidate.status === 'pending' || candidate.status === 'streaming') {
+    return `正在测试 ${formatTraceCandidateIndex(candidate)}`
+  }
+  return statusLabel(candidate.status)
+})
+
+const liveStatusDetail = computed(() => {
+  const candidate = activeTraceCandidate.value
+  if (!candidate) return '等待后端写入候选状态'
+  return traceCandidateDetail(candidate)
+})
+
+const liveRecentCandidates = computed(() => {
+  return traceCandidates.value
+    .filter(candidate => !['available', 'unused'].includes(candidate.status))
+    .slice(-4)
+    .reverse()
+})
+
 function statusVariant(status: string) {
   if (status === 'success') return 'success' as const
   if (status === 'failed') return 'destructive' as const
@@ -364,6 +560,11 @@ function statusLabel(status: string) {
   if (status === 'success') return '成功'
   if (status === 'failed') return '失败'
   if (status === 'skipped') return '跳过'
+  if (status === 'pending') return '等待中'
+  if (status === 'streaming') return '测试中'
+  if (status === 'cancelled') return '已取消'
+  if (status === 'stream_interrupted') return '流中断'
+  if (status === 'available') return '待执行'
   return status
 }
 
@@ -377,6 +578,37 @@ function attemptRowClass(status: string) {
 function maskKey(key: string): string {
   if (key.length <= 8) return key
   return `${key.slice(0, 4)}...${key.slice(-4)}`
+}
+
+function formatAuthType(authType: string): string {
+  const lowered = authType.toLowerCase()
+  if (lowered === 'api_key') return 'API Key'
+  if (lowered === 'service_account') return 'Service Account'
+  if (lowered === 'oauth') return 'OAuth'
+  if (lowered === 'codex') return 'Codex OAuth'
+  if (lowered === 'antigravity') return 'Antigravity OAuth'
+  if (lowered === 'kiro') return 'Kiro OAuth'
+  return authType
+}
+
+function formatAttemptIndex(attempt: TestAttemptDetail): string {
+  const retryIndex = attempt.retry_index ?? 0
+  return retryIndex > 0 ? `#${attempt.candidate_index}.${retryIndex}` : `#${attempt.candidate_index}`
+}
+
+function formatTraceCandidateIndex(candidate: CandidateRecord): string {
+  return candidate.retry_index > 0 ? `#${candidate.candidate_index}.${candidate.retry_index}` : `#${candidate.candidate_index}`
+}
+
+function formatTraceCandidateAccount(candidate: CandidateRecord): string {
+  return candidate.key_account_label || candidate.key_name || candidate.key_preview || '待分配账号'
+}
+
+function traceCandidateDetail(candidate: CandidateRecord): string {
+  if (candidate.skip_reason) return candidate.skip_reason
+  if (candidate.error_message) return candidate.error_message
+  if (candidate.endpoint_name) return `端点：${formatApiFormat(candidate.endpoint_name)}`
+  return '等待响应中…'
 }
 
 function attemptDetail(attempt: TestAttemptDetail): string {

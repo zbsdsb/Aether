@@ -58,7 +58,7 @@
         >
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-1.5 min-w-0">
-              <span class="text-muted-foreground shrink-0">#{{ attempt.candidate_index }}</span>
+              <span class="text-muted-foreground shrink-0">{{ formatAttemptIndex(attempt) }}</span>
               <Badge
                 :variant="statusVariant(attempt.status)"
                 class="text-[10px] px-1.5 py-0 shrink-0"
@@ -154,7 +154,7 @@
               :class="attemptRowClass(attempt.status)"
             >
               <td class="pl-3 pr-1 py-2 text-muted-foreground">
-                {{ attempt.candidate_index }}
+                {{ formatAttemptIndex(attempt) }}
               </td>
               <td class="px-3 py-2">
                 <div
@@ -267,6 +267,11 @@ function statusLabel(status: string) {
   if (status === 'success') return '成功'
   if (status === 'failed') return '失败'
   if (status === 'skipped') return '跳过'
+  if (status === 'pending') return '等待中'
+  if (status === 'streaming') return '测试中'
+  if (status === 'cancelled') return '已取消'
+  if (status === 'stream_interrupted') return '流中断'
+  if (status === 'available') return '待执行'
   return status
 }
 
@@ -280,6 +285,11 @@ function attemptRowClass(status: string) {
 function maskKey(key: string): string {
   if (key.length <= 8) return key
   return `${key.slice(0, 4)}...${key.slice(-4)}`
+}
+
+function formatAttemptIndex(attempt: TestAttemptDetail): string {
+  const retryIndex = attempt.retry_index ?? 0
+  return retryIndex > 0 ? `#${attempt.candidate_index}.${retryIndex}` : `#${attempt.candidate_index}`
 }
 
 function attemptDetail(attempt: TestAttemptDetail): string {

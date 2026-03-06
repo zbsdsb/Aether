@@ -219,6 +219,8 @@
     :endpoints="activeEndpoints"
     :selected-endpoint="selectedTestEndpoint"
     :testing="!!pendingTestModel && testingModelId === pendingTestModel.id"
+    :trace="testTrace"
+    :request-id="currentTestRequestId"
     :show-endpoint-selector="activeEndpoints.length > 1"
     @close="handleTestDialogClose"
     @back="handleTestDialogBack"
@@ -227,7 +229,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onBeforeUnmount } from 'vue'
+import { isAxiosError } from 'axios'
 import { useSmartPagination } from '@/composables/useSmartPagination'
 import { Box, Edit, Layers, Power, Copy, Loader2, Play } from 'lucide-vue-next'
 import Card from '@/components/ui/card.vue'
@@ -242,6 +245,7 @@ import {
   type TestModelFailoverResponse,
 } from '@/api/endpoints'
 import { updateModel } from '@/api/endpoints/models'
+import { requestTraceApi, type RequestTrace } from '@/api/requestTrace'
 import { parseApiError } from '@/utils/errorParser'
 import { formatApiFormat } from '@/api/endpoints/types/api-format'
 import type { ProviderWithEndpointsSummary } from '@/api/endpoints'
@@ -272,6 +276,10 @@ const testResultMode = ref<'global' | 'direct'>('global')
 const testDialogOpen = ref(false)
 const pendingTestModel = ref<Model | null>(null)
 const selectedTestEndpoint = ref<ProviderEndpoint | null>(null)
+const currentTestRequestId = ref<string | null>(null)
+const testTrace = ref<RequestTrace | null>(null)
+let tracePollTimer: ReturnType<typeof setInterval> | null = null
+let tracePollToken = 0
 // 使用 props 传入的数据，或使用本地数据
 const activeEndpoints = computed(() => (props.endpoints ?? []).filter(endpoint => endpoint.is_active))
 // 使用 props 传入的数据，或使用本地数据
@@ -302,6 +310,47 @@ async function copyModelId(modelId: string) {
 // 刷新数据（通知父组件刷新）
 function refresh() {
   emit('refresh')
+}
+
+function buildTestRequestId(): string {
+  const randomUUID = globalThis.crypto?.randomUUID?.bind(globalThis.crypto)
+  if (randomUUID) {
+    return `provider-test-${randomUUID().replace(/-/g, '').slice(0, 20)}`
+  }
+  return `provider-test-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+}
+
+async function pollTestTrace(requestId: string, token: number) {
+  try {
+    const trace = await requestTraceApi.getRequestTrace(requestId, { attemptedOnly: false })
+    if (tracePollToken !== token || currentTestRequestId.value !== requestId) return
+    testTrace.value = trace
+  } catch (err: unknown) {
+    if (isAxiosError(err) && err.response?.status === 404) return
+  }
+}
+
+function stopTestTracePolling(options: { clearState?: boolean } = {}) {
+  tracePollToken += 1
+  if (tracePollTimer) {
+    clearInterval(tracePollTimer)
+    tracePollTimer = null
+  }
+  if (options.clearState !== false) {
+    currentTestRequestId.value = null
+    testTrace.value = null
+  }
+}
+
+function startTestTracePolling(requestId: string) {
+  stopTestTracePolling()
+  currentTestRequestId.value = requestId
+  testTrace.value = null
+  const token = ++tracePollToken
+  void pollTestTrace(requestId, token)
+  tracePollTimer = setInterval(() => {
+    void pollTestTrace(requestId, token)
+  }, 800)
 }
 
 // 格式化价格显示
@@ -437,6 +486,7 @@ async function toggleModelActive(model: Model) {
 }
 
 function resetTestDialogState() {
+  stopTestTracePolling()
   testDialogOpen.value = false
   pendingTestModel.value = null
   selectedTestEndpoint.value = null
@@ -466,6 +516,8 @@ async function runModelTest(model: Model, endpoint?: ProviderEndpoint) {
   testingModelId.value = model.id
   testDialogOpen.value = true
   selectedTestEndpoint.value = endpoint ?? null
+  const requestId = buildTestRequestId()
+  startTestTracePolling(requestId)
   try {
     const modelName = model.global_model_name || model.provider_model_name
 
@@ -476,6 +528,7 @@ async function runModelTest(model: Model, endpoint?: ProviderEndpoint) {
       api_format: endpoint?.api_format,
       endpoint_id: endpoint?.id,
       message: 'hello',
+      request_id: requestId,
     })
 
     if (result.success) {
@@ -489,9 +542,11 @@ async function runModelTest(model: Model, endpoint?: ProviderEndpoint) {
       resetTestDialogState()
       return
     }
+    stopTestTracePolling({ clearState: false })
     testResultMode.value = 'global'
     testResult.value = result
   } catch (err: unknown) {
+    stopTestTracePolling()
     showError(`模型测试失败: ${parseApiError(err, '测试请求失败')}`)
     if (activeEndpoints.value.length <= 1) {
       resetTestDialogState()
@@ -525,5 +580,9 @@ async function testModelConnection(model: Model) {
 // 暴露给父组件
 defineExpose({
   reload: refresh
+})
+
+onBeforeUnmount(() => {
+  stopTestTracePolling()
 })
 </script>

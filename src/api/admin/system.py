@@ -22,6 +22,7 @@ from src.database import get_db
 from src.models.api import SystemSettingsRequest, SystemSettingsResponse
 from src.models.database import ApiKey, Provider, Usage, User
 from src.services.email.email_template import EmailTemplate
+from src.services.provider_ops.types import SENSITIVE_CREDENTIAL_FIELDS
 from src.services.system.config import SystemConfigService
 from src.utils.cache_decorator import cache_result
 
@@ -899,16 +900,7 @@ class AdminExportConfigAdapter(AdminApiAdapter):
     """导出提供商和模型配置"""
 
     # Provider Ops 中需要解密的敏感字段
-    SENSITIVE_CREDENTIALS = {
-        "api_key",
-        "password",
-        "session_token",
-        "session_cookie",
-        "token_cookie",
-        "auth_cookie",
-        "cookie_string",
-        "cookie",
-    }
+    SENSITIVE_CREDENTIALS = SENSITIVE_CREDENTIAL_FIELDS
 
     @staticmethod
     def _normalize_api_formats(raw_formats: Any) -> list[str]:
@@ -1180,16 +1172,7 @@ class AdminImportConfigAdapter(AdminApiAdapter):
     """导入提供商和模型配置"""
 
     # Provider Ops 中需要加密的敏感字段
-    SENSITIVE_CREDENTIALS = {
-        "api_key",
-        "password",
-        "session_token",
-        "session_cookie",
-        "token_cookie",
-        "auth_cookie",
-        "cookie_string",
-        "cookie",
-    }
+    SENSITIVE_CREDENTIALS = SENSITIVE_CREDENTIAL_FIELDS
 
     @staticmethod
     def _extract_import_key_api_formats(
@@ -1962,38 +1945,51 @@ class AdminImportConfigAdapter(AdminApiAdapter):
 
 
 class AdminExportUsersAdapter(AdminApiAdapter):
+    @staticmethod
+    def _serialize_api_key(key: ApiKey, include_is_standalone: bool = False) -> dict[str, Any]:
+        """序列化用户 API Key 为导出格式。"""
+        from src.core.crypto import crypto_service
+
+        data = {
+            "key_hash": key.key_hash,
+            "name": key.name,
+            "balance_used_usd": key.balance_used_usd,
+            "current_balance_usd": key.current_balance_usd,
+            "allowed_providers": key.allowed_providers,
+            "allowed_api_formats": key.allowed_api_formats,
+            "allowed_models": key.allowed_models,
+            "rate_limit": key.rate_limit,
+            "concurrent_limit": key.concurrent_limit,
+            "force_capabilities": key.force_capabilities,
+            "is_active": key.is_active,
+            "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+            "auto_delete_on_expiry": key.auto_delete_on_expiry,
+            "total_requests": key.total_requests,
+            "total_cost_usd": key.total_cost_usd,
+        }
+
+        if key.key_encrypted:
+            try:
+                data["key"] = crypto_service.decrypt(key.key_encrypted, silent=True)
+            except Exception:
+                logger.warning(
+                    "[USERS_EXPORT] API Key 解密失败，回退为 legacy 密文字段: key_id={}", key.id
+                )
+                data["key_encrypted"] = key.key_encrypted
+
+        if include_is_standalone:
+            data["is_standalone"] = key.is_standalone
+
+        return data
+
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
-        """导出用户数据（保留加密数据，排除管理员）"""
+        """导出用户数据（优先导出解密后的完整 Key，排除管理员）"""
         from datetime import datetime, timezone
 
         from src.core.enums import UserRole
         from src.models.database import ApiKey, User
 
         db = context.db
-
-        def _serialize_api_key(key: ApiKey, include_is_standalone: bool = False) -> dict:
-            """序列化 API Key 为导出格式"""
-            data = {
-                "key_hash": key.key_hash,
-                "key_encrypted": key.key_encrypted,
-                "name": key.name,
-                "balance_used_usd": key.balance_used_usd,
-                "current_balance_usd": key.current_balance_usd,
-                "allowed_providers": key.allowed_providers,
-                "allowed_api_formats": key.allowed_api_formats,
-                "allowed_models": key.allowed_models,
-                "rate_limit": key.rate_limit,
-                "concurrent_limit": key.concurrent_limit,
-                "force_capabilities": key.force_capabilities,
-                "is_active": key.is_active,
-                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
-                "auto_delete_on_expiry": key.auto_delete_on_expiry,
-                "total_requests": key.total_requests,
-                "total_cost_usd": key.total_cost_usd,
-            }
-            if include_is_standalone:
-                data["is_standalone"] = key.is_standalone
-            return data
 
         # 导出 Users（排除管理员）
         users = db.query(User).filter(User.is_deleted.is_(False), User.role != UserRole.ADMIN).all()
@@ -2006,12 +2002,13 @@ class AdminExportUsersAdapter(AdminApiAdapter):
                 .all()
             )
             api_keys_data = [
-                _serialize_api_key(key, include_is_standalone=True) for key in api_keys
+                self._serialize_api_key(key, include_is_standalone=True) for key in api_keys
             ]
 
             users_data.append(
                 {
                     "email": user.email,
+                    "email_verified": user.email_verified,
                     "username": user.username,
                     "password_hash": user.password_hash,
                     "role": user.role.value if user.role else "user",
@@ -2029,10 +2026,10 @@ class AdminExportUsersAdapter(AdminApiAdapter):
 
         # 导出独立余额 Keys（管理员创建的，不属于普通用户）
         standalone_keys = db.query(ApiKey).filter(ApiKey.is_standalone.is_(True)).all()
-        standalone_keys_data = [_serialize_api_key(key) for key in standalone_keys]
+        standalone_keys_data = [self._serialize_api_key(key) for key in standalone_keys]
 
         return {
-            "version": "1.1",
+            "version": "1.2",
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "users": users_data,
             "standalone_keys": standalone_keys_data,
@@ -2040,6 +2037,22 @@ class AdminExportUsersAdapter(AdminApiAdapter):
 
 
 class AdminImportUsersAdapter(AdminApiAdapter):
+    @staticmethod
+    def _resolve_api_key_material(key_data: dict[str, Any]) -> tuple[str | None, str | None]:
+        """解析用户 API Key 导入材料，优先使用明文 key。"""
+        from src.core.crypto import crypto_service
+        from src.models.database import ApiKey
+
+        plaintext_key = key_data.get("key")
+        if isinstance(plaintext_key, str):
+            normalized = plaintext_key.strip()
+            if normalized:
+                return ApiKey.hash_key(normalized), crypto_service.encrypt(normalized)
+
+        key_hash = str(key_data.get("key_hash") or "").strip() or None
+        key_encrypted = key_data.get("key_encrypted")
+        return key_hash, key_encrypted
+
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         """导入用户数据"""
         import uuid
@@ -2079,7 +2092,7 @@ class AdminImportUsersAdapter(AdminApiAdapter):
                 (None, "skipped"): key 已存在，跳过
                 (None, "invalid"): 数据无效，跳过
             """
-            key_hash = key_data.get("key_hash", "").strip()
+            key_hash, key_encrypted = self._resolve_api_key_material(key_data)
             if not key_hash:
                 return None, "invalid"
 
@@ -2103,7 +2116,7 @@ class AdminImportUsersAdapter(AdminApiAdapter):
                     id=str(uuid.uuid4()),
                     user_id=owner_id,
                     key_hash=key_hash,
-                    key_encrypted=key_data.get("key_encrypted"),
+                    key_encrypted=key_encrypted,
                     name=key_data.get("name"),
                     is_standalone=is_standalone or key_data.get("is_standalone", False),
                     balance_used_usd=key_data.get("balance_used_usd", 0.0),

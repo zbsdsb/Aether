@@ -34,6 +34,12 @@ export interface OAuthProviderExport {
   is_enabled?: boolean
 }
 
+export interface SystemConfigExport {
+  key: string
+  value: unknown
+  description?: string | null
+}
+
 // 配置导出数据结构
 export interface ConfigExportData {
   version: string
@@ -42,6 +48,7 @@ export interface ConfigExportData {
   providers: ProviderExport[]
   ldap_config?: LDAPConfigExport | null
   oauth_providers?: OAuthProviderExport[]
+  system_configs?: SystemConfigExport[]
 }
 
 // 用户导出数据结构
@@ -54,6 +61,7 @@ export interface UsersExportData {
 
 export interface UserExport {
   email: string
+  email_verified?: boolean
   username: string
   password_hash: string
   role: string
@@ -69,6 +77,7 @@ export interface UserExport {
 }
 
 export interface UserApiKeyExport {
+  key?: string | null
   key_hash: string
   key_encrypted?: string | null
   name?: string | null
@@ -105,14 +114,18 @@ export interface ProviderExport {
   name: string
   description?: string | null
   website?: string | null
+  provider_type?: string
   billing_type?: string | null
   monthly_quota_usd?: number | null
   quota_reset_day?: number
-  rpm_limit?: number | null
   provider_priority?: number
+  keep_priority_on_conversion?: boolean
+  enable_format_conversion?: boolean
   is_active: boolean
   concurrent_limit?: number | null
   max_retries?: number | null
+  stream_first_byte_timeout?: number | null
+  request_timeout?: number | null
   proxy?: Record<string, unknown>
   config?: Record<string, unknown>
   endpoints: EndpointExport[]
@@ -123,19 +136,24 @@ export interface ProviderExport {
 export interface EndpointExport {
   api_format: string
   base_url: string
-  headers?: Record<string, unknown>
+  header_rules?: Record<string, unknown>[] | null
+  body_rules?: Record<string, unknown>[] | null
   max_retries?: number
   is_active: boolean
   custom_path?: string | null
   config?: Record<string, unknown>
+  format_acceptance_config?: Record<string, unknown> | null
   proxy?: Record<string, unknown>
 }
 
 export interface ProviderKeyExport {
   api_key: string
+  auth_type?: string
+  auth_config?: string | Record<string, unknown> | null
   name?: string | null
   note?: string | null
   api_formats: string[]
+  supported_endpoints?: string[]
   rate_multipliers?: Record<string, number> | null
   internal_priority?: number
   global_priority_by_format?: Record<string, number> | null
@@ -144,7 +162,13 @@ export interface ProviderKeyExport {
   capabilities?: Record<string, boolean>
   cache_ttl_minutes?: number
   max_probe_interval_minutes?: number
+  auto_fetch_models?: boolean
+  locked_models?: string[] | null
+  model_include_patterns?: string[] | null
+  model_exclude_patterns?: string[] | null
   is_active: boolean
+  proxy?: Record<string, unknown> | null
+  fingerprint?: Record<string, unknown> | null
 }
 
 export interface ModelExport {

@@ -131,7 +131,9 @@ export interface TestModelResponse {
 }
 
 export async function testModel(data: TestModelRequest): Promise<TestModelResponse> {
-  const response = await client.post('/api/admin/provider-query/test-model', data)
+  const response = await client.post('/api/admin/provider-query/test-model', data, {
+    timeout: 10 * 60 * 1000,
+  })
   return response.data
 }
 
@@ -145,10 +147,12 @@ export interface TestModelFailoverRequest {
   api_format?: string
   endpoint_id?: string
   message?: string
+  request_id?: string
 }
 
 export interface TestAttemptDetail {
   candidate_index: number
+  retry_index?: number
   endpoint_api_format: string
   endpoint_base_url: string
   key_name: string | null
@@ -174,7 +178,9 @@ export interface TestModelFailoverResponse {
 }
 
 export async function testModelFailover(data: TestModelFailoverRequest): Promise<TestModelFailoverResponse> {
-  const response = await client.post('/api/admin/provider-query/test-model-failover', data)
+  const response = await client.post('/api/admin/provider-query/test-model-failover', data, {
+    timeout: 10 * 60 * 1000,
+  })
   return response.data
 }
 

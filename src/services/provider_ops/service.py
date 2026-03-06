@@ -24,6 +24,7 @@ from src.models.database import Provider
 from src.services.provider_ops.architectures import ProviderConnector
 from src.services.provider_ops.registry import get_registry
 from src.services.provider_ops.types import (
+    SENSITIVE_CREDENTIAL_FIELDS,
     ActionResult,
     ActionStatus,
     BalanceInfo,
@@ -94,17 +95,7 @@ class ProviderOpsService:
     """
 
     # 凭据中需要加密的字段
-    SENSITIVE_FIELDS = {
-        "api_key",
-        "password",
-        "refresh_token",
-        "session_token",
-        "session_cookie",
-        "token_cookie",
-        "auth_cookie",
-        "cookie_string",
-        "cookie",
-    }
+    SENSITIVE_FIELDS = SENSITIVE_CREDENTIAL_FIELDS
 
     def __init__(self, db: Session):
         self.db = db
