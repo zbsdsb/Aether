@@ -220,9 +220,17 @@ class TaskPollerService:
         if not self.redis:
             return "no_redis"
         token = str(uuid4())
-        acquired = await self.redis.set(
-            self.adapter.lock_key, token, nx=True, ex=self.adapter.lock_ttl
-        )
+        try:
+            acquired = await self.redis.set(
+                self.adapter.lock_key, token, nx=True, ex=self.adapter.lock_ttl
+            )
+        except Exception as exc:
+            logger.warning(
+                "[{}] Redis lock acquire failed (best-effort skip): {}",
+                self.adapter.task_type,
+                exc,
+            )
+            return "no_redis"
         return token if acquired else None
 
     async def _release_redis_lock(self, token: str) -> None:
@@ -234,7 +242,14 @@ class TaskPollerService:
         end
         return 0
         """
-        await self.redis.eval(script, 1, self.adapter.lock_key, token)
+        try:
+            await self.redis.eval(script, 1, self.adapter.lock_key, token)
+        except Exception as exc:
+            logger.warning(
+                "[{}] Redis lock release failed (will expire via TTL): {}",
+                self.adapter.task_type,
+                exc,
+            )
 
 
 _task_poller: TaskPollerService | None = None
