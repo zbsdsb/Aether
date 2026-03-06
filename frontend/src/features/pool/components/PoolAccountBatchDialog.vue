@@ -267,7 +267,7 @@ import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { parseApiError } from '@/utils/errorParser'
 import { listPoolKeys, type PoolKeyDetail } from '@/api/endpoints/pool'
-import { deleteEndpointKey, refreshProviderQuota, updateProviderKey } from '@/api/endpoints/keys'
+import { batchDeleteEndpointKeys, refreshProviderQuota, updateProviderKey } from '@/api/endpoints/keys'
 import { refreshProviderOAuth } from '@/api/endpoints/provider_oauth'
 import { useProxyNodesStore } from '@/stores/proxy-nodes'
 import { hasNoFiveHourLimit as hasNoFiveHourLimitByQuota, hasNoWeeklyLimit as hasNoWeeklyLimitByQuota } from '@/features/pool/utils/quota-selectors'
@@ -619,12 +619,32 @@ async function executeAction(): Promise<void> {
 
         progressDone.value = Math.min(i + BATCH_SIZE, targetIds.length)
       }
+    } else if (selectedAction.value === 'delete') {
+      // 使用批量删除 API，按 100 个一批分批调用（后端限制 max_length=100）
+      const targetIds = selectedKeys.map((key) => key.key_id)
+      const BATCH_SIZE = 100
+      const totalBatches = Math.ceil(targetIds.length / BATCH_SIZE)
+
+      for (let i = 0; i < targetIds.length; i += BATCH_SIZE) {
+        const batchIndex = Math.floor(i / BATCH_SIZE) + 1
+        const batch = targetIds.slice(i, i + BATCH_SIZE)
+        if (totalBatches > 1) {
+          progressLabel.value = `正在${actionLabel}...（第 ${batchIndex}/${totalBatches} 批）`
+        }
+
+        try {
+          const result = await batchDeleteEndpointKeys(batch)
+          successCount += result.success_count
+          failedCount += result.failed_count
+        } catch {
+          failedCount += batch.length
+        }
+
+        progressDone.value = Math.min(i + BATCH_SIZE, targetIds.length)
+      }
     } else {
       const CONCURRENCY = props.batchConcurrency || 8
       const taskForKey = (key: PoolKeyDetail): (() => Promise<'success' | 'skip'>) | null => {
-        if (selectedAction.value === 'delete') {
-          return () => deleteEndpointKey(key.key_id).then(() => 'success' as const)
-        }
         if (selectedAction.value === 'refresh_oauth') {
           if (normalizeText(key.auth_type) !== 'oauth') return null
           return () => refreshProviderOAuth(key.key_id).then(() => 'success' as const)

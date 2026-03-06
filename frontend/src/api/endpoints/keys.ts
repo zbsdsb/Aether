@@ -83,6 +83,20 @@ export async function deleteEndpointKey(keyId: string): Promise<{ message: strin
   return response.data
 }
 
+/**
+ * 批量删除 Keys
+ */
+export interface BatchDeleteKeysResult {
+  success_count: number
+  failed_count: number
+  failed: Array<{ id: string; error: string }>
+}
+
+export async function batchDeleteEndpointKeys(ids: string[]): Promise<BatchDeleteKeysResult> {
+  const response = await client.post('/api/admin/endpoints/keys/batch-delete', { ids })
+  return response.data
+}
+
 
 // ========== Provider 级别的 Keys API ==========
 
