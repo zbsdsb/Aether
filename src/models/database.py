@@ -188,7 +188,9 @@ class ApiKey(Base):
     )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     key_hash = Column(String(64), unique=True, index=True, nullable=False)  # API密钥的SHA256哈希
     key_encrypted = Column(Text, nullable=True)  # 加密后的完整密钥，用于查看
     name = Column(String(100), nullable=True)  # 密钥名称，便于用户管理
@@ -319,7 +321,9 @@ class Usage(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     api_key_id = Column(String(36), ForeignKey("api_keys.id", ondelete="SET NULL"), nullable=True)
-    wallet_id = Column(String(36), ForeignKey("wallets.id", ondelete="SET NULL"), nullable=True)
+    wallet_id = Column(
+        String(36), ForeignKey("wallets.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # 请求信息
     request_id = Column(String(100), unique=True, index=True, nullable=False)
@@ -332,10 +336,16 @@ class Usage(Base):
     # Provider 侧追踪信息（记录最终成功的 Provider/Endpoint/Key）
     provider_id = Column(String(36), ForeignKey("providers.id", ondelete="SET NULL"), nullable=True)
     provider_endpoint_id = Column(
-        String(36), ForeignKey("provider_endpoints.id", ondelete="SET NULL"), nullable=True
+        String(36),
+        ForeignKey("provider_endpoints.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     provider_api_key_id = Column(
-        String(36), ForeignKey("provider_api_keys.id", ondelete="SET NULL"), nullable=True
+        String(36),
+        ForeignKey("provider_api_keys.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     # Token统计
@@ -582,7 +592,9 @@ class WalletTransaction(Base):
 
     link_type = Column(String(30), nullable=True)
     link_id = Column(String(100), nullable=True)
-    operator_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    operator_id = Column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     description = Column(Text, nullable=True)
 
     created_at = Column(
@@ -648,7 +660,7 @@ class PaymentCallback(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     payment_order_id = Column(
-        String(36), ForeignKey("payment_orders.id", ondelete="SET NULL"), nullable=True
+        String(36), ForeignKey("payment_orders.id", ondelete="SET NULL"), nullable=True, index=True
     )
     payment_method = Column(String(30), nullable=False)
 
@@ -686,7 +698,7 @@ class RefundRequest(Base):
     wallet_id = Column(String(36), ForeignKey("wallets.id", ondelete="RESTRICT"), nullable=False)
     user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     payment_order_id = Column(
-        String(36), ForeignKey("payment_orders.id", ondelete="SET NULL"), nullable=True
+        String(36), ForeignKey("payment_orders.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     source_type = Column(String(30), nullable=False)  # payment_order/manual_recharge/card_recharge
@@ -696,9 +708,15 @@ class RefundRequest(Base):
 
     status = Column(String(30), nullable=False, default="pending_approval")
     reason = Column(Text, nullable=True)
-    requested_by = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    approved_by = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    processed_by = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    requested_by = Column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    approved_by = Column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    processed_by = Column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     gateway_refund_id = Column(String(128), nullable=True)
     payout_method = Column(String(50), nullable=True)
@@ -1125,6 +1143,7 @@ class ProxyNode(Base):
         String(36),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
         comment="注册该节点的管理员用户 ID（可空）",
     )
     last_heartbeat_at = Column(DateTime(timezone=True), nullable=True)
@@ -1914,10 +1933,10 @@ class VideoTask(Base):
 
     # 关联
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    api_key_id = Column(String(36), ForeignKey("api_keys.id"))
-    provider_id = Column(String(36), ForeignKey("providers.id"))
-    endpoint_id = Column(String(36), ForeignKey("provider_endpoints.id"))
-    key_id = Column(String(36), ForeignKey("provider_api_keys.id"))
+    api_key_id = Column(String(36), ForeignKey("api_keys.id"), index=True)
+    provider_id = Column(String(36), ForeignKey("providers.id"), index=True)
+    endpoint_id = Column(String(36), ForeignKey("provider_endpoints.id"), index=True)
+    key_id = Column(String(36), ForeignKey("provider_api_keys.id"), index=True)
 
     # 格式转换追踪
     client_api_format = Column(String(50), nullable=False)
@@ -1967,7 +1986,7 @@ class VideoTask(Base):
 
     # Remix 支持
     remixed_from_task_id = Column(
-        String(36), ForeignKey("video_tasks.id", ondelete="SET NULL"), nullable=True
+        String(36), ForeignKey("video_tasks.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     # 使用追踪（候选 key、请求头等）
@@ -2021,7 +2040,7 @@ class UserPreference(Base):
     bio = Column(Text, nullable=True)  # 个人简介
 
     # 偏好设置
-    default_provider_id = Column(String(36), ForeignKey("providers.id"), nullable=True)
+    default_provider_id = Column(String(36), ForeignKey("providers.id"), nullable=True, index=True)
     theme = Column(String(20), default="light")  # light/dark/auto
     language = Column(String(10), default="zh-CN")
     timezone = Column(String(50), default="Asia/Shanghai")
@@ -2059,7 +2078,9 @@ class Announcement(Base):
     priority = Column(Integer, default=0)  # 优先级,数字越大越重要
 
     # 发布信息
-    author_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    author_id = Column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     is_active = Column(Boolean, default=True, index=True)
     is_pinned = Column(Boolean, default=False)  # 置顶
 
@@ -2095,7 +2116,7 @@ class AnnouncementRead(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    announcement_id = Column(String(36), ForeignKey("announcements.id"), nullable=False)
+    announcement_id = Column(String(36), ForeignKey("announcements.id"), nullable=False, index=True)
     read_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -2373,18 +2394,28 @@ class RequestCandidate(Base):
 
     # 关联字段
     request_id = Column(String(100), nullable=False, index=True)
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
-    api_key_id = Column(String(36), ForeignKey("api_keys.id", ondelete="CASCADE"), nullable=True)
+    user_id = Column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    api_key_id = Column(
+        String(36), ForeignKey("api_keys.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     # 候选信息
     candidate_index = Column(Integer, nullable=False)  # 候选序号（从0开始）
     retry_index = Column(Integer, nullable=False, default=0)  # 重试序号（从0开始）
     provider_id = Column(String(36), ForeignKey("providers.id", ondelete="CASCADE"), nullable=True)
     endpoint_id = Column(
-        String(36), ForeignKey("provider_endpoints.id", ondelete="CASCADE"), nullable=True
+        String(36),
+        ForeignKey("provider_endpoints.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
     )
     key_id = Column(
-        String(36), ForeignKey("provider_api_keys.id", ondelete="CASCADE"), nullable=True
+        String(36),
+        ForeignKey("provider_api_keys.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
     )
 
     # 状态信息
