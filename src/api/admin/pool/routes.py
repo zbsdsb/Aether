@@ -16,7 +16,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import case, func
+from sqlalchemy import case
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func
 from sqlalchemy.orm import Session, load_only
 
 from src.api.base.admin_adapter import AdminApiAdapter
@@ -1005,76 +1007,96 @@ class AdminBatchActionKeysAdapter(AdminApiAdapter):
         pid = str(provider.id)
         affected = 0
 
-        keys = (
-            db.query(ProviderAPIKey)
-            .filter(
-                ProviderAPIKey.provider_id == pid,
-                ProviderAPIKey.id.in_(self.body.key_ids),
-            )
-            .all()
-        )
-
-        for key in keys:
-            kid = str(key.id)
-
-            if self.body.action == "enable":
-                key.is_active = True
-                affected += 1
-
-            elif self.body.action == "disable":
-                key.is_active = False
-                affected += 1
-
-            elif self.body.action == "delete":
-                db.delete(key)
-                affected += 1
-
-            elif self.body.action == "clear_cooldown":
-                await pool_redis.clear_cooldown(pid, kid)
-                affected += 1
-
-            elif self.body.action == "reset_cost":
-                await pool_redis.clear_cost(pid, kid)
-                affected += 1
-
-            elif self.body.action == "clear_proxy":
-                key.proxy = None
-                affected += 1
-
-            elif self.body.action == "set_proxy":
-                key.proxy = self.body.payload
-                affected += 1
-
-            elif self.body.action == "regenerate_fingerprint":
-                key.fingerprint = generate_fingerprint(seed=None)
-                affected += 1
-
-        if self.body.action in {
-            "enable",
-            "disable",
-            "delete",
-            "regenerate_fingerprint",
-            "clear_proxy",
-            "set_proxy",
-        }:
+        if self.body.action == "delete":
+            # 批量 SQL 删除，避免逐条 ORM delete
+            key_ids = self.body.key_ids
             try:
+                result = db.execute(
+                    sa_delete(ProviderAPIKey).where(
+                        ProviderAPIKey.provider_id == pid,
+                        ProviderAPIKey.id.in_(key_ids),
+                    )
+                )
+                affected = result.rowcount  # type: ignore[assignment]
                 db.commit()
             except Exception as exc:
                 db.rollback()
-                logger.error("batch action commit failed: {}", exc)
+                logger.error("batch delete commit failed: {}", exc)
                 return BatchActionResponse(affected=0, message=f"commit failed: {exc}")
 
-        if self.body.action == "delete" and affected > 0:
-            from src.services.provider_keys.key_side_effects import run_delete_key_side_effects
-
-            try:
-                await run_delete_key_side_effects(
-                    db=db,
-                    provider_id=pid,
-                    deleted_key_allowed_models=None,
+            if affected > 0:
+                from src.services.provider_keys.key_side_effects import (
+                    run_delete_key_side_effects,
                 )
-            except Exception as exc:
-                logger.error("batch delete side effects failed: {}", exc)
+
+                try:
+                    await run_delete_key_side_effects(
+                        db=db,
+                        provider_id=pid,
+                        deleted_key_allowed_models=None,
+                    )
+                except Exception as exc:
+                    logger.error("batch delete side effects failed: {}", exc)
+
+            admin_name = context.user.username if context.user else "admin"
+            affected_ids = [kid[:8] for kid in key_ids[:20]]
+        else:
+            keys = (
+                db.query(ProviderAPIKey)
+                .filter(
+                    ProviderAPIKey.provider_id == pid,
+                    ProviderAPIKey.id.in_(self.body.key_ids),
+                )
+                .all()
+            )
+
+            for key in keys:
+                kid = str(key.id)
+
+                if self.body.action == "enable":
+                    key.is_active = True
+                    affected += 1
+
+                elif self.body.action == "disable":
+                    key.is_active = False
+                    affected += 1
+
+                elif self.body.action == "clear_cooldown":
+                    await pool_redis.clear_cooldown(pid, kid)
+                    affected += 1
+
+                elif self.body.action == "reset_cost":
+                    await pool_redis.clear_cost(pid, kid)
+                    affected += 1
+
+                elif self.body.action == "clear_proxy":
+                    key.proxy = None
+                    affected += 1
+
+                elif self.body.action == "set_proxy":
+                    key.proxy = self.body.payload
+                    affected += 1
+
+                elif self.body.action == "regenerate_fingerprint":
+                    key.fingerprint = generate_fingerprint(seed=None)
+                    affected += 1
+
+            if self.body.action in {
+                "enable",
+                "disable",
+                "regenerate_fingerprint",
+                "clear_proxy",
+                "set_proxy",
+            }:
+                try:
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    logger.error("batch action commit failed: {}", exc)
+                    return BatchActionResponse(affected=0, message=f"commit failed: {exc}")
+
+            admin_name = context.user.username if context.user else "admin"
+            affected_ids = [str(k.id)[:8] for k in keys]
 
         action_labels = {
             "enable": "enabled",
@@ -1086,9 +1108,6 @@ class AdminBatchActionKeysAdapter(AdminApiAdapter):
             "clear_proxy": "proxy cleared",
             "set_proxy": "proxy set",
         }
-
-        admin_name = context.user.username if context.user else "admin"
-        affected_ids = [str(k.id)[:8] for k in keys]
         logger.info(
             "Pool batch action by {}: provider={}, action={}, affected={}, key_ids={}",
             admin_name,

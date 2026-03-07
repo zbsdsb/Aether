@@ -620,9 +620,8 @@ async function executeAction(): Promise<void> {
         progressDone.value = Math.min(i + BATCH_SIZE, targetIds.length)
       }
     } else if (['delete', 'enable', 'disable', 'clear_proxy', 'set_proxy'].includes(selectedAction.value)) {
-      // 使用 batch-action API，每批最多 2000 个
       const targetIds = selectedKeys.map((key) => key.key_id)
-      const BATCH_SIZE = 2000
+      const BATCH_SIZE = selectedAction.value === 'delete' ? 50 : 2000
       const totalBatches = Math.ceil(targetIds.length / BATCH_SIZE)
 
       for (let i = 0; i < targetIds.length; i += BATCH_SIZE) {
@@ -643,7 +642,9 @@ async function executeAction(): Promise<void> {
             ...(payload ? { payload } : {}),
           })
           successCount += result.affected
-        } catch {
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(`batch ${selectedAction.value} failed (batch ${batchIndex}/${totalBatches}):`, err)
           failedCount += batch.length
         }
 
