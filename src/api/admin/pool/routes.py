@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -157,6 +158,28 @@ ALLOWED_ACTIONS = {
     "clear_proxy",
     "set_proxy",
 }
+
+_SQLITE_DELETE_BATCH_SIZE = 900
+_DEFAULT_DELETE_BATCH_SIZE = 2000
+
+
+def _iter_batches(items: list[str], batch_size: int) -> list[list[str]]:
+    if batch_size <= 0:
+        return [items]
+    return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
+
+
+def _resolve_delete_batch_size(db: Session) -> int:
+    try:
+        bind = db.get_bind()
+        dialect_name = str(getattr(getattr(bind, "dialect", None), "name", "") or "").lower()
+    except Exception:
+        dialect_name = ""
+
+    if dialect_name == "sqlite":
+        return _SQLITE_DELETE_BATCH_SIZE
+    return _DEFAULT_DELETE_BATCH_SIZE
+
 
 _COOLDOWN_REASON_LABELS: dict[str, str] = {
     "rate_limited_429": "429 限流",
@@ -568,6 +591,13 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
     status: str = "all"
 
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
+        started_at = time.perf_counter()
+        count_query_ms = 0.0
+        keys_query_ms = 0.0
+        redis_state_ms = 0.0
+        usage_stats_ms = 0.0
+        serialize_ms = 0.0
+
         db = context.db
         provider = db.query(Provider).filter(Provider.id == self.provider_id).first()
         if not provider:
@@ -633,6 +663,7 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
         # Limit scan range to avoid loading the entire table into memory.
         if self.status == "cooldown":
             _max_scan = 2000
+            keys_query_started_at = time.perf_counter()
             all_keys = (
                 q.order_by(
                     ProviderAPIKey.internal_priority.asc(),
@@ -641,15 +672,21 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
                 .limit(_max_scan)
                 .all()
             )
+            keys_query_ms = (time.perf_counter() - keys_query_started_at) * 1000.0
             key_ids = [str(k.id) for k in all_keys]
+            cooldown_scan_started_at = time.perf_counter()
             cooldowns = await pool_redis.batch_get_cooldowns(pid, key_ids) if key_ids else {}
+            redis_state_ms += (time.perf_counter() - cooldown_scan_started_at) * 1000.0
             all_keys = [k for k in all_keys if cooldowns.get(str(k.id)) is not None]
             total = len(all_keys)
             offset = (self.page - 1) * self.page_size
             keys = all_keys[offset : offset + self.page_size]
         else:
+            count_query_started_at = time.perf_counter()
             total = int(q.with_entities(func.count(ProviderAPIKey.id)).scalar() or 0)
+            count_query_ms = (time.perf_counter() - count_query_started_at) * 1000.0
             offset = (self.page - 1) * self.page_size
+            keys_query_started_at = time.perf_counter()
             keys = (
                 q.order_by(
                     ProviderAPIKey.internal_priority.asc(),
@@ -659,6 +696,7 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
                 .limit(self.page_size)
                 .all()
             )
+            keys_query_ms = (time.perf_counter() - keys_query_started_at) * 1000.0
 
         # Batch fetch Redis state (parallel where possible)
         key_ids = [str(k.id) for k in keys]
@@ -681,6 +719,7 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
                 if pcfg
                 else asyncio.sleep(0, result={})
             )
+            redis_started_at = time.perf_counter()
             (
                 cooldowns,
                 cooldown_ttls,
@@ -694,6 +733,7 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
                 _latency_coro,
                 _cost_coro,
             )
+            redis_state_ms += (time.perf_counter() - redis_started_at) * 1000.0
         else:
             cooldowns, cooldown_ttls, lru_scores, latency_avgs, cost_totals = (
                 {},
@@ -705,6 +745,7 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
 
         usage_stats_by_key: dict[str, dict[str, Any]] = {}
         if key_ids:
+            usage_stats_started_at = time.perf_counter()
             usage_rows = (
                 db.query(
                     Usage.provider_api_key_id.label("key_id"),
@@ -721,6 +762,7 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
                 .group_by(Usage.provider_api_key_id)
                 .all()
             )
+            usage_stats_ms = (time.perf_counter() - usage_stats_started_at) * 1000.0
             usage_stats_by_key = {
                 str(row.key_id): {
                     "request_count": int(row.request_count or 0),
@@ -733,6 +775,7 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
             }
 
         key_details: list[PoolKeyDetail] = []
+        serialize_started_at = time.perf_counter()
         for k in keys:
             kid = str(k.id)
             cd_reason = cooldowns.get(kid)
@@ -894,6 +937,24 @@ class AdminListPoolKeysAdapter(AdminApiAdapter):
                     scheduling_reasons=scheduling_reasons,
                 )
             )
+        serialize_ms = (time.perf_counter() - serialize_started_at) * 1000.0
+
+        total_ms = (time.perf_counter() - started_at) * 1000.0
+        logger.info(
+            "[POOL_KEYS_TIMING] provider={} page={} page_size={} status={} search={} total={} count_ms={:.2f} fetch_ms={:.2f} redis_ms={:.2f} usage_ms={:.2f} serialize_ms={:.2f} total_ms={:.2f}",
+            pid[:8],
+            self.page,
+            self.page_size,
+            self.status,
+            bool(self.search),
+            total,
+            count_query_ms,
+            keys_query_ms,
+            redis_state_ms,
+            usage_stats_ms,
+            serialize_ms,
+            total_ms,
+        )
 
         return PoolKeysPageResponse(
             total=total,
@@ -1008,20 +1069,43 @@ class AdminBatchActionKeysAdapter(AdminApiAdapter):
         affected = 0
 
         if self.body.action == "delete":
-            # 批量 SQL 删除，避免逐条 ORM delete
-            key_ids = self.body.key_ids
+            delete_started_at = time.perf_counter()
+            sql_delete_ms = 0.0
+            commit_ms = 0.0
+            side_effects_ms = 0.0
+            key_ids = list(dict.fromkeys(self.body.key_ids))
+            delete_batch_size = _resolve_delete_batch_size(db)
+            delete_batch_count = 0
             try:
-                result = db.execute(
-                    sa_delete(ProviderAPIKey).where(
-                        ProviderAPIKey.provider_id == pid,
-                        ProviderAPIKey.id.in_(key_ids),
+                for batch in _iter_batches(key_ids, delete_batch_size):
+                    batch_started_at = time.perf_counter()
+                    result = db.execute(
+                        sa_delete(ProviderAPIKey).where(
+                            ProviderAPIKey.provider_id == pid,
+                            ProviderAPIKey.id.in_(batch),
+                        )
                     )
-                )
-                affected = result.rowcount  # type: ignore[assignment]
+                    sql_delete_ms += (time.perf_counter() - batch_started_at) * 1000.0
+                    delete_batch_count += 1
+                    rowcount = getattr(result, "rowcount", 0) or 0
+                    if rowcount > 0:
+                        affected += int(rowcount)
+                commit_started_at = time.perf_counter()
                 db.commit()
+                commit_ms = (time.perf_counter() - commit_started_at) * 1000.0
             except Exception as exc:
                 db.rollback()
-                logger.error("batch delete commit failed: {}", exc)
+                total_ms = (time.perf_counter() - delete_started_at) * 1000.0
+                logger.error(
+                    "batch delete commit failed: {} | provider={} requested={} batches={} sql_ms={:.2f} commit_ms={:.2f} total_ms={:.2f}",
+                    exc,
+                    pid[:8],
+                    len(key_ids),
+                    delete_batch_count,
+                    sql_delete_ms,
+                    commit_ms,
+                    total_ms,
+                )
                 return BatchActionResponse(affected=0, message=f"commit failed: {exc}")
 
             if affected > 0:
@@ -1030,13 +1114,30 @@ class AdminBatchActionKeysAdapter(AdminApiAdapter):
                 )
 
                 try:
+                    side_effects_started_at = time.perf_counter()
                     await run_delete_key_side_effects(
                         db=db,
                         provider_id=pid,
                         deleted_key_allowed_models=None,
                     )
+                    side_effects_ms = (time.perf_counter() - side_effects_started_at) * 1000.0
                 except Exception as exc:
+                    side_effects_ms = (time.perf_counter() - side_effects_started_at) * 1000.0
                     logger.error("batch delete side effects failed: {}", exc)
+
+            total_ms = (time.perf_counter() - delete_started_at) * 1000.0
+            logger.info(
+                "[POOL_BATCH_DELETE_TIMING] provider={} requested={} affected={} batches={} batch_size={} sql_ms={:.2f} commit_ms={:.2f} side_effects_ms={:.2f} total_ms={:.2f}",
+                pid[:8],
+                len(key_ids),
+                affected,
+                delete_batch_count,
+                delete_batch_size,
+                sql_delete_ms,
+                commit_ms,
+                side_effects_ms,
+                total_ms,
+            )
 
             admin_name = context.user.username if context.user else "admin"
             affected_ids = [kid[:8] for kid in key_ids[:20]]

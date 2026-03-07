@@ -526,10 +526,14 @@ async function loadAllKeys(): Promise<void> {
     return
   }
   loading.value = true
+  const startedAt = performance.now()
+  let fetchedPages = 0
+  let total = 0
+  let loadedCount = 0
+  let ok = false
   try {
     const pageSize = 200
     let page = 1
-    let total = 0
     const collected: PoolKeyDetail[] = []
 
     while (page <= 50) {
@@ -538,6 +542,7 @@ async function loadAllKeys(): Promise<void> {
         page_size: pageSize,
         status: 'all',
       })
+      fetchedPages = page
       const keys = Array.isArray(res.keys) ? res.keys : []
       collected.push(...keys)
       total = Number(res.total || 0)
@@ -546,14 +551,25 @@ async function loadAllKeys(): Promise<void> {
     }
 
     allKeys.value = collected
+    loadedCount = collected.length
     const validIds = new Set(collected.map((key) => key.key_id))
     selectedKeyIds.value = selectedKeyIds.value.filter((id) => validIds.has(id))
+    ok = true
   } catch (err) {
     showError(parseApiError(err, '加载账号列表失败'))
     allKeys.value = []
     selectedKeyIds.value = []
   } finally {
     loading.value = false
+    // eslint-disable-next-line no-console
+    console.info('[PoolAccountBatchDialog] loadAllKeys timing', {
+      providerId: props.providerId,
+      ok,
+      fetchedPages,
+      total,
+      loadedCount,
+      durationMs: Math.round(performance.now() - startedAt),
+    })
   }
 }
 
@@ -590,6 +606,9 @@ async function executeAction(): Promise<void> {
   let successCount = 0
   let failedCount = 0
   let skippedCount = 0
+  const actionStartedAt = performance.now()
+  let actionPhaseMs = 0
+  let reloadPhaseMs = 0
 
   const actionLabel = ACTION_OPTIONS.find((a) => a.value === selectedAction.value)?.label || '执行'
   progressDone.value = 0
@@ -621,7 +640,7 @@ async function executeAction(): Promise<void> {
       }
     } else if (['delete', 'enable', 'disable', 'clear_proxy', 'set_proxy'].includes(selectedAction.value)) {
       const targetIds = selectedKeys.map((key) => key.key_id)
-      const BATCH_SIZE = selectedAction.value === 'delete' ? 50 : 2000
+      const BATCH_SIZE = 2000
       const totalBatches = Math.ceil(targetIds.length / BATCH_SIZE)
 
       for (let i = 0; i < targetIds.length; i += BATCH_SIZE) {
@@ -687,7 +706,10 @@ async function executeAction(): Promise<void> {
 
     const shouldClearSelection = selectedAction.value === 'delete'
     const previousSelection = new Set(selectedKeyIds.value)
+    actionPhaseMs = performance.now() - actionStartedAt
+    const reloadStartedAt = performance.now()
     await loadAllKeys()
+    reloadPhaseMs = performance.now() - reloadStartedAt
     if (shouldClearSelection) {
       selectedKeyIds.value = []
     } else {
@@ -698,6 +720,18 @@ async function executeAction(): Promise<void> {
   } catch (err) {
     showError(parseApiError(err, '批量操作失败'))
   } finally {
+    // eslint-disable-next-line no-console
+    console.info('[PoolAccountBatchDialog] executeAction timing', {
+      providerId: props.providerId,
+      action: selectedAction.value,
+      selectedCount: selectedKeys.length,
+      successCount,
+      failedCount,
+      skippedCount,
+      actionPhaseMs: Math.round(actionPhaseMs),
+      reloadPhaseMs: Math.round(reloadPhaseMs),
+      totalMs: Math.round(performance.now() - actionStartedAt),
+    })
     executing.value = false
     progressTotal.value = 0
     progressDone.value = 0
