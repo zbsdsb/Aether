@@ -800,6 +800,8 @@ class CliStreamMixin:
                     response_ctx = None
                     continue
 
+                error_text = await self._extract_error_text(e)
+
                 try:
                     if response_ctx is not None:
                         await response_ctx.__aexit__(None, None, None)
@@ -807,8 +809,6 @@ class CliStreamMixin:
                     pass
                 finally:
                     response_ctx = None
-
-                error_text = await self._extract_error_text(e)
                 logger.error(
                     f"Provider 返回错误状态: {e.response.status_code}\n  Response: {error_text}"
                 )
