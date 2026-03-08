@@ -41,6 +41,7 @@ from src.database import create_session
 from src.database.database import get_db
 from src.models.database import Provider, ProviderAPIKey, User
 from src.services.provider.pool.config import parse_pool_config
+from src.services.provider_keys.auth_type import OAUTH_AUTH_TYPES
 from src.utils.auth_utils import require_admin
 
 router = APIRouter(prefix="/api/admin/provider-oauth", tags=["Provider OAuth"])
@@ -550,7 +551,7 @@ def _check_duplicate_oauth_account(
     # 查询该 Provider 下所有 OAuth 类型的 Keys
     query = db.query(ProviderAPIKey).filter(
         ProviderAPIKey.provider_id == provider_id,
-        ProviderAPIKey.auth_type.in_(["oauth", "kiro"]),  # kiro 也是 OAuth 类型
+        ProviderAPIKey.auth_type.in_(OAUTH_AUTH_TYPES),
     )
     if exclude_key_id:
         query = query.filter(ProviderAPIKey.id != exclude_key_id)

@@ -202,7 +202,7 @@ def test_clear_oauth_invalid_response_invalidates_caches(
 
 
 @pytest.mark.asyncio
-async def test_run_delete_key_side_effects_not_skip_disassociate(
+async def test_run_delete_key_side_effects_skip_disassociate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, Any] = {}
@@ -225,4 +225,4 @@ async def test_run_delete_key_side_effects_not_skip_disassociate(
     )
 
     assert captured["provider_id"] == "provider-1"
-    assert "skip_disassociate" not in captured
+    assert captured["skip_disassociate"] is True

@@ -134,9 +134,6 @@ async def run_delete_key_side_effects(
     deleted_key_allowed_models: list[str] | None,
 ) -> None:
     """执行删除 Key 后的副作用。"""
-    # 触发缓存失效和自动解除关联检查
-    # 注意：删除后是否需要解除关联，应基于“删除后的活跃 Key 集合”判断。
-    # 不能仅凭被删除 Key 的 allowed_models 是否为 null 来跳过 disassociate。
     _ = deleted_key_allowed_models
     if provider_id:
         from src.services.model.global_model import on_key_allowed_models_changed
@@ -144,6 +141,7 @@ async def run_delete_key_side_effects(
         await on_key_allowed_models_changed(
             db=db,
             provider_id=provider_id,
+            skip_disassociate=True,
         )
     else:
         # 无 provider_id 时仅清除缓存

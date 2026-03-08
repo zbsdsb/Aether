@@ -110,6 +110,13 @@ class ModelMapperMiddleware:
         )
 
         if model:
+            # 将 ORM Model 转为无 Session 绑定的实例，避免跨请求缓存导致 DetachedInstanceError
+            from sqlalchemy.orm.session import object_session
+
+            if object_session(model) is not None:
+                model_dict = ModelCacheService._model_to_dict(model)
+                model = ModelCacheService._dict_to_model(model_dict)
+
             # 创建映射对象
             mapping = type(
                 "obj",

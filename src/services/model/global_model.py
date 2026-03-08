@@ -498,14 +498,20 @@ class GlobalModelService:
             logger.warning(f"Provider {provider_id} not found for auto-disassociation")
             return results
 
-        # 1. 先快速检查是否存在“允许所有模型”的活跃 Key。
+        # 1. 先快速检查是否存在"允许所有模型"的活跃 Key。
         # 这种情况下无需解除任何关联，避免继续扫描整张 key 表。
+        # 注意：跳过 OAuth Key，OAuth Key 的 allowed_models 由上游动态获取，数量庞大，
+        # 不应参与 disassociate 判定。
+        from src.services.provider_keys.auth_type import OAUTH_AUTH_TYPES
+
+        non_oauth_filter = ProviderAPIKey.auth_type.notin_(OAUTH_AUTH_TYPES)
         has_unlimited_key = (
             db.query(ProviderAPIKey.id)
             .filter(
                 ProviderAPIKey.provider_id == provider_id,
                 ProviderAPIKey.is_active == True,
                 ProviderAPIKey.allowed_models.is_(None),
+                non_oauth_filter,
             )
             .limit(1)
             .first()
@@ -520,6 +526,7 @@ class GlobalModelService:
             .filter(
                 ProviderAPIKey.provider_id == provider_id,
                 ProviderAPIKey.is_active == True,
+                non_oauth_filter,
             )
             .all()
         )
