@@ -1227,7 +1227,10 @@ class AdminActiveRequestsAdapter(AdminApiAdapter):
                 return {"requests": []}
 
         requests = UsageService.get_active_requests_status(
-            db=db, ids=id_list, include_admin_fields=True
+            db=db,
+            ids=id_list,
+            include_admin_fields=True,
+            maintain_status=True,
         )
         return {"requests": requests}
 
