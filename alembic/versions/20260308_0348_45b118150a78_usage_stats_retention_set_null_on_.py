@@ -9,7 +9,7 @@ Create Date: 2026-03-08 03:48:49.622091+00:00
 import sqlalchemy as sa
 
 from alembic import op
-from alembic.helpers import new_cache, replace_fk_if_needed
+from helpers import new_cache, replace_fk_if_needed
 
 # revision identifiers, used by Alembic.
 revision = "45b118150a78"

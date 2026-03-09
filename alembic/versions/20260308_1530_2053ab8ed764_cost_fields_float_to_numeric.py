@@ -7,7 +7,7 @@ Create Date: 2026-03-08 15:30:00.000000+00:00
 """
 
 from alembic import op
-from alembic.helpers import batch_alter_type, index_exists, new_cache
+from helpers import batch_alter_type, index_exists, new_cache
 
 # revision identifiers, used by Alembic.
 revision = "2053ab8ed764"

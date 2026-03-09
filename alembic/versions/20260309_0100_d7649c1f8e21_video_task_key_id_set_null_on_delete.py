@@ -6,7 +6,7 @@ Create Date: 2026-03-09 01:00:00.000000+00:00
 
 """
 
-from alembic.helpers import new_cache, replace_fk_if_needed
+from helpers import new_cache, replace_fk_if_needed
 
 # revision identifiers, used by Alembic.
 revision = "d7649c1f8e21"
