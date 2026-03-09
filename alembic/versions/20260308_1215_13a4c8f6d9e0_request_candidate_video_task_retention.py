@@ -6,8 +6,10 @@ Create Date: 2026-03-08 12:15:00.000000+00:00
 
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
+from alembic.helpers import new_cache, replace_fk_if_needed
 
 # revision identifiers, used by Alembic.
 revision = "13a4c8f6d9e0"
@@ -15,80 +17,21 @@ down_revision = "45b118150a78"
 branch_labels = None
 depends_on = None
 
-
-# ---------------------------------------------------------------------------
-# Idempotent helpers
-# ---------------------------------------------------------------------------
-
-def _column_exists(table_name: str, column_name: str) -> bool:
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT 1 FROM information_schema.columns "
-            "WHERE table_name = :table AND column_name = :col"
-        ),
-        {"table": table_name, "col": column_name},
-    )
-    return result.scalar() is not None
-
-
-def _constraint_exists(table_name: str, constraint_name: str) -> bool:
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT 1 FROM information_schema.table_constraints "
-            "WHERE table_name = :table AND constraint_name = :name"
-        ),
-        {"table": table_name, "name": constraint_name},
-    )
-    return result.scalar() is not None
-
-
-def _fk_ondelete(table_name: str, constraint_name: str) -> str | None:
-    """Return the ON DELETE action for a foreign key, or None if it doesn't exist."""
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT rc.delete_rule "
-            "FROM information_schema.referential_constraints rc "
-            "JOIN information_schema.table_constraints tc "
-            "  ON rc.constraint_name = tc.constraint_name "
-            "WHERE tc.table_name = :table AND tc.constraint_name = :name"
-        ),
-        {"table": table_name, "name": constraint_name},
-    )
-    row = result.first()
-    return row[0] if row else None
-
-
-def _replace_fk_if_needed(
-    constraint_name: str,
-    table_name: str,
-    ref_table: str,
-    local_cols: list[str],
-    remote_cols: list[str],
-    desired_ondelete: str,
-) -> None:
-    """Drop and recreate a FK only if the current ON DELETE rule differs."""
-    current = _fk_ondelete(table_name, constraint_name)
-    if current and current.upper() == desired_ondelete.upper():
-        return  # already correct
-    if current:
-        op.drop_constraint(constraint_name, table_name, type_="foreignkey")
-    op.create_foreign_key(
-        constraint_name, table_name, ref_table,
-        local_cols, remote_cols, ondelete=desired_ondelete,
-    )
+_TABLES = ["request_candidates", "video_tasks"]
 
 
 def upgrade() -> None:
+    c = new_cache()
+    c.load_columns(_TABLES)
+    c.load_fk_rules(_TABLES)
+
     # --- request_candidates: add snapshot columns ---
-    if not _column_exists("request_candidates", "username"):
+    if not c.column_exists("request_candidates", "username"):
         op.add_column(
             "request_candidates",
             sa.Column("username", sa.String(length=100), nullable=True, comment="用户名快照"),
         )
-    if not _column_exists("request_candidates", "api_key_name"):
+    if not c.column_exists("request_candidates", "api_key_name"):
         op.add_column(
             "request_candidates",
             sa.Column(
@@ -100,22 +43,32 @@ def upgrade() -> None:
         )
 
     # --- request_candidates: CASCADE -> SET NULL ---
-    _replace_fk_if_needed(
-        "request_candidates_user_id_fkey", "request_candidates",
-        "users", ["user_id"], ["id"], "SET NULL",
+    replace_fk_if_needed(
+        c,
+        "request_candidates_user_id_fkey",
+        "request_candidates",
+        "users",
+        ["user_id"],
+        ["id"],
+        "SET NULL",
     )
-    _replace_fk_if_needed(
-        "request_candidates_api_key_id_fkey", "request_candidates",
-        "api_keys", ["api_key_id"], ["id"], "SET NULL",
+    replace_fk_if_needed(
+        c,
+        "request_candidates_api_key_id_fkey",
+        "request_candidates",
+        "api_keys",
+        ["api_key_id"],
+        ["id"],
+        "SET NULL",
     )
 
     # --- video_tasks: add snapshot columns ---
-    if not _column_exists("video_tasks", "username"):
+    if not c.column_exists("video_tasks", "username"):
         op.add_column(
             "video_tasks",
             sa.Column("username", sa.String(length=100), nullable=True, comment="用户名快照"),
         )
-    if not _column_exists("video_tasks", "api_key_name"):
+    if not c.column_exists("video_tasks", "api_key_name"):
         op.add_column(
             "video_tasks",
             sa.Column(
@@ -128,106 +81,100 @@ def upgrade() -> None:
 
     # --- video_tasks: CASCADE -> SET NULL, user_id nullable ---
     op.alter_column("video_tasks", "user_id", existing_type=sa.String(length=36), nullable=True)
-    _replace_fk_if_needed(
-        "video_tasks_user_id_fkey", "video_tasks",
-        "users", ["user_id"], ["id"], "SET NULL",
+    replace_fk_if_needed(
+        c,
+        "video_tasks_user_id_fkey",
+        "video_tasks",
+        "users",
+        ["user_id"],
+        ["id"],
+        "SET NULL",
     )
-    _replace_fk_if_needed(
-        "video_tasks_api_key_id_fkey", "video_tasks",
-        "api_keys", ["api_key_id"], ["id"], "SET NULL",
+    replace_fk_if_needed(
+        c,
+        "video_tasks_api_key_id_fkey",
+        "video_tasks",
+        "api_keys",
+        ["api_key_id"],
+        ["id"],
+        "SET NULL",
     )
 
     # --- Backfill: populate snapshots from existing FK joins ---
-    # Single UPDATE per table using JOINs to fill both columns in one pass.
-    # (WHERE ... IS NULL makes these inherently idempotent)
-
-    # request_candidates: fill both columns where both FKs exist
-    op.execute(
-        """
+    # One LEFT JOIN UPDATE per table covers all rows regardless of which FK is present.
+    op.execute("""
         UPDATE request_candidates rc
         SET username     = COALESCE(rc.username, usr.username),
             api_key_name = COALESCE(rc.api_key_name, ak.name)
-        FROM users usr, api_keys ak
-        WHERE usr.id = rc.user_id
-          AND ak.id = rc.api_key_id
+        FROM request_candidates rc2
+        LEFT JOIN users usr ON usr.id = rc2.user_id
+        LEFT JOIN api_keys ak ON ak.id = rc2.api_key_id
+        WHERE rc.id = rc2.id
           AND (rc.username IS NULL OR rc.api_key_name IS NULL)
-        """
-    )
-    # Catch rows with only user_id or only api_key_id
-    op.execute(
-        """
-        UPDATE request_candidates rc
-        SET username = usr.username
-        FROM users usr
-        WHERE usr.id = rc.user_id AND rc.username IS NULL
-        """
-    )
-    op.execute(
-        """
-        UPDATE request_candidates rc
-        SET api_key_name = ak.name
-        FROM api_keys ak
-        WHERE ak.id = rc.api_key_id AND rc.api_key_name IS NULL
-        """
-    )
+        """)
 
-    # video_tasks: fill both columns where both FKs exist
-    op.execute(
-        """
+    op.execute("""
         UPDATE video_tasks vt
         SET username     = COALESCE(vt.username, usr.username),
             api_key_name = COALESCE(vt.api_key_name, ak.name)
-        FROM users usr, api_keys ak
-        WHERE usr.id = vt.user_id
-          AND ak.id = vt.api_key_id
+        FROM video_tasks vt2
+        LEFT JOIN users usr ON usr.id = vt2.user_id
+        LEFT JOIN api_keys ak ON ak.id = vt2.api_key_id
+        WHERE vt.id = vt2.id
           AND (vt.username IS NULL OR vt.api_key_name IS NULL)
-        """
-    )
-    # Catch rows with only user_id or only api_key_id
-    op.execute(
-        """
-        UPDATE video_tasks vt
-        SET username = usr.username
-        FROM users usr
-        WHERE usr.id = vt.user_id AND vt.username IS NULL
-        """
-    )
-    op.execute(
-        """
-        UPDATE video_tasks vt
-        SET api_key_name = ak.name
-        FROM api_keys ak
-        WHERE ak.id = vt.api_key_id AND vt.api_key_name IS NULL
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
+    c = new_cache()
+    c.load_columns(_TABLES)
+    c.load_fk_rules(_TABLES)
+
     # --- video_tasks: SET NULL -> default (no action), restore NOT NULL ---
-    _replace_fk_if_needed(
-        "video_tasks_api_key_id_fkey", "video_tasks",
-        "api_keys", ["api_key_id"], ["id"], "NO ACTION",
+    replace_fk_if_needed(
+        c,
+        "video_tasks_api_key_id_fkey",
+        "video_tasks",
+        "api_keys",
+        ["api_key_id"],
+        ["id"],
+        "NO ACTION",
     )
-    _replace_fk_if_needed(
-        "video_tasks_user_id_fkey", "video_tasks",
-        "users", ["user_id"], ["id"], "NO ACTION",
+    replace_fk_if_needed(
+        c,
+        "video_tasks_user_id_fkey",
+        "video_tasks",
+        "users",
+        ["user_id"],
+        ["id"],
+        "NO ACTION",
     )
     op.alter_column("video_tasks", "user_id", existing_type=sa.String(length=36), nullable=False)
-    if _column_exists("video_tasks", "api_key_name"):
+    if c.column_exists("video_tasks", "api_key_name"):
         op.drop_column("video_tasks", "api_key_name")
-    if _column_exists("video_tasks", "username"):
+    if c.column_exists("video_tasks", "username"):
         op.drop_column("video_tasks", "username")
 
     # --- request_candidates: SET NULL -> CASCADE ---
-    _replace_fk_if_needed(
-        "request_candidates_api_key_id_fkey", "request_candidates",
-        "api_keys", ["api_key_id"], ["id"], "CASCADE",
+    replace_fk_if_needed(
+        c,
+        "request_candidates_api_key_id_fkey",
+        "request_candidates",
+        "api_keys",
+        ["api_key_id"],
+        ["id"],
+        "CASCADE",
     )
-    _replace_fk_if_needed(
-        "request_candidates_user_id_fkey", "request_candidates",
-        "users", ["user_id"], ["id"], "CASCADE",
+    replace_fk_if_needed(
+        c,
+        "request_candidates_user_id_fkey",
+        "request_candidates",
+        "users",
+        ["user_id"],
+        ["id"],
+        "CASCADE",
     )
-    if _column_exists("request_candidates", "api_key_name"):
+    if c.column_exists("request_candidates", "api_key_name"):
         op.drop_column("request_candidates", "api_key_name")
-    if _column_exists("request_candidates", "username"):
+    if c.column_exists("request_candidates", "username"):
         op.drop_column("request_candidates", "username")

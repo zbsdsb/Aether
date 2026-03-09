@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections import deque
@@ -518,7 +519,8 @@ class StreamUsageTracker:
                 # yield 后再更新数据库状态（仅第一个 chunk 时执行）
                 if chunk_count == 1 and self.request_id:
                     try:
-                        UsageService.update_usage_status(
+                        await asyncio.to_thread(
+                            UsageService.update_usage_status,
                             db=self.db,
                             request_id=self.request_id,
                             status="streaming",
@@ -1022,7 +1024,8 @@ class EnhancedStreamUsageTracker(StreamUsageTracker):
                 # yield 后再更新数据库状态（仅第一个 chunk 时执行）
                 if chunk_count == 1 and self.request_id:
                     try:
-                        UsageService.update_usage_status(
+                        await asyncio.to_thread(
+                            UsageService.update_usage_status,
                             db=self.db,
                             request_id=self.request_id,
                             status="streaming",

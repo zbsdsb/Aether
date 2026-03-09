@@ -6,9 +6,8 @@ Create Date: 2026-03-08 15:30:00.000000+00:00
 
 """
 
-import sqlalchemy as sa
-
 from alembic import op
+from alembic.helpers import batch_alter_type, index_exists, new_cache
 
 # revision identifiers, used by Alembic.
 revision = "2053ab8ed764"
@@ -77,44 +76,7 @@ _COST_COLUMNS: list[tuple[str, str, bool, str | None]] = [
     ("stats_user_daily", "total_cost", False, "0.0"),
 ]
 
-# rate_multiplier uses a smaller precision
-_RATE_MULTIPLIER_TYPE = sa.Numeric(10, 6)
-_COST_TYPE = sa.Numeric(20, 8)
-
-
-def _column_exists(table_name: str, column_name: str) -> bool:
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT 1 FROM information_schema.columns "
-            "WHERE table_name = :table AND column_name = :col"
-        ),
-        {"table": table_name, "col": column_name},
-    )
-    return result.scalar() is not None
-
-
-def _index_exists(index_name: str) -> bool:
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text("SELECT 1 FROM pg_indexes WHERE indexname = :name"),
-        {"name": index_name},
-    )
-    return result.scalar() is not None
-
-
-def _is_numeric_type(table_name: str, column_name: str) -> bool:
-    """Check if a column is already numeric type (not float/double precision)."""
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT data_type FROM information_schema.columns "
-            "WHERE table_name = :table AND column_name = :col"
-        ),
-        {"table": table_name, "col": column_name},
-    )
-    data_type = result.scalar()
-    return data_type == "numeric"
+_ALL_TABLES = list({t for t, *_ in _COST_COLUMNS})
 
 
 def _type_spec(col: str) -> str:
@@ -122,50 +84,20 @@ def _type_spec(col: str) -> str:
     return "NUMERIC(10,6)" if col == "rate_multiplier" else "NUMERIC(20,8)"
 
 
-def _batch_alter_type(
-    columns: list[tuple[str, str, bool, str | None]],
-    cast_suffix: str,
-    type_fn=None,
-) -> None:
-    """Group columns by table and issue ONE ALTER TABLE per table.
-
-    This avoids rewriting the same table N times (once per column).
-    """
-    from collections import defaultdict
-
-    by_table: dict[str, list[tuple[str, str, bool, str | None]]] = defaultdict(list)
-    for table, col, nullable, default in columns:
-        if not _column_exists(table, col):
-            continue
-        by_table[table].append((table, col, nullable, default))
-
-    bind = op.get_bind()
-    for table, cols in by_table.items():
-        # Build a single ALTER TABLE with multiple ALTER COLUMN clauses
-        parts: list[str] = []
-        for _t, col, _nullable, _default in cols:
-            target_type = type_fn(col) if type_fn else _type_spec(col)
-            parts.append(
-                f"ALTER COLUMN {col} TYPE {target_type} USING {col}::{cast_suffix}"
-            )
-        if not parts:
-            continue
-        sql = f"ALTER TABLE {table} " + ", ".join(parts)
-        bind.execute(sa.text(sql))
-
-
 def upgrade() -> None:
+    c = new_cache()
+    c.load_columns(_ALL_TABLES)
+
     # -- 1. cost fields: Float -> Numeric  (batched per table)
-    # Filter out columns that are already numeric
     cols_to_convert = [
-        (t, c, n, d)
-        for t, c, n, d in _COST_COLUMNS
-        if _column_exists(t, c) and not _is_numeric_type(t, c)
+        (t, col, n, d)
+        for t, col, n, d in _COST_COLUMNS
+        if c.column_exists(t, col) and not c.is_numeric(t, col)
     ]
-    _batch_alter_type(cols_to_convert, cast_suffix="numeric", type_fn=_type_spec)
+    batch_alter_type(c, cols_to_convert, cast_suffix="numeric", type_fn=_type_spec)
 
     # -- 2. provider_api_keys composite index
-    if not _index_exists("idx_provider_api_keys_provider_active"):
+    if not index_exists("idx_provider_api_keys_provider_active"):
         op.create_index(
             "idx_provider_api_keys_provider_active",
             "provider_api_keys",
@@ -175,19 +107,23 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # -- 2. drop composite index
-    if _index_exists("idx_provider_api_keys_provider_active"):
+    if index_exists("idx_provider_api_keys_provider_active"):
         op.drop_index(
             "idx_provider_api_keys_provider_active",
             table_name="provider_api_keys",
         )
 
     # -- 1. Numeric -> Float  (batched per table)
+    c = new_cache()
+    c.load_columns(_ALL_TABLES)
+
     cols_to_revert = [
-        (t, c, n, d)
-        for t, c, n, d in _COST_COLUMNS
-        if _column_exists(t, c) and _is_numeric_type(t, c)
+        (t, col, n, d)
+        for t, col, n, d in _COST_COLUMNS
+        if c.column_exists(t, col) and c.is_numeric(t, col)
     ]
-    _batch_alter_type(
+    batch_alter_type(
+        c,
         cols_to_revert,
         cast_suffix="double precision",
         type_fn=lambda _col: "DOUBLE PRECISION",

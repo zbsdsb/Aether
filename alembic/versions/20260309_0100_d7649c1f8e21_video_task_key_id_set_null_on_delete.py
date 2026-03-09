@@ -6,9 +6,7 @@ Create Date: 2026-03-09 01:00:00.000000+00:00
 
 """
 
-import sqlalchemy as sa
-
-from alembic import op
+from alembic.helpers import new_cache, replace_fk_if_needed
 
 # revision identifiers, used by Alembic.
 revision = "d7649c1f8e21"
@@ -20,47 +18,11 @@ _TABLE = "video_tasks"
 _FK_NAME = "video_tasks_key_id_fkey"
 
 
-def _fk_ondelete(table_name: str, constraint_name: str) -> str | None:
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT rc.delete_rule "
-            "FROM information_schema.referential_constraints rc "
-            "JOIN information_schema.table_constraints tc "
-            "  ON rc.constraint_name = tc.constraint_name "
-            "WHERE tc.table_name = :table AND tc.constraint_name = :name"
-        ),
-        {"table": table_name, "name": constraint_name},
-    )
-    row = result.first()
-    return row[0] if row else None
-
-
-def _replace_fk_if_needed(
-    constraint_name: str,
-    table_name: str,
-    ref_table: str,
-    local_cols: list[str],
-    remote_cols: list[str],
-    desired_ondelete: str,
-) -> None:
-    current = _fk_ondelete(table_name, constraint_name)
-    if current and current.upper() == desired_ondelete.upper():
-        return
-    if current:
-        op.drop_constraint(constraint_name, table_name, type_="foreignkey")
-    op.create_foreign_key(
-        constraint_name,
-        table_name,
-        ref_table,
-        local_cols,
-        remote_cols,
-        ondelete=desired_ondelete,
-    )
-
-
 def upgrade() -> None:
-    _replace_fk_if_needed(
+    c = new_cache()
+    c.load_fk_rules([_TABLE])
+    replace_fk_if_needed(
+        c,
         _FK_NAME,
         _TABLE,
         "provider_api_keys",
@@ -71,7 +33,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    _replace_fk_if_needed(
+    c = new_cache()
+    c.load_fk_rules([_TABLE])
+    replace_fk_if_needed(
+        c,
         _FK_NAME,
         _TABLE,
         "provider_api_keys",

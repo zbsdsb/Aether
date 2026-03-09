@@ -5,136 +5,92 @@ Revises: 2d932114930d
 Create Date: 2026-03-08 03:48:49.622091+00:00
 
 """
-from alembic import op
+
 import sqlalchemy as sa
 
+from alembic import op
+from alembic.helpers import new_cache, replace_fk_if_needed
+
 # revision identifiers, used by Alembic.
-revision = '45b118150a78'
-down_revision = '2d932114930d'
+revision = "45b118150a78"
+down_revision = "2d932114930d"
 branch_labels = None
 depends_on = None
 
-
-# ---------------------------------------------------------------------------
-# Idempotent helpers
-# ---------------------------------------------------------------------------
-
-def _column_exists(table_name: str, column_name: str) -> bool:
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT 1 FROM information_schema.columns "
-            "WHERE table_name = :table AND column_name = :col"
-        ),
-        {"table": table_name, "col": column_name},
-    )
-    return result.scalar() is not None
-
-
-def _constraint_exists(table_name: str, constraint_name: str) -> bool:
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT 1 FROM information_schema.table_constraints "
-            "WHERE table_name = :table AND constraint_name = :name"
-        ),
-        {"table": table_name, "name": constraint_name},
-    )
-    return result.scalar() is not None
-
-
-def _fk_ondelete(table_name: str, constraint_name: str) -> str | None:
-    """Return the ON DELETE action for a foreign key, or None if it doesn't exist."""
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT rc.delete_rule "
-            "FROM information_schema.referential_constraints rc "
-            "JOIN information_schema.table_constraints tc "
-            "  ON rc.constraint_name = tc.constraint_name "
-            "WHERE tc.table_name = :table AND tc.constraint_name = :name"
-        ),
-        {"table": table_name, "name": constraint_name},
-    )
-    row = result.first()
-    return row[0] if row else None
-
-
-def _replace_fk_if_needed(
-    constraint_name: str,
-    table_name: str,
-    ref_table: str,
-    local_cols: list[str],
-    remote_cols: list[str],
-    desired_ondelete: str,
-) -> None:
-    """Drop and recreate a FK only if the current ON DELETE rule differs."""
-    current = _fk_ondelete(table_name, constraint_name)
-    if current and current.upper() == desired_ondelete.upper():
-        return  # already correct
-    if current:
-        op.drop_constraint(constraint_name, table_name, type_='foreignkey')
-    op.create_foreign_key(
-        constraint_name, table_name, ref_table,
-        local_cols, remote_cols, ondelete=desired_ondelete,
-    )
+_TABLES = ["usage", "stats_user_daily", "stats_daily_api_key"]
 
 
 def upgrade() -> None:
+    c = new_cache()
+    c.load_columns(_TABLES)
+    c.load_fk_rules(["stats_user_daily", "stats_daily_api_key"])
+
     # --- Usage: add name snapshot columns ---
-    if not _column_exists('usage', 'username'):
-        op.add_column('usage', sa.Column('username', sa.String(100), nullable=True,
-                                         comment='用户名快照'))
-    if not _column_exists('usage', 'api_key_name'):
-        op.add_column('usage', sa.Column('api_key_name', sa.String(200), nullable=True,
-                                         comment='API Key 名称快照'))
+    if not c.column_exists("usage", "username"):
+        op.add_column(
+            "usage", sa.Column("username", sa.String(100), nullable=True, comment="用户名快照")
+        )
+    if not c.column_exists("usage", "api_key_name"):
+        op.add_column(
+            "usage",
+            sa.Column("api_key_name", sa.String(200), nullable=True, comment="API Key 名称快照"),
+        )
 
     # --- StatsUserDaily: CASCADE -> SET NULL, add username snapshot ---
-    _replace_fk_if_needed(
-        'stats_user_daily_user_id_fkey', 'stats_user_daily',
-        'users', ['user_id'], ['id'], 'SET NULL',
+    replace_fk_if_needed(
+        c,
+        "stats_user_daily_user_id_fkey",
+        "stats_user_daily",
+        "users",
+        ["user_id"],
+        ["id"],
+        "SET NULL",
     )
-    op.alter_column('stats_user_daily', 'user_id', existing_type=sa.String(36), nullable=True)
-    if not _column_exists('stats_user_daily', 'username'):
-        op.add_column('stats_user_daily', sa.Column('username', sa.String(100), nullable=True,
-                                                    comment='用户名快照（删除用户后仍可追溯）'))
+    op.alter_column("stats_user_daily", "user_id", existing_type=sa.String(36), nullable=True)
+    if not c.column_exists("stats_user_daily", "username"):
+        op.add_column(
+            "stats_user_daily",
+            sa.Column(
+                "username",
+                sa.String(100),
+                nullable=True,
+                comment="用户名快照（删除用户后仍可追溯）",
+            ),
+        )
 
     # --- StatsDailyApiKey: CASCADE -> SET NULL, add api_key_name snapshot ---
-    _replace_fk_if_needed(
-        'stats_daily_api_key_api_key_id_fkey', 'stats_daily_api_key',
-        'api_keys', ['api_key_id'], ['id'], 'SET NULL',
+    replace_fk_if_needed(
+        c,
+        "stats_daily_api_key_api_key_id_fkey",
+        "stats_daily_api_key",
+        "api_keys",
+        ["api_key_id"],
+        ["id"],
+        "SET NULL",
     )
-    op.alter_column('stats_daily_api_key', 'api_key_id', existing_type=sa.String(36),
-                    nullable=True)
-    if not _column_exists('stats_daily_api_key', 'api_key_name'):
-        op.add_column('stats_daily_api_key', sa.Column('api_key_name', sa.String(200),
-                                                       nullable=True,
-                                                       comment='API Key 名称快照（删除 Key 后仍可追溯）'))
+    op.alter_column("stats_daily_api_key", "api_key_id", existing_type=sa.String(36), nullable=True)
+    if not c.column_exists("stats_daily_api_key", "api_key_name"):
+        op.add_column(
+            "stats_daily_api_key",
+            sa.Column(
+                "api_key_name",
+                sa.String(200),
+                nullable=True,
+                comment="API Key 名称快照（删除 Key 后仍可追溯）",
+            ),
+        )
 
     # --- Backfill: populate snapshots from existing FK joins ---
-    # Single UPDATE per table using LEFT JOINs to fill both columns in one pass.
-    # (WHERE ... IS NULL makes these inherently idempotent)
+    # One LEFT JOIN UPDATE per table covers all rows regardless of which FK is present.
     op.execute("""
         UPDATE usage u
         SET username     = COALESCE(u.username, usr.username),
             api_key_name = COALESCE(u.api_key_name, ak.name)
-        FROM users usr, api_keys ak
-        WHERE usr.id = u.user_id
-          AND ak.id = u.api_key_id
+        FROM usage u2
+        LEFT JOIN users usr ON usr.id = u2.user_id
+        LEFT JOIN api_keys ak ON ak.id = u2.api_key_id
+        WHERE u.id = u2.id
           AND (u.username IS NULL OR u.api_key_name IS NULL)
-    """)
-    # Catch rows that have user_id but no api_key_id (or vice versa)
-    op.execute("""
-        UPDATE usage u
-        SET username = usr.username
-        FROM users usr
-        WHERE u.user_id = usr.id AND u.username IS NULL
-    """)
-    op.execute("""
-        UPDATE usage u
-        SET api_key_name = ak.name
-        FROM api_keys ak
-        WHERE u.api_key_id = ak.id AND u.api_key_name IS NULL
     """)
     op.execute("""
         UPDATE stats_user_daily s
@@ -151,27 +107,42 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    c = new_cache()
+    c.load_columns(["stats_daily_api_key", "stats_user_daily", "usage"])
+    c.load_fk_rules(["stats_daily_api_key", "stats_user_daily"])
+
     # --- Remove snapshot columns ---
-    if _column_exists('stats_daily_api_key', 'api_key_name'):
-        op.drop_column('stats_daily_api_key', 'api_key_name')
-    if _column_exists('stats_user_daily', 'username'):
-        op.drop_column('stats_user_daily', 'username')
-    if _column_exists('usage', 'api_key_name'):
-        op.drop_column('usage', 'api_key_name')
-    if _column_exists('usage', 'username'):
-        op.drop_column('usage', 'username')
+    if c.column_exists("stats_daily_api_key", "api_key_name"):
+        op.drop_column("stats_daily_api_key", "api_key_name")
+    if c.column_exists("stats_user_daily", "username"):
+        op.drop_column("stats_user_daily", "username")
+    if c.column_exists("usage", "api_key_name"):
+        op.drop_column("usage", "api_key_name")
+    if c.column_exists("usage", "username"):
+        op.drop_column("usage", "username")
 
     # --- StatsDailyApiKey: SET NULL -> CASCADE ---
-    _replace_fk_if_needed(
-        'stats_daily_api_key_api_key_id_fkey', 'stats_daily_api_key',
-        'api_keys', ['api_key_id'], ['id'], 'CASCADE',
+    replace_fk_if_needed(
+        c,
+        "stats_daily_api_key_api_key_id_fkey",
+        "stats_daily_api_key",
+        "api_keys",
+        ["api_key_id"],
+        ["id"],
+        "CASCADE",
     )
-    op.alter_column('stats_daily_api_key', 'api_key_id', existing_type=sa.String(36),
-                    nullable=False)
+    op.alter_column(
+        "stats_daily_api_key", "api_key_id", existing_type=sa.String(36), nullable=False
+    )
 
     # --- StatsUserDaily: SET NULL -> CASCADE ---
-    _replace_fk_if_needed(
-        'stats_user_daily_user_id_fkey', 'stats_user_daily',
-        'users', ['user_id'], ['id'], 'CASCADE',
+    replace_fk_if_needed(
+        c,
+        "stats_user_daily_user_id_fkey",
+        "stats_user_daily",
+        "users",
+        ["user_id"],
+        ["id"],
+        "CASCADE",
     )
-    op.alter_column('stats_user_daily', 'user_id', existing_type=sa.String(36), nullable=False)
+    op.alter_column("stats_user_daily", "user_id", existing_type=sa.String(36), nullable=False)
