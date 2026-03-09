@@ -565,6 +565,10 @@ class CandidateBuilder:
                 if pool_cfg is not None:
                     # 号池优化：跳过逐 key 的 _check_key_availability 检查，
                     # 直接收集全部 active key，将检查推迟到 PoolManager 排序后分页执行。
+                    # 在此释放 DB 连接，因为后续的 PoolManager 排序涉及大量 Redis 操作，
+                    # 避免在 Redis I/O 期间长时间占用 DB 连接池。
+                    release_db_connection_before_await(db)
+
                     pool_keys = list(keys_to_check)
 
                     if not pool_keys:
