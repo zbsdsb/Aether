@@ -340,11 +340,6 @@ async def _start_background_services(state: LifecycleState) -> None:
     state.task_scheduler = get_scheduler()
     state.task_scheduler.start()
 
-    # 启动缓存预热（后台任务，不阻塞启动）
-    from src.services.system.cache_warmup import start_cache_warmup
-
-    await start_cache_warmup()
-
 
 async def _run_startup(app: FastAPI) -> LifecycleState:
     """执行完整启动流程并返回生命周期状态。"""
