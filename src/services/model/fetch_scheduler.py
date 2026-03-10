@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import defer, joinedload, load_only
 
 from src.core.cache_service import CacheService
 from src.core.crypto import crypto_service
@@ -284,7 +284,19 @@ class ModelFetchScheduler:
         """更新 Key 的错误信息（独立事务）"""
         try:
             with create_session() as db:
-                key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
+                key = (
+                    db.query(ProviderAPIKey)
+                    .options(
+                        defer(ProviderAPIKey.adjustment_history),
+                        defer(ProviderAPIKey.utilization_samples),
+                        defer(ProviderAPIKey.health_by_format),
+                        defer(ProviderAPIKey.circuit_breaker_by_format),
+                        defer(ProviderAPIKey.upstream_metadata),
+                        defer(ProviderAPIKey.allowed_models),
+                    )
+                    .filter(ProviderAPIKey.id == key_id)
+                    .first()
+                )
                 if key:
                     key.last_models_fetch_at = datetime.now(timezone.utc)
                     key.last_models_fetch_error = error_msg
@@ -384,7 +396,18 @@ class ModelFetchScheduler:
         with create_session() as db:
             key = (
                 db.query(ProviderAPIKey)
-                .options(joinedload(ProviderAPIKey.provider))
+                .options(
+                    load_only(
+                        ProviderAPIKey.id,
+                        ProviderAPIKey.is_active,
+                        ProviderAPIKey.auto_fetch_models,
+                        ProviderAPIKey.api_key,
+                        ProviderAPIKey.auth_type,
+                        ProviderAPIKey.auth_config,
+                        ProviderAPIKey.provider_id,
+                        ProviderAPIKey.proxy,
+                    ),
+                )
                 .filter(ProviderAPIKey.id == key_id)
                 .first()
             )
@@ -482,7 +505,18 @@ class ModelFetchScheduler:
 
         with create_session() as db:
             # 重新获取 Key（因为之前的连接已关闭）
-            key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
+            # defer 不需要的大 JSON 字段，减少内存占用
+            key = (
+                db.query(ProviderAPIKey)
+                .options(
+                    defer(ProviderAPIKey.adjustment_history),
+                    defer(ProviderAPIKey.utilization_samples),
+                    defer(ProviderAPIKey.health_by_format),
+                    defer(ProviderAPIKey.circuit_breaker_by_format),
+                )
+                .filter(ProviderAPIKey.id == key_id)
+                .first()
+            )
             if not key:
                 logger.warning(f"Key {key_id} 在更新时不存在")
                 return "error"
