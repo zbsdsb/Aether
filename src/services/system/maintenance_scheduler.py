@@ -144,15 +144,6 @@ class MaintenanceScheduler:
             name="统计小时数据聚合",
             timezone="UTC",
         )
-        # 统计聚合补偿任务 - 每 30 分钟检查缺失并回填
-        scheduler.add_interval_job(
-            self._scheduled_stats_aggregation,
-            minutes=30,
-            job_id="stats_aggregation_backfill",
-            name="统计数据聚合补偿",
-            backfill=True,
-        )
-
         # 清理任务 - 凌晨 3 点执行
         scheduler.add_cron_job(
             self._scheduled_cleanup,
@@ -255,22 +246,10 @@ class MaintenanceScheduler:
             logger.debug("启动时刷新 Antigravity UA 版本失败（不影响运行）: {}", e)
 
         try:
-            logger.info("启动时执行首次清理任务...")
-            await self._perform_cleanup()
-        except Exception as e:
-            logger.exception(f"启动时清理任务执行出错: {e}")
-
-        try:
             logger.info("启动时清理残留的 pending/streaming 请求...")
             await self._perform_pending_cleanup()
         except Exception as e:
             logger.exception(f"启动时 pending 清理执行出错: {e}")
-
-        try:
-            logger.info("启动时检查统计数据...")
-            await self._perform_stats_aggregation(backfill=True)
-        except Exception as e:
-            logger.exception(f"启动时统计聚合任务出错: {e}")
 
     async def stop(self) -> Any:
         """停止调度器"""
