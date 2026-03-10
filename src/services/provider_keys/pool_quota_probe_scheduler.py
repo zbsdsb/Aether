@@ -21,21 +21,18 @@ from src.core.provider_types import ProviderType, normalize_provider_type
 from src.database import create_session
 from src.models.database import Provider, ProviderAPIKey
 from src.services.provider.pool.config import parse_pool_config
-from src.services.provider_keys.key_quota_service import refresh_provider_quota_for_provider
+from src.services.provider_keys.key_quota_service import (
+    CODEX_WHAM_USAGE_URL,
+    QUOTA_REFRESH_PROVIDER_TYPES,
+    refresh_provider_quota_for_provider,
+)
 from src.services.system.scheduler import get_scheduler
 
-# 与 admin 刷新额度 API 保持一致
-_CODEX_WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 _REDIS_PREFIX = "ap:quota_probe:last"
 _DEFAULT_INTERVAL_MINUTES = 10
 _DEFAULT_SCAN_INTERVAL_SECONDS = 60
 _DEFAULT_MAX_KEYS_PER_PROVIDER = 50
 _MAX_INTERVAL_MINUTES = 1440
-_SUPPORTED_PROVIDER_TYPES = {
-    ProviderType.CODEX.value,
-    ProviderType.KIRO.value,
-    ProviderType.ANTIGRAVITY.value,
-}
 
 
 def _probe_stamp_key(provider_id: str, key_id: str) -> str:
@@ -260,7 +257,7 @@ class PoolQuotaProbeScheduler:
             for provider in providers:
                 provider_id = str(getattr(provider, "id", "") or "")
                 provider_type = normalize_provider_type(getattr(provider, "provider_type", ""))
-                if not provider_id or provider_type not in _SUPPORTED_PROVIDER_TYPES:
+                if not provider_id or provider_type not in QUOTA_REFRESH_PROVIDER_TYPES:
                     continue
 
                 pool_cfg = parse_pool_config(getattr(provider, "config", None))
@@ -340,7 +337,7 @@ class PoolQuotaProbeScheduler:
                 result = await refresh_provider_quota_for_provider(
                     db=probe_db,
                     provider_id=task.provider_id,
-                    codex_wham_usage_url=_CODEX_WHAM_USAGE_URL,
+                    codex_wham_usage_url=CODEX_WHAM_USAGE_URL,
                     key_ids=task.probe_key_ids,
                 )
                 logger.info(
