@@ -66,6 +66,13 @@ class PoolSchedulingReason(BaseModel):
     detail: str | None = None
 
 
+class OAuthOrganizationSummary(BaseModel):
+    id: str | None = None
+    title: str | None = None
+    is_default: bool = False
+    role: str | None = None
+
+
 class PoolKeyDetail(BaseModel):
     """Detailed status of a single pool key."""
 
@@ -77,6 +84,9 @@ class PoolKeyDetail(BaseModel):
     oauth_invalid_at: int | None = None
     oauth_invalid_reason: str | None = None
     oauth_plan_type: str | None = None
+    oauth_account_id: str | None = None
+    oauth_account_user_id: str | None = None
+    oauth_organizations: list[OAuthOrganizationSummary] = Field(default_factory=list)
     quota_updated_at: int | None = None
     # 健康度聚合字段（与 Provider Key 列表口径一致）
     health_score: float = 1.0

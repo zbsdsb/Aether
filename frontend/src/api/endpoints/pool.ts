@@ -1,6 +1,6 @@
 import client from '../client'
 import { dedupedRequest } from '@/utils/cache'
-import type { AllowedModels, ProxyConfig } from './types/provider'
+import type { AllowedModels, OAuthOrganizationInfo, ProxyConfig } from './types/provider'
 
 const POOL_BATCH_ACTION_TIMEOUT_MS = 5 * 60 * 1000
 
@@ -102,6 +102,9 @@ export interface PoolKeyDetail {
   oauth_invalid_at?: number | null
   oauth_invalid_reason?: string | null
   oauth_plan_type?: string | null
+  oauth_account_id?: string | null
+  oauth_account_user_id?: string | null
+  oauth_organizations?: OAuthOrganizationInfo[] | null
   quota_updated_at?: number | null
   health_score?: number
   circuit_breaker_open?: boolean

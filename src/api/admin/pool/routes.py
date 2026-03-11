@@ -29,6 +29,7 @@ from src.api.base.pipeline import ApiRequestPipeline
 from src.core.crypto import crypto_service
 from src.core.exceptions import NotFoundException
 from src.core.logger import logger
+from src.core.provider_oauth_utils import normalize_oauth_organizations
 from src.database import get_db
 from src.models.database import Provider, ProviderAPIKey
 from src.services.billing.precision import to_money_decimal
@@ -353,6 +354,32 @@ def _derive_oauth_plan_type(
             if normalized:
                 return normalized
     return None
+
+
+def _derive_oauth_account_id(auth_config: dict[str, Any] | None = None) -> str | None:
+    if not isinstance(auth_config, dict):
+        return None
+    raw = auth_config.get("account_id")
+    if not isinstance(raw, str):
+        return None
+    normalized = raw.strip()
+    return normalized or None
+
+
+def _derive_oauth_account_user_id(auth_config: dict[str, Any] | None = None) -> str | None:
+    if not isinstance(auth_config, dict):
+        return None
+    raw = auth_config.get("account_user_id")
+    if not isinstance(raw, str):
+        return None
+    normalized = raw.strip()
+    return normalized or None
+
+
+def _derive_oauth_organizations(auth_config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    if not isinstance(auth_config, dict):
+        return []
+    return normalize_oauth_organizations(auth_config.get("organizations"))
 
 
 def _compute_health_aggregate(
@@ -1063,6 +1090,9 @@ async def _serialize_pool_key_details(
                 oauth_plan_type=_derive_oauth_plan_type(
                     k, provider_type, auth_config=oauth_auth_config
                 ),
+                oauth_account_id=_derive_oauth_account_id(oauth_auth_config),
+                oauth_account_user_id=_derive_oauth_account_user_id(oauth_auth_config),
+                oauth_organizations=_derive_oauth_organizations(oauth_auth_config),
                 quota_updated_at=_extract_quota_updated_at(
                     provider_type,
                     getattr(k, "upstream_metadata", None),
