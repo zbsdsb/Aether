@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 import time
 from collections.abc import Callable
@@ -174,7 +175,8 @@ class RequestExecutor:
                 client_format_str = normalize_endpoint_signature(api_format)
                 health_format = provider_format_str or client_format_str
 
-                health_monitor.record_success(
+                await asyncio.to_thread(
+                    health_monitor.record_success,
                     db=self.db,
                     key_id=key.id,
                     api_format=health_format,
