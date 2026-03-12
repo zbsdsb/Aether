@@ -83,16 +83,17 @@
               :id="`pwd-${formNonce}`"
               v-model="form.password"
               type="text"
-              :masked="passwordFocused || form.password.length > 0"
+              masked
               autocomplete="new-password"
               disable-autofill
               :name="`field-${formNonce}`"
               :required="!isEditMode"
               minlength="6"
               :placeholder="isEditMode ? '留空保持原密码' : getPasswordPolicyPlaceholder(passwordPolicyLevel)"
-              :class="`h-10${!passwordFocused && form.password.length === 0 ? ' text-transparent' : ''}${passwordError ? ' border-destructive' : ''}`"
-              @focus="passwordFocused = true"
-              @blur="passwordFocused = form.password.length > 0"
+              :class="[
+                'h-10',
+                passwordError ? 'border-destructive' : '',
+              ]"
             />
             <p
               v-if="passwordError"
@@ -272,9 +273,9 @@
                   @update:model-value="(v) => form.initial_gift_usd = parseNumberInput(v, { allowFloat: true, min: 0.01 })"
                 />
                 <span
-                  v-else-if="form.unlimited"
+                  v-else
                   class="flex h-10 w-full items-center rounded-lg border bg-background px-3 text-sm text-muted-foreground opacity-60"
-                >无限制</span>
+                >{{ form.unlimited ? '无限制' : '按钱包余额限制' }}</span>
               </div>
               <Switch
                 v-model="form.unlimited"
@@ -366,7 +367,6 @@ const emit = defineEmits<{
 const isOpen = computed(() => props.open)
 const saving = ref(false)
 const formNonce = ref(createFieldNonce())
-const passwordFocused = ref(false)
 const passwordPolicyLevel = ref<PasswordPolicyLevel>('weak')
 
 // 选项数据
@@ -417,7 +417,6 @@ function createFieldNonce(): string {
 
 function resetForm() {
   formNonce.value = createFieldNonce()
-  passwordFocused.value = false
   form.value = {
     username: '',
     password: '',
@@ -439,7 +438,6 @@ function resetForm() {
 function loadUserData() {
   if (!props.user) return
   formNonce.value = createFieldNonce()
-  passwordFocused.value = false
   // 创建数组副本，避免与 props 数据共享引用
   form.value = {
     username: props.user.username,
