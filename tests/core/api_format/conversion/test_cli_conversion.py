@@ -471,7 +471,82 @@ def test_stream_openai_cli_function_call_events() -> None:
 
     events3 = reg.convert_stream_chunk(output_done_chunk, "openai:cli", "claude:chat", state=state)
     assert isinstance(events3, list) and events3
-    assert events3[0].get("type") == "content_block_stop"
+    assert events3[0].get("type") == "content_block_delta"
+    assert events3[0].get("delta", {}).get("partial_json") == ' "Beijing"}'
+    assert events3[-1].get("type") == "content_block_stop"
+
+
+def test_stream_openai_cli_function_call_done_without_delta_emits_full_args() -> None:
+    """无 arguments.delta 时，done 快照也应补出完整 tool arguments。"""
+    reg = _make_registry_with_cli()
+    state = StreamState()
+
+    cli_chunks: list[dict[str, Any]] = [
+        {
+            "type": "response.created",
+            "response": {
+                "id": "resp_done_only",
+                "object": "response",
+                "model": "gpt-5",
+                "status": "in_progress",
+                "output": [],
+            },
+        },
+        {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+                "type": "function_call",
+                "call_id": "call_read_1",
+                "id": "call_read_1",
+                "name": "read",
+                "status": "in_progress",
+                "arguments": "",
+            },
+        },
+        {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "call_read_1",
+            "arguments": '{"filePath":"/tmp/demo.txt"}',
+        },
+        {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "type": "function_call",
+                "call_id": "call_read_1",
+                "id": "call_read_1",
+                "name": "read",
+                "status": "completed",
+                "arguments": '{"filePath":"/tmp/demo.txt"}',
+            },
+        },
+        {
+            "type": "response.completed",
+            "response": {
+                "id": "resp_done_only",
+                "object": "response",
+                "model": "gpt-5",
+                "status": "completed",
+                "output": [],
+                "usage": {"input_tokens": 8, "output_tokens": 4, "total_tokens": 12},
+            },
+        },
+    ]
+
+    all_events: list[dict[str, Any]] = []
+    for chunk in cli_chunks:
+        all_events.extend(reg.convert_stream_chunk(chunk, "openai:cli", "openai:chat", state=state))
+
+    collected_args = ""
+    for event in all_events:
+        for choice in event.get("choices", []):
+            for tc in choice.get("delta", {}).get("tool_calls") or []:
+                fn = tc.get("function") or {}
+                collected_args += str(fn.get("arguments") or "")
+
+    assert collected_args == '{"filePath":"/tmp/demo.txt"}'
 
 
 def test_real_claude_cli_stream_response_conversion() -> None:

@@ -648,6 +648,14 @@ class OpenAICliNormalizer(FormatNormalizer):
                         tool_name=tool_name,
                     )
                 )
+                events.extend(
+                    self._sync_tool_arguments_snapshot(
+                        tool_id=tool_id,
+                        block_index=block_index,
+                        args_snapshot=item.get("arguments"),
+                        ss=ss,
+                    )
+                )
                 ss["block_index"] = block_index + 1
         return events
 
@@ -662,6 +670,14 @@ class OpenAICliNormalizer(FormatNormalizer):
                 tool_id = str(item.get("call_id") or item.get("id") or "")
                 active_tools = ss.get("active_tool_blocks", {})
                 block_index = active_tools.pop(tool_id, ss.get("block_index", 1) - 1)
+                events.extend(
+                    self._sync_tool_arguments_snapshot(
+                        tool_id=tool_id,
+                        block_index=int(block_index),
+                        args_snapshot=item.get("arguments"),
+                        ss=ss,
+                    )
+                )
                 events.append(ContentBlockStopEvent(block_index=block_index))
         return events
 
@@ -690,6 +706,19 @@ class OpenAICliNormalizer(FormatNormalizer):
             )
         return events
 
+    def _handle_function_call_done(
+        self, chunk: dict[str, Any], state: StreamState, ss: dict[str, Any]
+    ) -> list[InternalStreamEvent]:
+        tool_id = str(chunk.get("item_id") or ss.get("current_tool_id", ""))
+        active_tools = ss.get("active_tool_blocks", {})
+        block_index = int(active_tools.get(tool_id, ss.get("block_index", 1) - 1))
+        return self._sync_tool_arguments_snapshot(
+            tool_id=tool_id,
+            block_index=block_index,
+            args_snapshot=chunk.get("arguments"),
+            ss=ss,
+        )
+
     def _handle_noop(
         self, chunk: dict[str, Any], state: StreamState, ss: dict[str, Any]
     ) -> list[InternalStreamEvent]:
@@ -713,12 +742,54 @@ class OpenAICliNormalizer(FormatNormalizer):
         "response.output_item.added": _handle_output_item_added,
         "response.output_item.done": _handle_output_item_done,
         "response.function_call_arguments.delta": _handle_function_call_delta,
-        "response.function_call_arguments.done": _handle_noop,
+        "response.function_call_arguments.done": _handle_function_call_done,
         "response.content_part.added": _handle_noop,
         "response.content_part.done": _handle_noop,
         "response.reasoning_summary_text.delta": _handle_as_unknown,
         "response.reasoning_summary_text.done": _handle_as_unknown,
     }
+
+    def _sync_tool_arguments_snapshot(
+        self,
+        *,
+        tool_id: str,
+        block_index: int,
+        args_snapshot: Any,
+        ss: dict[str, Any],
+    ) -> list[InternalStreamEvent]:
+        if not tool_id:
+            return []
+        if not isinstance(args_snapshot, str) or not args_snapshot:
+            return []
+
+        tool_calls = ss.setdefault("tool_calls", {})
+        entry = tool_calls.setdefault(tool_id, {"name": "", "args": ""})
+        current_args = str(entry.get("args") or "")
+
+        if args_snapshot == current_args:
+            return []
+
+        if current_args and not args_snapshot.startswith(current_args):
+            logger.debug(
+                "[OpenAICliNormalizer] function_call args snapshot is not a prefix extension: "
+                "tool_id={}, current_len={}, snapshot_len={}",
+                tool_id,
+                len(current_args),
+                len(args_snapshot),
+            )
+            delta = args_snapshot
+        else:
+            delta = args_snapshot[len(current_args) :] if current_args else args_snapshot
+        entry["args"] = args_snapshot
+        if not delta:
+            return []
+        return [
+            ToolCallDeltaEvent(
+                block_index=block_index,
+                tool_id=tool_id,
+                input_delta=delta,
+            )
+        ]
 
     def stream_event_from_internal(
         self,
