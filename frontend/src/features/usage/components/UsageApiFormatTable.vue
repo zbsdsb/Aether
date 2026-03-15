@@ -25,7 +25,7 @@
               费用
             </TableHead>
             <TableHead class="h-8 px-2 text-right">
-              命中率
+              缓存命中率
             </TableHead>
             <TableHead class="h-8 px-2 text-right">
               平均响应
