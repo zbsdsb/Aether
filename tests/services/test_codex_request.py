@@ -9,7 +9,6 @@ import pytest
 from src.api.handlers.base.request_builder import PassthroughRequestBuilder
 from src.services.provider.adapters.codex.context import set_codex_request_context
 from src.services.provider.adapters.codex.request_patching import (
-    build_stable_codex_prompt_cache_key,
     maybe_patch_request_for_codex,
     patch_openai_cli_request_for_codex,
 )
@@ -51,35 +50,22 @@ def test_patch_openai_cli_request_for_codex_is_passthrough_except_internal_senti
     assert out["input"][0]["role"] == "system"
 
 
-def test_patch_openai_cli_request_for_codex_generates_stable_prompt_cache_key_from_user_api_key_id() -> (
-    None
-):
-    req = {"model": "gpt-test", "input": []}
-
-    out = patch_openai_cli_request_for_codex(req, user_api_key_id="user-key-123")
-
-    assert out is not req
-    assert out["prompt_cache_key"] == build_stable_codex_prompt_cache_key("user-key-123")
-
-
 def test_patch_openai_cli_request_for_codex_preserves_existing_prompt_cache_key() -> None:
     req = {"model": "gpt-test", "input": [], "prompt_cache_key": "client-cache-key"}
 
-    out = patch_openai_cli_request_for_codex(req, user_api_key_id="user-key-123")
+    out = patch_openai_cli_request_for_codex(req)
 
     assert out["prompt_cache_key"] == "client-cache-key"
 
 
-def test_patch_openai_cli_request_for_codex_ignores_provider_key_and_uses_only_user_api_key_id() -> (
-    None
-):
-    req = {"model": "gpt-test", "input": []}
+def test_patch_openai_cli_request_for_codex_does_not_inject_prompt_cache_key() -> None:
+    req = {"model": "gpt-test", "input": [], "_aether_compact": True}
 
-    out_a = patch_openai_cli_request_for_codex(req, user_api_key_id="user-key-123")
-    out_b = patch_openai_cli_request_for_codex(req, user_api_key_id="user-key-123")
+    out = patch_openai_cli_request_for_codex(req)
 
-    assert out_a["prompt_cache_key"] == out_b["prompt_cache_key"]
-    assert out_a["prompt_cache_key"] == build_stable_codex_prompt_cache_key("user-key-123")
+    assert out is not req
+    assert "_aether_compact" not in out
+    assert "prompt_cache_key" not in out
 
 
 def test_maybe_patch_request_for_codex_is_noop_for_non_codex() -> None:
@@ -113,6 +99,7 @@ def test_maybe_patch_request_for_codex_patches_for_codex_openai_cli() -> None:
     assert out is not req
     assert out["store"] is True
     assert "_aether_compact" not in out
+    assert "prompt_cache_key" not in out
 
 
 def test_maybe_patch_request_for_codex_patches_for_codex_openai_compact() -> None:
@@ -126,6 +113,7 @@ def test_maybe_patch_request_for_codex_patches_for_codex_openai_compact() -> Non
     assert out is not req
     assert out["store"] is True
     assert "_aether_compact" not in out
+    assert "prompt_cache_key" not in out
 
 
 def test_openai_cli_normalizer_request_from_internal_codex_variant_preserves_store() -> None:
@@ -189,10 +177,10 @@ def test_codex_envelope_wrap_request_injects_stable_prompt_cache_key_from_user_a
         set_codex_request_context(None)
 
     assert url_model is None
-    assert out["prompt_cache_key"] == build_stable_codex_prompt_cache_key("user-key-123")
+    assert "prompt_cache_key" not in out
 
 
-def test_codex_envelope_wrap_request_same_user_different_provider_keys_share_prompt_cache_key() -> (
+def test_codex_envelope_wrap_request_same_user_different_provider_keys_do_not_mutate_prompt_cache_key() -> (
     None
 ):
     from src.services.provider.adapters.codex.envelope import codex_oauth_envelope
@@ -225,8 +213,31 @@ def test_codex_envelope_wrap_request_same_user_different_provider_keys_share_pro
     finally:
         set_codex_request_context(None)
 
-    assert out_a["prompt_cache_key"] == out_b["prompt_cache_key"]
-    assert out_a["prompt_cache_key"] == build_stable_codex_prompt_cache_key("user-key-123")
+    assert "prompt_cache_key" not in out_a
+    assert "prompt_cache_key" not in out_b
+
+
+def test_codex_envelope_wrap_request_compact_does_not_inject_prompt_cache_key() -> None:
+    from src.services.provider.adapters.codex.envelope import codex_oauth_envelope
+
+    try:
+        codex_oauth_envelope.prepare_context(
+            provider_config=None,
+            key_id="provider-key-123",
+            user_api_key_id="user-key-123",
+            is_stream=False,
+        )
+        out, _ = codex_oauth_envelope.wrap_request(
+            {"model": "gpt-test", "input": [], "_aether_compact": True},
+            model="gpt-test",
+            url_model=None,
+            decrypted_auth_config=None,
+        )
+    finally:
+        set_codex_request_context(None)
+
+    assert "_aether_compact" not in out
+    assert "prompt_cache_key" not in out
 
 
 def test_codex_passthrough_builder_preserves_real_codex_headers() -> None:

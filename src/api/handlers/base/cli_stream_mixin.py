@@ -41,6 +41,9 @@ from src.core.exceptions import (
 )
 from src.core.logger import logger
 from src.services.provider.behavior import get_provider_behavior
+from src.services.provider.prompt_cache import (
+    maybe_patch_request_with_prompt_cache_key,
+)
 from src.services.provider.stream_policy import (
     enforce_stream_mode_for_upstream,
     get_upstream_stream_policy,
@@ -397,6 +400,15 @@ class CliStreamMixin:
                 provider_api_format=provider_api_format,
                 upstream_is_stream=upstream_is_stream,
             )
+
+        request_body = maybe_patch_request_with_prompt_cache_key(
+            request_body,
+            provider_api_format=provider_api_format,
+            provider_type=provider_type,
+            base_url=getattr(endpoint, "base_url", None),
+            user_api_key_id=str(getattr(self.api_key, "id", "") or ""),
+            request_headers=original_headers,
+        )
 
         # 获取认证信息（处理 Service Account 等异步认证场景）
         auth_info = await get_provider_auth(endpoint, key)

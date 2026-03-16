@@ -81,6 +81,9 @@ from src.models.database import (
     User,
 )
 from src.services.provider.behavior import get_provider_behavior
+from src.services.provider.prompt_cache import (
+    maybe_patch_request_with_prompt_cache_key,
+)
 from src.services.provider.stream_policy import (
     enforce_stream_mode_for_upstream,
     get_upstream_stream_policy,
@@ -806,6 +809,15 @@ class ChatHandlerBase(BaseMessageHandler, ABC):
                 provider_api_format=str(provider_api_format),
                 upstream_is_stream=upstream_is_stream,
             )
+
+        request_body = maybe_patch_request_with_prompt_cache_key(
+            request_body,
+            provider_api_format=str(provider_api_format) if provider_api_format else None,
+            provider_type=provider_type,
+            base_url=getattr(endpoint, "base_url", None),
+            user_api_key_id=str(getattr(self.api_key, "id", "") or ""),
+            request_headers=original_headers,
+        )
 
         # 获取 URL 模型名
         url_model = self.get_model_for_url(request_body, mapped_model) or model
