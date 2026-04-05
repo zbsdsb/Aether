@@ -11,6 +11,13 @@ class AllInHubTaskExecuteRequest(BaseModel):
     limit: int = Field(20, ge=1, le=200, description="本次最多执行的 pending task 数量")
 
 
+class AllInHubTaskSubmitPlaintextRequest(BaseModel):
+    api_key: str = Field(..., min_length=1, description="外部补抓到的明文 Key")
+    token_name: str | None = Field(default=None, description="上游 token 名称（可选）")
+    token_id: str | None = Field(default=None, description="上游 token ID（可选）")
+    note: str | None = Field(default=None, description="补抓说明（可选）")
+
+
 class AllInHubImportStats(BaseModel):
     providers_total: int = 0
     providers_to_create: int = 0
@@ -53,6 +60,14 @@ class AllInHubTaskExecutionItem(BaseModel):
     last_error: str | None = None
     key_created: bool = False
     result_key_id: str | None = None
+    task_type: str | None = None
+    site_type: str | None = None
+    auth_type: str | None = None
+    has_access_token: bool = False
+    has_session_cookie: bool = False
+    action_required: str | None = None
+    plaintext_capture_status: str | None = None
+    masked_key_preview: str | None = None
 
 
 class AllInHubTaskExecutionResponse(BaseModel):

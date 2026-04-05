@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session, load_only
@@ -31,7 +31,9 @@ from src.models.endpoint_models import ProviderWithEndpointsSummary
 from src.models.provider_import import AllInHubImportRequest, AllInHubImportResponse
 from src.models.provider_import import (
     AllInHubTaskExecuteRequest,
+    AllInHubTaskExecutionItem,
     AllInHubTaskExecutionResponse,
+    AllInHubTaskSubmitPlaintextRequest,
 )
 from src.services.cache.model_cache import ModelCacheService
 from src.services.cache.provider_cache import ProviderCacheService
@@ -40,7 +42,11 @@ from src.services.provider_import.all_in_hub import (
     execute_all_in_hub_import,
     preview_all_in_hub_import,
 )
-from src.services.provider_import.reissue import execute_all_in_hub_import_tasks
+from src.services.provider_import.reissue import (
+    execute_all_in_hub_import_tasks,
+    PlaintextSubmissionRetryableError,
+    submit_all_in_hub_task_plaintext,
+)
 from src.utils.cache_decorator import cache_result
 
 from .summary import _build_provider_summary
@@ -299,6 +305,20 @@ async def execute_all_in_hub_tasks_route(
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
+@router.post(
+    "/imports/all-in-hub/tasks/{task_id}/submit-plaintext",
+    response_model=AllInHubTaskExecutionItem,
+)
+async def submit_all_in_hub_task_plaintext_route(
+    task_id: str,
+    payload: AllInHubTaskSubmitPlaintextRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> AllInHubTaskExecutionItem:
+    adapter = AdminSubmitAllInHubTaskPlaintextAdapter(task_id=task_id, payload=payload)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
 @router.get("/")
 async def list_providers(
     request: Request,
@@ -551,6 +571,33 @@ class AdminExecuteAllInHubTasksAdapter(AdminApiAdapter):
             keys_created=result.keys_created,
             results=result.results,
         )
+
+
+class AdminSubmitAllInHubTaskPlaintextAdapter(AdminApiAdapter):
+    def __init__(self, task_id: str, payload: AllInHubTaskSubmitPlaintextRequest):
+        self.task_id = task_id
+        self.payload = payload
+
+    async def handle(self, context: ApiRequestContext) -> AllInHubTaskExecutionItem:  # type: ignore[override]
+        try:
+            result = await submit_all_in_hub_task_plaintext(
+                db=context.db,
+                task_id=self.task_id,
+                plaintext_api_key=self.payload.api_key,
+                token_name=self.payload.token_name,
+                token_id=self.payload.token_id,
+                note=self.payload.note,
+            )
+        except PlaintextSubmissionRetryableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        context.add_audit_metadata(
+            action="submit_all_in_hub_task_plaintext",
+            task_id=self.task_id,
+            result_key_id=result.get("result_key_id"),
+            key_created=bool(result.get("key_created")),
+            final_status=result.get("status"),
+        )
+        return AllInHubTaskExecutionItem(**result)
 
 
 class AdminCreateProviderAdapter(AdminApiAdapter):

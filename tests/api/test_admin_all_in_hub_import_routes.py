@@ -15,6 +15,7 @@ from src.models.provider_import import (
     AllInHubImportStats,
     AllInHubTaskExecutionResponse,
 )
+from src.services.provider_import.reissue import PlaintextSubmissionRetryableError
 
 
 def _build_app(db: object, monkeypatch: pytest.MonkeyPatch) -> TestClient:
@@ -86,17 +87,52 @@ def _task_execution_payload() -> AllInHubTaskExecutionResponse:
                 "last_error": None,
                 "key_created": True,
                 "result_key_id": "key-1",
+                "task_type": "pending_reissue",
+                "site_type": "new-api",
+                "auth_type": "access_token",
+                "has_access_token": True,
+                "has_session_cookie": False,
+                "action_required": None,
+                "plaintext_capture_status": "consumed",
+                "masked_key_preview": None,
             },
             {
                 "task_id": "task-2",
-                "status": "failed",
-                "stage": "verify_models",
-                "last_error": "boom:task-2",
-                "key_created": True,
+                "status": "waiting_plaintext",
+                "stage": "create_key",
+                "last_error": None,
+                "key_created": False,
                 "result_key_id": None,
+                "task_type": "pending_import",
+                "site_type": "anyrouter",
+                "auth_type": "cookie",
+                "has_access_token": True,
+                "has_session_cookie": True,
+                "action_required": "submit_plaintext",
+                "plaintext_capture_status": "pending",
+                "masked_key_preview": "xBLk**********d1O9",
             },
         ],
     )
+
+
+def _submit_plaintext_payload() -> dict[str, object]:
+    return {
+        "task_id": "task-2",
+        "status": "completed",
+        "stage": "completed",
+        "last_error": None,
+        "key_created": True,
+        "result_key_id": "key-2",
+        "task_type": "pending_reissue",
+        "site_type": "new-api",
+        "auth_type": "access_token",
+        "has_access_token": True,
+        "has_session_cookie": False,
+        "action_required": None,
+        "plaintext_capture_status": "consumed",
+        "masked_key_preview": "xBLk**********d1O9",
+    }
 
 
 def test_preview_all_in_hub_import_route_returns_service_payload(
@@ -153,4 +189,60 @@ def test_execute_all_in_hub_pending_tasks_route_returns_service_payload(
     assert response.status_code == 200
     assert response.json()["total_selected"] == 2
     assert response.json()["keys_created"] == 1
+    assert response.json()["results"][0]["site_type"] == "new-api"
+    assert response.json()["results"][1]["auth_type"] == "cookie"
+    assert response.json()["results"][1]["action_required"] == "submit_plaintext"
+    assert response.json()["results"][1]["plaintext_capture_status"] == "pending"
     execute_mock.assert_awaited_once()
+
+
+def test_submit_all_in_hub_task_plaintext_route_returns_service_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    submit_mock = AsyncMock(return_value=_submit_plaintext_payload())
+    monkeypatch.setattr(
+        "src.api.admin.providers.routes.submit_all_in_hub_task_plaintext",
+        submit_mock,
+    )
+
+    client = _build_app(object(), monkeypatch)
+    response = client.post(
+        "/api/admin/providers/imports/all-in-hub/tasks/task-2/submit-plaintext",
+        json={
+            "api_key": "sk-captured-1",
+            "token_name": "aether-acct-1",
+            "token_id": "upstream-token-1",
+            "note": "captured via browser",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert response.json()["result_key_id"] == "key-2"
+    submit_mock.assert_awaited_once()
+
+
+def test_submit_all_in_hub_task_plaintext_route_maps_retryable_failure_to_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _raise_conflict(**_kwargs: object) -> dict[str, object]:
+        raise PlaintextSubmissionRetryableError("model verification failed: error")
+
+    monkeypatch.setattr(
+        "src.api.admin.providers.routes.submit_all_in_hub_task_plaintext",
+        _raise_conflict,
+    )
+
+    client = _build_app(object(), monkeypatch)
+    response = client.post(
+        "/api/admin/providers/imports/all-in-hub/tasks/task-2/submit-plaintext",
+        json={
+            "api_key": "sk-captured-1",
+            "token_name": "aether-acct-1",
+            "token_id": "upstream-token-1",
+            "note": "captured via browser",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "model verification failed: error"

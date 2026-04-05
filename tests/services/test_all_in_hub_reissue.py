@@ -8,10 +8,12 @@ import pytest
 from src.core.crypto import crypto_service
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint, ProviderImportTask
 from src.services.provider_import.reissue import (
+    _create_new_api_token,
     detect_import_task_strategy,
     _find_new_api_token,
     _probe_new_api_compatibility,
     execute_all_in_hub_import_tasks,
+    submit_all_in_hub_task_plaintext,
 )
 
 
@@ -101,9 +103,12 @@ def _build_task(
         credential_payload=payload,
         source_metadata={
             "site_type": site_type,
+            "auth_type": "cookie" if session_cookie else ("access_token" if access_token else None),
             "account_id": account_id,
             "endpoint_base_url": "https://provider-1.example.com",
             "provider_name": "Provider One",
+            "has_access_token": bool(access_token),
+            "has_session_cookie": bool(session_cookie),
         },
         retry_count=0,
         last_error=None,
@@ -202,6 +207,31 @@ async def test_find_new_api_token_accepts_nested_data_shape(
 
     assert token is not None
     assert token["key"] == "sk-1"
+
+
+@pytest.mark.asyncio
+async def test_create_new_api_token_uses_string_model_limits_for_real_new_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def _request(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"success": True, "data": {"id": 1}}
+
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._new_api_request",
+        _request,
+    )
+
+    await _create_new_api_token(
+        base_url="https://provider-1.example.com",
+        access_token="access-1",
+        account_id="user-1",
+        token_name="aether-acct-1",
+    )
+
+    assert captured["json_body"]["model_limits"] == ""
 
 
 @pytest.mark.asyncio
@@ -412,6 +442,347 @@ async def test_execute_pending_reissue_marks_task_failed_when_model_verification
     assert result.results[0]["stage"] == "verify_models"
     assert result.results[0]["key_created"] is True
     assert result.results[0]["result_key_id"] == str(db.keys[0].id)
+    assert result.results[0]["task_type"] == "pending_reissue"
+    assert result.results[0]["site_type"] == "new-api"
+    assert result.results[0]["has_access_token"] is True
+    assert result.results[0]["has_session_cookie"] is False
+
+
+@pytest.mark.asyncio
+async def test_execute_new_api_pending_reissue_rejects_masked_token_list_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_new_api_request(
+        *,
+        method: str,
+        base_url: str,
+        access_token: str,
+        account_id: str,
+        path: str,
+        json_body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        assert base_url == "https://provider-1.example.com"
+        assert access_token == "access-1"
+        assert account_id == "acct-1"
+        if method == "GET":
+            return {
+                "success": True,
+                "data": {
+                    "items": [
+                        {
+                            "id": 1,
+                            "name": "aether-acct-1",
+                            "key": "xBLk**********d1O9",
+                        }
+                    ],
+                    "total": 1,
+                },
+            }
+        raise AssertionError(f"unexpected request: {(method, path, json_body)}")
+
+    async def _unexpected_side_effects(**_kwargs: Any) -> None:
+        raise AssertionError("masked key should fail before side effects")
+
+    async def _unexpected_verify(_key_id: str) -> str:
+        raise AssertionError("masked key should fail before verify")
+
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._new_api_request",
+        _fake_new_api_request,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue.run_create_key_side_effects",
+        _unexpected_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._verify_reissued_key_models",
+        _unexpected_verify,
+    )
+
+    db = _FakeDB(
+        providers=[
+            Provider(
+                id="provider-1",
+                name="Provider One",
+                provider_type="custom",
+                billing_type="pay_as_you_go",
+            )
+        ],
+        endpoints=[
+            ProviderEndpoint(
+                id="endpoint-1",
+                provider_id="provider-1",
+                api_format="openai:chat",
+                api_family="openai",
+                endpoint_kind="chat",
+                base_url="https://provider-1.example.com",
+            )
+        ],
+        tasks=[_build_task(account_id="acct-1")],
+    )
+
+    result = await execute_all_in_hub_import_tasks(db=db, limit=10)
+
+    assert result.total_selected == 1
+    assert result.completed == 0
+    assert result.failed == 0
+    assert result.keys_created == 0
+    assert len(db.keys) == 0
+    assert db.tasks[0].status == "waiting_plaintext"
+    assert db.tasks[0].last_error is None
+    assert db.tasks[0].source_metadata["plaintext_capture_status"] == "pending"
+    assert db.tasks[0].source_metadata["action_required"] == "submit_plaintext"
+    assert db.tasks[0].source_metadata["masked_key_preview"] == "xBLk**********d1O9"
+    assert result.results[0]["stage"] == "create_key"
+    assert result.results[0]["key_created"] is False
+    assert result.results[0]["action_required"] == "submit_plaintext"
+    assert result.results[0]["plaintext_capture_status"] == "pending"
+    assert result.results[0]["masked_key_preview"] == "xBLk**********d1O9"
+
+
+@pytest.mark.asyncio
+async def test_submit_plaintext_creates_provider_api_key_and_completes_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    async def _verify(_key_id: str) -> str:
+        return "success"
+
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._verify_reissued_key_models",
+        _verify,
+    )
+
+    task = _build_task(status="waiting_plaintext")
+    task.source_metadata["plaintext_capture_status"] = "pending"
+    task.source_metadata["action_required"] = "submit_plaintext"
+    task.source_metadata["masked_key_preview"] = "xBLk**********d1O9"
+    task.source_metadata["result_token_name"] = "aether-acct-1"
+    task.source_metadata["result_token_id"] = "upstream-token-1"
+
+    db = _FakeDB(
+        providers=[
+            Provider(
+                id="provider-1",
+                name="Provider One",
+                provider_type="custom",
+                billing_type="pay_as_you_go",
+            )
+        ],
+        endpoints=[
+            ProviderEndpoint(
+                id="endpoint-1",
+                provider_id="provider-1",
+                api_format="openai:chat",
+                api_family="openai",
+                endpoint_kind="chat",
+                base_url="https://provider-1.example.com",
+            )
+        ],
+        tasks=[task],
+    )
+
+    result = await submit_all_in_hub_task_plaintext(
+        db=db,
+        task_id="task-1",
+        plaintext_api_key="sk-reissued-from-submit",
+        token_name="aether-acct-1",
+        token_id="upstream-token-1",
+        note="captured via browser",
+    )
+
+    assert result["status"] == "completed"
+    assert result["stage"] == "completed"
+    assert result["key_created"] is True
+    assert len(db.keys) == 1
+    assert crypto_service.decrypt(db.keys[0].api_key) == "sk-reissued-from-submit"
+    assert task.status == "completed"
+    assert task.source_metadata["plaintext_capture_status"] == "consumed"
+    assert task.source_metadata["result_key_id"] == str(db.keys[0].id)
+    assert task.source_metadata["plaintext_submission_note"] == "captured via browser"
+
+
+@pytest.mark.asyncio
+async def test_submit_plaintext_rejects_task_not_waiting_for_plaintext() -> None:
+    task = _build_task(status="pending")
+    db = _FakeDB(tasks=[task])
+
+    with pytest.raises(RuntimeError, match="task is not waiting for plaintext submission"):
+        await submit_all_in_hub_task_plaintext(
+            db=db,
+            task_id="task-1",
+            plaintext_api_key="sk-reissued-from-submit",
+        )
+
+
+@pytest.mark.asyncio
+async def test_submit_plaintext_keeps_task_retryable_when_model_verification_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    async def _verify(_key_id: str) -> str:
+        return "error"
+
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._verify_reissued_key_models",
+        _verify,
+    )
+
+    task = _build_task(status="waiting_plaintext")
+    task.source_metadata["plaintext_capture_status"] = "pending"
+    task.source_metadata["action_required"] = "submit_plaintext"
+    task.source_metadata["masked_key_preview"] = "xBLk**********d1O9"
+
+    db = _FakeDB(
+        providers=[
+            Provider(
+                id="provider-1",
+                name="Provider One",
+                provider_type="custom",
+                billing_type="pay_as_you_go",
+            )
+        ],
+        endpoints=[
+            ProviderEndpoint(
+                id="endpoint-1",
+                provider_id="provider-1",
+                api_format="openai:chat",
+                api_family="openai",
+                endpoint_kind="chat",
+                base_url="https://provider-1.example.com",
+            )
+        ],
+        tasks=[task],
+    )
+
+    with pytest.raises(RuntimeError, match="model verification failed: error"):
+        await submit_all_in_hub_task_plaintext(
+            db=db,
+            task_id="task-1",
+            plaintext_api_key="sk-invalid-or-unverified",
+            token_name="manual-captured-token",
+            token_id="manual-token-id",
+            note="captured via browser",
+        )
+
+    assert len(db.keys) == 1
+    assert db.keys[0].is_active is False
+    assert task.status == "waiting_plaintext"
+    assert task.last_error == "model verification failed: error"
+    assert task.retry_count == 1
+    assert task.source_metadata["plaintext_capture_status"] == "pending"
+    assert task.source_metadata["action_required"] == "submit_plaintext"
+    assert task.source_metadata["result_key_id"] == str(db.keys[0].id)
+
+
+@pytest.mark.asyncio
+async def test_execute_sub2api_pending_reissue_creates_provider_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_probe(*, task: ProviderImportTask) -> None:
+        assert task.id == "task-1"
+        return None
+
+    calls: list[tuple[str, str]] = []
+
+    async def _fake_sub2api_request(
+        *,
+        method: str,
+        base_url: str,
+        access_token: str,
+        path: str,
+        json_body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        assert base_url == "https://provider-1.example.com"
+        assert access_token == "access-1"
+        calls.append((method, path))
+        if method == "GET" and path.startswith("api/v1/keys") and len(calls) == 1:
+            return {"code": 0, "message": "ok", "data": {"items": []}}
+        if method == "POST" and path == "api/v1/keys":
+            assert json_body == {"name": "aether-acct-1"}
+            return {"code": 0, "message": "ok", "data": {"id": 1}}
+        if method == "GET" and path.startswith("api/v1/keys"):
+            return {
+                "code": 0,
+                "message": "ok",
+                "data": {
+                    "items": [
+                        {"id": 1, "name": "aether-acct-1", "key": "sk-sub2api-reissued-1"}
+                    ]
+                },
+            }
+        raise AssertionError(f"unexpected sub2api request: {(method, path, json_body)}")
+
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    async def _verify(_key_id: str) -> str:
+        return "success"
+
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._probe_sub2api_access_token",
+        _noop_probe,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._sub2api_request",
+        _fake_sub2api_request,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._verify_reissued_key_models",
+        _verify,
+    )
+
+    db = _FakeDB(
+        providers=[
+            Provider(
+                id="provider-1",
+                name="Provider One",
+                provider_type="custom",
+                billing_type="pay_as_you_go",
+            )
+        ],
+        endpoints=[
+            ProviderEndpoint(
+                id="endpoint-1",
+                provider_id="provider-1",
+                api_format="openai:chat",
+                api_family="openai",
+                endpoint_kind="chat",
+                base_url="https://provider-1.example.com",
+            )
+        ],
+        tasks=[_build_task(site_type="sub2api")],
+    )
+
+    result = await execute_all_in_hub_import_tasks(db=db, limit=10)
+
+    assert result.total_selected == 1
+    assert result.completed == 1
+    assert result.failed == 0
+    assert result.keys_created == 1
+    assert len(db.keys) == 1
+    assert crypto_service.decrypt(db.keys[0].api_key) == "sk-sub2api-reissued-1"
+    assert db.tasks[0].status == "completed"
+    assert db.tasks[0].source_metadata["result_token_id"] == "1"
+    assert result.results[0]["task_type"] == "pending_reissue"
+    assert result.results[0]["site_type"] == "sub2api"
+    assert result.results[0]["has_access_token"] is True
 
 
 @pytest.mark.asyncio

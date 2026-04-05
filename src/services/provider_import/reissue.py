@@ -22,11 +22,15 @@ TASK_STATUS_PENDING = "pending"
 TASK_STATUS_PROCESSING = "processing"
 TASK_STATUS_COMPLETED = "completed"
 TASK_STATUS_FAILED = "failed"
+TASK_STATUS_WAITING_PLAINTEXT = "waiting_plaintext"
 PENDING_REISSUE_TASK_TYPE = "pending_reissue"
 SUPPORTED_SITE_TYPE_NEW_API = "new-api"
 SUPPORTED_SITE_TYPE_SUB2API = "sub2api"
 SUPPORTED_SITE_TYPE_UNKNOWN = "unknown"
 DEFAULT_PAGE_SIZE = 100
+ACTION_REQUIRED_SUBMIT_PLAINTEXT = "submit_plaintext"
+PLAINTEXT_CAPTURE_PENDING = "pending"
+PLAINTEXT_CAPTURE_CONSUMED = "consumed"
 
 
 @dataclass(slots=True)
@@ -37,6 +41,16 @@ class AllInHubTaskExecutionSummary:
     skipped: int = 0
     keys_created: int = 0
     results: list[dict[str, Any]] = field(default_factory=list)
+
+
+class MaskedTokenRequiresPlaintext(RuntimeError):
+    def __init__(self, masked_key_preview: str):
+        super().__init__("new-api token list returned masked key")
+        self.masked_key_preview = masked_key_preview
+
+
+class PlaintextSubmissionRetryableError(RuntimeError):
+    """明文回填失败但任务仍可继续重试。"""
 
 
 RESULT_STAGE_COMPLETED = "completed"
@@ -69,6 +83,13 @@ def _task_payload(task: ProviderImportTask) -> dict[str, Any]:
     decrypted = crypto_service.decrypt(task.credential_payload)
     parsed = json.loads(decrypted)
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _find_task_by_id(*, db: Session, task_id: str) -> ProviderImportTask | None:
+    for task in list(db.query(ProviderImportTask).all()):
+        if str(getattr(task, "id", "") or "") == task_id:
+            return task
+    return None
 
 
 def detect_import_task_strategy(task: ProviderImportTask) -> str | None:
@@ -247,7 +268,7 @@ async def _create_new_api_token(
     access_token: str,
     account_id: str,
     token_name: str,
-) -> None:
+) -> dict[str, Any]:
     payload = {
         "name": token_name,
         "expired_time": -1,
@@ -258,7 +279,7 @@ async def _create_new_api_token(
         "allow_ips": "",
         "group": "default",
     }
-    await _new_api_request(
+    return await _new_api_request(
         method="POST",
         base_url=base_url,
         access_token=access_token,
@@ -266,6 +287,27 @@ async def _create_new_api_token(
         path="api/token/",
         json_body=payload,
     )
+
+
+def _looks_like_masked_key(value: str) -> bool:
+    trimmed = value.strip()
+    return "*" in trimmed
+
+
+def _extract_new_api_plaintext_from_create_response(payload: dict[str, Any]) -> tuple[str, str] | None:
+    data = payload.get("data")
+    candidates: list[dict[str, Any]] = []
+    if isinstance(data, dict):
+        candidates.append(data)
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            candidates.append(nested)
+    for candidate in candidates:
+        api_key = str(candidate.get("key") or candidate.get("token") or "").strip()
+        token_id = str(candidate.get("id") or "").strip()
+        if api_key and not _looks_like_masked_key(api_key):
+            return api_key, token_id
+    return None
 
 
 async def _reissue_new_api_key(*, task: ProviderImportTask) -> dict[str, str]:
@@ -289,12 +331,20 @@ async def _reissue_new_api_key(*, task: ProviderImportTask) -> dict[str, str]:
         token_name=token_name,
     )
     if token is None:
-        await _create_new_api_token(
+        created_payload = await _create_new_api_token(
             base_url=base_url,
             access_token=access_token,
             account_id=account_id,
             token_name=token_name,
         )
+        created_plaintext = _extract_new_api_plaintext_from_create_response(created_payload)
+        if created_plaintext is not None:
+            api_key, token_id = created_plaintext
+            return {
+                "token_name": token_name,
+                "token_id": token_id,
+                "api_key": api_key,
+            }
         token = await _find_new_api_token(
             base_url=base_url,
             access_token=access_token,
@@ -309,6 +359,8 @@ async def _reissue_new_api_key(*, task: ProviderImportTask) -> dict[str, str]:
     token_id = str(token.get("id") or "").strip()
     if not api_key:
         raise RuntimeError("new-api token lookup returned empty key")
+    if _looks_like_masked_key(api_key):
+        raise MaskedTokenRequiresPlaintext(api_key)
     return {
         "token_name": token_name,
         "token_id": token_id,
@@ -350,7 +402,146 @@ async def _probe_sub2api_access_token(*, task: ProviderImportTask) -> None:
     if response.status_code != 200:
         raise RuntimeError(f"sub2api auth probe failed: {response.status_code}")
 
-    raise RuntimeError("sub2api token reissue path not implemented yet")
+
+async def _sub2api_request(
+    *,
+    method: str,
+    base_url: str,
+    access_token: str,
+    path: str,
+    json_body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json, text/plain, */*",
+    }
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True, verify=False) as client:
+        response = await client.request(
+            method=method,
+            url=urljoin(f"{base_url.rstrip('/')}/", path),
+            headers=headers,
+            json=json_body,
+        )
+
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"unexpected sub2api payload from {path}")
+    if response.status_code >= 400:
+        code = str(payload.get("code") or "").strip().upper()
+        message = str(payload.get("message") or "").strip()
+        if response.status_code == 401 and code == "TOKEN_EXPIRED":
+            raise RuntimeError("sub2api access token expired")
+        if response.status_code == 401 and code == "UNAUTHORIZED":
+            raise RuntimeError("sub2api access token unauthorized")
+        raise RuntimeError(message or f"sub2api request failed: {path}")
+    code = payload.get("code")
+    if code not in (None, 0, 200, "0", "200"):
+        raise RuntimeError(str(payload.get("message") or f"sub2api request failed: {path}"))
+    return payload
+
+
+def _extract_sub2api_token_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    data = payload.get("data")
+    source = data if isinstance(data, (dict, list)) else payload
+    if isinstance(source, list):
+        return [item for item in source if isinstance(item, dict)]
+    if isinstance(source, dict):
+        for key in ("items", "list", "data"):
+            value = source.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+async def _find_sub2api_token(
+    *,
+    base_url: str,
+    access_token: str,
+    token_name: str,
+) -> dict[str, Any] | None:
+    for path in (
+        "api/v1/keys?page=1&page_size=100",
+        "api/v1/api-keys?page=1&page_size=100",
+        "api/v1/keys",
+        "api/v1/api-keys",
+    ):
+        try:
+            payload = await _sub2api_request(
+                method="GET",
+                base_url=base_url,
+                access_token=access_token,
+                path=path,
+            )
+        except Exception:
+            continue
+        for item in _extract_sub2api_token_items(payload):
+            if str(item.get("name") or "").strip() == token_name:
+                return item
+    return None
+
+
+async def _create_sub2api_token(
+    *,
+    base_url: str,
+    access_token: str,
+    token_name: str,
+) -> None:
+    payload = {"name": token_name}
+    for path in ("api/v1/keys", "api/v1/api-keys"):
+        try:
+            await _sub2api_request(
+                method="POST",
+                base_url=base_url,
+                access_token=access_token,
+                path=path,
+                json_body=payload,
+            )
+            return
+        except Exception:
+            continue
+    raise RuntimeError("sub2api token creation failed")
+
+
+async def _reissue_sub2api_key(*, task: ProviderImportTask) -> dict[str, str]:
+    payload = _task_payload(task)
+    metadata = _task_metadata(task)
+    access_token = str(payload.get("access_token") or "").strip()
+    base_url = str(metadata.get("endpoint_base_url") or task.source_origin or "").strip()
+    if not access_token:
+        raise RuntimeError("missing access_token")
+    if not base_url:
+        raise RuntimeError("missing base_url")
+
+    token_name = _build_upstream_token_name(task)
+    token = await _find_sub2api_token(
+        base_url=base_url,
+        access_token=access_token,
+        token_name=token_name,
+    )
+    if token is None:
+        await _create_sub2api_token(
+            base_url=base_url,
+            access_token=access_token,
+            token_name=token_name,
+        )
+        token = await _find_sub2api_token(
+            base_url=base_url,
+            access_token=access_token,
+            token_name=token_name,
+        )
+
+    if not isinstance(token, dict):
+        raise RuntimeError("sub2api token creation succeeded but token lookup failed")
+
+    api_key = str(token.get("key") or "").strip()
+    token_id = str(token.get("id") or "").strip()
+    if not api_key:
+        raise RuntimeError("sub2api token lookup returned empty key")
+    return {
+        "token_name": str(token.get("name") or token_name).strip() or token_name,
+        "token_id": token_id,
+        "api_key": api_key,
+    }
 
 
 def _build_reissued_key(task: ProviderImportTask, api_key_value: str) -> ProviderAPIKey:
@@ -443,7 +634,12 @@ async def _execute_task(
             db.commit()
             return "failed", False, RESULT_STAGE_PROBE
 
-    if strategy != "new_api_access_token":
+    reissue_fn = None
+    if strategy == "new_api_access_token":
+        reissue_fn = _reissue_new_api_key
+    elif strategy == "sub2api_access_token":
+        reissue_fn = _reissue_sub2api_key
+    else:
         task.status = TASK_STATUS_FAILED
         task.last_error = f"unsupported import task strategy: {strategy or 'unknown'}"
         task.last_attempt_at = now
@@ -457,7 +653,7 @@ async def _execute_task(
     stage = RESULT_STAGE_CREATE_KEY
 
     try:
-        reissued = await _reissue_new_api_key(task=task)
+        reissued = await reissue_fn(task=task)
         metadata["result_token_id"] = reissued["token_id"]
         metadata["result_token_name"] = reissued["token_name"]
         task.source_metadata = metadata
@@ -496,6 +692,17 @@ async def _execute_task(
         task.completed_at = datetime.now(timezone.utc)
         db.commit()
         return "completed", created, RESULT_STAGE_COMPLETED
+    except MaskedTokenRequiresPlaintext as exc:
+        db.rollback()
+        metadata["action_required"] = ACTION_REQUIRED_SUBMIT_PLAINTEXT
+        metadata["plaintext_capture_status"] = PLAINTEXT_CAPTURE_PENDING
+        metadata["masked_key_preview"] = exc.masked_key_preview
+        task.source_metadata = metadata
+        task.status = TASK_STATUS_WAITING_PLAINTEXT
+        task.last_error = None
+        task.last_attempt_at = datetime.now(timezone.utc)
+        db.commit()
+        return "waiting_plaintext", False, RESULT_STAGE_CREATE_KEY
     except Exception as exc:
         logger.warning("all-in-hub reissue task failed task_id={}: {}", task.id, exc)
         db.rollback()
@@ -532,6 +739,7 @@ async def execute_all_in_hub_import_tasks(
             summary.skipped += 1
         if created:
             summary.keys_created += 1
+        metadata = _task_metadata(task)
         summary.results.append(
             {
                 "task_id": str(task.id),
@@ -539,7 +747,114 @@ async def execute_all_in_hub_import_tasks(
                 "stage": stage,
                 "last_error": getattr(task, "last_error", None),
                 "key_created": created,
-                "result_key_id": _task_metadata(task).get("result_key_id"),
+                "result_key_id": metadata.get("result_key_id"),
+                "task_type": str(getattr(task, "task_type", "") or "") or None,
+                "site_type": metadata.get("site_type"),
+                "auth_type": metadata.get("auth_type"),
+                "has_access_token": bool(metadata.get("has_access_token")),
+                "has_session_cookie": bool(metadata.get("has_session_cookie")),
+                "action_required": metadata.get("action_required"),
+                "plaintext_capture_status": metadata.get("plaintext_capture_status"),
+                "masked_key_preview": metadata.get("masked_key_preview"),
             }
         )
     return summary
+
+
+async def submit_all_in_hub_task_plaintext(
+    *,
+    db: Session,
+    task_id: str,
+    plaintext_api_key: str,
+    token_name: str | None = None,
+    token_id: str | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    task = _find_task_by_id(db=db, task_id=task_id)
+    if task is None:
+        raise RuntimeError("import task not found")
+
+    metadata = _task_metadata(task)
+    if str(getattr(task, "status", "") or "") != TASK_STATUS_WAITING_PLAINTEXT or (
+        str(metadata.get("plaintext_capture_status") or "") != PLAINTEXT_CAPTURE_PENDING
+    ):
+        raise RuntimeError("task is not waiting for plaintext submission")
+
+    keys = list(db.query(ProviderAPIKey).all())
+    created = False
+    now = datetime.now(timezone.utc)
+    normalized_plaintext = plaintext_api_key.strip()
+    if not normalized_plaintext:
+        raise RuntimeError("plaintext api key is empty")
+
+    resolved_token_name = (token_name or metadata.get("result_token_name") or _build_upstream_token_name(task))
+    resolved_token_id = str(token_id or metadata.get("result_token_id") or "").strip()
+    metadata["result_token_name"] = resolved_token_name
+    if resolved_token_id:
+        metadata["result_token_id"] = resolved_token_id
+
+    try:
+        existing_by_hash = _find_existing_key_by_hash(
+            provider_id=task.provider_id,
+            plaintext_key=normalized_plaintext,
+            keys=keys,
+        )
+        if existing_by_hash is None:
+            new_key = _build_reissued_key(task, normalized_plaintext)
+            new_key.name = str(resolved_token_name)[:100]
+            db.add(new_key)
+            keys.append(new_key)
+            db.commit()
+            created = True
+            metadata["result_key_id"] = str(new_key.id)
+            task.source_metadata = metadata
+            await run_create_key_side_effects(db=db, provider_id=task.provider_id, key=new_key)
+            verification_status = await _verify_reissued_key_models(str(new_key.id))
+            if verification_status != "success":
+                new_key.is_active = False
+                db.commit()
+                raise RuntimeError(f"model verification failed: {verification_status}")
+        else:
+            metadata["result_key_id"] = str(existing_by_hash.id)
+            task.source_metadata = metadata
+            verification_status = await _verify_reissued_key_models(str(existing_by_hash.id))
+            if verification_status != "success":
+                raise RuntimeError(f"model verification failed: {verification_status}")
+
+        metadata["plaintext_capture_status"] = PLAINTEXT_CAPTURE_CONSUMED
+        metadata["action_required"] = None
+        metadata["plaintext_submission_note"] = note
+        task.source_metadata = metadata
+        task.status = TASK_STATUS_COMPLETED
+        task.last_error = None
+        task.last_attempt_at = now
+        task.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        return {
+            "task_id": str(task.id),
+            "status": str(task.status),
+            "stage": RESULT_STAGE_COMPLETED,
+            "last_error": None,
+            "key_created": created,
+            "result_key_id": metadata.get("result_key_id"),
+            "task_type": str(getattr(task, "task_type", "") or "") or None,
+            "site_type": metadata.get("site_type"),
+            "auth_type": metadata.get("auth_type"),
+            "has_access_token": bool(metadata.get("has_access_token")),
+            "has_session_cookie": bool(metadata.get("has_session_cookie")),
+            "action_required": metadata.get("action_required"),
+            "plaintext_capture_status": metadata.get("plaintext_capture_status"),
+            "masked_key_preview": metadata.get("masked_key_preview"),
+        }
+    except Exception as exc:
+        logger.warning("all-in-hub plaintext submit failed task_id={}: {}", task.id, exc)
+        db.rollback()
+        metadata["plaintext_capture_status"] = PLAINTEXT_CAPTURE_PENDING
+        metadata["action_required"] = ACTION_REQUIRED_SUBMIT_PLAINTEXT
+        task.source_metadata = metadata
+        task.status = TASK_STATUS_WAITING_PLAINTEXT
+        task.last_error = str(exc)
+        task.last_attempt_at = datetime.now(timezone.utc)
+        task.retry_count = int(getattr(task, "retry_count", 0) or 0) + 1
+        db.commit()
+        raise PlaintextSubmissionRetryableError(str(exc)) from exc
