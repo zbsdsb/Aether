@@ -27,12 +27,87 @@ export interface ProviderSummaryPageResponse {
   items: ProviderWithEndpointsSummary[]
 }
 
+export interface AllInHubImportStats {
+  providers_total: number
+  providers_to_create: number
+  providers_created: number
+  providers_reused: number
+  endpoints_to_create: number
+  endpoints_created: number
+  endpoints_reused: number
+  direct_keys_ready: number
+  pending_sources: number
+  pending_tasks_to_create: number
+  pending_tasks_created: number
+  pending_tasks_reused: number
+  keys_created: number
+  keys_skipped: number
+}
+
+export interface AllInHubImportProviderSummary {
+  provider_name: string
+  provider_website: string
+  endpoint_base_url: string
+  direct_key_count: number
+  pending_source_count: number
+  existing_provider: boolean
+  existing_endpoint: boolean
+}
+
+export interface AllInHubImportResponse {
+  dry_run: boolean
+  version: string
+  stats: AllInHubImportStats
+  warnings: string[]
+  providers: AllInHubImportProviderSummary[]
+}
+
+export interface AllInHubTaskExecutionItem {
+  task_id: string
+  status: string
+  last_error: string | null
+  result_key_id: string | null
+}
+
+export interface AllInHubTaskExecutionResponse {
+  total_selected: number
+  completed: number
+  failed: number
+  skipped: number
+  keys_created: number
+  results: AllInHubTaskExecutionItem[]
+}
+
 export async function getProvidersSummary(
   params: ProviderSummaryQuery = {},
 ): Promise<ProviderSummaryPageResponse> {
   const response = await client.get<ProviderSummaryPageResponse>(
     '/api/admin/providers/summary',
     { params },
+  )
+  return response.data
+}
+
+export async function previewAllInHubImport(content: string): Promise<AllInHubImportResponse> {
+  const response = await client.post<AllInHubImportResponse>(
+    '/api/admin/providers/imports/all-in-hub/preview',
+    { content },
+  )
+  return response.data
+}
+
+export async function importAllInHub(content: string): Promise<AllInHubImportResponse> {
+  const response = await client.post<AllInHubImportResponse>(
+    '/api/admin/providers/imports/all-in-hub',
+    { content },
+  )
+  return response.data
+}
+
+export async function executeAllInHubImportTasks(limit = 20): Promise<AllInHubTaskExecutionResponse> {
+  const response = await client.post<AllInHubTaskExecutionResponse>(
+    '/api/admin/providers/imports/all-in-hub/tasks/execute',
+    { limit },
   )
   return response.data
 }

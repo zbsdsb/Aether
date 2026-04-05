@@ -1214,6 +1214,9 @@ class Provider(ExportMixin, Base):
     api_keys = relationship(
         "ProviderAPIKey", back_populates="provider", cascade="all, delete-orphan"
     )
+    import_tasks = relationship(
+        "ProviderImportTask", back_populates="provider", cascade="all, delete-orphan"
+    )
     api_key_mappings = relationship(
         "ApiKeyProviderMapping", back_populates="provider", cascade="all, delete-orphan"
     )
@@ -1289,6 +1292,7 @@ class ProviderEndpoint(ExportMixin, Base):
 
     # 关系
     provider = relationship("Provider", back_populates="endpoints")
+    import_tasks = relationship("ProviderImportTask", back_populates="endpoint")
 
     # 唯一约束和索引在表定义后
     __table_args__ = (
@@ -2110,6 +2114,72 @@ class ProviderAPIKey(ExportMixin, Base):
 
     # 关系
     provider = relationship("Provider", back_populates="api_keys")
+
+
+class ProviderImportTask(ExportMixin, Base):
+    """Provider 导入后的待处理任务。"""
+
+    __tablename__ = "provider_import_tasks"
+
+    _export_exclude = frozenset(
+        {
+            "id",
+            "provider_id",
+            "endpoint_id",
+            "credential_payload",
+            "last_error",
+            "last_attempt_at",
+            "completed_at",
+            "created_at",
+            "updated_at",
+        }
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    provider_id = Column(
+        String(36), ForeignKey("providers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    endpoint_id = Column(
+        String(36), ForeignKey("provider_endpoints.id", ondelete="SET NULL"), nullable=True
+    )
+
+    task_type = Column(String(30), nullable=False)  # pending_import | pending_reissue
+    status = Column(String(20), nullable=False, default="pending")
+    source_kind = Column(String(30), nullable=False, default="all_in_hub")
+    source_id = Column(String(120), nullable=False)
+    source_name = Column(String(100), nullable=False)
+    source_origin = Column(String(500), nullable=False)
+    credential_payload = Column(Text, nullable=False)  # 加密存储 access_token/sessionCookie
+    source_metadata = Column(JSON, nullable=True)
+
+    retry_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+    last_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "provider_id",
+            "task_type",
+            "source_id",
+            name="uq_provider_import_tasks_provider_task_source",
+        ),
+        Index("idx_provider_import_tasks_status", "status"),
+        Index("idx_provider_import_tasks_provider_status", "provider_id", "status"),
+    )
+
+    provider = relationship("Provider", back_populates="import_tasks")
+    endpoint = relationship("ProviderEndpoint", back_populates="import_tasks")
 
 
 _PROVIDER_API_KEY_STATUS_SNAPSHOT_FIELDS: tuple[str, ...] = (

@@ -110,6 +110,15 @@
           variant="ghost"
           size="icon"
           class="h-8 w-8"
+          title="导入 All-in-Hub"
+          @click="$emit('openAllInHubImport')"
+        >
+          <Upload class="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-8 w-8"
           title="新增提供商"
           @click="$emit('addProvider')"
         >
@@ -125,7 +134,7 @@
 </template>
 
 <script setup lang="ts">
-import { Search, Plus, ChevronDown, FilterX } from 'lucide-vue-next'
+import { Search, Plus, ChevronDown, FilterX, Upload } from 'lucide-vue-next'
 import Button from '@/components/ui/button.vue'
 import Input from '@/components/ui/input.vue'
 import Select from '@/components/ui/select.vue'
@@ -156,6 +165,7 @@ defineEmits<{
   'update:filterModel': [value: string]
   'resetFilters': []
   'openPriorityDialog': []
+  'openAllInHubImport': []
   'addProvider': []
   'refresh': []
 }>()

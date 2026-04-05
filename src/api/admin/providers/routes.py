@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -27,9 +28,19 @@ from src.database import get_db
 from src.models.admin_requests import CreateProviderRequest, UpdateProviderRequest
 from src.models.database import GlobalModel, Provider, ProviderAPIKey, ProviderEndpoint
 from src.models.endpoint_models import ProviderWithEndpointsSummary
+from src.models.provider_import import AllInHubImportRequest, AllInHubImportResponse
+from src.models.provider_import import (
+    AllInHubTaskExecuteRequest,
+    AllInHubTaskExecutionResponse,
+)
 from src.services.cache.model_cache import ModelCacheService
 from src.services.cache.provider_cache import ProviderCacheService
 from src.services.provider.delete_task import get_provider_delete_task, submit_provider_delete
+from src.services.provider_import.all_in_hub import (
+    execute_all_in_hub_import,
+    preview_all_in_hub_import,
+)
+from src.services.provider_import.reissue import execute_all_in_hub_import_tasks
 from src.utils.cache_decorator import cache_result
 
 from .summary import _build_provider_summary
@@ -255,6 +266,39 @@ class ProviderDeleteTaskResponse(BaseModel):
     message: str = ""
 
 
+@router.post("/imports/all-in-hub/preview", response_model=AllInHubImportResponse)
+async def preview_all_in_hub_import_route(
+    payload: AllInHubImportRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> AllInHubImportResponse:
+    adapter = AdminPreviewAllInHubImportAdapter(payload=payload)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post("/imports/all-in-hub", response_model=AllInHubImportResponse)
+async def import_all_in_hub_route(
+    payload: AllInHubImportRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> AllInHubImportResponse:
+    adapter = AdminExecuteAllInHubImportAdapter(payload=payload)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post(
+    "/imports/all-in-hub/tasks/execute",
+    response_model=AllInHubTaskExecutionResponse,
+)
+async def execute_all_in_hub_tasks_route(
+    payload: AllInHubTaskExecuteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> AllInHubTaskExecutionResponse:
+    adapter = AdminExecuteAllInHubTasksAdapter(payload=payload)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
 @router.get("/")
 async def list_providers(
     request: Request,
@@ -447,6 +491,66 @@ class AdminListProvidersAdapter(AdminApiAdapter):
             result_count=len(data),
         )
         return data
+
+
+class AdminPreviewAllInHubImportAdapter(AdminApiAdapter):
+    def __init__(self, payload: AllInHubImportRequest):
+        self.payload = payload
+
+    async def handle(self, context: ApiRequestContext) -> AllInHubImportResponse:  # type: ignore[override]
+        result = preview_all_in_hub_import(self.payload.content, db=context.db)
+        if inspect.isawaitable(result):
+            result = await result
+        context.add_audit_metadata(
+            action="preview_all_in_hub_import",
+            providers_total=result.stats.providers_total,
+            direct_keys_ready=result.stats.direct_keys_ready,
+            pending_sources=result.stats.pending_sources,
+            pending_tasks_to_create=result.stats.pending_tasks_to_create,
+            pending_tasks_reused=result.stats.pending_tasks_reused,
+        )
+        return result
+
+
+class AdminExecuteAllInHubImportAdapter(AdminApiAdapter):
+    def __init__(self, payload: AllInHubImportRequest):
+        self.payload = payload
+
+    async def handle(self, context: ApiRequestContext) -> AllInHubImportResponse:  # type: ignore[override]
+        result = await execute_all_in_hub_import(self.payload.content, db=context.db)
+        context.add_audit_metadata(
+            action="execute_all_in_hub_import",
+            providers_created=result.stats.providers_created,
+            endpoints_created=result.stats.endpoints_created,
+            keys_created=result.stats.keys_created,
+            pending_sources=result.stats.pending_sources,
+            pending_tasks_created=result.stats.pending_tasks_created,
+            pending_tasks_reused=result.stats.pending_tasks_reused,
+        )
+        return result
+
+
+class AdminExecuteAllInHubTasksAdapter(AdminApiAdapter):
+    def __init__(self, payload: AllInHubTaskExecuteRequest):
+        self.payload = payload
+
+    async def handle(self, context: ApiRequestContext) -> AllInHubTaskExecutionResponse:  # type: ignore[override]
+        result = await execute_all_in_hub_import_tasks(db=context.db, limit=self.payload.limit)
+        context.add_audit_metadata(
+            action="execute_all_in_hub_import_tasks",
+            total_selected=result.total_selected,
+            completed=result.completed,
+            failed=result.failed,
+            keys_created=result.keys_created,
+        )
+        return AllInHubTaskExecutionResponse(
+            total_selected=result.total_selected,
+            completed=result.completed,
+            failed=result.failed,
+            skipped=result.skipped,
+            keys_created=result.keys_created,
+            results=result.results,
+        )
 
 
 class AdminCreateProviderAdapter(AdminApiAdapter):

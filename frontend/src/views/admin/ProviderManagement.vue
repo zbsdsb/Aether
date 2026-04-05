@@ -89,6 +89,7 @@
         @update:filter-model="filterModel = $event"
         @reset-filters="resetFilters"
         @open-priority-dialog="openPriorityDialog"
+        @open-all-in-hub-import="openAllInHubImportDialog"
         @add-provider="openAddProviderDialog"
         @refresh="loadProviders"
       />
@@ -253,6 +254,21 @@
     :provider-website="opsConfigProviderWebsite"
     @saved="handleOpsConfigSaved"
   />
+
+  <AllInHubImportDialog
+    :open="allInHubImportDialogOpen"
+    :content="allInHubImportContent"
+    :preview="allInHubImportPreview"
+    :execution-result="allInHubTaskExecutionResult"
+    :can-execute-tasks="canExecuteAllInHubTasks"
+    :loading="allInHubImportLoading"
+    @update:open="allInHubImportDialogOpen = $event"
+    @update:content="allInHubImportContent = $event"
+    @error="showError($event, '导入内容错误')"
+    @preview="handlePreviewAllInHubImport"
+    @confirm="handleConfirmAllInHubImport"
+    @execute-tasks="handleExecuteAllInHubTasks"
+  />
 </template>
 
 <script setup lang="ts">
@@ -265,7 +281,12 @@ import TableBody from '@/components/ui/table-body.vue'
 import TableRow from '@/components/ui/table-row.vue'
 import TableHead from '@/components/ui/table-head.vue'
 import Pagination from '@/components/ui/pagination.vue'
-import { ProviderFormDialog, PriorityManagementDialog, ProviderAuthDialog } from '@/features/providers/components'
+import {
+  AllInHubImportDialog,
+  ProviderFormDialog,
+  PriorityManagementDialog,
+  ProviderAuthDialog,
+} from '@/features/providers/components'
 import ProviderDetailDrawer from '@/features/providers/components/ProviderDetailDrawer.vue'
 import ProviderTableHeader from '@/features/providers/components/ProviderTableHeader.vue'
 import ProviderTableRow from '@/features/providers/components/ProviderTableRow.vue'
@@ -278,10 +299,15 @@ import { useProviderBalance } from '@/features/providers/composables/useProvider
 import {
   getProvidersSummary,
   getProvider,
+  importAllInHub,
+  executeAllInHubImportTasks,
   deleteProvider,
   getProviderDeleteTask,
+  previewAllInHubImport,
   updateProvider,
   getGlobalModels,
+  type AllInHubImportResponse,
+  type AllInHubTaskExecutionResponse,
   type ProviderWithEndpointsSummary,
 } from '@/api/endpoints'
 import { adminApi } from '@/api/admin'
@@ -316,6 +342,12 @@ const priorityMode = ref<'provider' | 'global_key'>('provider')
 const providerDrawerOpen = ref(false)
 const selectedProviderId = ref<string | null>(null)
 const providerDeleteProgress = ref<ProviderDeleteProgressState | null>(null)
+const allInHubImportDialogOpen = ref(false)
+const allInHubImportContent = ref('')
+const allInHubImportPreview = ref<AllInHubImportResponse | null>(null)
+const allInHubTaskExecutionResult = ref<AllInHubTaskExecutionResponse | null>(null)
+const canExecuteAllInHubTasks = ref(false)
+const allInHubImportLoading = ref(false)
 let deletePollAbort: AbortController | null = null
 
 const DELETE_POLL_INTERVAL_MS = 2000
@@ -421,6 +453,12 @@ const providerDeleteEndpointsPercent = computed(() => {
   const progress = providerDeleteProgress.value
   if (!progress?.totalEndpoints) return 0
   return Math.min(100, Math.round((progress.deletedEndpoints / progress.totalEndpoints) * 100))
+})
+
+watch(allInHubImportContent, () => {
+  allInHubImportPreview.value = null
+  allInHubTaskExecutionResult.value = null
+  canExecuteAllInHubTasks.value = false
 })
 
 // 全局模型数据（用于模型筛选下拉）
@@ -654,6 +692,71 @@ function openPriorityDialog() {
 function openProviderDrawer(providerId: string) {
   selectedProviderId.value = providerId
   providerDrawerOpen.value = true
+}
+
+function openAllInHubImportDialog() {
+  allInHubImportDialogOpen.value = true
+  allInHubImportContent.value = ''
+  allInHubImportPreview.value = null
+  allInHubTaskExecutionResult.value = null
+  canExecuteAllInHubTasks.value = false
+}
+
+async function handlePreviewAllInHubImport() {
+  if (!allInHubImportContent.value.trim()) {
+    showInfo('请先提供 all-in-hub 导出内容')
+    return
+  }
+  allInHubImportLoading.value = true
+  try {
+    allInHubImportPreview.value = await previewAllInHubImport(allInHubImportContent.value)
+    allInHubTaskExecutionResult.value = null
+    canExecuteAllInHubTasks.value = false
+    if (allInHubImportPreview.value.stats.providers_total === 0) {
+      showInfo('未识别到可导入的站点记录')
+    }
+  } catch (err: unknown) {
+    showError(parseApiError(err, '预览导入失败'), '导入失败')
+  } finally {
+    allInHubImportLoading.value = false
+  }
+}
+
+async function handleConfirmAllInHubImport() {
+  if (!allInHubImportContent.value.trim()) {
+    showInfo('请先提供 all-in-hub 导出内容')
+    return
+  }
+  allInHubImportLoading.value = true
+  try {
+    const result = await importAllInHub(allInHubImportContent.value)
+    allInHubImportPreview.value = result
+    allInHubTaskExecutionResult.value = null
+    canExecuteAllInHubTasks.value = result.stats.pending_sources > 0
+    await loadProviders()
+    showSuccess(
+      `导入完成：新增 ${result.stats.providers_created} 个 Provider，${result.stats.endpoints_created} 个 Endpoint，${result.stats.keys_created} 个 Key`,
+    )
+  } catch (err: unknown) {
+    showError(parseApiError(err, '执行导入失败'), '导入失败')
+  } finally {
+    allInHubImportLoading.value = false
+  }
+}
+
+async function handleExecuteAllInHubTasks() {
+  allInHubImportLoading.value = true
+  try {
+    const result = await executeAllInHubImportTasks(20)
+    allInHubTaskExecutionResult.value = result
+    canExecuteAllInHubTasks.value = false
+    await loadProviders()
+    showSuccess(`补钥完成：成功 ${result.completed}，失败 ${result.failed}，新建 Key ${result.keys_created}`)
+  } catch (err: unknown) {
+    showError(parseApiError(err, '执行补钥任务失败'), '补钥失败')
+  } finally {
+    allInHubImportLoading.value = false
+  }
 }
 
 // 打开编辑提供商对话框
