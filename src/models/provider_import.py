@@ -45,17 +45,35 @@ class AllInHubImportProviderSummary(BaseModel):
     existing_endpoint: bool = False
 
 
+class AllInHubImportManualItem(BaseModel):
+    item_type: str
+    status: str
+    provider_name: str
+    provider_website: str
+    endpoint_base_url: str
+    source_id: str
+    task_type: str | None = None
+    auth_type: str | None = None
+    site_type: str | None = None
+    reason: str | None = None
+
+
 class AllInHubImportResponse(BaseModel):
     dry_run: bool
     version: str = ""
     stats: AllInHubImportStats = Field(default_factory=AllInHubImportStats)
     warnings: list[str] = Field(default_factory=list)
     providers: list[AllInHubImportProviderSummary] = Field(default_factory=list)
+    manual_items: list[AllInHubImportManualItem] = Field(default_factory=list)
 
 
 class AllInHubTaskExecutionItem(BaseModel):
     task_id: str
     status: str
+    provider_name: str | None = None
+    provider_website: str | None = None
+    endpoint_base_url: str | None = None
+    source_id: str | None = None
     stage: str | None = None
     last_error: str | None = None
     key_created: bool = False

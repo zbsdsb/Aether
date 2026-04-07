@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from src.core.exceptions import InvalidRequestException
 from src.core.logger import logger
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint, ProviderImportTask
 from src.models.provider_import import (
+    AllInHubImportManualItem,
     AllInHubImportProviderSummary,
     AllInHubImportResponse,
     AllInHubImportStats,
@@ -38,6 +39,7 @@ class _ImportRecord:
     endpoint_base_url: str
     provider_name: str
     source_id: str
+    display_name: str | None = None
     site_type: str | None = None
     auth_type: str | None = None
     account_id: str | None = None
@@ -67,6 +69,23 @@ def _optional_str(value: Any) -> str | None:
 
 def _normalize_base_url(url: str) -> str:
     return url.rstrip("/")
+
+
+def _normalize_pending_endpoint_base_url(url: str) -> str:
+    normalized = _normalize_base_url(url)
+    parsed = urlsplit(normalized)
+    host = parsed.netloc.lower()
+    if host != "nih.cc":
+        return normalized
+    return urlunsplit(
+        (
+            parsed.scheme.lower(),
+            "api.nih.cc",
+            parsed.path.rstrip("/"),
+            parsed.query,
+            parsed.fragment,
+        )
+    ).rstrip("/")
 
 
 def _normalize_origin(url: str) -> str | None:
@@ -100,7 +119,7 @@ def _parse_json_content(content: str | dict[str, Any] | list[Any]) -> tuple[Any,
     return data, version
 
 
-def _extract_v2_records(data: dict[str, Any]) -> list[_ImportRecord]:
+def _extract_v2_account_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     accounts_wrapper = data.get("accounts", {})
     if isinstance(accounts_wrapper, dict):
         raw_accounts = accounts_wrapper.get("accounts", [])
@@ -111,14 +130,107 @@ def _extract_v2_records(data: dict[str, Any]) -> list[_ImportRecord]:
 
     if not isinstance(raw_accounts, list):
         return []
+    return [item for item in raw_accounts if isinstance(item, dict)]
+
+
+def _looks_like_masked_secret(value: str | None) -> bool:
+    return "*" in str(value or "")
+
+
+def _extract_v2_snapshot_direct_records(data: dict[str, Any]) -> tuple[list[_ImportRecord], set[str]]:
+    account_items = _extract_v2_account_items(data)
+    account_map = {
+        _optional_str(item.get("id")) or "": item
+        for item in account_items
+        if _optional_str(item.get("id"))
+    }
+    raw_snapshots = data.get("accountKeySnapshots") or []
+    if not isinstance(raw_snapshots, list):
+        return [], set()
 
     records: list[_ImportRecord] = []
-    for item in raw_accounts:
-        if not isinstance(item, dict):
+    covered_account_ids: set[str] = set()
+    seen: set[tuple[str, str]] = set()
+
+    for snapshot in raw_snapshots:
+        if not isinstance(snapshot, dict):
             continue
+        account_id = _optional_str(snapshot.get("accountId"))
+        account = account_map.get(account_id or "")
+        if account is not None and bool(account.get("disabled")):
+            continue
+
+        base_url = _optional_str(snapshot.get("baseUrl")) or _optional_str(
+            account.get("site_url") if isinstance(account, dict) else None
+        )
+        origin = _normalize_origin(base_url or "")
+        if not base_url or not origin:
+            continue
+
+        provider_name = (
+            _optional_str(account.get("site_name") if isinstance(account, dict) else None)
+            or _optional_str(snapshot.get("accountName"))
+            or _default_provider_name(origin)
+        )
+        site_type = _optional_str(snapshot.get("siteType")) or _optional_str(
+            account.get("site_type") if isinstance(account, dict) else None
+        )
+        auth_type = _optional_str(account.get("authType") if isinstance(account, dict) else None)
+        username = _optional_str(
+            (account.get("account_info") or {}).get("username") if isinstance(account, dict) else None
+        )
+
+        tokens = snapshot.get("tokens") or []
+        if not isinstance(tokens, list):
+            continue
+
+        added_for_account = False
+        for token in tokens:
+            if not isinstance(token, dict):
+                continue
+            api_key = _optional_str(
+                token.get("key") or token.get("apiKey") or token.get("api_key") or token.get("token")
+            )
+            if not api_key or _looks_like_masked_secret(api_key):
+                continue
+            signature = (_normalize_base_url(base_url), crypto_service.hash_api_key(api_key))
+            if signature in seen:
+                continue
+            seen.add(signature)
+            token_name = _optional_str(token.get("name"))
+            token_id = _optional_str(token.get("id"))
+            records.append(
+                _ImportRecord(
+                    provider_origin=origin,
+                    endpoint_base_url=_normalize_pending_endpoint_base_url(base_url),
+                    provider_name=provider_name,
+                    source_id=token_id or token_name or account_id or str(len(records)),
+                    display_name=token_name,
+                    site_type=site_type,
+                    auth_type=auth_type,
+                    account_id=account_id,
+                    username=username,
+                    direct_api_key=api_key,
+                )
+            )
+            added_for_account = True
+        if added_for_account and account_id:
+            covered_account_ids.add(account_id)
+
+    return records, covered_account_ids
+
+
+def _extract_v2_records(data: dict[str, Any], *, skip_account_ids: set[str] | None = None) -> list[_ImportRecord]:
+    account_items = _extract_v2_account_items(data)
+    skip_ids = skip_account_ids or set()
+
+    records: list[_ImportRecord] = []
+    for item in account_items:
         if bool(item.get("disabled")):
             continue
         source_id = _optional_str(item.get("id")) or str(len(records))
+        if source_id in skip_ids:
+            continue
         site_url = _optional_str(item.get("site_url"))
         origin = _normalize_origin(site_url or "")
         if not site_url or not origin:
@@ -138,7 +250,7 @@ def _extract_v2_records(data: dict[str, Any]) -> list[_ImportRecord]:
         records.append(
             _ImportRecord(
                 provider_origin=origin,
-                endpoint_base_url=_normalize_base_url(site_url),
+                endpoint_base_url=_normalize_pending_endpoint_base_url(site_url),
                 provider_name=_optional_str(item.get("site_name")) or _default_provider_name(origin),
                 source_id=source_id,
                 site_type=_optional_str(item.get("site_type")),
@@ -187,7 +299,7 @@ def _extract_v1_records(data: dict[str, Any]) -> list[_ImportRecord]:
         records.append(
             _ImportRecord(
                 provider_origin=site["origin"],
-                endpoint_base_url=site["site_url"],
+                endpoint_base_url=_normalize_pending_endpoint_base_url(site["site_url"]),
                 provider_name=site["name"],
                 source_id=_optional_str(item.get("id")) or site_id,
                 site_type="legacy-v1",
@@ -236,7 +348,9 @@ def _collect_records(content: str | dict[str, Any] | list[Any]) -> tuple[list[_I
     records: list[_ImportRecord] = []
     if isinstance(data, dict):
         if version.startswith("2"):
-            records.extend(_extract_v2_records(data))
+            snapshot_records, snapshot_account_ids = _extract_v2_snapshot_direct_records(data)
+            records.extend(_extract_v2_records(data, skip_account_ids=snapshot_account_ids))
+            records.extend(snapshot_records)
         else:
             records.extend(_extract_v1_records(data))
         records.extend(_extract_direct_records(data, seen=set()))
@@ -372,6 +486,7 @@ def _build_preview_response(
 ) -> AllInHubImportResponse:
     warnings: list[str] = []
     provider_summaries: list[AllInHubImportProviderSummary] = []
+    manual_items: list[AllInHubImportManualItem] = []
     stats = AllInHubImportStats()
     stats.providers_total = len(buckets)
 
@@ -416,12 +531,40 @@ def _build_preview_response(
                 existing_provider.id, record.source_id, task_type, tasks
             ):
                 stats.pending_tasks_reused += 1
+                manual_items.append(
+                    AllInHubImportManualItem(
+                        item_type="pending_task",
+                        status="reused",
+                        provider_name=bucket.provider_name,
+                        provider_website=bucket.provider_origin,
+                        endpoint_base_url=record.endpoint_base_url,
+                        source_id=record.source_id,
+                        task_type=task_type,
+                        auth_type=record.auth_type,
+                        site_type=record.site_type,
+                        reason="已存在待处理任务，等待人工补抓或补录",
+                    )
+                )
                 continue
             signature = (task_type, record.source_id)
             if signature in batch_pending_signatures:
                 continue
             batch_pending_signatures.add(signature)
             stats.pending_tasks_to_create += 1
+            manual_items.append(
+                AllInHubImportManualItem(
+                    item_type="pending_task",
+                    status="pending",
+                    provider_name=bucket.provider_name,
+                    provider_website=bucket.provider_origin,
+                    endpoint_base_url=record.endpoint_base_url,
+                    source_id=record.source_id,
+                    task_type=task_type,
+                    auth_type=record.auth_type,
+                    site_type=record.site_type,
+                    reason="缺少明文 Key，等待人工补抓或补录",
+                )
+            )
         provider_summaries.append(
             AllInHubImportProviderSummary(
                 provider_name=bucket.provider_name,
@@ -440,7 +583,25 @@ def _build_preview_response(
         stats=stats,
         warnings=warnings,
         providers=provider_summaries,
+        manual_items=manual_items,
     )
+
+
+async def _verify_imported_key_models(
+    *,
+    db: Session,
+    key: ProviderAPIKey,
+) -> str:
+    from src.services.model.fetch_scheduler import get_model_fetch_scheduler
+
+    key.auto_fetch_models = True
+    db.commit()
+    scheduler = get_model_fetch_scheduler()
+    try:
+        return await scheduler._fetch_models_for_key_by_id(str(key.id))
+    finally:
+        key.auto_fetch_models = False
+        db.commit()
 
 
 def preview_all_in_hub_import(
@@ -489,7 +650,7 @@ async def execute_all_in_hub_import(
     preview.stats.pending_tasks_created = 0
     preview.stats.pending_tasks_reused = 0
 
-    created_keys: list[tuple[str, ProviderAPIKey]] = []
+    created_keys: list[tuple[Provider, ProviderEndpoint, ProviderAPIKey, _ImportRecord]] = []
     now = datetime.now(timezone.utc)
 
     try:
@@ -558,7 +719,7 @@ async def execute_all_in_hub_import(
                     auth_type="api_key",
                     api_key=encrypted_key,
                     auth_config=None,
-                    name=record.source_id[:100] if record.source_id else f"imported-{key_id[:8]}",
+                    name=(record.display_name or record.source_id or f"imported-{key_id[:8]}")[:100],
                     note="Imported from all-in-hub",
                     rate_multipliers=None,
                     internal_priority=50,
@@ -586,7 +747,7 @@ async def execute_all_in_hub_import(
                 keys.append(new_key)
                 existing_hashes.add(key_hash)
                 preview.stats.keys_created += 1
-                created_keys.append((provider.id, new_key))
+                created_keys.append((provider, endpoint, new_key, record))
 
             for record in bucket.pending_records:
                 task_type = _build_pending_task_type(record)
@@ -639,11 +800,48 @@ async def execute_all_in_hub_import(
         db.rollback()
         raise
 
-    for provider_id, key in created_keys:
+    for provider, endpoint, key, record in created_keys:
         try:
-            await run_create_key_side_effects(db=db, provider_id=provider_id, key=key)
+            await run_create_key_side_effects(db=db, provider_id=provider.id, key=key)
         except Exception as exc:
             logger.warning("all-in-hub 导入后执行 Key 副作用失败: {}", exc)
+        try:
+            verification_status = await _verify_imported_key_models(db=db, key=key)
+            if verification_status != "success":
+                key.is_active = False
+                db.commit()
+                preview.manual_items.append(
+                    AllInHubImportManualItem(
+                        item_type="verification_failure",
+                        status="failed",
+                        provider_name=provider.name,
+                        provider_website=provider.website or record.provider_origin,
+                        endpoint_base_url=endpoint.base_url,
+                        source_id=record.source_id,
+                        task_type=None,
+                        auth_type="api_key",
+                        site_type=record.site_type,
+                        reason=f"/v1/models 校验失败（{verification_status}），等待人工复核",
+                    )
+                )
+        except Exception as exc:
+            key.is_active = False
+            db.commit()
+            logger.warning("all-in-hub 导入后校验模型失败 key_id={}: {}", key.id, exc)
+            preview.manual_items.append(
+                AllInHubImportManualItem(
+                    item_type="verification_failure",
+                    status="failed",
+                    provider_name=provider.name,
+                    provider_website=provider.website or record.provider_origin,
+                    endpoint_base_url=endpoint.base_url,
+                    source_id=record.source_id,
+                    task_type=None,
+                    auth_type="api_key",
+                    site_type=record.site_type,
+                    reason=f"/v1/models 校验异常：{exc}，等待人工复核",
+                )
+            )
 
     try:
         await invalidate_models_list_cache()

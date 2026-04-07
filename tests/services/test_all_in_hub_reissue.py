@@ -609,6 +609,67 @@ async def test_submit_plaintext_creates_provider_api_key_and_completes_task(
 
 
 @pytest.mark.asyncio
+async def test_submit_plaintext_accepts_legacy_waiting_plaintext_task_without_metadata_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    async def _verify(_key_id: str) -> str:
+        return "success"
+
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._verify_reissued_key_models",
+        _verify,
+    )
+
+    task = _build_task(status="waiting_plaintext")
+    task.source_metadata.pop("plaintext_capture_status", None)
+    task.source_metadata.pop("action_required", None)
+    task.source_metadata["masked_key_preview"] = "sk-tq4v************Wy5"
+
+    db = _FakeDB(
+        providers=[
+            Provider(
+                id="provider-1",
+                name="Provider One",
+                provider_type="custom",
+                billing_type="pay_as_you_go",
+            )
+        ],
+        endpoints=[
+            ProviderEndpoint(
+                id="endpoint-1",
+                provider_id="provider-1",
+                api_format="openai:chat",
+                api_family="openai",
+                endpoint_kind="chat",
+                base_url="https://provider-1.example.com",
+            )
+        ],
+        tasks=[task],
+    )
+
+    result = await submit_all_in_hub_task_plaintext(
+        db=db,
+        task_id="task-1",
+        plaintext_api_key="sk-legacy-waiting-plaintext",
+        note="captured via copy button",
+    )
+
+    assert result["status"] == "completed"
+    assert result["key_created"] is True
+    assert task.status == "completed"
+    assert task.source_metadata["plaintext_capture_status"] == "consumed"
+    assert task.source_metadata["action_required"] is None
+    assert task.source_metadata["plaintext_submission_note"] == "captured via copy button"
+
+
+@pytest.mark.asyncio
 async def test_submit_plaintext_rejects_task_not_waiting_for_plaintext() -> None:
     task = _build_task(status="pending")
     db = _FakeDB(tasks=[task])
@@ -685,6 +746,83 @@ async def test_submit_plaintext_keeps_task_retryable_when_model_verification_fai
     assert task.source_metadata["plaintext_capture_status"] == "pending"
     assert task.source_metadata["action_required"] == "submit_plaintext"
     assert task.source_metadata["result_key_id"] == str(db.keys[0].id)
+
+
+@pytest.mark.asyncio
+async def test_submit_plaintext_reuses_inactive_existing_key_by_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    existing_key = ProviderAPIKey(
+        id="key-existing",
+        provider_id="provider-1",
+        api_formats=["openai:chat"],
+        auth_type="api_key",
+        api_key=crypto_service.encrypt("sk-existing-retry"),
+        name="aether-acct-1",
+        note="Reissued from all-in-hub task task-1",
+        auto_fetch_models=True,
+        is_active=False,
+    )
+
+    async def _verify(key_id: str) -> str:
+        assert key_id == "key-existing"
+        assert existing_key.is_active is True
+        return "success"
+
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._verify_reissued_key_models",
+        _verify,
+    )
+
+    task = _build_task(status="waiting_plaintext")
+    task.source_metadata["plaintext_capture_status"] = "pending"
+    task.source_metadata["action_required"] = "submit_plaintext"
+    task.source_metadata["result_key_id"] = "key-existing"
+
+    db = _FakeDB(
+        providers=[
+            Provider(
+                id="provider-1",
+                name="Provider One",
+                provider_type="custom",
+                billing_type="pay_as_you_go",
+            )
+        ],
+        endpoints=[
+            ProviderEndpoint(
+                id="endpoint-1",
+                provider_id="provider-1",
+                api_format="openai:chat",
+                api_family="openai",
+                endpoint_kind="chat",
+                base_url="https://provider-1.example.com",
+            )
+        ],
+        keys=[existing_key],
+        tasks=[task],
+    )
+
+    result = await submit_all_in_hub_task_plaintext(
+        db=db,
+        task_id="task-1",
+        plaintext_api_key="sk-existing-retry",
+        note="retry existing key",
+    )
+
+    assert result["status"] == "completed"
+    assert result["key_created"] is False
+    assert len(db.keys) == 1
+    assert existing_key.is_active is True
+    assert task.status == "completed"
+    assert task.source_metadata["result_key_id"] == "key-existing"
+    assert task.source_metadata["plaintext_submission_note"] == "retry existing key"
 
 
 @pytest.mark.asyncio
@@ -929,6 +1067,10 @@ async def test_execute_import_tasks_selects_only_pending_reissue_tasks(
     assert result.skipped == 0
     assert result.completed == 1
     assert result.failed == 0
+    assert result.results[0]["provider_name"] == "Provider One"
+    assert result.results[0]["provider_website"] == "https://provider-1.example.com"
+    assert result.results[0]["endpoint_base_url"] == "https://provider-1.example.com"
+    assert result.results[0]["source_id"] == "acct-1"
     assert pending_import.status == "pending"
     assert completed_task.status == "completed"
     assert failed_task.status == "failed"

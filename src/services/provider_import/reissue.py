@@ -79,6 +79,18 @@ def _task_metadata(task: ProviderImportTask) -> dict[str, Any]:
     return dict(data) if isinstance(data, dict) else {}
 
 
+def _normalize_waiting_plaintext_metadata(task: ProviderImportTask, metadata: dict[str, Any]) -> dict[str, Any]:
+    if str(getattr(task, "status", "") or "") != TASK_STATUS_WAITING_PLAINTEXT:
+        return metadata
+
+    normalized = dict(metadata)
+    if not str(normalized.get("plaintext_capture_status") or "").strip():
+        normalized["plaintext_capture_status"] = PLAINTEXT_CAPTURE_PENDING
+    if not str(normalized.get("action_required") or "").strip():
+        normalized["action_required"] = ACTION_REQUIRED_SUBMIT_PLAINTEXT
+    return normalized
+
+
 def _task_payload(task: ProviderImportTask) -> dict[str, Any]:
     decrypted = crypto_service.decrypt(task.credential_payload)
     parsed = json.loads(decrypted)
@@ -581,6 +593,37 @@ def _build_reissued_key(task: ProviderImportTask, api_key_value: str) -> Provide
     )
 
 
+def _prepare_existing_key_for_verification(
+    *,
+    db: Session,
+    key: ProviderAPIKey,
+) -> tuple[bool, bool]:
+    was_inactive = not bool(getattr(key, "is_active", False))
+    was_auto_fetch_disabled = not bool(getattr(key, "auto_fetch_models", False))
+    if was_inactive:
+        key.is_active = True
+    if was_auto_fetch_disabled:
+        key.auto_fetch_models = True
+    if was_inactive or was_auto_fetch_disabled:
+        db.commit()
+    return was_inactive, was_auto_fetch_disabled
+
+
+def _restore_existing_key_after_failed_verification(
+    *,
+    db: Session,
+    key: ProviderAPIKey,
+    was_inactive: bool,
+    was_auto_fetch_disabled: bool,
+) -> None:
+    if was_inactive:
+        key.is_active = False
+    if was_auto_fetch_disabled:
+        key.auto_fetch_models = False
+    if was_inactive or was_auto_fetch_disabled:
+        db.commit()
+
+
 async def _verify_reissued_key_models(key_id: str) -> str:
     from src.services.model.fetch_scheduler import get_model_fetch_scheduler
 
@@ -682,9 +725,19 @@ async def _execute_task(
         else:
             metadata["result_key_id"] = str(existing_by_hash.id)
             task.source_metadata = metadata
+            was_inactive, was_auto_fetch_disabled = _prepare_existing_key_for_verification(
+                db=db,
+                key=existing_by_hash,
+            )
             stage = RESULT_STAGE_VERIFY_MODELS
             verification_status = await _verify_reissued_key_models(str(existing_by_hash.id))
             if verification_status != "success":
+                _restore_existing_key_after_failed_verification(
+                    db=db,
+                    key=existing_by_hash,
+                    was_inactive=was_inactive,
+                    was_auto_fetch_disabled=was_auto_fetch_disabled,
+                )
                 raise RuntimeError(f"model verification failed: {verification_status}")
 
         task.status = TASK_STATUS_COMPLETED
@@ -744,6 +797,10 @@ async def execute_all_in_hub_import_tasks(
             {
                 "task_id": str(task.id),
                 "status": str(task.status),
+                "provider_name": metadata.get("provider_name") or getattr(task, "source_name", None),
+                "provider_website": getattr(task, "source_origin", None),
+                "endpoint_base_url": metadata.get("endpoint_base_url"),
+                "source_id": getattr(task, "source_id", None),
                 "stage": stage,
                 "last_error": getattr(task, "last_error", None),
                 "key_created": created,
@@ -774,7 +831,7 @@ async def submit_all_in_hub_task_plaintext(
     if task is None:
         raise RuntimeError("import task not found")
 
-    metadata = _task_metadata(task)
+    metadata = _normalize_waiting_plaintext_metadata(task, _task_metadata(task))
     if str(getattr(task, "status", "") or "") != TASK_STATUS_WAITING_PLAINTEXT or (
         str(metadata.get("plaintext_capture_status") or "") != PLAINTEXT_CAPTURE_PENDING
     ):
@@ -817,8 +874,18 @@ async def submit_all_in_hub_task_plaintext(
         else:
             metadata["result_key_id"] = str(existing_by_hash.id)
             task.source_metadata = metadata
+            was_inactive, was_auto_fetch_disabled = _prepare_existing_key_for_verification(
+                db=db,
+                key=existing_by_hash,
+            )
             verification_status = await _verify_reissued_key_models(str(existing_by_hash.id))
             if verification_status != "success":
+                _restore_existing_key_after_failed_verification(
+                    db=db,
+                    key=existing_by_hash,
+                    was_inactive=was_inactive,
+                    was_auto_fetch_disabled=was_auto_fetch_disabled,
+                )
                 raise RuntimeError(f"model verification failed: {verification_status}")
 
         metadata["plaintext_capture_status"] = PLAINTEXT_CAPTURE_CONSUMED
@@ -833,6 +900,10 @@ async def submit_all_in_hub_task_plaintext(
         return {
             "task_id": str(task.id),
             "status": str(task.status),
+            "provider_name": metadata.get("provider_name") or getattr(task, "source_name", None),
+            "provider_website": getattr(task, "source_origin", None),
+            "endpoint_base_url": metadata.get("endpoint_base_url"),
+            "source_id": getattr(task, "source_id", None),
             "stage": RESULT_STAGE_COMPLETED,
             "last_error": None,
             "key_created": created,

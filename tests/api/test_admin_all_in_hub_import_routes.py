@@ -12,6 +12,7 @@ from src.api.admin.providers.routes import get_db
 from src.models.provider_import import (
     AllInHubImportProviderSummary,
     AllInHubImportResponse,
+    AllInHubImportManualItem,
     AllInHubImportStats,
     AllInHubTaskExecutionResponse,
 )
@@ -68,6 +69,32 @@ def _response_payload(dry_run: bool) -> AllInHubImportResponse:
                 existing_provider=False,
                 existing_endpoint=False,
             )
+        ],
+        manual_items=[
+            AllInHubImportManualItem(
+                item_type="pending_task",
+                status="pending",
+                provider_name="Provider One",
+                provider_website="https://provider-1.example.com",
+                endpoint_base_url="https://provider-1.example.com/v1",
+                source_id="acct-1",
+                task_type="pending_reissue",
+                auth_type="access_token",
+                site_type="new-api",
+                reason="缺少明文 Key，等待人工补抓或补录",
+            ),
+            AllInHubImportManualItem(
+                item_type="verification_failure",
+                status="failed",
+                provider_name="Provider Two",
+                provider_website="https://provider-2.example.com",
+                endpoint_base_url="https://provider-2.example.com/v1",
+                source_id="acct-2",
+                task_type=None,
+                auth_type="api_key",
+                site_type="new-api",
+                reason="/v1/models 返回空列表，等待人工复核",
+            ),
         ],
     )
 
@@ -150,6 +177,7 @@ def test_preview_all_in_hub_import_route_returns_service_payload(
     assert response.status_code == 200
     assert response.json()["dry_run"] is True
     assert response.json()["stats"]["direct_keys_ready"] == 1
+    assert response.json()["manual_items"][0]["item_type"] == "pending_task"
     preview_mock.assert_awaited_once()
 
 
@@ -168,6 +196,7 @@ def test_import_all_in_hub_route_returns_service_payload(
     assert response.status_code == 200
     assert response.json()["dry_run"] is False
     assert response.json()["stats"]["keys_created"] == 1
+    assert response.json()["manual_items"][1]["status"] == "failed"
     import_mock.assert_awaited_once()
 
 

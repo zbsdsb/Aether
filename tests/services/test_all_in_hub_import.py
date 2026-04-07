@@ -140,6 +140,78 @@ def test_preview_skips_disabled_v2_accounts() -> None:
     assert result.providers[0].pending_source_count == 1
 
 
+def test_preview_normalizes_nihaoapi_endpoint_to_api_subdomain() -> None:
+    payload = {
+        "version": "2.0",
+        "accounts": {
+            "accounts": [
+                {
+                    "id": "acct-nihao-1",
+                    "site_url": "https://nih.cc",
+                    "site_name": "NihaoAPI",
+                    "site_type": "new-api",
+                    "authType": "access_token",
+                    "account_info": {"id": "user-951", "access_token": "token-1"},
+                }
+            ]
+        },
+    }
+
+    result = preview_all_in_hub_import(payload, db=_FakeDB())
+
+    assert result.providers[0].provider_website == "https://nih.cc"
+    assert result.providers[0].endpoint_base_url == "https://api.nih.cc"
+
+
+def test_preview_prefers_snapshot_tokens_over_pending_reissue_for_same_account() -> None:
+    payload = {
+        "version": "2.0",
+        "accounts": {
+            "accounts": [
+                {
+                    "id": "acct-snapshot",
+                    "site_url": "https://provider-1.example.com",
+                    "site_name": "Provider One",
+                    "site_type": "new-api",
+                    "authType": "access_token",
+                    "disabled": False,
+                    "account_info": {"id": "user-1", "access_token": "token-snapshot"},
+                },
+                {
+                    "id": "acct-pending",
+                    "site_url": "https://provider-1.example.com",
+                    "site_name": "Provider One",
+                    "site_type": "new-api",
+                    "authType": "access_token",
+                    "disabled": False,
+                    "account_info": {"id": "user-2", "access_token": "token-pending"},
+                },
+            ]
+        },
+        "accountKeySnapshots": [
+            {
+                "accountId": "acct-snapshot",
+                "accountName": "Provider One",
+                "baseUrl": "https://provider-1.example.com",
+                "siteType": "new-api",
+                "tokens": [
+                    {"id": 101, "name": "snapshot-primary", "key": "sk-snapshot-1"},
+                    {"id": 102, "name": "snapshot-secondary", "key": "sk-snapshot-2"},
+                ],
+            }
+        ],
+    }
+
+    result = preview_all_in_hub_import(payload, db=_FakeDB())
+
+    assert result.stats.providers_total == 1
+    assert result.stats.direct_keys_ready == 2
+    assert result.stats.pending_sources == 1
+    assert result.stats.pending_tasks_to_create == 1
+    assert result.providers[0].direct_key_count == 2
+    assert result.providers[0].pending_source_count == 1
+
+
 @pytest.mark.asyncio
 async def test_execute_import_creates_provider_endpoint_key_and_pending_task_once(
     monkeypatch: pytest.MonkeyPatch,
@@ -303,3 +375,119 @@ async def test_execute_import_treats_cookie_auth_source_as_pending_import_even_w
     decrypted_payload = crypto_service.decrypt(db.tasks[0].credential_payload)
     assert "dashboard-token" in decrypted_payload
     assert "cookie-1" in decrypted_payload
+
+
+@pytest.mark.asyncio
+async def test_execute_import_creates_direct_keys_from_snapshots_without_pending_task_for_same_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.invalidate_models_list_cache",
+        _noop_side_effects,
+    )
+
+    db = _FakeDB()
+    payload = {
+        "version": "2.0",
+        "accounts": {
+            "accounts": [
+                {
+                    "id": "acct-snapshot",
+                    "site_url": "https://provider-1.example.com",
+                    "site_name": "Provider One",
+                    "site_type": "new-api",
+                    "authType": "access_token",
+                    "disabled": False,
+                    "account_info": {"id": "user-1", "access_token": "token-snapshot"},
+                },
+                {
+                    "id": "acct-pending",
+                    "site_url": "https://provider-1.example.com",
+                    "site_name": "Provider One",
+                    "site_type": "new-api",
+                    "authType": "access_token",
+                    "disabled": False,
+                    "account_info": {"id": "user-2", "access_token": "token-pending"},
+                },
+            ]
+        },
+        "accountKeySnapshots": [
+            {
+                "accountId": "acct-snapshot",
+                "accountName": "Provider One",
+                "baseUrl": "https://provider-1.example.com",
+                "siteType": "new-api",
+                "tokens": [
+                    {"id": 101, "name": "snapshot-primary", "key": "sk-snapshot-1"},
+                    {"id": 102, "name": "snapshot-secondary", "key": "sk-snapshot-2"},
+                ],
+            }
+        ],
+    }
+
+    result = await execute_all_in_hub_import(payload, db=db)
+
+    assert result.stats.keys_created == 2
+    assert result.stats.pending_sources == 1
+    assert result.stats.pending_tasks_created == 1
+    assert len(db.keys) == 2
+    assert {crypto_service.decrypt(key.api_key) for key in db.keys} == {"sk-snapshot-1", "sk-snapshot-2"}
+    assert {key.name for key in db.keys} == {"snapshot-primary", "snapshot-secondary"}
+    assert len(db.tasks) == 1
+    assert db.tasks[0].source_id == "acct-pending"
+
+
+@pytest.mark.asyncio
+async def test_execute_import_marks_direct_key_for_manual_review_when_model_verification_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    async def _verify_failed(*, db: Any, key: Any) -> str:
+        _ = db
+        _ = key
+        return "error"
+
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.invalidate_models_list_cache",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub._verify_imported_key_models",
+        _verify_failed,
+    )
+
+    db = _FakeDB()
+    payload = {
+        "version": "2.0",
+        "direct_imports": [
+            {
+                "name": "provider-one-direct",
+                "baseUrl": "https://provider-1.example.com/v1",
+                "apiKey": "sk-direct-verification-fail",
+            }
+        ],
+    }
+
+    result = await execute_all_in_hub_import(payload, db=db)
+
+    assert result.stats.keys_created == 1
+    assert len(result.manual_items) == 1
+    assert result.manual_items[0].item_type == "verification_failure"
+    assert result.manual_items[0].status == "failed"
+    assert result.manual_items[0].provider_name == "provider-one-direct"
+    assert "等待人工复核" in (result.manual_items[0].reason or "")
+    assert len(db.keys) == 1
+    assert db.keys[0].is_active is False
