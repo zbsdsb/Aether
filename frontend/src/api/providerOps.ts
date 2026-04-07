@@ -191,6 +191,18 @@ export interface ProviderOpsConfigResponse {
   }
 }
 
+export interface ImportedAuthPrefillResponse {
+  available: boolean
+  architecture_id: string | null
+  base_url: string | null
+  connector: {
+    auth_type: string
+    config: Record<string, unknown>
+    credentials: Record<string, unknown>
+  } | null
+  source_summary: Record<string, unknown> | null
+}
+
 /**
  * 获取 Provider 的操作配置（脱敏）
  */
@@ -199,6 +211,15 @@ export async function getProviderOpsConfig(
 ): Promise<ProviderOpsConfigResponse> {
   const response = await client.get<ProviderOpsConfigResponse>(
     `${BASE_URL}/providers/${providerId}/config`
+  )
+  return response.data
+}
+
+export async function getImportedAuthPrefill(
+  providerId: string
+): Promise<ImportedAuthPrefillResponse> {
+  const response = await client.get<ImportedAuthPrefillResponse>(
+    `${BASE_URL}/providers/${providerId}/imported-auth-prefill`
   )
   return response.data
 }

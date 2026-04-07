@@ -192,6 +192,7 @@ class NekoCodeArchitecture(ProviderArchitecture):
             client_kwargs: dict[str, Any] = {
                 "timeout": 10,
                 "verify": get_ssl_context(),
+                "trust_env": False,
             }
             from src.services.proxy_node.resolver import resolve_ops_proxy_config_async
 

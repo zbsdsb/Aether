@@ -78,15 +78,17 @@ def _build_task(
     task_type: str = "pending_reissue",
     site_type: str = "new-api",
     access_token: str | None = "access-1",
+    refresh_token: str | None = None,
     session_cookie: str | None = None,
     account_id: str | None = "user-1",
     source_id: str = "acct-1",
     status: str = "pending",
 ) -> ProviderImportTask:
     payload = crypto_service.encrypt(
-        '{"access_token": %s, "session_cookie": %s}'
+        '{"access_token": %s, "refresh_token": %s, "session_cookie": %s}'
         % (
             f'"{access_token}"' if access_token is not None else "null",
+            f'"{refresh_token}"' if refresh_token is not None else "null",
             f'"{session_cookie}"' if session_cookie is not None else "null",
         )
     )
@@ -108,6 +110,7 @@ def _build_task(
             "endpoint_base_url": "https://provider-1.example.com",
             "provider_name": "Provider One",
             "has_access_token": bool(access_token),
+            "has_refresh_token": bool(refresh_token),
             "has_session_cookie": bool(session_cookie),
         },
         retry_count=0,
@@ -1187,3 +1190,48 @@ async def test_execute_unknown_pending_reissue_fails_when_probe_rejects_new_api(
     assert result.keys_created == 0
     assert db.tasks[0].status == "failed"
     assert db.tasks[0].last_error == "unknown site is not compatible with new-api reissue"
+
+
+@pytest.mark.asyncio
+async def test_execute_imported_auth_prefill_auto_configures_sub2api_without_running_proxy_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = Provider(
+        id="provider-1",
+        name="Provider One",
+        provider_type="custom",
+        billing_type="pay_as_you_go",
+        website="https://provider-1.example.com",
+    )
+    endpoint = ProviderEndpoint(
+        id="endpoint-1",
+        provider_id="provider-1",
+        api_format="openai:chat",
+        api_family="openai",
+        endpoint_kind="chat",
+        base_url="https://provider-1.example.com",
+    )
+    task = _build_task(
+        task_type="imported_auth_prefill",
+        site_type="sub2api",
+        access_token="access-1",
+        refresh_token="rt-1",
+    )
+    db = _FakeDB(providers=[provider], endpoints=[endpoint], tasks=[task])
+
+    result = await execute_all_in_hub_import_tasks(db=db, limit=10)
+
+    assert result.total_selected == 1
+    assert result.completed == 1
+    assert result.results[0]["status"] == "completed"
+    assert result.results[0]["stage"] == "auth_config"
+    assert task.status == "completed"
+    assert provider.config is not None
+
+    provider_ops = provider.config["provider_ops"]
+    assert provider_ops["architecture_id"] == "sub2api"
+    assert provider_ops["connector"]["auth_type"] == "api_key"
+    assert provider_ops["connector"]["config"] == {}
+    assert crypto_service.decrypt(provider_ops["connector"]["credentials"]["refresh_token"]) == "rt-1"
+    assert provider_ops["_auto_imported"] is True
+    assert task.source_metadata["auto_proxy_probe_status"] == "pending"

@@ -21,6 +21,24 @@
       />
 
       <div
+        v-if="jobStatus"
+        class="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-4"
+      >
+        <div class="flex items-start justify-between gap-3 text-sm">
+          <div class="min-w-0">
+            <p class="font-medium">后台导入任务</p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              {{ jobStatus.stage }} · {{ jobStatus.message || '后台处理中' }}
+            </p>
+          </div>
+          <div class="shrink-0 text-right text-xs text-muted-foreground">
+            <p>{{ jobStatus.status }}</p>
+            <p class="mt-1 font-mono">{{ jobStatus.task_id }}</p>
+          </div>
+        </div>
+      </div>
+
+      <div
         v-if="preview"
         class="space-y-4"
       >
@@ -230,11 +248,16 @@
 import JsonImportInput from '@/components/common/JsonImportInput.vue'
 import Button from '@/components/ui/button.vue'
 import { Dialog } from '@/components/ui'
-import type { AllInHubImportResponse, AllInHubTaskExecutionResponse } from '@/api/endpoints'
+import type {
+  AllInHubImportJobStatusResponse,
+  AllInHubImportResponse,
+  AllInHubTaskExecutionResponse,
+} from '@/api/endpoints'
 
 defineProps<{
   open: boolean
   content: string
+  jobStatus: AllInHubImportJobStatusResponse | null
   preview: AllInHubImportResponse | null
   executionResult: AllInHubTaskExecutionResponse | null
   canExecuteTasks: boolean

@@ -139,6 +139,7 @@ class ProviderConnector(ABC):
             transport=transport,
             event_hooks={"request": [self._auth_hook]},
             verify=get_ssl_context(),
+            trust_env=False,
         ) as client:
             yield client
 

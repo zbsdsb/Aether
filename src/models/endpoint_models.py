@@ -1153,6 +1153,18 @@ class ProviderWithEndpointsSummary(BaseModel):
     ops_architecture_id: str | None = Field(
         default=None, description="扩展操作使用的架构 ID（如 cubence, anyrouter）"
     )
+    proxy_probe_status: str | None = Field(
+        default=None,
+        description="独立代理探测状态（如 pending/completed/failed/manual_review）",
+    )
+    proxy_probe_mode: str | None = Field(
+        default=None,
+        description="独立代理探测模式（如 direct/system_proxy/challenge）",
+    )
+    proxy_probe_message: str | None = Field(
+        default=None,
+        description="独立代理探测的最近结果说明",
+    )
 
     # 导入任务聚合状态
     import_task_total: int = Field(default=0, description="导入任务总数")

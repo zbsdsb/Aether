@@ -212,6 +212,7 @@ async def _get_acw_cookie(
         client_kwargs: dict[str, Any] = {
             "timeout": timeout,
             "verify": get_ssl_context(),
+            "trust_env": False,
         }
         if tunnel_node_id:
             from src.services.proxy_node.tunnel_transport import create_tunnel_transport

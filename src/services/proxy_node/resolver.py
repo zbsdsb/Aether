@@ -248,6 +248,8 @@ def _resolve_effective_node(
         if isinstance(node_id, str) and node_id.strip():
             nid = node_id.strip()
             return nid, _get_proxy_node_info(nid)
+        if bool(connector_config.get("__disable_system_proxy_fallback__")):
+            return None, None
 
     # 回退：系统默认代理
     system_proxy = get_system_proxy_config()

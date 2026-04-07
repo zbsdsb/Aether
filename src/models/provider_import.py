@@ -82,6 +82,7 @@ class AllInHubTaskExecutionItem(BaseModel):
     site_type: str | None = None
     auth_type: str | None = None
     has_access_token: bool = False
+    has_refresh_token: bool = False
     has_session_cookie: bool = False
     action_required: str | None = None
     plaintext_capture_status: str | None = None
@@ -95,3 +96,19 @@ class AllInHubTaskExecutionResponse(BaseModel):
     skipped: int = 0
     keys_created: int = 0
     results: list[AllInHubTaskExecutionItem] = Field(default_factory=list)
+
+
+class AllInHubImportJobStartResponse(BaseModel):
+    task_id: str
+    status: str
+    stage: str
+    message: str = ""
+
+
+class AllInHubImportJobStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    stage: str
+    message: str = ""
+    import_result: AllInHubImportResponse | None = None
+    execution_result: AllInHubTaskExecutionResponse | None = None

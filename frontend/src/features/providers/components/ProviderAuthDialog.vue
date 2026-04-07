@@ -327,6 +327,7 @@ const props = defineProps<{
   providerId: string
   providerWebsite?: string
   currentConfig?: Record<string, unknown> | null
+  prefillDraft?: Record<string, unknown> | null
 }>()
 
 const emit = defineEmits<{
@@ -709,6 +710,30 @@ function loadFromConfig(config: Record<string, unknown>) {
   }
 }
 
+function loadFromPrefillDraft(config: Record<string, unknown>) {
+  hasExistingConfig.value = false
+  sensitivePlaceholders.value = {}
+
+  const architectureId = config.architecture_id || 'new_api'
+  const archExists = architectures.value.some((a) => a.architecture_id === architectureId)
+  selectedArchitectureId.value = archExists ? String(architectureId) : 'new_api'
+
+  const savedAuthType = config.connector?.auth_type
+  const authTypes = currentAuthTypes.value
+  if (savedAuthType && authTypes.some((t) => t.type === savedAuthType)) {
+    selectedAuthType.value = savedAuthType
+  } else {
+    selectedAuthType.value = authTypes.length > 0 ? authTypes[0].type : ''
+  }
+
+  const schema = currentSchema.value
+  if (schema) {
+    formData.value = parseConfigFromSchema(schema, config)
+  } else {
+    resetFormData()
+  }
+}
+
 /** 确保架构列表已加载 */
 async function ensureArchitecturesLoaded(): Promise<void> {
   if (architecturesLoaded.value) return
@@ -730,6 +755,11 @@ watch(
 
       // 确保架构列表已加载
       await ensureArchitecturesLoaded()
+
+      if (props.prefillDraft?.connector) {
+        loadFromPrefillDraft(props.prefillDraft)
+        return
+      }
 
       // 如果传入了 currentConfig，直接使用
       if (props.currentConfig?.connector) {

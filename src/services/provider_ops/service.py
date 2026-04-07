@@ -1050,6 +1050,7 @@ class ProviderOpsService:
             client_kwargs: dict[str, Any] = {
                 "timeout": 30.0,
                 "verify": get_ssl_context(),
+                "trust_env": False,
             }
             if tunnel_node_id:
                 from src.services.proxy_node.tunnel_transport import create_tunnel_transport

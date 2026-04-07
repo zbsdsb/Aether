@@ -116,6 +116,7 @@ class _Sub2ApiTokenMixin:
             timeout=self._timeout,
             transport=transport,
             verify=get_ssl_context(),
+            trust_env=False,
         ) as client:
             yield client
 
@@ -486,6 +487,7 @@ class Sub2ApiArchitecture(ProviderArchitecture):
             "base_url": base_url,
             "timeout": 30.0,
             "verify": get_ssl_context(),
+            "trust_env": False,
         }
         if tunnel_node_id:
             from src.services.proxy_node.tunnel_transport import create_tunnel_transport

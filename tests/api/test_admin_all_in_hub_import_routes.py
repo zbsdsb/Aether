@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from src.api.admin.providers import router as providers_router
 from src.api.admin.providers.routes import get_db
 from src.models.provider_import import (
+    AllInHubImportJobStatusResponse,
     AllInHubImportProviderSummary,
     AllInHubImportResponse,
     AllInHubImportManualItem,
@@ -198,6 +199,59 @@ def test_import_all_in_hub_route_returns_service_payload(
     assert response.json()["stats"]["keys_created"] == 1
     assert response.json()["manual_items"][1]["status"] == "failed"
     import_mock.assert_awaited_once()
+
+
+def test_submit_all_in_hub_import_route_returns_job_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    submit_mock = AsyncMock(return_value="job-1")
+    monkeypatch.setattr(
+        "src.api.admin.providers.routes.submit_all_in_hub_import_job",
+        submit_mock,
+    )
+
+    client = _build_app(object(), monkeypatch)
+    response = client.post(
+        "/api/admin/providers/imports/all-in-hub/submit",
+        json={"content": "{\"version\":\"2.0\"}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": "job-1",
+        "status": "pending",
+        "stage": "queued",
+        "message": "导入任务已提交，后台处理中",
+    }
+    submit_mock.assert_awaited_once()
+
+
+def test_get_all_in_hub_import_task_route_returns_job_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    get_mock = AsyncMock(
+        return_value=AllInHubImportJobStatusResponse(
+            task_id="job-1",
+            status="running",
+            stage="executing_tasks",
+            message="execution round 1",
+            import_result=_response_payload(dry_run=False),
+            execution_result=_task_execution_payload(),
+        )
+    )
+    monkeypatch.setattr(
+        "src.api.admin.providers.routes.get_all_in_hub_import_job",
+        get_mock,
+    )
+
+    client = _build_app(object(), monkeypatch)
+    response = client.get("/api/admin/providers/imports/all-in-hub/tasks/job-1")
+
+    assert response.status_code == 200
+    assert response.json()["task_id"] == "job-1"
+    assert response.json()["status"] == "running"
+    assert response.json()["execution_result"]["total_selected"] == 2
+    get_mock.assert_awaited_once()
 
 
 def test_execute_all_in_hub_pending_tasks_route_returns_service_payload(

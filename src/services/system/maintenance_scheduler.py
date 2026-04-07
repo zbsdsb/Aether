@@ -29,6 +29,7 @@ from src.config.settings import config
 from src.core.logger import logger
 from src.database import create_session
 from src.models.database import AuditLog, Provider, RequestCandidate, Usage
+from src.services.provider_ops.proxy_probe import probe_pending_provider_proxies
 from src.services.provider_ops.service import ProviderOpsService
 from src.services.system.config import SystemConfigService
 from src.services.system.scheduler import get_scheduler
@@ -99,6 +100,24 @@ class MaintenanceScheduler:
             if 0 <= hour <= 23 and 0 <= minute <= 59:
                 return (hour, minute)
             return (1, 5)
+        except (ValueError, IndexError):
+            return (1, 5)
+
+    @staticmethod
+    def _get_provider_proxy_probe_interval_minutes() -> int:
+        raw = os.getenv("PROVIDER_PROXY_PROBE_INTERVAL_MINUTES", "30")
+        try:
+            return max(5, int(raw))
+        except ValueError:
+            return 30
+
+    @staticmethod
+    def _get_provider_proxy_probe_batch_size() -> int:
+        raw = os.getenv("PROVIDER_PROXY_PROBE_BATCH_SIZE", "20")
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            return 20
         except (ValueError, IndexError):
             return (1, 5)
 
@@ -255,6 +274,13 @@ class MaintenanceScheduler:
             func=self._scheduled_antigravity_ua_refresh,
             hours=6,
             name="Antigravity UA版本刷新",
+        )
+
+        _add_interval(
+            "provider_proxy_probe",
+            func=self._scheduled_provider_proxy_probe,
+            minutes=self._get_provider_proxy_probe_interval_minutes(),
+            name="Provider代理探测",
         )
 
         # Provider 签到任务 - 根据配置时间执行
@@ -416,6 +442,12 @@ class MaintenanceScheduler:
         if not self.running:
             return
         await self._perform_provider_checkin()
+
+    async def _scheduled_provider_proxy_probe(self) -> None:
+        """Provider 代理探测任务（定时调用）"""
+        if not self.running:
+            return
+        await self._perform_provider_proxy_probe()
 
     # ========== 实际任务实现 ==========
 
@@ -597,6 +629,26 @@ class MaintenanceScheduler:
                     pass
             finally:
                 db.close()
+
+    async def _perform_provider_proxy_probe(self) -> None:
+        db = create_session()
+        try:
+            result = await probe_pending_provider_proxies(
+                db=db,
+                limit=self._get_provider_proxy_probe_batch_size(),
+            )
+            if result.total_selected > 0:
+                logger.info(
+                    "Provider代理探测完成: selected={}, completed={}, failed={}, skipped={}",
+                    result.total_selected,
+                    result.completed,
+                    result.failed,
+                    result.skipped,
+                )
+        except Exception as e:
+            logger.exception("Provider 代理探测任务出错: {}", e)
+        finally:
+            db.close()
 
     async def _perform_wallet_daily_usage_aggregation(self) -> None:
         if self._wallet_daily_usage_lock.locked():

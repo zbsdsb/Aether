@@ -2143,7 +2143,7 @@ class ProviderImportTask(ExportMixin, Base):
         String(36), ForeignKey("provider_endpoints.id", ondelete="SET NULL"), nullable=True
     )
 
-    task_type = Column(String(30), nullable=False)  # pending_import | pending_reissue
+    task_type = Column(String(30), nullable=False)  # pending_import | pending_reissue | imported_auth_prefill
     status = Column(String(20), nullable=False, default="pending")
     source_kind = Column(String(30), nullable=False, default="all_in_hub")
     source_id = Column(String(120), nullable=False)

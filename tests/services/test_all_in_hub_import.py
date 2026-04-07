@@ -99,7 +99,7 @@ def test_preview_counts_direct_and_pending_records() -> None:
     assert result.version == "2.0"
     assert result.stats.providers_total == 1
     assert result.stats.providers_to_create == 1
-    assert result.stats.endpoints_to_create == 1
+    assert result.stats.endpoints_to_create == 3
     assert result.stats.direct_keys_ready == 1
     assert result.stats.pending_sources == 1
     assert result.stats.pending_tasks_to_create == 1
@@ -107,6 +107,79 @@ def test_preview_counts_direct_and_pending_records() -> None:
     assert result.providers[0].provider_name == "Provider One"
     assert result.providers[0].provider_website == "https://provider-1.example.com"
     assert result.providers[0].endpoint_base_url == "https://provider-1.example.com/v1"
+
+
+def test_preview_does_not_count_prefill_only_sources_as_pending_manual_work() -> None:
+    payload = {
+        "version": "2.0",
+        "accounts": {
+            "accounts": [
+                {
+                    "id": "acct-kfc",
+                    "site_url": "https://provider-1.example.com",
+                    "site_name": "Provider One",
+                    "site_type": "new-api",
+                    "authType": "access_token",
+                    "disabled": False,
+                    "account_info": {"id": "user-1", "access_token": "token-snapshot"},
+                },
+                {
+                    "id": "acct-pending",
+                    "site_url": "https://provider-1.example.com",
+                    "site_name": "Provider One",
+                    "site_type": "new-api",
+                    "authType": "access_token",
+                    "disabled": False,
+                    "account_info": {"id": "user-2", "access_token": "token-pending"},
+                },
+            ]
+        },
+        "accountKeySnapshots": [
+            {
+                "accountId": "acct-kfc",
+                "accountName": "Provider One",
+                "baseUrl": "https://provider-1.example.com",
+                "siteType": "new-api",
+                "tokens": [
+                    {"id": 101, "name": "snapshot-primary", "key": "sk-snapshot-1"},
+                    {"id": 102, "name": "snapshot-secondary", "key": "sk-snapshot-2"},
+                ],
+            }
+        ],
+    }
+
+    result = preview_all_in_hub_import(payload, db=_FakeDB())
+
+    assert result.stats.providers_total == 1
+    assert result.stats.direct_keys_ready == 2
+    assert result.stats.pending_sources == 1
+    assert result.stats.pending_tasks_to_create == 1
+    assert result.providers[0].direct_key_count == 2
+    assert result.providers[0].pending_source_count == 1
+    assert len(result.manual_items) == 1
+    assert result.manual_items[0].source_id == "acct-pending"
+
+
+def test_preview_adds_claude_candidates_when_records_contain_claude_hints() -> None:
+    payload = {
+        "version": "2.0",
+        "accounts": {
+            "accounts": [
+                {
+                    "id": "acct-claude-1",
+                    "site_url": "https://provider-claude.example.com",
+                    "site_name": "Claude Hub",
+                    "site_type": "anthropic-compatible",
+                    "account_info": {"access_token": "token-1"},
+                }
+            ]
+        },
+    }
+
+    result = preview_all_in_hub_import(payload, db=_FakeDB())
+
+    assert result.stats.providers_total == 1
+    assert result.stats.endpoints_to_create == 5
 
 
 def test_preview_skips_disabled_v2_accounts() -> None:
@@ -163,7 +236,7 @@ def test_preview_normalizes_nihaoapi_endpoint_to_api_subdomain() -> None:
     assert result.providers[0].endpoint_base_url == "https://api.nih.cc"
 
 
-def test_preview_prefers_snapshot_tokens_over_pending_reissue_for_same_account() -> None:
+def test_preview_creates_prefill_only_task_for_same_account_with_snapshot_tokens() -> None:
     payload = {
         "version": "2.0",
         "accounts": {
@@ -209,6 +282,41 @@ def test_preview_prefers_snapshot_tokens_over_pending_reissue_for_same_account()
     assert result.stats.pending_sources == 1
     assert result.stats.pending_tasks_to_create == 1
     assert result.providers[0].direct_key_count == 2
+    assert result.providers[0].pending_source_count == 1
+    assert len(result.manual_items) == 1
+    assert result.manual_items[0].source_id == "acct-pending"
+
+
+def test_preview_reads_sub2api_refresh_token_as_importable_auth() -> None:
+    payload = {
+        "version": "2.0",
+        "accounts": {
+            "accounts": [
+                {
+                    "id": "acct-sub2-1",
+                    "site_url": "https://sub.example.com",
+                    "site_name": "Sub Provider",
+                    "site_type": "sub2api",
+                    "authType": "access_token",
+                    "account_info": {
+                        "id": 9527,
+                        "username": "linuxdo_9527",
+                        "access_token": "access-sub2-1",
+                    },
+                    "sub2apiAuth": {
+                        "refreshToken": "rt-sub2-1",
+                        "tokenExpiresAt": 1775613625972,
+                    },
+                }
+            ]
+        },
+    }
+
+    result = preview_all_in_hub_import(payload, db=_FakeDB())
+
+    assert result.stats.providers_total == 1
+    assert result.stats.pending_sources == 1
+    assert result.stats.pending_tasks_to_create == 1
     assert result.providers[0].pending_source_count == 1
 
 
@@ -256,21 +364,33 @@ async def test_execute_import_creates_provider_endpoint_key_and_pending_task_onc
 
     assert first.dry_run is False
     assert first.stats.providers_created == 1
-    assert first.stats.endpoints_created == 1
+    assert first.stats.endpoints_created == 3
     assert first.stats.keys_created == 1
     assert first.stats.pending_sources == 1
     assert first.stats.pending_tasks_created == 1
     assert first.stats.pending_tasks_reused == 0
     assert len(db.providers) == 1
-    assert len(db.endpoints) == 1
+    assert len(db.endpoints) == 3
     assert len(db.keys) == 1
-    assert len(db.tasks) == 1
-    assert db.tasks[0].task_type == "pending_reissue"
-    assert db.tasks[0].status == "pending"
-    decrypted_payload = crypto_service.decrypt(db.tasks[0].credential_payload)
+    assert len(db.tasks) == 2
+    assert sorted(endpoint.api_format for endpoint in db.endpoints) == [
+        "openai:chat",
+        "openai:cli",
+        "openai:compact",
+    ]
+    assert sorted(db.keys[0].api_formats) == [
+        "openai:chat",
+        "openai:cli",
+        "openai:compact",
+    ]
+    task_types = {task.task_type for task in db.tasks}
+    assert task_types == {"pending_reissue", "imported_auth_prefill"}
+    pending_reissue = next(task for task in db.tasks if task.task_type == "pending_reissue")
+    assert pending_reissue.status == "pending"
+    decrypted_payload = crypto_service.decrypt(pending_reissue.credential_payload)
     assert "token-1" in decrypted_payload
-    assert db.tasks[0].source_metadata["site_type"] == "new-api"
-    assert db.tasks[0].source_metadata["account_id"] == "user-1"
+    assert pending_reissue.source_metadata["site_type"] == "new-api"
+    assert pending_reissue.source_metadata["account_id"] == "user-1"
 
     second = await execute_all_in_hub_import(payload, db=db)
 
@@ -281,9 +401,68 @@ async def test_execute_import_creates_provider_endpoint_key_and_pending_task_onc
     assert second.stats.pending_tasks_created == 0
     assert second.stats.pending_tasks_reused == 1
     assert len(db.providers) == 1
-    assert len(db.endpoints) == 1
+    assert len(db.endpoints) == 3
     assert len(db.keys) == 1
-    assert len(db.tasks) == 1
+    assert len(db.tasks) == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_import_adds_claude_candidates_when_record_contains_claude_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.invalidate_models_list_cache",
+        _noop_side_effects,
+    )
+
+    db = _FakeDB()
+    payload = {
+        "version": "2.0",
+        "accounts": {
+            "accounts": [
+                {
+                    "id": "acct-claude-1",
+                    "site_url": "https://provider-claude.example.com",
+                    "site_name": "Claude Hub",
+                    "site_type": "anthropic-compatible",
+                    "authType": "access_token",
+                    "account_info": {"id": "user-1", "username": "demo", "access_token": "token-1"},
+                }
+            ]
+        },
+        "direct_imports": [
+            {
+                "name": "claude-key",
+                "baseUrl": "https://provider-claude.example.com/v1",
+                "apiKey": "sk-claude-1",
+            }
+        ],
+    }
+
+    result = await execute_all_in_hub_import(payload, db=db)
+
+    assert result.stats.endpoints_created == 5
+    assert sorted(endpoint.api_format for endpoint in db.endpoints) == [
+        "claude:chat",
+        "claude:cli",
+        "openai:chat",
+        "openai:cli",
+        "openai:compact",
+    ]
+    assert sorted(db.keys[0].api_formats) == [
+        "claude:chat",
+        "claude:cli",
+        "openai:chat",
+        "openai:cli",
+        "openai:compact",
+    ]
 
 
 @pytest.mark.asyncio
@@ -368,17 +547,17 @@ async def test_execute_import_treats_cookie_auth_source_as_pending_import_even_w
 
     result = await execute_all_in_hub_import(payload, db=db)
 
-    assert result.stats.pending_sources == 1
-    assert result.stats.pending_tasks_created == 1
+    assert result.stats.pending_sources == 0
+    assert result.stats.pending_tasks_created == 0
     assert len(db.tasks) == 1
-    assert db.tasks[0].task_type == "pending_import"
+    assert db.tasks[0].task_type == "imported_auth_prefill"
     decrypted_payload = crypto_service.decrypt(db.tasks[0].credential_payload)
     assert "dashboard-token" in decrypted_payload
     assert "cookie-1" in decrypted_payload
 
 
 @pytest.mark.asyncio
-async def test_execute_import_creates_direct_keys_from_snapshots_without_pending_task_for_same_account(
+async def test_execute_import_creates_prefill_only_task_for_same_account_with_snapshot_tokens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def _noop_side_effects(**_kwargs: Any) -> None:
@@ -440,21 +619,28 @@ async def test_execute_import_creates_direct_keys_from_snapshots_without_pending
     assert len(db.keys) == 2
     assert {crypto_service.decrypt(key.api_key) for key in db.keys} == {"sk-snapshot-1", "sk-snapshot-2"}
     assert {key.name for key in db.keys} == {"snapshot-primary", "snapshot-secondary"}
-    assert len(db.tasks) == 1
-    assert db.tasks[0].source_id == "acct-pending"
+    assert len(db.tasks) == 3
+    assert {task.source_id for task in db.tasks} == {"acct-snapshot", "acct-pending"}
+    task_by_source = {task.source_id: task for task in db.tasks}
+    snapshot_tasks = [task for task in db.tasks if task.source_id == "acct-snapshot"]
+    pending_tasks = [task for task in db.tasks if task.source_id == "acct-pending"]
+    assert {task.task_type for task in snapshot_tasks} == {"imported_auth_prefill"}
+    assert snapshot_tasks[0].source_metadata["account_id"] == "user-1"
+    assert {task.task_type for task in pending_tasks} == {"pending_reissue", "imported_auth_prefill"}
+    assert all(task.source_metadata["account_id"] == "user-2" for task in pending_tasks)
 
 
 @pytest.mark.asyncio
-async def test_execute_import_marks_direct_key_for_manual_review_when_model_verification_fails(
+async def test_execute_import_schedules_background_model_fetch_for_direct_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def _noop_side_effects(**_kwargs: Any) -> None:
         return None
 
-    async def _verify_failed(*, db: Any, key: Any) -> str:
-        _ = db
-        _ = key
-        return "error"
+    scheduled_key_ids_batches: list[list[str]] = []
+
+    def _fake_schedule(key_ids: list[str]) -> None:
+        scheduled_key_ids_batches.append(list(key_ids))
 
     monkeypatch.setattr(
         "src.services.provider_import.all_in_hub.run_create_key_side_effects",
@@ -465,8 +651,8 @@ async def test_execute_import_marks_direct_key_for_manual_review_when_model_veri
         _noop_side_effects,
     )
     monkeypatch.setattr(
-        "src.services.provider_import.all_in_hub._verify_imported_key_models",
-        _verify_failed,
+        "src.services.provider_import.all_in_hub._schedule_imported_key_model_fetches",
+        _fake_schedule,
     )
 
     db = _FakeDB()
@@ -484,10 +670,66 @@ async def test_execute_import_marks_direct_key_for_manual_review_when_model_veri
     result = await execute_all_in_hub_import(payload, db=db)
 
     assert result.stats.keys_created == 1
-    assert len(result.manual_items) == 1
-    assert result.manual_items[0].item_type == "verification_failure"
-    assert result.manual_items[0].status == "failed"
-    assert result.manual_items[0].provider_name == "provider-one-direct"
-    assert "等待人工复核" in (result.manual_items[0].reason or "")
+    assert result.manual_items == []
     assert len(db.keys) == 1
-    assert db.keys[0].is_active is False
+    assert db.keys[0].is_active is True
+    assert scheduled_key_ids_batches == [[str(db.keys[0].id)]]
+
+
+@pytest.mark.asyncio
+async def test_execute_import_persists_sub2api_refresh_token_in_task_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.invalidate_models_list_cache",
+        _noop_side_effects,
+    )
+
+    db = _FakeDB()
+    payload = {
+        "version": "2.0",
+        "accounts": {
+            "accounts": [
+                {
+                    "id": "acct-sub2-1",
+                    "site_url": "https://sub.example.com",
+                    "site_name": "Sub Provider",
+                    "site_type": "sub2api",
+                    "authType": "access_token",
+                    "account_info": {
+                        "id": 9527,
+                        "username": "linuxdo_9527",
+                        "access_token": "access-sub2-1",
+                    },
+                    "sub2apiAuth": {
+                        "refreshToken": "rt-sub2-1",
+                        "tokenExpiresAt": 1775613625972,
+                    },
+                }
+            ]
+        },
+    }
+
+    result = await execute_all_in_hub_import(payload, db=db)
+
+    assert result.stats.pending_sources == 1
+    assert result.stats.pending_tasks_created == 1
+    assert len(db.tasks) == 2
+
+    task_types = {task.task_type for task in db.tasks}
+    assert task_types == {"pending_reissue", "imported_auth_prefill"}
+
+    pending_reissue = next(task for task in db.tasks if task.task_type == "pending_reissue")
+    assert pending_reissue.source_metadata["site_type"] == "sub2api"
+    assert pending_reissue.source_metadata["account_id"] == "9527"
+
+    decrypted_payload = crypto_service.decrypt(pending_reissue.credential_payload)
+    assert '"access_token": "access-sub2-1"' in decrypted_payload
+    assert '"refresh_token": "rt-sub2-1"' in decrypted_payload

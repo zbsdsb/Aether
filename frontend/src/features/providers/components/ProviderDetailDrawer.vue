@@ -174,6 +174,30 @@
                   添加 API 端点
                 </Button>
               </div>
+              <div
+                v-if="importedAuthPrefill?.available"
+                class="mt-3"
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="h-8 text-xs"
+                  @click="openImportedAuthPrefill"
+                >
+                  使用导入凭证填充用户认证
+                </Button>
+              </div>
+              <div
+                v-if="showProxyProbeManualReview"
+                class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+              >
+                <div class="font-medium">
+                  代理探测需要人工判断
+                </div>
+                <div class="mt-1 text-amber-800/90">
+                  {{ provider.proxy_probe_message || '站点返回挑战页或反爬响应，系统未自动落代理，请人工复核。' }}
+                </div>
+              </div>
             </div>
 
             <div class="space-y-6 p-4 sm:p-6">
@@ -1191,6 +1215,7 @@ import {
   type ProviderWithEndpointsSummary,
 } from '@/api/endpoints'
 import { adminApi } from '@/api/admin'
+import { getImportedAuthPrefill, type ImportedAuthPrefillResponse } from '@/api/providerOps'
 import {
   KeyFormDialog,
   KeyAllowedModelsDialog,
@@ -1255,6 +1280,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:open', value: boolean): void
   (e: 'edit', provider: ProviderWithEndpointsSummary): void
+  (e: 'openImportedAuthPrefill', payload: { provider: ProviderWithEndpointsSummary; prefill: ImportedAuthPrefillResponse }): void
   (e: 'toggleStatus', provider: ProviderWithEndpointsSummary): void
   (e: 'refresh'): void
 }>()
@@ -1271,12 +1297,16 @@ const endpoints = ref<ProviderEndpointWithKeys[]>([])
 const providerKeys = ref<EndpointAPIKey[]>([])  // Provider 级别的 keys
 const providerModels = ref<Model[]>([])  // Provider 级别的 models
 const providerMappingPreview = ref<ProviderMappingPreviewResponse | null>(null)  // 映射预览
+const importedAuthPrefill = ref<ImportedAuthPrefillResponse | null>(null)
 let providerLoadRequestId = 0
 let endpointsLoadRequestId = 0
 let mappingPreviewLoadRequestId = 0
 
 // 系统级格式转换配置
 const systemFormatConversionEnabled = ref(false)
+const showProxyProbeManualReview = computed(() =>
+  provider.value?.proxy_probe_status === 'manual_review'
+)
 
 // 端点相关状态
 const endpointDialogOpen = ref(false)
@@ -1504,6 +1534,7 @@ watch(
       providerKeys.value = []  // 清空 Provider 级别的 keys
       providerModels.value = []
       providerMappingPreview.value = null
+      importedAuthPrefill.value = null
 
       // 重置分页状态
       resetKeysPagination()
@@ -2901,12 +2932,14 @@ async function loadProvider() {
   try {
     loading.value = true
     // 并行加载 Provider 信息和系统级格式转换配置
-    const [providerData] = await Promise.all([
+    const [providerData, importedAuthPrefillData] = await Promise.all([
       getProvider(props.providerId),
+      getImportedAuthPrefill(props.providerId).catch(() => null),
       loadSystemFormatConversionConfig(),
     ])
     if (requestId !== providerLoadRequestId) return
     provider.value = providerData
+    importedAuthPrefill.value = importedAuthPrefillData
 
     if (!provider.value) {
       throw new Error('Provider 不存在')
@@ -2967,6 +3000,14 @@ async function loadMappingPreview() {
     if (requestId !== mappingPreviewLoadRequestId) return
     providerMappingPreview.value = null
   }
+}
+
+function openImportedAuthPrefill() {
+  if (!provider.value || !importedAuthPrefill.value?.available) return
+  emit('openImportedAuthPrefill', {
+    provider: provider.value,
+    prefill: importedAuthPrefill.value,
+  })
 }
 
 // 添加 ESC 键监听

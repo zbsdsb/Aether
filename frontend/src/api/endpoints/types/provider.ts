@@ -566,6 +566,9 @@ export interface ProviderWithEndpointsSummary {
   failover_rules?: FailoverRulesConfig | null
   ops_configured: boolean  // 是否配置了扩展操作（余额监控等）
   ops_architecture_id?: string  // 扩展操作使用的架构 ID（如 cubence, anyrouter）
+  proxy_probe_status?: string | null
+  proxy_probe_mode?: string | null
+  proxy_probe_message?: string | null
   import_task_total?: number
   import_task_pending?: number
   import_task_waiting_plaintext?: number

@@ -28,7 +28,12 @@ from src.database import get_db
 from src.models.admin_requests import CreateProviderRequest, UpdateProviderRequest
 from src.models.database import GlobalModel, Provider, ProviderAPIKey, ProviderEndpoint
 from src.models.endpoint_models import ProviderWithEndpointsSummary
-from src.models.provider_import import AllInHubImportRequest, AllInHubImportResponse
+from src.models.provider_import import (
+    AllInHubImportJobStartResponse,
+    AllInHubImportJobStatusResponse,
+    AllInHubImportRequest,
+    AllInHubImportResponse,
+)
 from src.models.provider_import import (
     AllInHubTaskExecuteRequest,
     AllInHubTaskExecutionItem,
@@ -41,6 +46,10 @@ from src.services.provider.delete_task import get_provider_delete_task, submit_p
 from src.services.provider_import.all_in_hub import (
     execute_all_in_hub_import,
     preview_all_in_hub_import,
+)
+from src.services.provider_import.async_job import (
+    get_all_in_hub_import_job,
+    submit_all_in_hub_import_job,
 )
 from src.services.provider_import.reissue import (
     execute_all_in_hub_import_tasks,
@@ -289,6 +298,29 @@ async def import_all_in_hub_route(
     db: Session = Depends(get_db),
 ) -> AllInHubImportResponse:
     adapter = AdminExecuteAllInHubImportAdapter(payload=payload)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.post("/imports/all-in-hub/submit", response_model=AllInHubImportJobStartResponse)
+async def submit_all_in_hub_import_route(
+    payload: AllInHubImportRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> AllInHubImportJobStartResponse:
+    adapter = AdminSubmitAllInHubImportAdapter(payload=payload)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.get(
+    "/imports/all-in-hub/tasks/{task_id}",
+    response_model=AllInHubImportJobStatusResponse,
+)
+async def get_all_in_hub_import_task_route(
+    task_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> AllInHubImportJobStatusResponse:
+    adapter = AdminGetAllInHubImportTaskAdapter(task_id=task_id)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -547,6 +579,36 @@ class AdminExecuteAllInHubImportAdapter(AdminApiAdapter):
             pending_tasks_created=result.stats.pending_tasks_created,
             pending_tasks_reused=result.stats.pending_tasks_reused,
         )
+        return result
+
+
+class AdminSubmitAllInHubImportAdapter(AdminApiAdapter):
+    def __init__(self, payload: AllInHubImportRequest):
+        self.payload = payload
+
+    async def handle(self, context: ApiRequestContext) -> AllInHubImportJobStartResponse:  # type: ignore[override]
+        task_id = await submit_all_in_hub_import_job(self.payload.content)
+        context.add_audit_metadata(
+            action="submit_all_in_hub_import_job",
+            task_id=task_id,
+        )
+        return AllInHubImportJobStartResponse(
+            task_id=task_id,
+            status="pending",
+            stage="queued",
+            message="导入任务已提交，后台处理中",
+        )
+
+
+class AdminGetAllInHubImportTaskAdapter(AdminApiAdapter):
+    def __init__(self, task_id: str):
+        self.task_id = task_id
+
+    async def handle(self, context: ApiRequestContext) -> AllInHubImportJobStatusResponse:  # type: ignore[override]
+        _ = context
+        result = await get_all_in_hub_import_job(self.task_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Task not found")
         return result
 
 

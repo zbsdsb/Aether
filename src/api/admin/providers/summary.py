@@ -62,6 +62,8 @@ IMPORT_TASK_STATUS_PENDING = "pending"
 IMPORT_TASK_STATUS_PROCESSING = "processing"
 IMPORT_TASK_FILTER_NEEDS_KEY = "needs_key"
 IMPORT_TASK_FILTER_MANUAL_REVIEW = "manual_review"
+IMPORT_TASK_TYPE_PREFILL_ONLY = "imported_auth_prefill"
+IMPORT_TASK_ACTION_PREFILL_ONLY = "prefill_only"
 
 
 @dataclass(slots=True)
@@ -88,11 +90,21 @@ def _import_task_status_priority(status: str | None) -> int:
     return 0
 
 
+def _is_prefill_only_import_task(task: ProviderImportTask) -> bool:
+    if str(getattr(task, "task_type", "") or "") == IMPORT_TASK_TYPE_PREFILL_ONLY:
+        return True
+    metadata = getattr(task, "source_metadata", None)
+    if isinstance(metadata, dict) and str(metadata.get("action_required") or "") == IMPORT_TASK_ACTION_PREFILL_ONLY:
+        return True
+    return False
+
+
 def _summarize_provider_import_tasks(tasks: list[ProviderImportTask]) -> ProviderImportTaskSummary:
-    summary = ProviderImportTaskSummary(import_task_total=len(tasks))
+    actionable_tasks = [task for task in tasks if not _is_prefill_only_import_task(task)]
+    summary = ProviderImportTaskSummary(import_task_total=len(actionable_tasks))
     current_priority = 0
 
-    for task in tasks:
+    for task in actionable_tasks:
         status = str(getattr(task, "status", "") or "").strip().lower()
         if status in {IMPORT_TASK_STATUS_PENDING, IMPORT_TASK_STATUS_PROCESSING}:
             summary.import_task_pending += 1
@@ -592,6 +604,21 @@ def _compose_provider_summary(
     ops_architecture_id = (
         provider_ops_config.get("architecture_id") if provider_ops_config else None
     )
+    proxy_probe_status = (
+        str(provider_ops_config.get("_proxy_probe_status") or "").strip() or None
+        if provider_ops_config
+        else None
+    )
+    proxy_probe_mode = (
+        str(provider_ops_config.get("_proxy_probe_mode") or "").strip() or None
+        if provider_ops_config
+        else None
+    )
+    proxy_probe_message = (
+        str(provider_ops_config.get("_proxy_probe_message") or "").strip() or None
+        if provider_ops_config
+        else None
+    )
     claude_code_advanced = _extract_claude_code_advanced_from_config(
         provider_config,
         provider_id=str(provider.id),
@@ -642,6 +669,9 @@ def _compose_provider_summary(
         endpoint_health_details=endpoint_health_details,
         ops_configured=ops_configured,
         ops_architecture_id=ops_architecture_id,
+        proxy_probe_status=proxy_probe_status,
+        proxy_probe_mode=proxy_probe_mode,
+        proxy_probe_message=proxy_probe_message,
         import_task_total=task_summary.import_task_total,
         import_task_pending=task_summary.import_task_pending,
         import_task_waiting_plaintext=task_summary.import_task_waiting_plaintext,

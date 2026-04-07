@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+import asyncio
 
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ from src.core.crypto import crypto_service
 from src.core.enums import ProviderBillingType
 from src.core.exceptions import InvalidRequestException
 from src.core.logger import logger
+from src.database import create_session
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint, ProviderImportTask
 from src.models.provider_import import (
     AllInHubImportManualItem,
@@ -22,15 +24,23 @@ from src.models.provider_import import (
     AllInHubImportResponse,
     AllInHubImportStats,
 )
+from src.services.provider_import.endpoint_candidates import (
+    EndpointCandidate,
+    resolve_endpoint_candidates,
+)
 from src.services.provider.fingerprint import generate_fingerprint
 from src.services.provider_keys.key_side_effects import run_create_key_side_effects
+from src.utils.async_utils import safe_create_task
 
 PENDING_IMPORT_TASK_TYPE = "pending_import"
 PENDING_REISSUE_TASK_TYPE = "pending_reissue"
+IMPORTED_AUTH_PREFILL_TASK_TYPE = "imported_auth_prefill"
+ACTION_REQUIRED_PREFILL_ONLY = "prefill_only"
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_FAILED = "failed"
 TASK_STATUS_CANCELLED = "cancelled"
 TASK_SOURCE_KIND = "all_in_hub"
+_IMPORTED_KEY_MODEL_FETCH_SEMAPHORE = asyncio.Semaphore(3)
 
 
 @dataclass(slots=True)
@@ -46,6 +56,7 @@ class _ImportRecord:
     username: str | None = None
     direct_api_key: str | None = None
     access_token: str | None = None
+    refresh_token: str | None = None
     session_cookie: str | None = None
 
 
@@ -238,13 +249,17 @@ def _extract_v2_records(data: dict[str, Any], *, skip_account_ids: set[str] | No
 
         account_info = item.get("account_info") or {}
         cookie_auth = item.get("cookieAuth") or {}
+        sub2api_auth = item.get("sub2apiAuth") or {}
         access_token = _optional_str(
             account_info.get("access_token") if isinstance(account_info, dict) else None
         ) or _optional_str(item.get("access_token") or item.get("token"))
+        refresh_token = _optional_str(
+            sub2api_auth.get("refreshToken") if isinstance(sub2api_auth, dict) else None
+        ) or _optional_str(item.get("refresh_token"))
         session_cookie = _optional_str(
             cookie_auth.get("sessionCookie") if isinstance(cookie_auth, dict) else None
         ) or _optional_str(cookie_auth.get("cookie") if isinstance(cookie_auth, dict) else None)
-        if not access_token and not session_cookie:
+        if not access_token and not refresh_token and not session_cookie:
             continue
 
         records.append(
@@ -260,6 +275,7 @@ def _extract_v2_records(data: dict[str, Any], *, skip_account_ids: set[str] | No
                     account_info.get("username") if isinstance(account_info, dict) else None
                 ),
                 access_token=access_token,
+                refresh_token=refresh_token,
                 session_cookie=session_cookie,
             )
         )
@@ -348,8 +364,8 @@ def _collect_records(content: str | dict[str, Any] | list[Any]) -> tuple[list[_I
     records: list[_ImportRecord] = []
     if isinstance(data, dict):
         if version.startswith("2"):
-            snapshot_records, snapshot_account_ids = _extract_v2_snapshot_direct_records(data)
-            records.extend(_extract_v2_records(data, skip_account_ids=snapshot_account_ids))
+            snapshot_records, _snapshot_account_ids = _extract_v2_snapshot_direct_records(data)
+            records.extend(_extract_v2_records(data))
             records.extend(snapshot_records)
         else:
             records.extend(_extract_v1_records(data))
@@ -402,6 +418,50 @@ def _find_existing_endpoint(provider_id: str, endpoints: list[ProviderEndpoint])
     return None
 
 
+def _find_existing_endpoint_by_format(
+    provider_id: str,
+    api_format: str,
+    endpoints: list[ProviderEndpoint],
+) -> ProviderEndpoint | None:
+    for endpoint in endpoints:
+        if endpoint.provider_id == provider_id and endpoint.api_format == api_format:
+            return endpoint
+    return None
+
+
+def _collect_candidate_inputs(bucket: _ProviderBucket) -> tuple[list[str], list[str]]:
+    site_types: list[str] = []
+    labels: list[str] = []
+    for record in [*bucket.direct_records, *bucket.pending_records]:
+        site_type = _optional_str(record.site_type)
+        if site_type:
+            site_types.append(site_type)
+        display_name = _optional_str(record.display_name)
+        if display_name:
+            labels.append(display_name)
+        username = _optional_str(record.username)
+        if username:
+            labels.append(username)
+    return site_types, labels
+
+
+def _resolve_bucket_endpoint_candidates(bucket: _ProviderBucket) -> list[EndpointCandidate]:
+    site_types, labels = _collect_candidate_inputs(bucket)
+    return resolve_endpoint_candidates(
+        provider_name=bucket.provider_name,
+        endpoint_base_url=bucket.endpoint_base_url,
+        site_types=site_types,
+        labels=labels,
+    )
+
+
+def _pick_primary_candidate(candidates: list[EndpointCandidate]) -> EndpointCandidate:
+    for candidate in candidates:
+        if candidate.api_format == "openai:chat":
+            return candidate
+    return candidates[0]
+
+
 def _decrypt_existing_key_hashes(provider_id: str, keys: list[ProviderAPIKey]) -> set[str]:
     hashes: set[str] = set()
     for key in keys:
@@ -437,9 +497,23 @@ def _build_pending_task_type(record: _ImportRecord) -> str:
     return PENDING_IMPORT_TASK_TYPE
 
 
+def _build_task_type_for_record(bucket: _ProviderBucket, record: _ImportRecord) -> str:
+    task_type = _build_pending_task_type(record)
+    if any(direct_record.account_id == record.source_id for direct_record in bucket.direct_records):
+        return IMPORTED_AUTH_PREFILL_TASK_TYPE
+    if task_type == PENDING_IMPORT_TASK_TYPE and _can_generate_auth_setup_task(record):
+        return IMPORTED_AUTH_PREFILL_TASK_TYPE
+    return task_type
+
+
+def _is_actionable_task_type(task_type: str) -> bool:
+    return task_type in {PENDING_IMPORT_TASK_TYPE, PENDING_REISSUE_TASK_TYPE}
+
+
 def _build_pending_task_payload(record: _ImportRecord) -> str:
     payload = {
         "access_token": record.access_token,
+        "refresh_token": record.refresh_token,
         "session_cookie": record.session_cookie,
     }
     return crypto_service.encrypt(json.dumps(payload, sort_keys=True))
@@ -454,8 +528,48 @@ def _build_pending_task_metadata(record: _ImportRecord) -> dict[str, Any]:
         "account_id": record.account_id,
         "username": record.username,
         "has_access_token": bool(record.access_token),
+        "has_refresh_token": bool(record.refresh_token),
         "has_session_cookie": bool(record.session_cookie),
     }
+
+
+def _can_generate_auth_setup_task(record: _ImportRecord) -> bool:
+    site_type = str(record.site_type or "").strip().lower()
+    if site_type in {"new-api", "new_api"}:
+        return bool(record.access_token or record.session_cookie)
+    if site_type == "sub2api":
+        return bool(record.refresh_token)
+    if site_type in {"anyrouter", "nekocode"}:
+        return bool(record.session_cookie)
+    if site_type == "cubence":
+        return bool(record.session_cookie)
+    if site_type == "yescode":
+        return bool(record.session_cookie)
+    return False
+
+
+def _mark_task_as_prefill_only(task: ProviderImportTask, *, endpoint_id: str, now: datetime) -> None:
+    metadata = getattr(task, "source_metadata", None)
+    normalized_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    normalized_metadata["action_required"] = ACTION_REQUIRED_PREFILL_ONLY
+    task.task_type = IMPORTED_AUTH_PREFILL_TASK_TYPE
+    task.endpoint_id = endpoint_id
+    task.status = TASK_STATUS_PENDING
+    task.last_error = None
+    task.completed_at = None
+    task.source_metadata = normalized_metadata
+    task.updated_at = now
+
+
+def _mark_legacy_task_as_prefill_only_shadow(task: ProviderImportTask, *, now: datetime) -> None:
+    metadata = getattr(task, "source_metadata", None)
+    normalized_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    normalized_metadata["action_required"] = ACTION_REQUIRED_PREFILL_ONLY
+    task.status = "completed"
+    task.last_error = None
+    task.completed_at = now
+    task.source_metadata = normalized_metadata
+    task.updated_at = now
 
 
 def _find_existing_import_task(
@@ -472,6 +586,81 @@ def _find_existing_import_task(
         ):
             return task
     return None
+
+
+def _find_existing_import_task_by_source(
+    provider_id: str,
+    source_id: str,
+    tasks: list[ProviderImportTask],
+    *,
+    task_types: set[str] | None = None,
+) -> ProviderImportTask | None:
+    for task in tasks:
+        if task.provider_id != provider_id or task.source_id != source_id:
+            continue
+        if task_types is not None and task.task_type not in task_types:
+            continue
+        return task
+    return None
+
+
+def _upsert_auth_setup_task(
+    *,
+    provider: Provider,
+    endpoint: ProviderEndpoint,
+    record: _ImportRecord,
+    db: Session,
+    tasks: list[ProviderImportTask],
+    now: datetime,
+) -> ProviderImportTask | None:
+    if not _can_generate_auth_setup_task(record):
+        return None
+
+    existing_task = _find_existing_import_task(
+        provider.id,
+        record.source_id,
+        IMPORTED_AUTH_PREFILL_TASK_TYPE,
+        tasks,
+    )
+    encrypted_payload = _build_pending_task_payload(record)
+    source_metadata = _build_pending_task_metadata(record)
+    source_metadata["action_required"] = ACTION_REQUIRED_PREFILL_ONLY
+
+    if existing_task is not None:
+        existing_task.endpoint_id = endpoint.id
+        existing_task.source_name = record.provider_name[:100] or provider.name
+        existing_task.source_origin = record.provider_origin
+        existing_task.source_kind = TASK_SOURCE_KIND
+        existing_task.credential_payload = encrypted_payload
+        existing_task.source_metadata = source_metadata
+        existing_task.status = TASK_STATUS_PENDING
+        existing_task.last_error = None
+        existing_task.completed_at = None
+        existing_task.updated_at = now
+        return existing_task
+
+    new_task = ProviderImportTask(
+        id=str(uuid.uuid4()),
+        provider_id=provider.id,
+        endpoint_id=endpoint.id,
+        task_type=IMPORTED_AUTH_PREFILL_TASK_TYPE,
+        status=TASK_STATUS_PENDING,
+        source_kind=TASK_SOURCE_KIND,
+        source_id=record.source_id[:120],
+        source_name=record.provider_name[:100] or provider.name,
+        source_origin=record.provider_origin,
+        credential_payload=encrypted_payload,
+        source_metadata=source_metadata,
+        retry_count=0,
+        last_error=None,
+        last_attempt_at=None,
+        completed_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(new_task)
+    tasks.append(new_task)
+    return new_task
 
 
 def _build_preview_response(
@@ -492,18 +681,30 @@ def _build_preview_response(
 
     for bucket in buckets:
         existing_provider = _find_existing_provider(bucket.provider_origin, providers, endpoints)
-        existing_endpoint = (
-            _find_existing_endpoint(existing_provider.id, endpoints) if existing_provider else None
-        )
+        candidate_endpoints = _resolve_bucket_endpoint_candidates(bucket)
+        existing_endpoint = None
+        if existing_provider:
+            for candidate in candidate_endpoints:
+                existing_endpoint = _find_existing_endpoint_by_format(
+                    existing_provider.id, candidate.api_format, endpoints
+                )
+                if existing_endpoint is not None:
+                    break
         if existing_provider is None:
             stats.providers_to_create += 1
         else:
             stats.providers_reused += 1
 
-        if existing_endpoint is None:
-            stats.endpoints_to_create += 1
-        else:
-            stats.endpoints_reused += 1
+        for candidate in candidate_endpoints:
+            existing_candidate_endpoint = (
+                _find_existing_endpoint_by_format(existing_provider.id, candidate.api_format, endpoints)
+                if existing_provider
+                else None
+            )
+            if existing_candidate_endpoint is None:
+                stats.endpoints_to_create += 1
+            else:
+                stats.endpoints_reused += 1
 
         existing_hashes = (
             _decrypt_existing_key_hashes(existing_provider.id, keys) if existing_provider else set()
@@ -523,18 +724,40 @@ def _build_preview_response(
             ready_direct += 1
 
         stats.direct_keys_ready += ready_direct
-        stats.pending_sources += len(bucket.pending_records)
         batch_pending_signatures: set[tuple[str, str]] = set()
         for record in bucket.pending_records:
-            task_type = _build_pending_task_type(record)
+            task_type = _build_task_type_for_record(bucket, record)
             if existing_provider and _find_existing_import_task(
                 existing_provider.id, record.source_id, task_type, tasks
             ):
-                stats.pending_tasks_reused += 1
+                if _is_actionable_task_type(task_type):
+                    stats.pending_tasks_reused += 1
+                    manual_items.append(
+                        AllInHubImportManualItem(
+                            item_type="pending_task",
+                            status="reused",
+                            provider_name=bucket.provider_name,
+                            provider_website=bucket.provider_origin,
+                            endpoint_base_url=record.endpoint_base_url,
+                            source_id=record.source_id,
+                            task_type=task_type,
+                            auth_type=record.auth_type,
+                            site_type=record.site_type,
+                            reason="已存在待处理任务，等待人工补抓或补录",
+                        )
+                    )
+                continue
+            signature = (task_type, record.source_id)
+            if signature in batch_pending_signatures:
+                continue
+            batch_pending_signatures.add(signature)
+            if _is_actionable_task_type(task_type):
+                stats.pending_sources += 1
+                stats.pending_tasks_to_create += 1
                 manual_items.append(
                     AllInHubImportManualItem(
                         item_type="pending_task",
-                        status="reused",
+                        status="pending",
                         provider_name=bucket.provider_name,
                         provider_website=bucket.provider_origin,
                         endpoint_base_url=record.endpoint_base_url,
@@ -542,36 +765,20 @@ def _build_preview_response(
                         task_type=task_type,
                         auth_type=record.auth_type,
                         site_type=record.site_type,
-                        reason="已存在待处理任务，等待人工补抓或补录",
+                        reason="缺少明文 Key，等待人工补抓或补录",
                     )
                 )
-                continue
-            signature = (task_type, record.source_id)
-            if signature in batch_pending_signatures:
-                continue
-            batch_pending_signatures.add(signature)
-            stats.pending_tasks_to_create += 1
-            manual_items.append(
-                AllInHubImportManualItem(
-                    item_type="pending_task",
-                    status="pending",
-                    provider_name=bucket.provider_name,
-                    provider_website=bucket.provider_origin,
-                    endpoint_base_url=record.endpoint_base_url,
-                    source_id=record.source_id,
-                    task_type=task_type,
-                    auth_type=record.auth_type,
-                    site_type=record.site_type,
-                    reason="缺少明文 Key，等待人工补抓或补录",
-                )
-            )
         provider_summaries.append(
             AllInHubImportProviderSummary(
                 provider_name=bucket.provider_name,
                 provider_website=bucket.provider_origin,
                 endpoint_base_url=bucket.endpoint_base_url,
                 direct_key_count=ready_direct,
-                pending_source_count=len(bucket.pending_records),
+                pending_source_count=sum(
+                    1
+                    for record in bucket.pending_records
+                    if _is_actionable_task_type(_build_task_type_for_record(bucket, record))
+                ),
                 existing_provider=existing_provider is not None,
                 existing_endpoint=existing_endpoint is not None,
             )
@@ -604,6 +811,56 @@ async def _verify_imported_key_models(
         db.commit()
 
 
+async def _run_imported_key_model_fetch(key_id: str) -> None:
+    async with _IMPORTED_KEY_MODEL_FETCH_SEMAPHORE:
+        db = create_session()
+        try:
+            key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
+            if key is None:
+                return
+            key.auto_fetch_models = True
+            db.commit()
+            status = await _verify_imported_key_models(db=db, key=key)
+            if status != "success":
+                key.is_active = False
+                db.commit()
+                logger.warning("all-in-hub 后台模型抓取失败 key_id={} status={}", key_id, status)
+        except Exception as exc:
+            try:
+                key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
+                if key is not None:
+                    key.is_active = False
+                    db.commit()
+            except Exception:
+                pass
+            logger.warning("all-in-hub 后台模型抓取异常 key_id={}: {}", key_id, exc)
+        finally:
+            try:
+                key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
+                if key is not None:
+                    key.auto_fetch_models = False
+                    db.commit()
+            except Exception:
+                pass
+            db.close()
+
+
+async def _run_imported_key_model_fetch_batch(key_ids: list[str]) -> None:
+    for key_id in key_ids:
+        await _run_imported_key_model_fetch(key_id)
+
+
+def _schedule_imported_key_model_fetches(key_ids: list[str]) -> None:
+    if not key_ids:
+        return
+    task = safe_create_task(_run_imported_key_model_fetch_batch(list(key_ids)))
+    if task is None:
+        logger.warning(
+            "all-in-hub 无运行中的事件循环，未能调度后台模型抓取 batch size={}",
+            len(key_ids),
+        )
+
+
 def preview_all_in_hub_import(
     content: str | dict[str, Any] | list[Any],
     *,
@@ -630,6 +887,8 @@ async def execute_all_in_hub_import(
     content: str | dict[str, Any] | list[Any],
     *,
     db: Session,
+    schedule_model_fetch: bool = True,
+    created_key_ids_out: list[str] | None = None,
 ) -> AllInHubImportResponse:
     records, version = _collect_records(content)
     buckets = _bucket_records(records)
@@ -662,43 +921,57 @@ async def execute_all_in_hub_import(
                     name=_build_unique_provider_name(bucket.provider_name, providers),
                     description="Imported from all-in-hub",
                     website=bucket.provider_origin,
-                    provider_type="custom",
-                    billing_type=ProviderBillingType.PAY_AS_YOU_GO,
-                    provider_priority=100,
-                    keep_priority_on_conversion=False,
-                    enable_format_conversion=False,
-                    is_active=True,
-                    max_retries=2,
-                    created_at=now,
-                    updated_at=now,
-                )
+                provider_type="custom",
+                billing_type=ProviderBillingType.PAY_AS_YOU_GO,
+                provider_priority=100,
+                keep_priority_on_conversion=False,
+                enable_format_conversion=True,
+                is_active=True,
+                max_retries=2,
+                created_at=now,
+                updated_at=now,
+            )
                 db.add(provider)
                 providers.append(provider)
                 preview.stats.providers_created += 1
 
-            endpoint = _find_existing_endpoint(provider.id, endpoints)
-            if endpoint is None:
-                endpoint = ProviderEndpoint(
-                    id=str(uuid.uuid4()),
-                    provider_id=provider.id,
-                    api_format="openai:chat",
-                    api_family="openai",
-                    endpoint_kind="chat",
-                    base_url=bucket.endpoint_base_url,
-                    header_rules=None,
-                    body_rules=get_default_body_rules_for_endpoint("openai:chat") or None,
-                    max_retries=getattr(provider, "max_retries", 2) or 2,
-                    is_active=True,
-                    custom_path=None,
-                    config=None,
-                    format_acceptance_config=None,
-                    proxy=None,
-                    created_at=now,
-                    updated_at=now,
-                )
-                db.add(endpoint)
-                endpoints.append(endpoint)
-                preview.stats.endpoints_created += 1
+            candidate_endpoints = _resolve_bucket_endpoint_candidates(bucket)
+            created_or_existing_endpoints: dict[str, ProviderEndpoint] = {}
+            for candidate in candidate_endpoints:
+                endpoint = _find_existing_endpoint_by_format(provider.id, candidate.api_format, endpoints)
+                if endpoint is None:
+                    endpoint = ProviderEndpoint(
+                        id=str(uuid.uuid4()),
+                        provider_id=provider.id,
+                        api_format=candidate.api_format,
+                        api_family=candidate.api_family,
+                        endpoint_kind=candidate.endpoint_kind,
+                        base_url=bucket.endpoint_base_url,
+                        header_rules=None,
+                        body_rules=(
+                            get_default_body_rules_for_endpoint(
+                                candidate.api_format,
+                                provider_type=provider.provider_type,
+                            )
+                            or None
+                        ),
+                        max_retries=getattr(provider, "max_retries", 2) or 2,
+                        is_active=True,
+                        custom_path=None,
+                        config={"import_candidate_reason": candidate.reason},
+                        format_acceptance_config=None,
+                        proxy=None,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    db.add(endpoint)
+                    endpoints.append(endpoint)
+                    preview.stats.endpoints_created += 1
+                created_or_existing_endpoints[candidate.api_format] = endpoint
+
+            primary_candidate = _pick_primary_candidate(candidate_endpoints)
+            endpoint = created_or_existing_endpoints[primary_candidate.api_format]
+            candidate_api_formats = [candidate.api_format for candidate in candidate_endpoints]
 
             existing_hashes = _decrypt_existing_key_hashes(provider.id, keys)
             batch_hashes: set[str] = set()
@@ -715,7 +988,7 @@ async def execute_all_in_hub_import(
                 new_key = ProviderAPIKey(
                     id=key_id,
                     provider_id=provider.id,
-                    api_formats=["openai:chat"],
+                    api_formats=candidate_api_formats,
                     auth_type="api_key",
                     api_key=encrypted_key,
                     auth_config=None,
@@ -748,15 +1021,34 @@ async def execute_all_in_hub_import(
                 existing_hashes.add(key_hash)
                 preview.stats.keys_created += 1
                 created_keys.append((provider, endpoint, new_key, record))
+                if created_key_ids_out is not None:
+                    created_key_ids_out.append(str(new_key.id))
 
             for record in bucket.pending_records:
-                task_type = _build_pending_task_type(record)
+                task_type = _build_task_type_for_record(bucket, record)
                 existing_task = _find_existing_import_task(
                     provider.id, record.source_id, task_type, tasks
                 )
+                if existing_task is None and task_type == IMPORTED_AUTH_PREFILL_TASK_TYPE:
+                    existing_task = _find_existing_import_task_by_source(
+                        provider.id,
+                        record.source_id,
+                        tasks,
+                        task_types={PENDING_IMPORT_TASK_TYPE, PENDING_REISSUE_TASK_TYPE},
+                    )
                 encrypted_payload = _build_pending_task_payload(record)
                 source_metadata = _build_pending_task_metadata(record)
                 if existing_task is not None:
+                    if task_type == IMPORTED_AUTH_PREFILL_TASK_TYPE:
+                        _mark_task_as_prefill_only(existing_task, endpoint_id=endpoint.id, now=now)
+                        stale_actionable_task = _find_existing_import_task_by_source(
+                            provider.id,
+                            record.source_id,
+                            tasks,
+                            task_types={PENDING_IMPORT_TASK_TYPE, PENDING_REISSUE_TASK_TYPE},
+                        )
+                        if stale_actionable_task is not None and stale_actionable_task.id != existing_task.id:
+                            _mark_legacy_task_as_prefill_only_shadow(stale_actionable_task, now=now)
                     existing_task.endpoint_id = endpoint.id
                     existing_task.source_name = record.provider_name[:100] or provider.name
                     existing_task.source_origin = record.provider_origin
@@ -764,11 +1056,24 @@ async def execute_all_in_hub_import(
                     existing_task.credential_payload = encrypted_payload
                     existing_task.source_metadata = source_metadata
                     existing_task.updated_at = now
-                    if existing_task.status in {TASK_STATUS_FAILED, TASK_STATUS_CANCELLED}:
+                    if _is_actionable_task_type(task_type) and existing_task.status in {
+                        TASK_STATUS_FAILED,
+                        TASK_STATUS_CANCELLED,
+                    }:
                         existing_task.status = TASK_STATUS_PENDING
                         existing_task.last_error = None
                         existing_task.completed_at = None
-                    preview.stats.pending_tasks_reused += 1
+                    if _is_actionable_task_type(task_type):
+                        preview.stats.pending_tasks_reused += 1
+                        if _can_generate_auth_setup_task(record):
+                            _upsert_auth_setup_task(
+                                provider=provider,
+                                endpoint=endpoint,
+                                record=record,
+                                db=db,
+                                tasks=tasks,
+                                now=now,
+                            )
                     continue
 
                 new_task = ProviderImportTask(
@@ -792,7 +1097,17 @@ async def execute_all_in_hub_import(
                 )
                 db.add(new_task)
                 tasks.append(new_task)
-                preview.stats.pending_tasks_created += 1
+                if _is_actionable_task_type(task_type):
+                    preview.stats.pending_tasks_created += 1
+                    if _can_generate_auth_setup_task(record):
+                        _upsert_auth_setup_task(
+                            provider=provider,
+                            endpoint=endpoint,
+                            record=record,
+                            db=db,
+                            tasks=tasks,
+                            now=now,
+                        )
 
         db.flush()
         db.commit()
@@ -805,43 +1120,10 @@ async def execute_all_in_hub_import(
             await run_create_key_side_effects(db=db, provider_id=provider.id, key=key)
         except Exception as exc:
             logger.warning("all-in-hub 导入后执行 Key 副作用失败: {}", exc)
-        try:
-            verification_status = await _verify_imported_key_models(db=db, key=key)
-            if verification_status != "success":
-                key.is_active = False
-                db.commit()
-                preview.manual_items.append(
-                    AllInHubImportManualItem(
-                        item_type="verification_failure",
-                        status="failed",
-                        provider_name=provider.name,
-                        provider_website=provider.website or record.provider_origin,
-                        endpoint_base_url=endpoint.base_url,
-                        source_id=record.source_id,
-                        task_type=None,
-                        auth_type="api_key",
-                        site_type=record.site_type,
-                        reason=f"/v1/models 校验失败（{verification_status}），等待人工复核",
-                    )
-                )
-        except Exception as exc:
-            key.is_active = False
-            db.commit()
-            logger.warning("all-in-hub 导入后校验模型失败 key_id={}: {}", key.id, exc)
-            preview.manual_items.append(
-                AllInHubImportManualItem(
-                    item_type="verification_failure",
-                    status="failed",
-                    provider_name=provider.name,
-                    provider_website=provider.website or record.provider_origin,
-                    endpoint_base_url=endpoint.base_url,
-                    source_id=record.source_id,
-                    task_type=None,
-                    auth_type="api_key",
-                    site_type=record.site_type,
-                    reason=f"/v1/models 校验异常：{exc}，等待人工复核",
-                )
-            )
+        _ = endpoint, record
+
+    if schedule_model_fetch:
+        _schedule_imported_key_model_fetches([str(key.id) for _, _, key, _ in created_keys])
 
     try:
         await invalidate_models_list_cache()

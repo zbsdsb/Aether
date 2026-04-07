@@ -94,6 +94,7 @@ export interface AllInHubTaskExecutionItem {
   site_type: string | null
   auth_type: string | null
   has_access_token: boolean
+  has_refresh_token: boolean
   has_session_cookie: boolean
   action_required: string | null
   plaintext_capture_status: string | null
@@ -109,6 +110,24 @@ export interface AllInHubTaskExecutionResponse {
   results: AllInHubTaskExecutionItem[]
 }
 
+export interface AllInHubImportJobStartResponse {
+  task_id: string
+  status: string
+  stage: string
+  message: string
+}
+
+export interface AllInHubImportJobStatusResponse {
+  task_id: string
+  status: string
+  stage: string
+  message: string
+  import_result: AllInHubImportResponse | null
+  execution_result: AllInHubTaskExecutionResponse | null
+}
+
+const ALL_IN_HUB_IMPORT_TIMEOUT_MS = 10 * 60 * 1000
+
 export async function getProvidersSummary(
   params: ProviderSummaryQuery = {},
 ): Promise<ProviderSummaryPageResponse> {
@@ -123,6 +142,7 @@ export async function previewAllInHubImport(content: string): Promise<AllInHubIm
   const response = await client.post<AllInHubImportResponse>(
     '/api/admin/providers/imports/all-in-hub/preview',
     { content },
+    { timeout: ALL_IN_HUB_IMPORT_TIMEOUT_MS },
   )
   return response.data
 }
@@ -131,6 +151,22 @@ export async function importAllInHub(content: string): Promise<AllInHubImportRes
   const response = await client.post<AllInHubImportResponse>(
     '/api/admin/providers/imports/all-in-hub',
     { content },
+    { timeout: ALL_IN_HUB_IMPORT_TIMEOUT_MS },
+  )
+  return response.data
+}
+
+export async function submitAllInHubImportJob(content: string): Promise<AllInHubImportJobStartResponse> {
+  const response = await client.post<AllInHubImportJobStartResponse>(
+    '/api/admin/providers/imports/all-in-hub/submit',
+    { content },
+  )
+  return response.data
+}
+
+export async function getAllInHubImportJob(taskId: string): Promise<AllInHubImportJobStatusResponse> {
+  const response = await client.get<AllInHubImportJobStatusResponse>(
+    `/api/admin/providers/imports/all-in-hub/tasks/${taskId}`,
   )
   return response.data
 }

@@ -255,6 +255,7 @@
     :provider-id="selectedProviderId"
     @update:open="providerDrawerOpen = $event"
     @edit="openEditProviderDialog"
+    @open-imported-auth-prefill="openImportedAuthPrefill"
     @toggle-status="toggleProviderStatus"
     @refresh="handleDrawerRefresh"
   />
@@ -263,12 +264,14 @@
     v-model:open="opsConfigDialogOpen"
     :provider-id="opsConfigProviderId"
     :provider-website="opsConfigProviderWebsite"
+    :prefill-draft="opsConfigPrefillDraft"
     @saved="handleOpsConfigSaved"
   />
 
   <AllInHubImportDialog
     :open="allInHubImportDialogOpen"
     :content="allInHubImportContent"
+    :job-status="allInHubImportJobStatus"
     :preview="allInHubImportPreview"
     :execution-result="allInHubTaskExecutionResult"
     :can-execute-tasks="canExecuteAllInHubTasks"
@@ -303,6 +306,7 @@ import ProviderDetailDrawer from '@/features/providers/components/ProviderDetail
 import ProviderTableHeader from '@/features/providers/components/ProviderTableHeader.vue'
 import ProviderTableRow from '@/features/providers/components/ProviderTableRow.vue'
 import ProviderMobileCard from '@/features/providers/components/ProviderMobileCard.vue'
+import { buildImportedAuthPrefillConfig } from '@/features/providers/utils/imported-auth-prefill'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { useRowClick } from '@/composables/useRowClick'
@@ -311,19 +315,22 @@ import { useProviderBalance } from '@/features/providers/composables/useProvider
 import {
   getProvidersSummary,
   getProvider,
-  importAllInHub,
+  getAllInHubImportJob,
   executeAllInHubImportTasks,
   deleteProvider,
   getProviderDeleteTask,
   previewAllInHubImport,
+  submitAllInHubImportJob,
   updateProvider,
   getGlobalModels,
+  type AllInHubImportJobStatusResponse,
   type AllInHubImportManualItem,
   type AllInHubImportResponse,
   type AllInHubTaskExecutionResponse,
   type ProviderImportTaskOverview,
   type ProviderWithEndpointsSummary,
 } from '@/api/endpoints'
+import type { ImportedAuthPrefillResponse } from '@/api/providerOps'
 import { adminApi } from '@/api/admin'
 import { parseApiError } from '@/utils/errorParser'
 import { useRouteQuery } from '@/composables/useRouteQuery'
@@ -371,8 +378,10 @@ const allInHubImportDialogOpen = ref(false)
 const allInHubImportContent = ref('')
 const allInHubImportPreview = ref<AllInHubImportResponse | null>(null)
 const allInHubTaskExecutionResult = ref<AllInHubTaskExecutionResponse | null>(null)
+const allInHubImportJobStatus = ref<AllInHubImportJobStatusResponse | null>(null)
 const canExecuteAllInHubTasks = ref(false)
 const allInHubImportLoading = ref(false)
+let allInHubImportPollTimer: ReturnType<typeof setTimeout> | null = null
 let deletePollAbort: AbortController | null = null
 
 const DELETE_POLL_INTERVAL_MS = 2000
@@ -669,6 +678,7 @@ watch(providerDrawerOpen, (open) => {
 const opsConfigDialogOpen = ref(false)
 const opsConfigProviderId = ref('')
 const opsConfigProviderWebsite = ref('')
+const opsConfigPrefillDraft = ref<Record<string, unknown> | null>(null)
 
 // 内联编辑备注
 const editingDescriptionId = ref<string | null>(null)
@@ -827,6 +837,7 @@ function openAllInHubImportDialog() {
   allInHubImportContent.value = ''
   allInHubImportPreview.value = null
   allInHubTaskExecutionResult.value = null
+  allInHubImportJobStatus.value = null
   canExecuteAllInHubTasks.value = false
 }
 
@@ -857,37 +868,86 @@ async function handleConfirmAllInHubImport() {
   }
   allInHubImportLoading.value = true
   try {
-    const result = await importAllInHub(allInHubImportContent.value)
-    allInHubImportPreview.value = result
+    const submission = await submitAllInHubImportJob(allInHubImportContent.value)
+    allInHubImportJobStatus.value = {
+      task_id: submission.task_id,
+      status: submission.status,
+      stage: submission.stage,
+      message: submission.message,
+      import_result: null,
+      execution_result: null,
+    }
     allInHubTaskExecutionResult.value = null
     canExecuteAllInHubTasks.value = false
-    let successMessage = `导入完成：新增 ${result.stats.providers_created} 个 Provider，${result.stats.endpoints_created} 个 Endpoint，${result.stats.keys_created} 个 Key`
-
-    if (result.stats.pending_sources > 0) {
-      try {
-        const execution = await executeAllInHubImportTasks(20)
-        allInHubTaskExecutionResult.value = execution
-        allInHubImportPreview.value = mergeExecutionManualItems(result, execution)
-        canExecuteAllInHubTasks.value = execution.total_selected === 20
-        successMessage += `；自动补钥执行 ${execution.total_selected} 条，成功 ${execution.completed}，失败 ${execution.failed}`
-      } catch (executionErr: unknown) {
-        canExecuteAllInHubTasks.value = true
-        showWarning(parseApiError(executionErr, '自动执行补钥失败，可手动重试'), '自动补钥未完成')
-      }
-    }
-
-    const pendingReviewCount = allInHubImportPreview.value?.manual_items.length || 0
-    if (pendingReviewCount > 0) {
-      showWarning(`仍有 ${pendingReviewCount} 条待人工处理或复核`, '导入结果已更新')
-    }
-
-    await loadProviders()
-    showSuccess(successMessage)
+    showInfo(`后台导入任务已提交：${submission.task_id}`)
+    startAllInHubImportPolling(submission.task_id)
   } catch (err: unknown) {
     showError(parseApiError(err, '执行导入失败'), '导入失败')
   } finally {
     allInHubImportLoading.value = false
   }
+}
+
+function stopAllInHubImportPolling() {
+  if (allInHubImportPollTimer) {
+    clearTimeout(allInHubImportPollTimer)
+    allInHubImportPollTimer = null
+  }
+}
+
+function scheduleAllInHubImportPolling(taskId: string, delay = 1500) {
+  stopAllInHubImportPolling()
+  allInHubImportPollTimer = setTimeout(() => {
+    void pollAllInHubImportJob(taskId)
+  }, delay)
+}
+
+async function pollAllInHubImportJob(taskId: string) {
+  try {
+    const status = await getAllInHubImportJob(taskId)
+    allInHubImportJobStatus.value = status
+    allInHubImportPreview.value = status.import_result
+    allInHubTaskExecutionResult.value = status.execution_result
+    canExecuteAllInHubTasks.value = !!status.execution_result && status.execution_result.total_selected >= 20
+
+    if (status.status === 'completed') {
+      stopAllInHubImportPolling()
+      if (status.import_result && status.execution_result) {
+        allInHubImportPreview.value = mergeExecutionManualItems(status.import_result, status.execution_result)
+      }
+      await loadProviders()
+      const importStats = status.import_result?.stats
+      const executionStats = status.execution_result
+      let successMessage = '后台导入已完成'
+      if (importStats) {
+        successMessage = `导入完成：新增 ${importStats.providers_created} 个 Provider，${importStats.endpoints_created} 个 Endpoint，${importStats.keys_created} 个 Key`
+      }
+      if (executionStats && executionStats.total_selected > 0) {
+        successMessage += `；自动执行 ${executionStats.total_selected} 条任务，成功 ${executionStats.completed}，失败 ${executionStats.failed}`
+      }
+      const pendingReviewCount = allInHubImportPreview.value?.manual_items.length || 0
+      if (pendingReviewCount > 0) {
+        showWarning(`仍有 ${pendingReviewCount} 条待人工处理或复核`, '导入结果已更新')
+      }
+      showSuccess(successMessage)
+      return
+    }
+
+    if (status.status === 'failed') {
+      stopAllInHubImportPolling()
+      showError(status.message || '后台导入失败', '导入失败')
+      return
+    }
+
+    scheduleAllInHubImportPolling(taskId)
+  } catch (err: unknown) {
+    stopAllInHubImportPolling()
+    showError(parseApiError(err, '获取导入任务状态失败'), '导入失败')
+  }
+}
+
+function startAllInHubImportPolling(taskId: string) {
+  scheduleAllInHubImportPolling(taskId, 500)
 }
 
 async function handleExecuteAllInHubTasks() {
@@ -922,12 +982,24 @@ function openEditProviderDialog(provider: ProviderWithEndpointsSummary) {
 function openOpsConfigDialog(provider: ProviderWithEndpointsSummary) {
   opsConfigProviderId.value = provider.id
   opsConfigProviderWebsite.value = provider.website || ''
+  opsConfigPrefillDraft.value = null
+  opsConfigDialogOpen.value = true
+}
+
+function openImportedAuthPrefill(payload: {
+  provider: ProviderWithEndpointsSummary
+  prefill: ImportedAuthPrefillResponse
+}) {
+  opsConfigProviderId.value = payload.provider.id
+  opsConfigProviderWebsite.value = payload.provider.website || ''
+  opsConfigPrefillDraft.value = buildImportedAuthPrefillConfig(payload.prefill)
   opsConfigDialogOpen.value = true
 }
 
 // 扩展操作配置保存回调
 function handleOpsConfigSaved() {
   opsConfigDialogOpen.value = false
+  opsConfigPrefillDraft.value = null
   loadProviders()
 }
 
@@ -1048,6 +1120,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   deletePollAbort?.abort()
+  stopAllInHubImportPolling()
   if (debounceTimer) clearTimeout(debounceTimer)
   document.removeEventListener('click', handleGlobalClick, true)
   stopTick()

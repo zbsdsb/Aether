@@ -69,3 +69,31 @@ def test_summarize_provider_import_tasks_aggregates_actionable_states() -> None:
     assert summary.import_task_last_status == "waiting_plaintext"
     assert summary.needs_manual_key_input is True
     assert summary.needs_manual_review is True
+
+
+def test_summarize_provider_import_tasks_ignores_prefill_only_tasks() -> None:
+    tasks = [
+        ProviderImportTask(
+            id="task-prefill-1",
+            provider_id="provider-import-1",
+            endpoint_id="endpoint-import-1",
+            task_type="imported_auth_prefill",
+            status="pending",
+            source_kind="all_in_hub",
+            source_id="acct-prefill",
+            source_name="Prefill Source",
+            source_origin="https://provider-import-1.example.com",
+            credential_payload="enc-prefill",
+            source_metadata={"site_type": "new-api"},
+        ),
+    ]
+
+    summary = _summarize_provider_import_tasks(tasks)
+
+    assert summary.import_task_total == 0
+    assert summary.import_task_pending == 0
+    assert summary.import_task_waiting_plaintext == 0
+    assert summary.import_task_failed == 0
+    assert summary.import_task_last_status is None
+    assert summary.needs_manual_key_input is False
+    assert summary.needs_manual_review is False

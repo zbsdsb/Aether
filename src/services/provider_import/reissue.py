@@ -14,16 +14,25 @@ from sqlalchemy.orm import Session
 
 from src.core.crypto import crypto_service
 from src.core.logger import logger
-from src.models.database import ProviderAPIKey, ProviderImportTask
+from src.models.database import Provider, ProviderAPIKey, ProviderImportTask
 from src.services.provider.fingerprint import generate_fingerprint
 from src.services.provider_keys.key_side_effects import run_create_key_side_effects
+from src.services.provider_ops.service import ProviderOpsService
+from src.services.provider_ops.types import (
+    SENSITIVE_CREDENTIAL_FIELDS,
+    ConnectorAuthType,
+    ProviderActionType,
+    ProviderOpsConfig,
+)
 
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_PROCESSING = "processing"
 TASK_STATUS_COMPLETED = "completed"
 TASK_STATUS_FAILED = "failed"
 TASK_STATUS_WAITING_PLAINTEXT = "waiting_plaintext"
+PENDING_IMPORT_TASK_TYPE = "pending_import"
 PENDING_REISSUE_TASK_TYPE = "pending_reissue"
+IMPORTED_AUTH_PREFILL_TASK_TYPE = "imported_auth_prefill"
 SUPPORTED_SITE_TYPE_NEW_API = "new-api"
 SUPPORTED_SITE_TYPE_SUB2API = "sub2api"
 SUPPORTED_SITE_TYPE_UNKNOWN = "unknown"
@@ -59,6 +68,7 @@ RESULT_STAGE_PROBE = "probe"
 RESULT_STAGE_CREATE_KEY = "create_key"
 RESULT_STAGE_VERIFY_MODELS = "verify_models"
 RESULT_STAGE_UNSUPPORTED = "unsupported"
+RESULT_STAGE_AUTH_CONFIG = "auth_config"
 
 
 def _task_note(task_id: str) -> str:
@@ -95,6 +105,144 @@ def _task_payload(task: ProviderImportTask) -> dict[str, Any]:
     decrypted = crypto_service.decrypt(task.credential_payload)
     parsed = json.loads(decrypted)
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalize_site_type(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _find_provider_by_id(*, db: Session, provider_id: str) -> Provider | None:
+    for provider in list(db.query(Provider).all()):
+        if str(getattr(provider, "id", "") or "") == provider_id:
+            return provider
+    return None
+
+
+def _encrypt_provider_ops_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
+    encrypted: dict[str, Any] = {}
+    for key, value in credentials.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        if key in SENSITIVE_CREDENTIAL_FIELDS:
+            encrypted[key] = crypto_service.encrypt(text)
+        else:
+            encrypted[key] = text
+    return encrypted
+
+
+def _build_auth_setup_config(task: ProviderImportTask) -> ProviderOpsConfig | None:
+    payload = _task_payload(task)
+    metadata = _task_metadata(task)
+    site_type = _normalize_site_type(metadata.get("site_type"))
+    base_url = str(metadata.get("endpoint_base_url") or getattr(task, "source_origin", "") or "").strip()
+    account_id = str(metadata.get("account_id") or "").strip()
+
+    if site_type in {"new-api", "new_api"}:
+        access_token = str(payload.get("access_token") or "").strip()
+        session_cookie = str(payload.get("session_cookie") or "").strip()
+        if not access_token and not session_cookie:
+            return None
+        credentials: dict[str, Any] = {}
+        if access_token:
+            credentials["api_key"] = access_token
+        if account_id:
+            credentials["user_id"] = account_id
+        if session_cookie:
+            credentials["cookie"] = session_cookie
+        return ProviderOpsConfig(
+            architecture_id="new_api",
+            base_url=base_url or None,
+            connector_auth_type=ConnectorAuthType.API_KEY,
+            connector_config={},
+            connector_credentials=credentials,
+            actions={ProviderActionType.QUERY_BALANCE.value: {"enabled": True, "config": {}}},
+        )
+
+    if site_type == SUPPORTED_SITE_TYPE_SUB2API:
+        refresh_token = str(payload.get("refresh_token") or "").strip()
+        if not refresh_token:
+            return None
+        return ProviderOpsConfig(
+            architecture_id="sub2api",
+            base_url=base_url or None,
+            connector_auth_type=ConnectorAuthType.API_KEY,
+            connector_config={},
+            connector_credentials={"refresh_token": refresh_token},
+            actions={ProviderActionType.QUERY_BALANCE.value: {"enabled": True, "config": {}}},
+        )
+
+    session_cookie = str(payload.get("session_cookie") or "").strip()
+    if not session_cookie:
+        return None
+
+    cookie_field_by_site = {
+        "anyrouter": "session_cookie",
+        "nekocode": "session_cookie",
+        "cubence": "token_cookie",
+        "yescode": "auth_cookie",
+    }
+    cookie_field = cookie_field_by_site.get(site_type)
+    if not cookie_field:
+        return None
+
+    return ProviderOpsConfig(
+        architecture_id=site_type,
+        base_url=base_url or None,
+        connector_auth_type=ConnectorAuthType.COOKIE,
+        connector_config={},
+        connector_credentials={cookie_field: session_cookie},
+        actions={ProviderActionType.QUERY_BALANCE.value: {"enabled": True, "config": {}}},
+    )
+
+
+def _persist_provider_ops_config(
+    *,
+    db: Session,
+    provider_id: str,
+    config: ProviderOpsConfig,
+) -> bool:
+    provider = _find_provider_by_id(db=db, provider_id=provider_id)
+    if provider is None:
+        return False
+
+    provider_config = dict(getattr(provider, "config", None) or {})
+    existing = provider_config.get("provider_ops")
+    if isinstance(existing, dict) and existing and not bool(existing.get("_auto_imported")):
+        return False
+
+    config_dict = config.to_dict()
+    config_dict["connector"]["credentials"] = _encrypt_provider_ops_credentials(
+        config.connector_credentials
+    )
+    config_dict["_auto_imported"] = True
+    provider_config["provider_ops"] = config_dict
+    provider.config = provider_config
+    db.commit()
+    return True
+
+
+async def _auto_configure_provider_auth(
+    *,
+    task: ProviderImportTask,
+    db: Session,
+) -> tuple[str, str]:
+    config = _build_auth_setup_config(task)
+    if config is None:
+        return "skipped", RESULT_STAGE_SKIPPED
+
+    if not _persist_provider_ops_config(db=db, provider_id=task.provider_id, config=config):
+        return "skipped", RESULT_STAGE_AUTH_CONFIG
+
+    metadata = _task_metadata(task)
+    metadata["auto_auth_status"] = "configured"
+    metadata["auto_proxy_probe_status"] = "pending"
+    task.source_metadata = metadata
+    task.last_error = None
+    db.commit()
+    return "completed", RESULT_STAGE_AUTH_CONFIG
 
 
 def _find_task_by_id(*, db: Session, task_id: str) -> ProviderImportTask | None:
@@ -640,7 +788,28 @@ async def _execute_task(
     now = datetime.now(timezone.utc)
     metadata = _task_metadata(task)
     created = False
-    if str(getattr(task, "task_type", "") or "") != PENDING_REISSUE_TASK_TYPE:
+    task_type = str(getattr(task, "task_type", "") or "")
+    if task_type == IMPORTED_AUTH_PREFILL_TASK_TYPE:
+        task.status = TASK_STATUS_PROCESSING
+        task.last_attempt_at = now
+        db.commit()
+        status, stage = await _auto_configure_provider_auth(task=task, db=db)
+        if status == "completed":
+            task.status = TASK_STATUS_COMPLETED
+            task.completed_at = datetime.now(timezone.utc)
+            task.last_error = None
+        elif status == "skipped":
+            task.status = TASK_STATUS_COMPLETED
+            task.completed_at = datetime.now(timezone.utc)
+            task.last_error = None
+        elif status == "failed":
+            task.status = TASK_STATUS_FAILED
+            task.retry_count = int(getattr(task, "retry_count", 0) or 0) + 1
+            task.last_attempt_at = datetime.now(timezone.utc)
+        db.commit()
+        return status, False, stage
+
+    if task_type != PENDING_REISSUE_TASK_TYPE:
         return "skipped", False, RESULT_STAGE_SKIPPED
 
     existing_key = _find_existing_key_for_task(task, keys)
@@ -778,7 +947,7 @@ async def execute_all_in_hub_import_tasks(
         task
         for task in tasks
         if str(getattr(task, "status", "") or "") == TASK_STATUS_PENDING
-        and str(getattr(task, "task_type", "") or "") == PENDING_REISSUE_TASK_TYPE
+        and str(getattr(task, "task_type", "") or "") in {PENDING_REISSUE_TASK_TYPE, IMPORTED_AUTH_PREFILL_TASK_TYPE}
     ][: max(0, limit)]
     summary = AllInHubTaskExecutionSummary(total_selected=len(selected))
 
@@ -809,6 +978,7 @@ async def execute_all_in_hub_import_tasks(
                 "site_type": metadata.get("site_type"),
                 "auth_type": metadata.get("auth_type"),
                 "has_access_token": bool(metadata.get("has_access_token")),
+                "has_refresh_token": bool(metadata.get("has_refresh_token")),
                 "has_session_cookie": bool(metadata.get("has_session_cookie")),
                 "action_required": metadata.get("action_required"),
                 "plaintext_capture_status": metadata.get("plaintext_capture_status"),
