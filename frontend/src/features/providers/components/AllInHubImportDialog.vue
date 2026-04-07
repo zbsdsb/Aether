@@ -90,6 +90,47 @@
             </div>
           </div>
         </div>
+
+        <div
+          v-if="preview.manual_items.length > 0"
+          class="rounded-xl border border-amber-500/20 bg-amber-500/5"
+        >
+          <div class="border-b border-amber-500/20 px-4 py-3">
+            <p class="text-sm font-medium">待人工处理</p>
+            <p class="mt-1 text-xs text-muted-foreground">缺明文或需要人工复核的站点会保留在这里，导入后可继续人工处理。</p>
+          </div>
+          <div class="divide-y divide-border/40">
+            <div
+              v-for="item in preview.manual_items"
+              :key="`${item.item_type}-${item.provider_website}-${item.source_id}`"
+              class="px-4 py-3 text-sm"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="font-medium">{{ item.provider_name }}</p>
+                  <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ item.provider_website }}</p>
+                  <p class="mt-1 truncate font-mono text-[11px] text-muted-foreground">{{ item.endpoint_base_url }}</p>
+                  <p
+                    v-if="item.reason"
+                    class="mt-2 text-xs text-amber-700 dark:text-amber-300"
+                  >
+                    {{ item.reason }}
+                  </p>
+                </div>
+                <div class="shrink-0 text-right text-xs text-muted-foreground">
+                  <p>{{ item.status }}</p>
+                  <p class="mt-1">{{ item.task_type || item.item_type }}</p>
+                  <p
+                    v-if="item.site_type"
+                    class="mt-1"
+                  >
+                    {{ item.site_type }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div

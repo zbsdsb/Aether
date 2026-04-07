@@ -1,8 +1,8 @@
 <template>
   <Dialog
     :model-value="isOpen"
-    title="获取上游模型"
-    description="从上游获取所有密钥可用的模型列表。导入的模型需要关联全局模型后才能参与路由。"
+    :title="dialogTitle"
+    :description="dialogDescription"
     :icon="Layers"
     size="2xl"
     @update:model-value="handleDialogUpdate"
@@ -216,6 +216,12 @@ const { success, error: showError } = useToast()
 const { fetchModels: fetchCachedModels } = useUpstreamModelsCache()
 
 const isOpen = computed(() => props.open)
+const dialogTitle = computed(() => props.apiKey ? '获取单个账号上游模型' : '获取上游模型')
+const dialogDescription = computed(() => (
+  props.apiKey
+    ? '从上游获取当前账号可用的模型列表。导入的模型需要关联全局模型后才能参与路由。'
+    : '从上游获取所有账号可用的模型列表。导入的模型需要关联全局模型后才能参与路由。'
+))
 const loading = ref(false)
 const importing = ref(false)
 const hasQueried = ref(false)
@@ -286,7 +292,11 @@ async function fetchUpstreamModels() {
   try {
     // 不传 apiKeyId，后端会遍历所有 Key 并聚合结果。
     // 已查询过再点“刷新”时，强制跳过后端缓存，避免长期 TTL 导致模型列表不更新。
-    const result = await fetchCachedModels(props.providerId, undefined, hasQueried.value)
+    const result = await fetchCachedModels(
+      props.providerId,
+      props.apiKey?.id,
+      hasQueried.value,
+    )
 
     if (result.models.length > 0) {
       upstreamModels.value = result.models

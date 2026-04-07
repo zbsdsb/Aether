@@ -496,6 +496,15 @@
                           variant="ghost"
                           size="icon"
                           class="h-7 w-7"
+                          title="查看该账号的上游模型"
+                          @click="openKeyUpstreamModels(key)"
+                        >
+                          <Layers class="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7"
                           title="编辑密钥"
                           @click="handleEditKey(endpoint, key)"
                         >
@@ -919,6 +928,78 @@
                 </div>
               </Card>
 
+              <Card class="overflow-hidden">
+                <div class="p-4 border-b border-border/60">
+                  <div class="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 class="text-sm font-semibold">上游可用模型</h3>
+                      <p class="mt-1 text-xs text-muted-foreground">聚合当前 Provider 所有活跃账号的上游模型结果，可直接查看上游实际暴露了哪些模型。</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      class="h-8"
+                      :disabled="upstreamModelsLoading || !provider"
+                      @click="refreshProviderUpstreamModels(true)"
+                    >
+                      <Layers class="w-3.5 h-3.5 mr-1.5" />
+                      {{ upstreamModelsLoading ? '查询中...' : '刷新上游模型' }}
+                    </Button>
+                  </div>
+                </div>
+                <div class="p-4 space-y-3">
+                  <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span v-if="upstreamModels.length > 0">共 {{ upstreamModels.length }} 个上游模型</span>
+                    <span v-if="upstreamModelsFromCache">结果来自缓存</span>
+                  </div>
+
+                  <div
+                    v-if="upstreamModelsLoading"
+                    class="rounded-lg border border-dashed border-border/60 px-4 py-8 text-center text-sm text-muted-foreground"
+                  >
+                    正在查询上游模型列表...
+                  </div>
+
+                  <div
+                    v-else-if="upstreamModelsError"
+                    class="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+                  >
+                    {{ upstreamModelsError }}
+                  </div>
+
+                  <div
+                    v-else-if="upstreamModels.length === 0"
+                    class="rounded-lg border border-dashed border-border/60 px-4 py-8 text-center text-sm text-muted-foreground"
+                  >
+                    暂无上游模型结果，点击右上角按钮查询。
+                  </div>
+
+                  <div
+                    v-else
+                    class="max-h-[260px] space-y-2 overflow-y-auto pr-1 custom-scrollbar"
+                  >
+                    <div
+                      v-for="model in upstreamModels"
+                      :key="model.id"
+                      class="rounded-lg border border-border/50 bg-background px-3 py-2"
+                    >
+                      <div class="flex items-center gap-2">
+                        <span class="truncate text-sm font-medium">{{ model.display_name || model.id }}</span>
+                        <Badge
+                          v-for="fmt in model.api_formats"
+                          :key="fmt"
+                          variant="outline"
+                          class="text-[10px] px-1.5 py-0"
+                        >
+                          {{ formatApiFormat(fmt) }}
+                        </Badge>
+                      </div>
+                      <div class="mt-1 truncate font-mono text-[11px] text-muted-foreground/70">{{ model.id }}</div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
               <!-- 模型查看 -->
               <ModelsTab
                 v-if="provider"
@@ -1004,6 +1085,15 @@
     @saved="handleKeyChanged"
   />
 
+  <KeyAllowedModelsDialog
+    v-if="open"
+    :open="upstreamModelsDialogOpen"
+    :api-key="upstreamModelsTargetKey"
+    :provider-id="providerId || ''"
+    @close="upstreamModelsDialogOpen = false"
+    @saved="handleKeyChanged"
+  />
+
   <!-- 删除密钥确认对话框 -->
   <AlertDialog
     v-if="open"
@@ -1079,6 +1169,7 @@ import {
   ShieldX,
   Globe,
   GitBranch,
+  Layers,
 } from 'lucide-vue-next'
 import { parseApiError } from '@/utils/errorParser'
 import { useEscapeKey } from '@/composables/useEscapeKey'
@@ -1102,6 +1193,7 @@ import {
 import { adminApi } from '@/api/admin'
 import {
   KeyFormDialog,
+  KeyAllowedModelsDialog,
   KeyAllowedModelsEditDialog,
   ModelsTab,
   BatchAssignModelsDialog,
@@ -1134,8 +1226,10 @@ import {
   sortApiFormats,
 } from '@/api/endpoints'
 import type { UpstreamMetadata, AntigravityModelQuota } from '@/api/endpoints/types'
+import type { UpstreamModel } from '@/api/endpoints/types/model'
 import { formatApiFormat } from '@/api/endpoints/types/api-format'
 import { isOAuthAccountProviderType, isKeyManagedProviderType } from '../utils/providerTypeUtils'
+import { useUpstreamModelsCache } from '../composables/useUpstreamModelsCache'
 import { getOAuthOrgBadge } from '@/utils/oauthIdentity'
 import { getOAuthRefreshFeedback } from '@/utils/oauthRefreshFeedback'
 import {
@@ -1169,6 +1263,7 @@ const { error: showError, success: showSuccess, warning: showWarning } = useToas
 const { confirm } = useConfirm()
 const { copyToClipboard } = useClipboard()
 const { tick: countdownTick, start: startCountdownTimer, stop: stopCountdownTimer } = useCountdownTimer()
+const { fetchModels: fetchUpstreamModelsCached } = useUpstreamModelsCache()
 
 const loading = ref(false)
 const provider = ref<ProviderWithEndpointsSummary | null>(null)
@@ -1189,6 +1284,7 @@ const endpointDialogOpen = ref(false)
 // 密钥相关状态
 const keyFormDialogOpen = ref(false)
 const keyPermissionsDialogOpen = ref(false)
+const upstreamModelsDialogOpen = ref(false)
 const oauthAccountDialogOpen = ref(false)
 const oauthKeyEditDialogOpen = ref(false)
 const currentEndpoint = ref<ProviderEndpoint | null>(null)
@@ -1196,6 +1292,11 @@ const editingKey = ref<EndpointAPIKey | null>(null)
 const deleteKeyConfirmOpen = ref(false)
 const keyToDelete = ref<EndpointAPIKey | null>(null)
 const togglingKeyId = ref<string | null>(null)
+const upstreamModelsTargetKey = ref<EndpointAPIKey | null>(null)
+const upstreamModelsLoading = ref(false)
+const upstreamModelsError = ref('')
+const upstreamModels = ref<UpstreamModel[]>([])
+const upstreamModelsFromCache = ref(false)
 
 // 密钥显示状态：key_id -> 完整密钥
 const revealedKeys = ref<Map<string, string>>(new Map())
@@ -1557,6 +1658,30 @@ function handleEditKey(endpoint: ProviderEndpoint | undefined, key: EndpointAPIK
 function handleKeyPermissions(key: EndpointAPIKey) {
   editingKey.value = key
   keyPermissionsDialogOpen.value = true
+}
+
+function openKeyUpstreamModels(key: EndpointAPIKey) {
+  upstreamModelsTargetKey.value = key
+  upstreamModelsDialogOpen.value = true
+}
+
+async function refreshProviderUpstreamModels(forceRefresh = false) {
+  if (!props.providerId) return
+
+  upstreamModelsLoading.value = true
+  upstreamModelsError.value = ''
+  try {
+    const result = await fetchUpstreamModelsCached(props.providerId, undefined, forceRefresh)
+    upstreamModels.value = result.models
+    upstreamModelsFromCache.value = Boolean(result.fromCache)
+    upstreamModelsError.value = result.error || ''
+  } catch (err: unknown) {
+    upstreamModels.value = []
+    upstreamModelsFromCache.value = false
+    upstreamModelsError.value = parseApiError(err, '查询上游模型失败')
+  } finally {
+    upstreamModelsLoading.value = false
+  }
 }
 
 // 复制完整密钥或认证配置
@@ -2007,6 +2132,7 @@ async function openAntigravityQuotaDialog(key: EndpointAPIKey) {
 
 async function handleKeyChanged() {
   await Promise.all([loadEndpoints(), loadMappingPreview()])
+  void refreshProviderUpstreamModels()
   emit('refresh')
   // 添加/修改 key 后自动获取 Antigravity 配额（新 key 的 upstream_metadata 为空）
   void autoRefreshQuotaInBackground()
