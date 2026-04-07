@@ -566,8 +566,25 @@ export interface ProviderWithEndpointsSummary {
   failover_rules?: FailoverRulesConfig | null
   ops_configured: boolean  // 是否配置了扩展操作（余额监控等）
   ops_architecture_id?: string  // 扩展操作使用的架构 ID（如 cubence, anyrouter）
+  import_task_total?: number
+  import_task_pending?: number
+  import_task_waiting_plaintext?: number
+  import_task_failed?: number
+  import_task_last_status?: string | null
+  needs_manual_key_input?: boolean
+  needs_manual_review?: boolean
   created_at: string
   updated_at: string
+}
+
+export interface ProviderImportTaskOverview {
+  providers_with_import_tasks: number
+  providers_with_pending_tasks: number
+  providers_needing_manual_key_input: number
+  providers_needing_manual_review: number
+  tasks_pending: number
+  tasks_waiting_plaintext: number
+  tasks_failed: number
 }
 
 export interface HealthStatus {

@@ -78,6 +78,24 @@
           </SelectContent>
         </Select>
 
+        <Select
+          :model-value="filterImportTaskStatus"
+          @update:model-value="$emit('update:filterImportTaskStatus', $event)"
+        >
+          <SelectTrigger class="w-24 sm:w-32 h-8 text-xs border-border/60">
+            <SelectValue placeholder="导入状态" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              v-for="item in importTaskFilters"
+              :key="item.value"
+              :value="item.value"
+            >
+              {{ item.label }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+
         <!-- 重置筛选 -->
         <Button
           v-if="hasActiveFilters"
@@ -150,9 +168,11 @@ defineProps<{
   filterStatus: string
   filterApiFormat: string
   filterModel: string
+  filterImportTaskStatus: string
   statusFilters: FilterOption[]
   apiFormatFilters: FilterOption[]
   modelFilters: FilterOption[]
+  importTaskFilters: FilterOption[]
   hasActiveFilters: boolean
   priorityModeLabel: string
   loading: boolean
@@ -163,6 +183,7 @@ defineEmits<{
   'update:filterStatus': [value: string]
   'update:filterApiFormat': [value: string]
   'update:filterModel': [value: string]
+  'update:filterImportTaskStatus': [value: string]
   'resetFilters': []
   'openPriorityDialog': []
   'openAllInHubImport': []

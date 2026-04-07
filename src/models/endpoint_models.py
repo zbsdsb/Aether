@@ -1154,11 +1154,48 @@ class ProviderWithEndpointsSummary(BaseModel):
         default=None, description="扩展操作使用的架构 ID（如 cubence, anyrouter）"
     )
 
+    # 导入任务聚合状态
+    import_task_total: int = Field(default=0, description="导入任务总数")
+    import_task_pending: int = Field(
+        default=0,
+        description="仍由系统自动处理中的任务数（pending/processing）",
+    )
+    import_task_waiting_plaintext: int = Field(
+        default=0,
+        description="等待人工补录明文 Key 的任务数",
+    )
+    import_task_failed: int = Field(
+        default=0,
+        description="自动补钥或校验失败、等待人工复核的任务数",
+    )
+    import_task_last_status: str | None = Field(
+        default=None,
+        description="当前最需要关注的导入任务状态",
+    )
+    needs_manual_key_input: bool = Field(
+        default=False,
+        description="是否存在等待人工补录明文 Key 的任务",
+    )
+    needs_manual_review: bool = Field(
+        default=False,
+        description="是否存在等待人工复核的失败任务",
+    )
+
     # 时间戳
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProviderImportTaskOverview(BaseModel):
+    providers_with_import_tasks: int = 0
+    providers_with_pending_tasks: int = 0
+    providers_needing_manual_key_input: int = 0
+    providers_needing_manual_review: int = 0
+    tasks_pending: int = 0
+    tasks_waiting_plaintext: int = 0
+    tasks_failed: int = 0
 
 
 class ProviderSummaryPageResponse(BaseModel):
@@ -1168,6 +1205,9 @@ class ProviderSummaryPageResponse(BaseModel):
     page: int
     page_size: int
     items: list[ProviderWithEndpointsSummary]
+    import_task_overview: ProviderImportTaskOverview = Field(
+        default_factory=ProviderImportTaskOverview
+    )
 
 
 # ========== 健康监控可视化模型 ==========

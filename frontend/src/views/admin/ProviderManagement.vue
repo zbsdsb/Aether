@@ -67,6 +67,14 @@
       </div>
     </Card>
 
+    <ImportTaskOverviewCard
+      :overview="importTaskOverview"
+      :active-filter="filterImportTaskStatus"
+      @select-needs-key="filterImportTaskStatus = 'needs_key'"
+      @select-manual-review="filterImportTaskStatus = 'manual_review'"
+      @clear-filter="filterImportTaskStatus = 'all'"
+    />
+
     <!-- 提供商表格 -->
     <Card
       variant="default"
@@ -77,9 +85,11 @@
         :filter-status="filterStatus"
         :filter-api-format="filterApiFormat"
         :filter-model="filterModel"
+        :filter-import-task-status="filterImportTaskStatus"
         :status-filters="statusFilters"
         :api-format-filters="apiFormatFilters"
         :model-filters="modelFilters"
+        :import-task-filters="importTaskFilters"
         :has-active-filters="hasActiveFilters"
         :priority-mode-label="priorityModeConfig.label"
         :loading="loading"
@@ -87,6 +97,7 @@
         @update:filter-status="filterStatus = $event"
         @update:filter-api-format="filterApiFormat = $event"
         @update:filter-model="filterModel = $event"
+        @update:filter-import-task-status="filterImportTaskStatus = $event"
         @reset-filters="resetFilters"
         @open-priority-dialog="openPriorityDialog"
         @open-all-in-hub-import="openAllInHubImportDialog"
@@ -283,6 +294,7 @@ import TableHead from '@/components/ui/table-head.vue'
 import Pagination from '@/components/ui/pagination.vue'
 import {
   AllInHubImportDialog,
+  ImportTaskOverviewCard,
   ProviderFormDialog,
   PriorityManagementDialog,
   ProviderAuthDialog,
@@ -306,8 +318,10 @@ import {
   previewAllInHubImport,
   updateProvider,
   getGlobalModels,
+  type AllInHubImportManualItem,
   type AllInHubImportResponse,
   type AllInHubTaskExecutionResponse,
+  type ProviderImportTaskOverview,
   type ProviderWithEndpointsSummary,
 } from '@/api/endpoints'
 import { adminApi } from '@/api/admin'
@@ -327,13 +341,24 @@ interface ProviderDeleteProgressState {
   message: string
 }
 
-const { error: showError, success: showSuccess, info: showInfo } = useToast()
+const { error: showError, success: showSuccess, warning: showWarning, info: showInfo } = useToast()
 const { confirmDanger } = useConfirm()
 const { getQueryValue, patchQuery } = useRouteQuery()
+
+const EMPTY_IMPORT_TASK_OVERVIEW: ProviderImportTaskOverview = {
+  providers_with_import_tasks: 0,
+  providers_with_pending_tasks: 0,
+  providers_needing_manual_key_input: 0,
+  providers_needing_manual_review: 0,
+  tasks_pending: 0,
+  tasks_waiting_plaintext: 0,
+  tasks_failed: 0,
+}
 
 // 状态
 const loading = ref(false)
 const providers = ref<ProviderWithEndpointsSummary[]>([])
+const importTaskOverview = ref<ProviderImportTaskOverview>(EMPTY_IMPORT_TASK_OVERVIEW)
 let providersRequestId = 0
 const providerDialogOpen = ref(false)
 const providerToEdit = ref<ProviderWithEndpointsSummary | null>(null)
@@ -461,6 +486,91 @@ watch(allInHubImportContent, () => {
   canExecuteAllInHubTasks.value = false
 })
 
+function buildManualItemKey(item: Pick<AllInHubImportManualItem, 'item_type' | 'provider_website' | 'source_id' | 'task_type'>): string {
+  return [
+    item.item_type,
+    item.provider_website || '',
+    item.source_id || '',
+    item.task_type || '',
+  ].join('::')
+}
+
+function mapExecutionItemToManualItem(
+  item: AllInHubTaskExecutionResponse['results'][number],
+): AllInHubImportManualItem | null {
+  if (item.status === 'completed') {
+    return null
+  }
+
+  if (item.status === 'waiting_plaintext') {
+    const masked = item.masked_key_preview ? `（${item.masked_key_preview}）` : ''
+    return {
+      item_type: 'pending_task',
+      status: item.status,
+      provider_name: item.provider_name || '未命名站点',
+      provider_website: item.provider_website || '',
+      endpoint_base_url: item.endpoint_base_url || '',
+      source_id: item.source_id || item.task_id,
+      task_type: item.task_type,
+      auth_type: item.auth_type,
+      site_type: item.site_type,
+      reason: `缺少明文 Key${masked}，等待人工补抓或补录`,
+    }
+  }
+
+  if (item.status === 'failed') {
+    return {
+      item_type: 'verification_failure',
+      status: item.status,
+      provider_name: item.provider_name || '未命名站点',
+      provider_website: item.provider_website || '',
+      endpoint_base_url: item.endpoint_base_url || '',
+      source_id: item.source_id || item.task_id,
+      task_type: item.task_type,
+      auth_type: item.auth_type,
+      site_type: item.site_type,
+      reason: item.last_error || '补钥或模型校验失败，等待人工复核',
+    }
+  }
+
+  return null
+}
+
+function mergeExecutionManualItems(
+  preview: AllInHubImportResponse,
+  execution: AllInHubTaskExecutionResponse,
+): AllInHubImportResponse {
+  const executedSourceKeys = new Set(
+    execution.results.map(item => buildManualItemKey({
+      item_type: 'pending_task',
+      provider_website: item.provider_website || '',
+      source_id: item.source_id || item.task_id,
+      task_type: item.task_type,
+    })),
+  )
+
+  const keptItems = preview.manual_items.filter(item => {
+    if (item.item_type !== 'pending_task') {
+      return true
+    }
+    return !executedSourceKeys.has(buildManualItemKey(item))
+  })
+
+  const appendedItems = execution.results
+    .map(mapExecutionItemToManualItem)
+    .filter((item): item is AllInHubImportManualItem => item !== null)
+
+  const deduped = new Map<string, AllInHubImportManualItem>()
+  for (const item of [...keptItems, ...appendedItems]) {
+    deduped.set(buildManualItemKey(item), item)
+  }
+
+  return {
+    ...preview,
+    manual_items: [...deduped.values()],
+  }
+}
+
 // 全局模型数据（用于模型筛选下拉）
 const globalModels = ref<{ id: string; name: string }[]>([])
 
@@ -470,9 +580,11 @@ const {
   filterStatus,
   filterApiFormat,
   filterModel,
+  filterImportTaskStatus,
   statusFilters,
   apiFormatFilters,
   modelFilters,
+  importTaskFilters,
   hasActiveFilters,
   currentPage,
   pageSize,
@@ -511,6 +623,19 @@ watch(
 
 watch(searchQuery, (value) => {
   patchQuery({ search: value.trim() || undefined })
+})
+
+watch(
+  () => getQueryValue('importTaskStatus') ?? 'all',
+  (value) => {
+    if (filterImportTaskStatus.value === value) return
+    filterImportTaskStatus.value = value
+  },
+  { immediate: true },
+)
+
+watch(filterImportTaskStatus, (value) => {
+  patchQuery({ importTaskStatus: value !== 'all' ? value : undefined })
 })
 
 watch(
@@ -638,10 +763,12 @@ async function loadProviders() {
     if (requestId !== providersRequestId) return
     providers.value = response.items
     total.value = response.total
+    importTaskOverview.value = response.import_task_overview ?? EMPTY_IMPORT_TASK_OVERVIEW
     // 异步加载配置了 ops 的 provider 的余额数据
     loadBalances(providers.value)
   } catch (err: unknown) {
     if (requestId !== providersRequestId) return
+    importTaskOverview.value = EMPTY_IMPORT_TASK_OVERVIEW
     showError(parseApiError(err, '加载提供商列表失败'), '错误')
   } finally {
     if (requestId === providersRequestId) {
@@ -660,7 +787,8 @@ watch(queryParams, (newParams, oldParams) => {
     newParams.page_size === oldParams?.page_size &&
     newParams.status === oldParams?.status &&
     newParams.api_format === oldParams?.api_format &&
-    newParams.model_id === oldParams?.model_id
+    newParams.model_id === oldParams?.model_id &&
+    newParams.import_task_status === oldParams?.import_task_status
   if (isSearchOnly) {
     debounceTimer = setTimeout(loadProviders, 300)
   } else {
@@ -732,11 +860,29 @@ async function handleConfirmAllInHubImport() {
     const result = await importAllInHub(allInHubImportContent.value)
     allInHubImportPreview.value = result
     allInHubTaskExecutionResult.value = null
-    canExecuteAllInHubTasks.value = result.stats.pending_sources > 0
+    canExecuteAllInHubTasks.value = false
+    let successMessage = `导入完成：新增 ${result.stats.providers_created} 个 Provider，${result.stats.endpoints_created} 个 Endpoint，${result.stats.keys_created} 个 Key`
+
+    if (result.stats.pending_sources > 0) {
+      try {
+        const execution = await executeAllInHubImportTasks(20)
+        allInHubTaskExecutionResult.value = execution
+        allInHubImportPreview.value = mergeExecutionManualItems(result, execution)
+        canExecuteAllInHubTasks.value = execution.total_selected === 20
+        successMessage += `；自动补钥执行 ${execution.total_selected} 条，成功 ${execution.completed}，失败 ${execution.failed}`
+      } catch (executionErr: unknown) {
+        canExecuteAllInHubTasks.value = true
+        showWarning(parseApiError(executionErr, '自动执行补钥失败，可手动重试'), '自动补钥未完成')
+      }
+    }
+
+    const pendingReviewCount = allInHubImportPreview.value?.manual_items.length || 0
+    if (pendingReviewCount > 0) {
+      showWarning(`仍有 ${pendingReviewCount} 条待人工处理或复核`, '导入结果已更新')
+    }
+
     await loadProviders()
-    showSuccess(
-      `导入完成：新增 ${result.stats.providers_created} 个 Provider，${result.stats.endpoints_created} 个 Endpoint，${result.stats.keys_created} 个 Key`,
-    )
+    showSuccess(successMessage)
   } catch (err: unknown) {
     showError(parseApiError(err, '执行导入失败'), '导入失败')
   } finally {
@@ -749,8 +895,15 @@ async function handleExecuteAllInHubTasks() {
   try {
     const result = await executeAllInHubImportTasks(20)
     allInHubTaskExecutionResult.value = result
-    canExecuteAllInHubTasks.value = false
+    if (allInHubImportPreview.value) {
+      allInHubImportPreview.value = mergeExecutionManualItems(allInHubImportPreview.value, result)
+    }
+    canExecuteAllInHubTasks.value = result.total_selected === 20
     await loadProviders()
+    const pendingReviewCount = allInHubImportPreview.value?.manual_items.length || 0
+    if (pendingReviewCount > 0) {
+      showWarning(`剩余 ${pendingReviewCount} 条待人工处理或复核`, '补钥执行完成')
+    }
     showSuccess(`补钥完成：成功 ${result.completed}，失败 ${result.failed}，新建 Key ${result.keys_created}`)
   } catch (err: unknown) {
     showError(parseApiError(err, '执行补钥任务失败'), '补钥失败')

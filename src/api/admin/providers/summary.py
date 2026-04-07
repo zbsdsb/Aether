@@ -2,6 +2,7 @@
 Provider 摘要与健康监控 API
 """
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
@@ -29,11 +30,13 @@ from src.models.database import (
     Provider,
     ProviderAPIKey,
     ProviderEndpoint,
+    ProviderImportTask,
     RequestCandidate,
 )
 from src.models.endpoint_models import (
     EndpointHealthEvent,
     EndpointHealthMonitor,
+    ProviderImportTaskOverview,
     ProviderEndpointHealthMonitorResponse,
     ProviderSummaryPageResponse,
     ProviderUpdateRequest,
@@ -52,6 +55,108 @@ class _HasProviderSortFields(Protocol):
 
 router = APIRouter(tags=["Provider Summary"])
 pipeline = get_pipeline()
+
+IMPORT_TASK_STATUS_WAITING_PLAINTEXT = "waiting_plaintext"
+IMPORT_TASK_STATUS_FAILED = "failed"
+IMPORT_TASK_STATUS_PENDING = "pending"
+IMPORT_TASK_STATUS_PROCESSING = "processing"
+IMPORT_TASK_FILTER_NEEDS_KEY = "needs_key"
+IMPORT_TASK_FILTER_MANUAL_REVIEW = "manual_review"
+
+
+@dataclass(slots=True)
+class ProviderImportTaskSummary:
+    import_task_total: int = 0
+    import_task_pending: int = 0
+    import_task_waiting_plaintext: int = 0
+    import_task_failed: int = 0
+    import_task_last_status: str | None = None
+    needs_manual_key_input: bool = False
+    needs_manual_review: bool = False
+
+
+def _import_task_status_priority(status: str | None) -> int:
+    normalized = str(status or "").strip().lower()
+    if normalized == IMPORT_TASK_STATUS_WAITING_PLAINTEXT:
+        return 4
+    if normalized == IMPORT_TASK_STATUS_FAILED:
+        return 3
+    if normalized == IMPORT_TASK_STATUS_PROCESSING:
+        return 2
+    if normalized == IMPORT_TASK_STATUS_PENDING:
+        return 1
+    return 0
+
+
+def _summarize_provider_import_tasks(tasks: list[ProviderImportTask]) -> ProviderImportTaskSummary:
+    summary = ProviderImportTaskSummary(import_task_total=len(tasks))
+    current_priority = 0
+
+    for task in tasks:
+        status = str(getattr(task, "status", "") or "").strip().lower()
+        if status in {IMPORT_TASK_STATUS_PENDING, IMPORT_TASK_STATUS_PROCESSING}:
+            summary.import_task_pending += 1
+        elif status == IMPORT_TASK_STATUS_WAITING_PLAINTEXT:
+            summary.import_task_waiting_plaintext += 1
+            summary.needs_manual_key_input = True
+        elif status == IMPORT_TASK_STATUS_FAILED:
+            summary.import_task_failed += 1
+            summary.needs_manual_review = True
+
+        priority = _import_task_status_priority(status)
+        if priority > current_priority:
+            summary.import_task_last_status = status or None
+            current_priority = priority
+
+    return summary
+
+
+def _build_provider_import_task_overview(
+    summaries: list[ProviderImportTaskSummary],
+) -> ProviderImportTaskOverview:
+    overview = ProviderImportTaskOverview()
+    for summary in summaries:
+        if summary.import_task_total > 0:
+            overview.providers_with_import_tasks += 1
+        if summary.import_task_pending > 0:
+            overview.providers_with_pending_tasks += 1
+        if summary.needs_manual_key_input:
+            overview.providers_needing_manual_key_input += 1
+        if summary.needs_manual_review:
+            overview.providers_needing_manual_review += 1
+        overview.tasks_pending += summary.import_task_pending
+        overview.tasks_waiting_plaintext += summary.import_task_waiting_plaintext
+        overview.tasks_failed += summary.import_task_failed
+    return overview
+
+
+def _build_provider_import_task_overview_for_provider_ids(
+    db: Session,
+    provider_ids: list[str],
+) -> ProviderImportTaskOverview:
+    if not provider_ids:
+        return ProviderImportTaskOverview()
+
+    import_task_rows = (
+        db.query(ProviderImportTask)
+        .options(
+            load_only(
+                ProviderImportTask.id,
+                ProviderImportTask.provider_id,
+                ProviderImportTask.status,
+            )
+        )
+        .filter(ProviderImportTask.provider_id.in_(provider_ids))
+        .all()
+    )
+    import_tasks_by_provider: dict[str, list[ProviderImportTask]] = defaultdict(list)
+    for task in import_task_rows:
+        import_tasks_by_provider[str(task.provider_id)].append(task)
+    summaries = [
+        _summarize_provider_import_tasks(import_tasks_by_provider.get(provider_id, []))
+        for provider_id in provider_ids
+    ]
+    return _build_provider_import_task_overview(summaries)
 
 
 def _provider_summary_ordering(provider_model: _HasProviderSortFields) -> tuple[Any, Any, Any]:
@@ -72,6 +177,10 @@ async def get_providers_summary(
     status: str = Query("all", description="all/active/inactive"),
     api_format: str = Query("all", description="API 格式筛选"),
     model_id: str = Query("all", description="全局模型 ID 筛选"),
+    import_task_status: str = Query(
+        "all",
+        description="all/needs_key/manual_review",
+    ),
     db: Session = Depends(get_db),
 ) -> ProviderSummaryPageResponse:
     """获取提供商摘要信息（分页）"""
@@ -82,6 +191,7 @@ async def get_providers_summary(
         status=status,
         api_format=api_format,
         model_id=model_id,
+        import_task_status=import_task_status,
     )
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
@@ -377,6 +487,18 @@ def _build_provider_summary(db: Session, provider: Provider) -> ProviderWithEndp
         .filter(ProviderAPIKey.provider_id == provider.id)
         .all()
     )
+    import_tasks = (
+        db.query(ProviderImportTask)
+        .options(
+            load_only(
+                ProviderImportTask.id,
+                ProviderImportTask.provider_id,
+                ProviderImportTask.status,
+            )
+        )
+        .filter(ProviderImportTask.provider_id == provider.id)
+        .all()
+    )
 
     return _compose_provider_summary(
         provider=provider,
@@ -387,6 +509,7 @@ def _build_provider_summary(db: Session, provider: Provider) -> ProviderWithEndp
         total_models=total_models,
         active_models=active_models,
         global_model_ids=global_model_ids,
+        import_task_summary=_summarize_provider_import_tasks(import_tasks),
     )
 
 
@@ -400,6 +523,7 @@ def _compose_provider_summary(
     total_models: int,
     active_models: int,
     global_model_ids: list[Any],
+    import_task_summary: ProviderImportTaskSummary | None = None,
 ) -> ProviderWithEndpointsSummary:
     total_endpoints = len(endpoints)
     active_endpoints = sum(1 for e in endpoints if e.is_active)
@@ -480,6 +604,7 @@ def _compose_provider_summary(
         provider_config,
         provider_id=str(provider.id),
     )
+    task_summary = import_task_summary or ProviderImportTaskSummary()
 
     return ProviderWithEndpointsSummary(
         id=provider.id,
@@ -517,6 +642,13 @@ def _compose_provider_summary(
         endpoint_health_details=endpoint_health_details,
         ops_configured=ops_configured,
         ops_architecture_id=ops_architecture_id,
+        import_task_total=task_summary.import_task_total,
+        import_task_pending=task_summary.import_task_pending,
+        import_task_waiting_plaintext=task_summary.import_task_waiting_plaintext,
+        import_task_failed=task_summary.import_task_failed,
+        import_task_last_status=task_summary.import_task_last_status,
+        needs_manual_key_input=task_summary.needs_manual_key_input,
+        needs_manual_review=task_summary.needs_manual_review,
         created_at=provider.created_at,
         updated_at=provider.updated_at,
     )
@@ -524,9 +656,9 @@ def _compose_provider_summary(
 
 def _build_provider_summaries_batch(
     db: Session, providers: list[Provider]
-) -> list[ProviderWithEndpointsSummary]:
+) -> tuple[list[ProviderWithEndpointsSummary], ProviderImportTaskOverview]:
     if not providers:
-        return []
+        return [], ProviderImportTaskOverview()
 
     provider_ids = [provider.id for provider in providers]
 
@@ -615,11 +747,30 @@ def _build_provider_summaries_batch(
     for provider_id, global_model_id in global_model_rows:
         global_model_ids_by_provider.setdefault(str(provider_id), []).append(global_model_id)
 
+    import_task_rows = (
+        db.query(ProviderImportTask)
+        .options(
+            load_only(
+                ProviderImportTask.id,
+                ProviderImportTask.provider_id,
+                ProviderImportTask.status,
+            )
+        )
+        .filter(ProviderImportTask.provider_id.in_(provider_ids))
+        .all()
+    )
+    import_tasks_by_provider: dict[str, list[ProviderImportTask]] = defaultdict(list)
+    for task in import_task_rows:
+        import_tasks_by_provider[str(task.provider_id)].append(task)
+
     summaries: list[ProviderWithEndpointsSummary] = []
+    task_summaries: list[ProviderImportTaskSummary] = []
     for provider in providers:
         pid = str(provider.id)
         key_stats = key_stats_by_provider.get(pid, {"total": 0, "active": 0})
         model_stats = model_stats_by_provider.get(pid, {"total": 0, "active": 0})
+        import_task_summary = _summarize_provider_import_tasks(import_tasks_by_provider.get(pid, []))
+        task_summaries.append(import_task_summary)
         summaries.append(
             _compose_provider_summary(
                 provider=provider,
@@ -630,9 +781,10 @@ def _build_provider_summaries_batch(
                 total_models=model_stats["total"],
                 active_models=model_stats["active"],
                 global_model_ids=global_model_ids_by_provider.get(pid, []),
+                import_task_summary=import_task_summary,
             )
         )
-    return summaries
+    return summaries, _build_provider_import_task_overview(task_summaries)
 
 
 # -------- Adapters --------
@@ -793,6 +945,7 @@ class AdminProviderSummaryAdapter(AdminApiAdapter):
     status: str = "all"
     api_format: str = "all"
     model_id: str = "all"
+    import_task_status: str = "all"
 
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
         db = context.db
@@ -834,7 +987,26 @@ class AdminProviderSummaryAdapter(AdminApiAdapter):
                 )
             )
 
+        # 导入任务筛选
+        if self.import_task_status == IMPORT_TASK_FILTER_NEEDS_KEY:
+            query = query.filter(
+                Provider.id.in_(
+                    db.query(ProviderImportTask.provider_id)
+                    .filter(ProviderImportTask.status == IMPORT_TASK_STATUS_WAITING_PLAINTEXT)
+                    .distinct()
+                )
+            )
+        elif self.import_task_status == IMPORT_TASK_FILTER_MANUAL_REVIEW:
+            query = query.filter(
+                Provider.id.in_(
+                    db.query(ProviderImportTask.provider_id)
+                    .filter(ProviderImportTask.status == IMPORT_TASK_STATUS_FAILED)
+                    .distinct()
+                )
+            )
+
         total = query.count()
+        matched_provider_ids = [str(row[0]) for row in query.with_entities(Provider.id).all()]
 
         providers = (
             query.order_by(*_provider_summary_ordering(Provider))
@@ -843,12 +1015,17 @@ class AdminProviderSummaryAdapter(AdminApiAdapter):
             .all()
         )
 
-        items = _build_provider_summaries_batch(db, providers)
+        items, _ = _build_provider_summaries_batch(db, providers)
+        import_task_overview = _build_provider_import_task_overview_for_provider_ids(
+            db,
+            matched_provider_ids,
+        )
         return ProviderSummaryPageResponse(
             total=total,
             page=self.page,
             page_size=self.page_size,
             items=items,
+            import_task_overview=import_task_overview,
         ).model_dump()
 
 

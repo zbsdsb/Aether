@@ -4,6 +4,7 @@ import type {
   ClaudeCodeAdvancedConfig,
   FailoverRulesConfig,
   PoolAdvancedConfig,
+  ProviderImportTaskOverview,
   ProviderWithEndpointsSummary,
   ProxyConfig,
 } from './types'
@@ -18,6 +19,7 @@ export interface ProviderSummaryQuery {
   status?: string
   api_format?: string
   model_id?: string
+  import_task_status?: string
 }
 
 export interface ProviderSummaryPageResponse {
@@ -25,6 +27,7 @@ export interface ProviderSummaryPageResponse {
   page: number
   page_size: number
   items: ProviderWithEndpointsSummary[]
+  import_task_overview: ProviderImportTaskOverview
 }
 
 export interface AllInHubImportStats {
@@ -54,19 +57,47 @@ export interface AllInHubImportProviderSummary {
   existing_endpoint: boolean
 }
 
+export interface AllInHubImportManualItem {
+  item_type: string
+  status: string
+  provider_name: string
+  provider_website: string
+  endpoint_base_url: string
+  source_id: string
+  task_type: string | null
+  auth_type: string | null
+  site_type: string | null
+  reason: string | null
+}
+
 export interface AllInHubImportResponse {
   dry_run: boolean
   version: string
   stats: AllInHubImportStats
   warnings: string[]
   providers: AllInHubImportProviderSummary[]
+  manual_items: AllInHubImportManualItem[]
 }
 
 export interface AllInHubTaskExecutionItem {
   task_id: string
   status: string
+  provider_name: string | null
+  provider_website: string | null
+  endpoint_base_url: string | null
+  source_id: string | null
+  stage: string | null
   last_error: string | null
+  key_created: boolean
   result_key_id: string | null
+  task_type: string | null
+  site_type: string | null
+  auth_type: string | null
+  has_access_token: boolean
+  has_session_cookie: boolean
+  action_required: string | null
+  plaintext_capture_status: string | null
+  masked_key_preview: string | null
 }
 
 export interface AllInHubTaskExecutionResponse {

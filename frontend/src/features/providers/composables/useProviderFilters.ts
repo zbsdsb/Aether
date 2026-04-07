@@ -14,6 +14,7 @@ export function useProviderFilters(
   const filterStatus = ref('all')
   const filterApiFormat = ref('all')
   const filterModel = ref('all')
+  const filterImportTaskStatus = ref('all')
 
   const statusFilters: FilterOption[] = [
     { value: 'all', label: '全部状态' },
@@ -32,6 +33,12 @@ export function useProviderFilters(
     { value: 'gemini:cli', label: 'Gemini CLI' },
   ]
 
+  const importTaskFilters: FilterOption[] = [
+    { value: 'all', label: '全部导入状态' },
+    { value: 'needs_key', label: '待补钥' },
+    { value: 'manual_review', label: '待复核' },
+  ]
+
   const modelFilters = computed<FilterOption[]>(() => {
     const items = globalModels()
       .map(m => ({ value: m.id, label: m.name }))
@@ -44,7 +51,8 @@ export function useProviderFilters(
       searchQuery.value !== '' ||
       filterStatus.value !== 'all' ||
       filterApiFormat.value !== 'all' ||
-      filterModel.value !== 'all'
+      filterModel.value !== 'all' ||
+      filterImportTaskStatus.value !== 'all'
     )
   })
 
@@ -61,10 +69,12 @@ export function useProviderFilters(
     status: filterStatus.value !== 'all' ? filterStatus.value : undefined,
     api_format: filterApiFormat.value !== 'all' ? filterApiFormat.value : undefined,
     model_id: filterModel.value !== 'all' ? filterModel.value : undefined,
+    import_task_status:
+      filterImportTaskStatus.value !== 'all' ? filterImportTaskStatus.value : undefined,
   }))
 
   // 搜索/筛选变化时重置分页到第1页
-  watch([searchQuery, filterStatus, filterApiFormat, filterModel], () => {
+  watch([searchQuery, filterStatus, filterApiFormat, filterModel, filterImportTaskStatus], () => {
     currentPage.value = 1
   })
 
@@ -73,6 +83,7 @@ export function useProviderFilters(
     filterStatus.value = 'all'
     filterApiFormat.value = 'all'
     filterModel.value = 'all'
+    filterImportTaskStatus.value = 'all'
   }
 
   return {
@@ -80,9 +91,11 @@ export function useProviderFilters(
     filterStatus,
     filterApiFormat,
     filterModel,
+    filterImportTaskStatus,
     statusFilters,
     apiFormatFilters,
     modelFilters,
+    importTaskFilters,
     hasActiveFilters,
     currentPage,
     pageSize,
