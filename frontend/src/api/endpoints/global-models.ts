@@ -6,6 +6,7 @@ import type {
   GlobalModelResponse,
   GlobalModelWithStats,
   GlobalModelListResponse,
+  GlobalModelProviderCandidatesResponse,
   ModelCatalogProviderDetail,
   ModelRoutingPreviewResponse,
 } from './types'
@@ -124,6 +125,28 @@ export async function getGlobalModelProviders(globalModelId: string): Promise<{
     )
     return response.data
   })
+}
+
+export async function getGlobalModelProviderCandidates(
+  globalModelId: string,
+): Promise<GlobalModelProviderCandidatesResponse> {
+  return dedupedRequest(`global-models:provider-candidates:${globalModelId}`, async () => {
+    const response = await client.get(
+      `/api/admin/models/global/${globalModelId}/provider-candidates`
+    )
+    return response.data
+  })
+}
+
+export async function refreshGlobalModelProviderCandidates(
+  globalModelId: string,
+  providerIds: string[],
+): Promise<GlobalModelProviderCandidatesResponse> {
+  const response = await client.post(
+    `/api/admin/models/global/${globalModelId}/provider-candidates/refresh`,
+    { provider_ids: providerIds },
+  )
+  return response.data
 }
 
 /**

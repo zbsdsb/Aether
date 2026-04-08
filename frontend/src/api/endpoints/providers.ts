@@ -117,13 +117,40 @@ export interface AllInHubImportJobStartResponse {
   message: string
 }
 
+export interface AllInHubImportBackgroundTaskStatus {
+  key: string
+  label: string
+  status: string
+  total: number
+  completed: number
+  failed: number
+  message: string
+}
+
+export interface AllInHubImportProviderIssue {
+  provider_id: string | null
+  provider_name: string
+  status: string
+  mode: string | null
+  message: string | null
+}
+
 export interface AllInHubImportJobStatusResponse {
   task_id: string
   status: string
   stage: string
   message: string
+  created_at: string | null
+  updated_at: string | null
+  background_tasks: AllInHubImportBackgroundTaskStatus[]
+  provider_issues: AllInHubImportProviderIssue[]
   import_result: AllInHubImportResponse | null
   execution_result: AllInHubTaskExecutionResponse | null
+}
+
+export interface AllInHubImportJobListResponse {
+  items: AllInHubImportJobStatusResponse[]
+  total: number
 }
 
 const ALL_IN_HUB_IMPORT_TIMEOUT_MS = 10 * 60 * 1000
@@ -167,6 +194,14 @@ export async function submitAllInHubImportJob(content: string): Promise<AllInHub
 export async function getAllInHubImportJob(taskId: string): Promise<AllInHubImportJobStatusResponse> {
   const response = await client.get<AllInHubImportJobStatusResponse>(
     `/api/admin/providers/imports/all-in-hub/tasks/${taskId}`,
+  )
+  return response.data
+}
+
+export async function listAllInHubImportJobs(limit = 20): Promise<AllInHubImportJobListResponse> {
+  const response = await client.get<AllInHubImportJobListResponse>(
+    '/api/admin/providers/imports/all-in-hub/tasks',
+    { params: { limit } },
   )
   return response.data
 }

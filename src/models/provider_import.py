@@ -105,10 +105,37 @@ class AllInHubImportJobStartResponse(BaseModel):
     message: str = ""
 
 
+class AllInHubImportBackgroundTaskStatus(BaseModel):
+    key: str
+    label: str
+    status: str
+    total: int = 0
+    completed: int = 0
+    failed: int = 0
+    message: str = ""
+
+
+class AllInHubImportProviderIssue(BaseModel):
+    provider_id: str | None = None
+    provider_name: str
+    status: str
+    mode: str | None = None
+    message: str | None = None
+
+
 class AllInHubImportJobStatusResponse(BaseModel):
     task_id: str
     status: str
     stage: str
     message: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
+    background_tasks: list[AllInHubImportBackgroundTaskStatus] = Field(default_factory=list)
+    provider_issues: list[AllInHubImportProviderIssue] = Field(default_factory=list)
     import_result: AllInHubImportResponse | None = None
     execution_result: AllInHubTaskExecutionResponse | None = None
+
+
+class AllInHubImportJobListResponse(BaseModel):
+    items: list[AllInHubImportJobStatusResponse] = Field(default_factory=list)
+    total: int = 0

@@ -36,6 +36,34 @@
             <p class="mt-1 font-mono">{{ jobStatus.task_id }}</p>
           </div>
         </div>
+        <div
+          v-if="jobStatus.background_tasks.length > 0"
+          class="grid gap-2 sm:grid-cols-2"
+        >
+          <div
+            v-for="task in jobStatus.background_tasks"
+            :key="task.key"
+            class="rounded-lg border border-border/50 bg-background/70 p-3"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-sm font-medium">{{ task.label }}</p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  {{ task.message || getBackgroundTaskDefaultMessage(task) }}
+                </p>
+              </div>
+              <p
+                class="shrink-0 text-xs font-medium"
+                :class="getBackgroundTaskStatusClass(task.status)"
+              >
+                {{ getBackgroundTaskStatusLabel(task.status) }}
+              </p>
+            </div>
+            <p class="mt-2 text-xs text-muted-foreground">
+              {{ task.completed }}/{{ task.total }}，失败 {{ task.failed }}
+            </p>
+          </div>
+        </div>
       </div>
 
       <div
@@ -228,46 +256,73 @@
         {{ loading ? '处理中...' : '预览导入' }}
       </Button>
       <Button
-        :disabled="loading || !preview || !content.trim()"
+        :disabled="loading || !preview || !content.trim() || importInFlight"
         @click="$emit('confirm')"
       >
-        {{ loading ? '处理中...' : '确认导入' }}
+        {{ importInFlight ? '任务执行中' : loading ? '处理中...' : '确认导入' }}
       </Button>
       <Button
+        v-if="jobStatus"
         variant="outline"
-        :disabled="loading || !canExecuteTasks"
-        @click="$emit('execute-tasks')"
+        @click="$emit('view-task', jobStatus.task_id)"
       >
-        {{ loading ? '处理中...' : '执行补钥' }}
+        查看导入任务
       </Button>
     </template>
   </Dialog>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import JsonImportInput from '@/components/common/JsonImportInput.vue'
 import Button from '@/components/ui/button.vue'
 import { Dialog } from '@/components/ui'
 import type {
+  AllInHubImportBackgroundTaskStatus,
   AllInHubImportJobStatusResponse,
   AllInHubImportResponse,
   AllInHubTaskExecutionResponse,
 } from '@/api/endpoints'
 
-defineProps<{
+function getBackgroundTaskStatusLabel(status: string): string {
+  if (status === 'running') return '进行中'
+  if (status === 'completed') return '已完成'
+  if (status === 'failed') return '失败'
+  if (status === 'skipped') return '已跳过'
+  return '等待中'
+}
+
+function getBackgroundTaskStatusClass(status: string): string {
+  if (status === 'running') return 'text-primary'
+  if (status === 'completed') return 'text-green-600 dark:text-green-400'
+  if (status === 'failed') return 'text-destructive'
+  return 'text-muted-foreground'
+}
+
+function getBackgroundTaskDefaultMessage(task: AllInHubImportBackgroundTaskStatus): string {
+  if (task.status === 'pending') return '等待执行'
+  if (task.status === 'completed') return '后台处理已完成'
+  if (task.status === 'failed') return '后台处理失败'
+  return '后台处理中'
+}
+
+const props = defineProps<{
   open: boolean
   content: string
   jobStatus: AllInHubImportJobStatusResponse | null
   preview: AllInHubImportResponse | null
   executionResult: AllInHubTaskExecutionResponse | null
-  canExecuteTasks: boolean
   loading: boolean
 }>()
+
+const importInFlight = computed(() =>
+  !!props.jobStatus && ['pending', 'running'].includes(props.jobStatus.status),
+)
 
 defineEmits<{
   preview: []
   confirm: []
-  'execute-tasks': []
+  'view-task': [taskId: string]
   error: [message: string]
   'update:open': [value: boolean]
   'update:content': [value: string]

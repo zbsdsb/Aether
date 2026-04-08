@@ -232,6 +232,24 @@ export interface GlobalModelListResponse {
   total: number
 }
 
+export type GlobalModelProviderCandidateMatchStatus = 'matched' | 'not_matched' | 'unknown'
+
+export interface GlobalModelProviderCandidate {
+  provider_id: string
+  provider_name: string
+  provider_website?: string | null
+  provider_active: boolean
+  already_linked: boolean
+  match_status: GlobalModelProviderCandidateMatchStatus
+  cached_models: Array<Record<string, unknown>>
+  cached_model_count: number
+}
+
+export interface GlobalModelProviderCandidatesResponse {
+  items: GlobalModelProviderCandidate[]
+  total: number
+}
+
 // ==================== 上游模型导入相关 ====================
 
 /**

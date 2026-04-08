@@ -7,10 +7,11 @@ GlobalModel Admin API
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Query, Request, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from src.api.base.admin_adapter import AdminApiAdapter
 from src.api.base.context import ApiRequestContext
@@ -23,16 +24,154 @@ from src.models.pydantic_models import (
     BatchAssignToProvidersResponse,
     GlobalModelCreate,
     GlobalModelListResponse,
+    GlobalModelProviderCandidate,
+    GlobalModelProviderCandidatesResponse,
     GlobalModelProvidersResponse,
     GlobalModelResponse,
     GlobalModelUpdate,
     GlobalModelWithStats,
     ModelCatalogProviderDetail,
+    RefreshGlobalModelProviderCandidatesRequest,
 )
+from src.models.database import Provider, User
 from src.services.model.global_model import GlobalModelService
+from src.api.admin.provider_query import (
+    ModelsQueryRequest,
+    _aggregate_models_by_id,
+    _get_provider_upstream_models_cache,
+    query_available_models,
+)
+from src.utils.auth_utils import require_admin
+from src.services.model.fetch_scheduler import get_upstream_models_from_cache
 
 router = APIRouter(prefix="/global", tags=["Admin - Global Models"])
 pipeline = get_pipeline()
+
+
+def _normalize_cached_models(cached_models: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not cached_models:
+        return []
+    return [item for item in cached_models if isinstance(item, dict)]
+
+
+def _compile_global_model_patterns(global_model: Any) -> list[re.Pattern[str]]:
+    config = getattr(global_model, "config", None)
+    if not isinstance(config, dict):
+        return []
+    raw_patterns = config.get("model_mappings")
+    if not isinstance(raw_patterns, list):
+        return []
+
+    patterns: list[re.Pattern[str]] = []
+    for item in raw_patterns:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        try:
+            patterns.append(re.compile(item))
+        except re.error:
+            continue
+    return patterns
+
+
+def _match_global_model_against_cached_models(
+    global_model: Any,
+    cached_models: list[dict[str, Any]] | None,
+) -> tuple[bool, list[dict[str, Any]]]:
+    normalized_models = _normalize_cached_models(cached_models)
+    if not normalized_models:
+        return False, []
+
+    target_name = str(getattr(global_model, "name", "") or "").strip()
+    patterns = _compile_global_model_patterns(global_model)
+    matches: list[dict[str, Any]] = []
+
+    for item in normalized_models:
+        model_id = str(item.get("id") or item.get("name") or "").strip()
+        if not model_id:
+            continue
+        if model_id == target_name:
+            matches.append(item)
+            continue
+        if any(pattern.search(model_id) for pattern in patterns):
+            matches.append(item)
+
+    return len(matches) > 0, matches
+
+
+def _build_provider_candidate_item(
+    *,
+    provider: Any,
+    global_model: Any,
+    linked_provider_ids: set[str],
+    cached_models: list[dict[str, Any]] | None,
+) -> GlobalModelProviderCandidate:
+    normalized_models = _normalize_cached_models(cached_models)
+    if not normalized_models:
+        match_status = "unknown"
+    else:
+        matched, _matched_models = _match_global_model_against_cached_models(global_model, normalized_models)
+        match_status = "matched" if matched else "not_matched"
+
+    return GlobalModelProviderCandidate(
+        provider_id=str(getattr(provider, "id", "") or ""),
+        provider_name=str(getattr(provider, "name", "") or ""),
+        provider_website=getattr(provider, "website", None),
+        provider_active=bool(getattr(provider, "is_active", False)),
+        already_linked=str(getattr(provider, "id", "") or "") in linked_provider_ids,
+        match_status=match_status,
+        cached_models=normalized_models,
+        cached_model_count=len(normalized_models),
+    )
+
+
+def _build_provider_candidates_payload(
+    *,
+    providers: list[Any],
+    global_model: Any,
+    linked_provider_ids: set[str],
+    provider_cached_models: dict[str, list[dict[str, Any]] | None],
+) -> list[GlobalModelProviderCandidate]:
+    status_priority = {"matched": 0, "not_matched": 1, "unknown": 2}
+    items = [
+        _build_provider_candidate_item(
+            provider=provider,
+            global_model=global_model,
+            linked_provider_ids=linked_provider_ids,
+            cached_models=provider_cached_models.get(str(getattr(provider, "id", "") or "")),
+        )
+        for provider in providers
+    ]
+    items.sort(
+        key=lambda item: (
+            status_priority.get(item.match_status, 99),
+            0 if item.already_linked else 1,
+            item.provider_name.lower(),
+        )
+    )
+    return items
+
+
+async def _get_cached_models_for_provider(provider: Any) -> list[dict[str, Any]] | None:
+    provider_id = str(getattr(provider, "id", "") or "")
+    provider_cached = await _get_provider_upstream_models_cache(provider_id)
+    normalized_provider_cached = _normalize_cached_models(provider_cached)
+    if normalized_provider_cached:
+        return _aggregate_models_by_id(normalized_provider_cached)
+
+    api_keys = getattr(provider, "api_keys", None) or []
+    aggregated: list[dict[str, Any]] = []
+    for api_key in api_keys:
+        if not bool(getattr(api_key, "is_active", False)):
+            continue
+        api_key_id = str(getattr(api_key, "id", "") or "")
+        if not api_key_id:
+            continue
+        key_cached = await get_upstream_models_from_cache(provider_id, api_key_id)
+        normalized_key_cached = _normalize_cached_models(key_cached)
+        if normalized_key_cached:
+            aggregated.extend(normalized_key_cached)
+
+    return _aggregate_models_by_id(aggregated) if aggregated else None
 
 
 @router.get("", response_model=GlobalModelListResponse)
@@ -261,6 +400,96 @@ async def get_global_model_providers(
     """
     adapter = AdminGetGlobalModelProvidersAdapter(global_model_id=global_model_id)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.get(
+    "/{global_model_id}/provider-candidates",
+    response_model=GlobalModelProviderCandidatesResponse,
+)
+async def get_global_model_provider_candidates(
+    global_model_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> GlobalModelProviderCandidatesResponse:
+    global_model = GlobalModelService.get_global_model(db, global_model_id)
+    providers = (
+        db.query(Provider)
+        .options(selectinload(Provider.api_keys))
+        .order_by(Provider.name.asc())
+        .all()
+    )
+
+    from src.models.database import Model
+
+    linked_provider_ids = {
+        str(item.provider_id)
+        for item in db.query(Model.provider_id).filter(Model.global_model_id == global_model.id).all()
+    }
+    provider_cached_models = {
+        str(provider.id): await _get_cached_models_for_provider(provider)
+        for provider in providers
+    }
+    items = _build_provider_candidates_payload(
+        providers=providers,
+        global_model=global_model,
+        linked_provider_ids=linked_provider_ids,
+        provider_cached_models=provider_cached_models,
+    )
+    return GlobalModelProviderCandidatesResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/{global_model_id}/provider-candidates/refresh",
+    response_model=GlobalModelProviderCandidatesResponse,
+)
+async def refresh_global_model_provider_candidates(
+    global_model_id: str,
+    payload: RefreshGlobalModelProviderCandidatesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> GlobalModelProviderCandidatesResponse:
+    global_model = GlobalModelService.get_global_model(db, global_model_id)
+    provider_ids = [provider_id for provider_id in payload.provider_ids if str(provider_id).strip()]
+    from src.models.database import Model
+
+    providers = (
+        db.query(Provider)
+        .options(selectinload(Provider.api_keys))
+        .filter(Provider.id.in_(provider_ids))
+        .order_by(Provider.name.asc())
+        .all()
+    )
+    providers_by_id = {str(provider.id): provider for provider in providers}
+    for provider_id in provider_ids:
+        provider = providers_by_id.get(provider_id)
+        if provider is None:
+            continue
+        if not any(bool(getattr(api_key, "is_active", False)) for api_key in (getattr(provider, "api_keys", None) or [])):
+            continue
+        try:
+            await query_available_models(
+                ModelsQueryRequest(provider_id=provider_id, force_refresh=True),
+                db=db,
+                current_user=current_user,
+            )
+        except Exception:
+            # Best-effort refresh: one provider failure must not fail the whole batch.
+            continue
+    linked_provider_ids = {
+        str(item.provider_id)
+        for item in db.query(Model.provider_id).filter(Model.global_model_id == global_model.id).all()
+    }
+    provider_cached_models = {
+        str(provider.id): await _get_cached_models_for_provider(provider)
+        for provider in providers
+    }
+    items = _build_provider_candidates_payload(
+        providers=providers,
+        global_model=global_model,
+        linked_provider_ids=linked_provider_ids,
+        provider_cached_models=provider_cached_models,
+    )
+    return GlobalModelProviderCandidatesResponse(items=items, total=len(items))
 
 
 # ========== Adapters ==========

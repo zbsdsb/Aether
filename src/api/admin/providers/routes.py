@@ -30,6 +30,7 @@ from src.models.database import GlobalModel, Provider, ProviderAPIKey, ProviderE
 from src.models.endpoint_models import ProviderWithEndpointsSummary
 from src.models.provider_import import (
     AllInHubImportJobStartResponse,
+    AllInHubImportJobListResponse,
     AllInHubImportJobStatusResponse,
     AllInHubImportRequest,
     AllInHubImportResponse,
@@ -49,6 +50,7 @@ from src.services.provider_import.all_in_hub import (
 )
 from src.services.provider_import.async_job import (
     get_all_in_hub_import_job,
+    list_all_in_hub_import_jobs,
     submit_all_in_hub_import_job,
 )
 from src.services.provider_import.reissue import (
@@ -308,6 +310,19 @@ async def submit_all_in_hub_import_route(
     db: Session = Depends(get_db),
 ) -> AllInHubImportJobStartResponse:
     adapter = AdminSubmitAllInHubImportAdapter(payload=payload)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.get(
+    "/imports/all-in-hub/tasks",
+    response_model=AllInHubImportJobListResponse,
+)
+async def list_all_in_hub_import_tasks(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> AllInHubImportJobListResponse:
+    adapter = AdminListAllInHubImportTasksAdapter(limit=limit)
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -610,6 +625,15 @@ class AdminGetAllInHubImportTaskAdapter(AdminApiAdapter):
         if result is None:
             raise HTTPException(status_code=404, detail="Task not found")
         return result
+
+
+class AdminListAllInHubImportTasksAdapter(AdminApiAdapter):
+    def __init__(self, limit: int):
+        self.limit = limit
+
+    async def handle(self, context: ApiRequestContext) -> AllInHubImportJobListResponse:  # type: ignore[override]
+        _ = context
+        return await list_all_in_hub_import_jobs(limit=self.limit)
 
 
 class AdminExecuteAllInHubTasksAdapter(AdminApiAdapter):

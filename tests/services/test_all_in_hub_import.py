@@ -56,6 +56,21 @@ class _FakeDB:
             return
         raise AssertionError(f"unexpected add type: {type(obj)}")
 
+    def delete(self, obj: Any) -> None:
+        if isinstance(obj, Provider):
+            self.providers = [item for item in self.providers if item is not obj]
+            return
+        if isinstance(obj, ProviderEndpoint):
+            self.endpoints = [item for item in self.endpoints if item is not obj]
+            return
+        if isinstance(obj, ProviderAPIKey):
+            self.keys = [item for item in self.keys if item is not obj]
+            return
+        if isinstance(obj, ProviderImportTask):
+            self.tasks = [item for item in self.tasks if item is not obj]
+            return
+        raise AssertionError(f"unexpected delete type: {type(obj)}")
+
     def flush(self) -> None:
         return None
 
@@ -733,3 +748,208 @@ async def test_execute_import_persists_sub2api_refresh_token_in_task_payload(
     decrypted_payload = crypto_service.decrypt(pending_reissue.credential_payload)
     assert '"access_token": "access-sub2-1"' in decrypted_payload
     assert '"refresh_token": "rt-sub2-1"' in decrypted_payload
+
+
+@pytest.mark.asyncio
+async def test_execute_import_disables_matched_existing_provider_when_backup_account_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.invalidate_models_list_cache",
+        _noop_side_effects,
+    )
+
+    provider = Provider(
+        id="provider-existing",
+        name="Provider One",
+        website="https://provider-1.example.com",
+        is_active=True,
+    )
+    endpoint = ProviderEndpoint(
+        id="endpoint-existing",
+        provider_id=provider.id,
+        api_format="openai:chat",
+        api_family="openai",
+        endpoint_kind="chat",
+        base_url="https://provider-1.example.com/v1",
+        is_active=True,
+    )
+    db = _FakeDB(providers=[provider], endpoints=[endpoint])
+    payload = {
+        "version": "2.0",
+        "accounts": {
+            "accounts": [
+                {
+                    "id": "acct-disabled",
+                    "site_url": "https://provider-1.example.com",
+                    "site_name": "Provider One",
+                    "disabled": True,
+                    "account_info": {},
+                },
+            ]
+        },
+    }
+
+    result = await execute_all_in_hub_import(payload, db=db)
+
+    assert result.stats.providers_created == 0
+    assert db.providers[0].is_active is False
+
+
+@pytest.mark.asyncio
+async def test_execute_import_deletes_missing_imported_keys_for_matched_provider_when_backup_has_plaintext_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.invalidate_models_list_cache",
+        _noop_side_effects,
+    )
+
+    provider = Provider(
+        id="provider-existing",
+        name="Provider One",
+        website="https://provider-1.example.com",
+        is_active=True,
+    )
+    endpoint = ProviderEndpoint(
+        id="endpoint-existing",
+        provider_id=provider.id,
+        api_format="openai:chat",
+        api_family="openai",
+        endpoint_kind="chat",
+        base_url="https://provider-1.example.com/v1",
+        is_active=True,
+    )
+    keep_key = ProviderAPIKey(
+        id="key-keep",
+        provider_id=provider.id,
+        auth_type="api_key",
+        api_key=crypto_service.encrypt("sk-keep"),
+        api_formats=["openai:chat"],
+        name="keep",
+        note="Imported from all-in-hub",
+        is_active=True,
+    )
+    delete_key = ProviderAPIKey(
+        id="key-delete",
+        provider_id=provider.id,
+        auth_type="api_key",
+        api_key=crypto_service.encrypt("sk-delete"),
+        api_formats=["openai:chat"],
+        name="delete",
+        note="Imported from all-in-hub",
+        is_active=True,
+    )
+    manual_key = ProviderAPIKey(
+        id="key-manual",
+        provider_id=provider.id,
+        auth_type="api_key",
+        api_key=crypto_service.encrypt("sk-manual"),
+        api_formats=["openai:chat"],
+        name="manual",
+        note="Manual key",
+        is_active=True,
+    )
+    db = _FakeDB(
+        providers=[provider],
+        endpoints=[endpoint],
+        keys=[keep_key, delete_key, manual_key],
+    )
+    payload = {
+        "version": "2.0",
+        "direct_imports": [
+            {
+                "name": "keep",
+                "baseUrl": "https://provider-1.example.com/v1",
+                "apiKey": "sk-keep",
+            }
+        ],
+    }
+
+    result = await execute_all_in_hub_import(payload, db=db)
+
+    assert result.stats.keys_created == 0
+    assert result.stats.keys_skipped == 1
+    assert {key.id for key in db.keys} == {"key-keep", "key-manual"}
+    assert {crypto_service.decrypt(key.api_key) for key in db.keys} == {"sk-keep", "sk-manual"}
+
+
+@pytest.mark.asyncio
+async def test_execute_import_keeps_existing_imported_keys_when_backup_key_is_masked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.all_in_hub.invalidate_models_list_cache",
+        _noop_side_effects,
+    )
+
+    provider = Provider(
+        id="provider-existing",
+        name="Provider One",
+        website="https://provider-1.example.com",
+        is_active=True,
+    )
+    endpoint = ProviderEndpoint(
+        id="endpoint-existing",
+        provider_id=provider.id,
+        api_format="openai:chat",
+        api_family="openai",
+        endpoint_kind="chat",
+        base_url="https://provider-1.example.com/v1",
+        is_active=True,
+    )
+    old_imported_key = ProviderAPIKey(
+        id="key-old",
+        provider_id=provider.id,
+        auth_type="api_key",
+        api_key=crypto_service.encrypt("sk-old"),
+        api_formats=["openai:chat"],
+        name="old",
+        note="Imported from all-in-hub",
+        is_active=True,
+    )
+    db = _FakeDB(
+        providers=[provider],
+        endpoints=[endpoint],
+        keys=[old_imported_key],
+    )
+    payload = {
+        "version": "2.0",
+        "accountKeySnapshots": [
+            {
+                "accountId": "acct-1",
+                "accountName": "Provider One",
+                "baseUrl": "https://provider-1.example.com/v1",
+                "tokens": [
+                    {"id": "token-1", "name": "masked", "key": "sk-****-masked"},
+                ],
+            }
+        ],
+    }
+
+    result = await execute_all_in_hub_import(payload, db=db)
+
+    assert result.stats.keys_created == 0
+    assert {key.id for key in db.keys} == {"key-old"}
+    assert crypto_service.decrypt(db.keys[0].api_key) == "sk-old"

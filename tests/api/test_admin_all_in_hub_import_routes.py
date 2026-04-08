@@ -10,6 +10,9 @@ from fastapi.testclient import TestClient
 from src.api.admin.providers import router as providers_router
 from src.api.admin.providers.routes import get_db
 from src.models.provider_import import (
+    AllInHubImportBackgroundTaskStatus,
+    AllInHubImportJobListResponse,
+    AllInHubImportProviderIssue,
     AllInHubImportJobStatusResponse,
     AllInHubImportProviderSummary,
     AllInHubImportResponse,
@@ -235,6 +238,37 @@ def test_get_all_in_hub_import_task_route_returns_job_status(
             status="running",
             stage="executing_tasks",
             message="execution round 1",
+            created_at="2026-04-08T06:00:00+00:00",
+            updated_at="2026-04-08T06:01:00+00:00",
+            background_tasks=[
+                AllInHubImportBackgroundTaskStatus(
+                    key="fetch_models",
+                    label="异步抓取上游模型",
+                    status="running",
+                    total=2,
+                    completed=1,
+                    failed=0,
+                    message="正在抓取第 2/2 个 Key",
+                ),
+                AllInHubImportBackgroundTaskStatus(
+                    key="proxy_probe",
+                    label="代理检测",
+                    status="pending",
+                    total=1,
+                    completed=0,
+                    failed=0,
+                    message="等待模型抓取结束后执行",
+                ),
+            ],
+            provider_issues=[
+                AllInHubImportProviderIssue(
+                    provider_id="provider-1",
+                    provider_name="Anyrouter",
+                    status="failed",
+                    mode="system_proxy",
+                    message="invalid refresh token",
+                )
+            ],
             import_result=_response_payload(dry_run=False),
             execution_result=_task_execution_payload(),
         )
@@ -251,7 +285,47 @@ def test_get_all_in_hub_import_task_route_returns_job_status(
     assert response.json()["task_id"] == "job-1"
     assert response.json()["status"] == "running"
     assert response.json()["execution_result"]["total_selected"] == 2
+    assert response.json()["background_tasks"][0]["key"] == "fetch_models"
+    assert response.json()["background_tasks"][1]["status"] == "pending"
+    assert response.json()["provider_issues"][0]["provider_name"] == "Anyrouter"
     get_mock.assert_awaited_once()
+
+
+def test_list_all_in_hub_import_tasks_route_returns_recent_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    list_mock = AsyncMock(
+        return_value=AllInHubImportJobListResponse(
+            items=[
+                AllInHubImportJobStatusResponse(
+                    task_id="job-1",
+                    status="completed",
+                    stage="completed",
+                    message="done",
+                    created_at="2026-04-08T06:00:00+00:00",
+                    updated_at="2026-04-08T06:05:00+00:00",
+                    background_tasks=[],
+                    provider_issues=[],
+                    import_result=_response_payload(dry_run=False),
+                    execution_result=_task_execution_payload(),
+                )
+            ],
+            total=1,
+        )
+    )
+    monkeypatch.setattr(
+        "src.api.admin.providers.routes.list_all_in_hub_import_jobs",
+        list_mock,
+    )
+
+    client = _build_app(object(), monkeypatch)
+    response = client.get("/api/admin/providers/imports/all-in-hub/tasks?limit=10")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["task_id"] == "job-1"
+    assert response.json()["items"][0]["created_at"] == "2026-04-08T06:00:00+00:00"
+    list_mock.assert_awaited_once()
 
 
 def test_execute_all_in_hub_pending_tasks_route_returns_service_payload(

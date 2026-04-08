@@ -181,6 +181,11 @@ const routes: RouteRecordRaw[] = [
         component: () => importWithRetry(() => import('@/views/admin/ProviderManagement.vue'))
       },
       {
+        path: 'provider-import-tasks',
+        name: 'ProviderImportTasks',
+        component: () => importWithRetry(() => import('@/views/admin/ProviderImportTasks.vue'))
+      },
+      {
         path: 'pool',
         name: 'PoolManagement',
         component: () => importWithRetry(() => import('@/views/admin/PoolManagement.vue'))

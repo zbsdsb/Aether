@@ -342,15 +342,46 @@
     >
       <template #default>
         <div class="space-y-4">
-          <!-- 搜索栏 -->
-          <div class="flex items-center gap-2">
-            <div class="flex-1 relative">
-              <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                v-model="batchProviderSearchQuery"
-                placeholder="搜索提供商..."
-                class="pl-8 h-9"
-              />
+          <div class="flex flex-col gap-3">
+            <div class="flex flex-col sm:flex-row gap-2">
+              <div class="flex-1 relative">
+                <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  v-model="batchProviderSearchQuery"
+                  placeholder="搜索渠道商或站点..."
+                  class="pl-8 h-9"
+                />
+              </div>
+              <div class="flex-1 relative">
+                <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  v-model="batchProviderModelQuery"
+                  placeholder="搜索模型（模糊匹配变体）..."
+                  class="pl-8 h-9"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                class="shrink-0"
+                :disabled="loadingProviderOptions || refreshingProviderCandidates || !selectedModel"
+                @click="refreshBatchProviderCandidates"
+              >
+                <Loader2
+                  v-if="refreshingProviderCandidates"
+                  class="w-4 h-4 mr-1 animate-spin"
+                />
+                {{ refreshingProviderCandidates ? '刷新中...' : '刷新支持情况' }}
+              </Button>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-xs text-muted-foreground">
+                当前结果 {{ selectableFilteredBatchProviderIds.length }} 个
+              </span>
+              <span class="text-xs text-muted-foreground">
+                模型搜索会模糊匹配 `gpt-5.4-2026-03-05`、`gpt-5.4(xhigh)` 这类变体
+              </span>
             </div>
           </div>
 
@@ -365,14 +396,13 @@
               </div>
 
               <template v-else>
-                <!-- 提供商组 -->
-                <div v-if="filteredBatchProviders.length > 0">
+                <div v-if="filteredBatchProviderCandidates.length > 0">
                   <div
                     class="flex items-center justify-between px-3 py-2 bg-muted sticky top-0 z-10"
                   >
                     <div class="flex items-center gap-2">
-                      <span class="text-xs font-medium">提供商</span>
-                      <span class="text-xs text-muted-foreground">({{ filteredBatchProviders.length }})</span>
+                      <span class="text-xs font-medium">渠道商</span>
+                      <span class="text-xs text-muted-foreground">({{ filteredBatchProviderCandidates.length }})</span>
                     </div>
                     <button
                       type="button"
@@ -384,44 +414,105 @@
                   </div>
                   <div class="space-y-1 p-2">
                     <div
-                      v-for="provider in filteredBatchProviders"
-                      :key="provider.id"
-                      class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
-                      @click="toggleBatchProviderSelection(provider.id)"
+                      v-for="candidate in filteredBatchProviderCandidates"
+                      :key="candidate.provider_id"
+                      class="rounded border border-border/50 px-3 py-3"
                     >
                       <div
-                        class="w-4 h-4 border rounded flex items-center justify-center shrink-0"
-                        :class="isBatchProviderSelected(provider.id) ? 'bg-primary border-primary' : ''"
+                        class="flex items-start gap-2 hover:bg-muted/50 cursor-pointer rounded"
+                        @click="toggleBatchProviderSelection(candidate.provider_id)"
                       >
-                        <Check
-                          v-if="isBatchProviderSelected(provider.id)"
-                          class="w-3 h-3 text-primary-foreground"
-                        />
+                        <div
+                          class="w-4 h-4 border rounded flex items-center justify-center shrink-0 mt-0.5"
+                          :class="isBatchProviderSelected(candidate.provider_id) ? 'bg-primary border-primary' : ''"
+                        >
+                          <Check
+                            v-if="isBatchProviderSelected(candidate.provider_id)"
+                            class="w-3 h-3 text-primary-foreground"
+                          />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2 flex-wrap">
+                            <p class="text-sm font-medium truncate">
+                              {{ candidate.provider_name }}
+                            </p>
+                            <Badge
+                              :variant="candidate.provider_active ? 'outline' : 'secondary'"
+                              :class="candidate.provider_active ? 'text-green-600 border-green-500/60' : ''"
+                              class="text-xs shrink-0"
+                            >
+                              {{ candidate.provider_active ? '活跃' : '停用' }}
+                            </Badge>
+                            <Badge
+                              v-if="candidate.already_linked"
+                              variant="secondary"
+                              class="text-xs shrink-0"
+                            >
+                              已关联
+                            </Badge>
+                            <Badge
+                              class="text-xs shrink-0"
+                              :variant="batchProviderMatchBadgeVariant(candidate.match_status)"
+                            >
+                              {{ batchProviderMatchLabel(candidate.match_status) }}
+                            </Badge>
+                          </div>
+                          <p
+                            v-if="candidate.provider_website"
+                            class="text-xs text-muted-foreground truncate mt-0.5"
+                          >
+                            {{ candidate.provider_website }}
+                          </p>
+                          <p class="text-xs text-muted-foreground mt-1">
+                            已知上游模型 {{ candidate.cached_model_count }} 个
+                          </p>
+                          <div
+                            v-if="getVisibleBatchCandidateModels(candidate).length > 0"
+                            class="mt-2 flex flex-wrap gap-1.5"
+                          >
+                            <button
+                              v-for="modelName in getVisibleBatchCandidateModels(candidate)"
+                              :key="`${candidate.provider_id}-${modelName}`"
+                              type="button"
+                              class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-mono transition-colors"
+                              :class="isBatchCandidateModelSelected(candidate.provider_id, modelName)
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border/60 bg-background hover:bg-muted'"
+                              @click.stop="toggleBatchCandidateModelSelection(candidate.provider_id, modelName)"
+                            >
+                              <Check
+                                v-if="isBatchCandidateModelSelected(candidate.provider_id, modelName)"
+                                class="w-3 h-3"
+                              />
+                              {{ modelName }}
+                            </button>
+                          </div>
+                          <p
+                            v-else-if="batchProviderModelQuery.trim()"
+                            class="mt-2 text-xs text-muted-foreground"
+                          >
+                            当前渠道没有命中模型搜索的上游模型。
+                          </p>
+                          <p
+                            v-else
+                            class="mt-2 text-xs text-muted-foreground"
+                          >
+                            当前没有缓存的上游模型。
+                          </p>
+                        </div>
                       </div>
-                      <div class="flex-1 min-w-0">
-                        <p class="text-sm font-medium truncate">
-                          {{ provider.name }}
-                        </p>
-                      </div>
-                      <Badge
-                        :variant="provider.is_active ? 'outline' : 'secondary'"
-                        :class="provider.is_active ? 'text-green-600 border-green-500/60' : ''"
-                        class="text-xs shrink-0"
-                      >
-                        {{ provider.is_active ? '活跃' : '停用' }}
-                      </Badge>
                     </div>
                   </div>
                 </div>
 
                 <!-- 空状态 -->
                 <div
-                  v-if="filteredBatchProviders.length === 0"
+                  v-if="filteredBatchProviderCandidates.length === 0"
                   class="flex flex-col items-center justify-center py-12 text-muted-foreground"
                 >
                   <Building2 class="w-10 h-10 mb-2 opacity-30" />
                   <p class="text-sm">
-                    {{ batchProviderSearchQuery ? '无匹配结果' : '暂无可用提供商' }}
+                    {{ batchProviderSearchQuery || batchProviderModelQuery ? '无匹配结果' : '暂无可用候选项' }}
                   </p>
                 </div>
               </template>
@@ -630,6 +721,7 @@ import ModelDetailDrawer from '@/features/models/components/ModelDetailDrawer.vu
 import GlobalModelFormDialog from '@/features/models/components/GlobalModelFormDialog.vue'
 import ProviderModelFormDialog from '@/features/providers/components/ProviderModelFormDialog.vue'
 import type { Model } from '@/api/endpoints'
+import { getModel as getProviderModel, updateModel as updateProviderModel } from '@/api/endpoints/models'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { useClipboard } from '@/composables/useClipboard'
@@ -659,11 +751,19 @@ import {
   batchDeleteGlobalModels,
   batchAssignToProviders,
   getGlobalModelProviders,
+  getGlobalModelProviderCandidates,
+  refreshGlobalModelProviderCandidates,
   type GlobalModelResponse,
 } from '@/api/global-models'
 import { log } from '@/utils/logger'
 import { formatUsageCount } from '@/utils/format'
-import { getProvidersSummary, type ProviderWithEndpointsSummary } from '@/api/endpoints/providers'
+import type { GlobalModelProviderCandidate } from '@/api/endpoints/types/model'
+import {
+  filterProviderCandidates,
+  getVisibleCandidateModelNames,
+  getSelectableCandidateIds,
+} from '@/features/models/utils/global-model-provider-candidates'
+import type { ProviderModelMapping } from '@/api/endpoints/types/provider'
 
 
 interface ModelProviderDisplay {
@@ -701,13 +801,10 @@ const editingModel = ref<GlobalModelResponse | null>(null)
 
 // 数据
 const globalModels = ref<GlobalModelResponse[]>([])
-const providers = ref<ProviderWithEndpointsSummary[]>([])
 const GLOBAL_MODELS_FETCH_PAGE_SIZE = 1000
 let globalModelsRequestId = 0
 let modelSelectionRequestId = 0
 let modelProvidersRequestId = 0
-let providersRequestId = 0
-let providerOptionsRequest: Promise<void> | null = null
 
 // 模型目录分页
 const catalogCurrentPage = ref(1)
@@ -720,13 +817,17 @@ const loadingModelProviders = ref(false)
 // 批量添加关联提供商
 const batchAddProvidersDialogOpen = ref(false)
 const submittingBatchProviders = ref(false)
-const providerOptions = ref<ProviderWithEndpointsSummary[]>([])
 const loadingProviderOptions = ref(false)
+const refreshingProviderCandidates = ref(false)
+const providerCandidates = ref<GlobalModelProviderCandidate[]>([])
+const providerCandidatesModelId = ref<string | null>(null)
 
 // 单列勾选模式所需状态
 const batchProviderSearchQuery = ref('')
+const batchProviderModelQuery = ref('')
 const selectedBatchProviderIds = ref<Set<string>>(new Set())
 const initialBatchProviderIds = ref<Set<string>>(new Set())
+const selectedBatchCandidateModelKeys = ref<Set<string>>(new Set())
 
 // 编辑提供商模型
 const editProviderDialogOpen = ref(false)
@@ -835,16 +936,95 @@ const capabilityFilters = ref({
   extendedThinking: false,
 })
 
-// 过滤后的提供商列表
-const filteredBatchProviders = computed(() => {
-  const query = batchProviderSearchQuery.value.toLowerCase().trim()
-  return providerOptions.value.filter(p => {
-    if (query && !p.name.toLowerCase().includes(query)) {
-      return false
-    }
-    return true
+const batchProviderFilterResult = computed(() =>
+  filterProviderCandidates(
+    providerCandidates.value,
+    {
+      providerQuery: batchProviderSearchQuery.value,
+      modelQuery: batchProviderModelQuery.value,
+    },
+  ),
+)
+const filteredBatchProviderCandidates = computed(() => batchProviderFilterResult.value.items)
+const selectableFilteredBatchProviderIds = computed(() =>
+  getSelectableCandidateIds(filteredBatchProviderCandidates.value),
+)
+
+function batchProviderMatchLabel(status: GlobalModelProviderCandidate['match_status']): string {
+  if (status === 'matched') return '已命中'
+  if (status === 'not_matched') return '未命中'
+  return '未知'
+}
+
+function batchProviderMatchBadgeVariant(
+  status: GlobalModelProviderCandidate['match_status'],
+): 'default' | 'secondary' | 'outline' {
+  if (status === 'matched') return 'default'
+  if (status === 'not_matched') return 'outline'
+  return 'secondary'
+}
+
+function getBatchCandidateModelKey(providerId: string, modelName: string): string {
+  return `${providerId}::${modelName}`
+}
+
+function getVisibleBatchCandidateModels(candidate: GlobalModelProviderCandidate): string[] {
+  return getVisibleCandidateModelNames(candidate, {
+    modelQuery: batchProviderModelQuery.value,
   })
-})
+}
+
+function isBatchCandidateModelSelected(providerId: string, modelName: string): boolean {
+  return selectedBatchCandidateModelKeys.value.has(getBatchCandidateModelKey(providerId, modelName))
+}
+
+function toggleBatchCandidateModelSelection(providerId: string, modelName: string) {
+  const key = getBatchCandidateModelKey(providerId, modelName)
+  if (selectedBatchCandidateModelKeys.value.has(key)) {
+    selectedBatchCandidateModelKeys.value.delete(key)
+  } else {
+    selectedBatchCandidateModelKeys.value.add(key)
+    selectedBatchProviderIds.value.add(providerId)
+  }
+  selectedBatchCandidateModelKeys.value = new Set(selectedBatchCandidateModelKeys.value)
+  selectedBatchProviderIds.value = new Set(selectedBatchProviderIds.value)
+}
+
+async function loadBatchProviderCandidates() {
+  if (!selectedModel.value) return
+  loadingProviderOptions.value = true
+  try {
+    const response = await getGlobalModelProviderCandidates(selectedModel.value.id)
+    providerCandidates.value = response.items
+    providerCandidatesModelId.value = selectedModel.value.id
+  } catch (err: unknown) {
+    showError(parseApiError(err, '加载 Provider 候选失败'), '错误')
+    providerCandidates.value = []
+    providerCandidatesModelId.value = null
+  } finally {
+    loadingProviderOptions.value = false
+  }
+}
+
+async function refreshBatchProviderCandidates() {
+  if (!selectedModel.value || refreshingProviderCandidates.value) return
+  const candidateIds = selectableFilteredBatchProviderIds.value.length > 0
+    ? selectableFilteredBatchProviderIds.value
+    : providerCandidates.value.map((item) => item.provider_id)
+  if (candidateIds.length === 0) return
+
+  refreshingProviderCandidates.value = true
+  try {
+    const response = await refreshGlobalModelProviderCandidates(selectedModel.value.id, candidateIds)
+    const updated = new Map(response.items.map((item) => [item.provider_id, item]))
+    providerCandidates.value = providerCandidates.value.map((item) => updated.get(item.provider_id) || item)
+    success('支持情况已刷新')
+  } catch (err: unknown) {
+    showError(parseApiError(err, '刷新支持情况失败'), '错误')
+  } finally {
+    refreshingProviderCandidates.value = false
+  }
+}
 
 // 检查提供商是否已选中
 function isBatchProviderSelected(providerId: string): boolean {
@@ -853,8 +1033,8 @@ function isBatchProviderSelected(providerId: string): boolean {
 
 // 是否全选
 const isAllBatchProvidersSelected = computed(() => {
-  if (filteredBatchProviders.value.length === 0) return false
-  return filteredBatchProviders.value.every(p => isBatchProviderSelected(p.id))
+  if (selectableFilteredBatchProviderIds.value.length === 0) return false
+  return selectableFilteredBatchProviderIds.value.every((id) => isBatchProviderSelected(id))
 })
 
 // 计算待添加的提供商
@@ -866,6 +1046,31 @@ const batchProvidersToAdd = computed(() => {
     }
   }
   return toAdd
+})
+
+const batchCandidateModelSelectionsByProvider = computed(() => {
+  const result = new Map<string, Set<string>>()
+  for (const key of selectedBatchCandidateModelKeys.value) {
+    const [providerId, modelName] = key.split('::')
+    if (!providerId || !modelName) continue
+    const existing = result.get(providerId) || new Set<string>()
+    existing.add(modelName)
+    result.set(providerId, existing)
+  }
+  return result
+})
+
+const batchCandidateMappingsToAddCount = computed(() => {
+  const currentModelName = selectedModel.value?.name || ''
+  let count = 0
+  for (const modelNames of batchCandidateModelSelectionsByProvider.value.values()) {
+    for (const modelName of modelNames) {
+      if (modelName !== currentModelName) {
+        count += 1
+      }
+    }
+  }
+  return count
 })
 
 // 计算待移除的提供商
@@ -881,37 +1086,61 @@ const batchProvidersToRemove = computed(() => {
 
 // 是否有变更
 const hasBatchProviderChanges = computed(() => {
-  return batchProvidersToAdd.value.length > 0 || batchProvidersToRemove.value.length > 0
+  return (
+    batchProvidersToAdd.value.length > 0 ||
+    batchProvidersToRemove.value.length > 0 ||
+    selectedBatchCandidateModelKeys.value.size > 0
+  )
 })
 
 // 待变更数量
 const batchProviderPendingChangesCount = computed(() => {
-  return batchProvidersToAdd.value.length + batchProvidersToRemove.value.length
+  return batchProvidersToAdd.value.length + batchProvidersToRemove.value.length + batchCandidateMappingsToAddCount.value
 })
 
 // 切换提供商选择
 function toggleBatchProviderSelection(providerId: string) {
   if (selectedBatchProviderIds.value.has(providerId)) {
     selectedBatchProviderIds.value.delete(providerId)
+    for (const key of selectedBatchCandidateModelKeys.value) {
+      if (key.startsWith(`${providerId}::`)) {
+        selectedBatchCandidateModelKeys.value.delete(key)
+      }
+    }
   } else {
     selectedBatchProviderIds.value.add(providerId)
   }
   selectedBatchProviderIds.value = new Set(selectedBatchProviderIds.value)
+  selectedBatchCandidateModelKeys.value = new Set(selectedBatchCandidateModelKeys.value)
 }
 
 // 全选/取消全选
 function toggleAllBatchProviders() {
-  const allIds = filteredBatchProviders.value.map(p => p.id)
+  const allIds = selectableFilteredBatchProviderIds.value
   if (isAllBatchProvidersSelected.value) {
     for (const id of allIds) {
       selectedBatchProviderIds.value.delete(id)
+      for (const key of selectedBatchCandidateModelKeys.value) {
+        if (key.startsWith(`${id}::`)) {
+          selectedBatchCandidateModelKeys.value.delete(key)
+        }
+      }
     }
   } else {
     for (const id of allIds) {
       selectedBatchProviderIds.value.add(id)
+      if (batchProviderModelQuery.value.trim()) {
+        const candidate = filteredBatchProviderCandidates.value.find((item) => item.provider_id === id)
+        if (candidate) {
+          for (const modelName of getVisibleBatchCandidateModels(candidate)) {
+            selectedBatchCandidateModelKeys.value.add(getBatchCandidateModelKey(id, modelName))
+          }
+        }
+      }
     }
   }
   selectedBatchProviderIds.value = new Set(selectedBatchProviderIds.value)
+  selectedBatchCandidateModelKeys.value = new Set(selectedBatchCandidateModelKeys.value)
 }
 
 // 同步初始选择状态
@@ -919,6 +1148,7 @@ function syncBatchProviderSelection() {
   const existingIds = new Set(selectedModelProviders.value.map((p) => p.id))
   selectedBatchProviderIds.value = new Set(existingIds)
   initialBatchProviderIds.value = new Set(existingIds)
+  selectedBatchCandidateModelKeys.value = new Set()
 }
 
 // 保存变更
@@ -928,7 +1158,13 @@ async function saveBatchProviderChanges() {
   submittingBatchProviders.value = true
   try {
     let totalSuccess = 0
+    let addedMappingCount = 0
     const allErrors: string[] = []
+    const providerModelIdMap = new Map(
+      selectedModelProviders.value
+        .filter((provider) => provider.model_id)
+        .map((provider) => [provider.id, provider.model_id as string]),
+    )
 
     // 并行移除提供商
     if (batchProvidersToRemove.value.length > 0) {
@@ -958,13 +1194,65 @@ async function saveBatchProviderChanges() {
         create_models: true
       })
       totalSuccess += result.success.length
+      for (const item of result.success) {
+        if (item.model_id) {
+          providerModelIdMap.set(item.provider_id, item.model_id)
+        }
+      }
       if (result.errors.length > 0) {
         allErrors.push(...result.errors.map(e => e.error))
       }
     }
 
+    // 写入模型映射
+    const targetModelName = selectedModel.value.name
+    for (const [providerId, modelNames] of batchCandidateModelSelectionsByProvider.value.entries()) {
+      const mappingNames = [...modelNames].filter((name) => name !== targetModelName)
+      if (mappingNames.length === 0) continue
+
+      const modelId = providerModelIdMap.get(providerId)
+      if (!modelId) {
+        allErrors.push(`渠道 ${providerId} 缺少模型记录，无法写入映射`)
+        continue
+      }
+
+      try {
+        const model = await getProviderModel(providerId, modelId)
+        const currentMappings = Array.isArray(model.provider_model_mappings)
+          ? [...model.provider_model_mappings]
+          : []
+        const existingNames = new Set(currentMappings.map((item) => item.name))
+        let nextPriority = currentMappings.length > 0
+          ? Math.max(...currentMappings.map((item) => item.priority || 0)) + 1
+          : 1
+
+        const newMappings: ProviderModelMapping[] = []
+        for (const name of mappingNames) {
+          if (existingNames.has(name)) continue
+          existingNames.add(name)
+          newMappings.push({
+            name,
+            priority: nextPriority++,
+          })
+        }
+
+        if (newMappings.length === 0) continue
+
+        await updateProviderModel(providerId, modelId, {
+          provider_model_mappings: [...currentMappings, ...newMappings],
+        })
+        addedMappingCount += newMappings.length
+      } catch (err: unknown) {
+        allErrors.push(parseApiError(err, `渠道 ${providerId} 写入模型映射失败`))
+      }
+    }
+
     if (totalSuccess > 0) {
       success(`成功处理 ${totalSuccess} 个提供商`)
+    }
+
+    if (addedMappingCount > 0) {
+      success(`新增 ${addedMappingCount} 条模型映射`)
     }
 
     if (allErrors.length > 0) {
@@ -1158,35 +1446,22 @@ async function loadModelProviders(_globalModelId: string) {
 
 // 确保 Provider 选项已加载
 async function ensureProviderOptions() {
-  if (providerOptions.value.length > 0 || loadingProviderOptions.value) {
+  if (
+    providerCandidatesModelId.value === selectedModel.value?.id &&
+    providerCandidates.value.length > 0
+  ) {
     return
   }
-  if (providerOptionsRequest) {
-    await providerOptionsRequest
-    return
-  }
-  providerOptionsRequest = (async () => {
-    try {
-      loadingProviderOptions.value = true
-      providerOptions.value = (await getProvidersSummary({ page_size: 9999 })).items
-    } catch (err: unknown) {
-      const message = parseApiError(err, '加载 Provider 列表失败')
-      showError(message, '错误')
-    } finally {
-      loadingProviderOptions.value = false
-    }
-  })()
-  try {
-    await providerOptionsRequest
-  } finally {
-    providerOptionsRequest = null
-  }
+  if (loadingProviderOptions.value) return
+  await loadBatchProviderCandidates()
 }
 
 // 打开添加关联提供商对话框
 function openAddProviderDialog() {
   if (!selectedModel.value) return
   batchProviderSearchQuery.value = ''
+  batchProviderModelQuery.value = ''
+  selectedBatchCandidateModelKeys.value = new Set()
   batchAddProvidersDialogOpen.value = true
   ensureProviderOptions().then(() => {
     // 同步选择状态
@@ -1238,8 +1513,12 @@ function handleBatchAddProvidersDialogUpdate(value: boolean) {
 function closeBatchAddProvidersDialog() {
   batchAddProvidersDialogOpen.value = false
   batchProviderSearchQuery.value = ''
+  batchProviderModelQuery.value = ''
+  providerCandidates.value = []
+  providerCandidatesModelId.value = null
   selectedBatchProviderIds.value = new Set()
   initialBatchProviderIds.value = new Set()
+  selectedBatchCandidateModelKeys.value = new Set()
   submittingBatchProviders.value = false
 }
 
@@ -1491,30 +1770,14 @@ async function refreshData() {
   await loadGlobalModels()
 }
 
-async function loadProviders() {
-  const requestId = ++providersRequestId
-  try {
-    const nextProviders = (await getProvidersSummary({ page_size: 9999 })).items
-    if (requestId !== providersRequestId) return
-    providers.value = nextProviders
-  } catch (err: unknown) {
-    if (requestId !== providersRequestId) return
-    showError(parseApiError(err, '加载 Provider 列表失败'), '加载 Provider 列表失败')
-  }
-}
-
 onMounted(async () => {
-  await Promise.all([
-    refreshData(),
-    loadProviders(),
-  ])
+  await refreshData()
 })
 
 onBeforeUnmount(() => {
   globalModelsRequestId += 1
   modelSelectionRequestId += 1
   modelProvidersRequestId += 1
-  providersRequestId += 1
 })
 </script>
 

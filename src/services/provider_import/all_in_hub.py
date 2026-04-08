@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
-import asyncio
 
 from sqlalchemy.orm import Session
 
@@ -69,6 +70,24 @@ class _ProviderBucket:
     pending_records: list[_ImportRecord] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class _ProviderSyncState:
+    provider_origin: str
+    provider_name: str
+    endpoint_base_url: str
+    account_disabled_flags: list[bool] = field(default_factory=list)
+    visible_direct_key_hashes: set[str] = field(default_factory=set)
+    has_masked_direct_keys: bool = False
+
+    @property
+    def should_disable_existing_provider(self) -> bool:
+        return bool(self.account_disabled_flags) and all(self.account_disabled_flags)
+
+    @property
+    def can_prune_imported_keys(self) -> bool:
+        return not self.has_masked_direct_keys
+
+
 def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
@@ -128,6 +147,129 @@ def _parse_json_content(content: str | dict[str, Any] | list[Any]) -> tuple[Any,
     if isinstance(data, dict):
         version = str(data.get("version") or "")
     return data, version
+
+
+def _ensure_provider_sync_state(
+    states: dict[str, _ProviderSyncState],
+    *,
+    origin: str | None,
+    provider_name: str | None,
+    endpoint_base_url: str | None,
+) -> _ProviderSyncState | None:
+    if not origin:
+        return None
+    state = states.get(origin)
+    if state is None:
+        state = _ProviderSyncState(
+            provider_origin=origin,
+            provider_name=provider_name or _default_provider_name(origin),
+            endpoint_base_url=endpoint_base_url or origin,
+        )
+        states[origin] = state
+        return state
+
+    if provider_name:
+        state.provider_name = provider_name
+    if endpoint_base_url:
+        state.endpoint_base_url = endpoint_base_url
+    return state
+
+
+def _collect_direct_key_sync_state(
+    node: Any,
+    *,
+    states: dict[str, _ProviderSyncState],
+) -> None:
+    if isinstance(node, dict):
+        base_url = _optional_str(node.get("baseUrl") or node.get("base_url"))
+        api_key = _optional_str(node.get("apiKey") or node.get("api_key"))
+        origin = _normalize_origin(base_url or "")
+        state = _ensure_provider_sync_state(
+            states,
+            origin=origin,
+            provider_name=_optional_str(node.get("site_name") or node.get("name")) or (origin and _default_provider_name(origin)),
+            endpoint_base_url=_normalize_pending_endpoint_base_url(base_url) if base_url else None,
+        )
+        if state is not None and api_key:
+            if _looks_like_masked_secret(api_key):
+                state.has_masked_direct_keys = True
+            else:
+                state.visible_direct_key_hashes.add(crypto_service.hash_api_key(api_key))
+
+        for value in node.values():
+            _collect_direct_key_sync_state(value, states=states)
+        return
+
+    if isinstance(node, list):
+        for item in node:
+            _collect_direct_key_sync_state(item, states=states)
+
+
+def _collect_provider_sync_states_from_data(data: Any) -> dict[str, _ProviderSyncState]:
+    states: dict[str, _ProviderSyncState] = {}
+    if not isinstance(data, dict):
+        if isinstance(data, list):
+            _collect_direct_key_sync_state(data, states=states)
+        return states
+
+    for item in _extract_v2_account_items(data):
+        site_url = _optional_str(item.get("site_url"))
+        origin = _normalize_origin(site_url or "")
+        state = _ensure_provider_sync_state(
+            states,
+            origin=origin,
+            provider_name=_optional_str(item.get("site_name")) or (origin and _default_provider_name(origin)),
+            endpoint_base_url=_normalize_pending_endpoint_base_url(site_url) if site_url else None,
+        )
+        if state is not None:
+            state.account_disabled_flags.append(bool(item.get("disabled")))
+
+    account_map = {
+        _optional_str(item.get("id")) or "": item
+        for item in _extract_v2_account_items(data)
+        if _optional_str(item.get("id"))
+    }
+    raw_snapshots = data.get("accountKeySnapshots") or []
+    if isinstance(raw_snapshots, list):
+        for snapshot in raw_snapshots:
+            if not isinstance(snapshot, dict):
+                continue
+            account_id = _optional_str(snapshot.get("accountId"))
+            account = account_map.get(account_id or "")
+            base_url = _optional_str(snapshot.get("baseUrl")) or _optional_str(
+                account.get("site_url") if isinstance(account, dict) else None
+            )
+            origin = _normalize_origin(base_url or "")
+            state = _ensure_provider_sync_state(
+                states,
+                origin=origin,
+                provider_name=(
+                    _optional_str(account.get("site_name") if isinstance(account, dict) else None)
+                    or _optional_str(snapshot.get("accountName"))
+                    or (origin and _default_provider_name(origin))
+                ),
+                endpoint_base_url=_normalize_pending_endpoint_base_url(base_url) if base_url else None,
+            )
+            if state is None:
+                continue
+            tokens = snapshot.get("tokens") or []
+            if not isinstance(tokens, list):
+                continue
+            for token in tokens:
+                if not isinstance(token, dict):
+                    continue
+                api_key = _optional_str(
+                    token.get("key") or token.get("apiKey") or token.get("api_key") or token.get("token")
+                )
+                if not api_key:
+                    continue
+                if _looks_like_masked_secret(api_key):
+                    state.has_masked_direct_keys = True
+                    continue
+                state.visible_direct_key_hashes.add(crypto_service.hash_api_key(api_key))
+
+    _collect_direct_key_sync_state(data, states=states)
+    return states
 
 
 def _extract_v2_account_items(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -374,6 +516,49 @@ def _collect_records(content: str | dict[str, Any] | list[Any]) -> tuple[list[_I
         records.extend(_extract_direct_records(data, seen=set()))
 
     return records, version
+
+
+def _is_imported_all_in_hub_key(key: ProviderAPIKey) -> bool:
+    return str(getattr(key, "note", "") or "") == "Imported from all-in-hub"
+
+
+def _sync_existing_provider_from_backup(
+    *,
+    provider: Provider,
+    sync_state: _ProviderSyncState | None,
+    keys: list[ProviderAPIKey],
+    db: Session,
+    now: datetime,
+) -> None:
+    if sync_state is None:
+        return
+
+    if sync_state.should_disable_existing_provider:
+        provider.is_active = False
+        provider.updated_at = now
+
+    if not sync_state.can_prune_imported_keys:
+        return
+
+    keys_to_delete: list[ProviderAPIKey] = []
+    for key in keys:
+        if key.provider_id != provider.id or key.auth_type != "api_key" or not _is_imported_all_in_hub_key(key):
+            continue
+        try:
+            plaintext = crypto_service.decrypt(key.api_key, silent=True)
+        except Exception:
+            continue
+        if not plaintext or plaintext == "__placeholder__":
+            continue
+        key_hash = crypto_service.hash_api_key(plaintext)
+        if key_hash in sync_state.visible_direct_key_hashes:
+            continue
+        keys_to_delete.append(key)
+
+    for key in keys_to_delete:
+        db.delete(key)
+        if key in keys:
+            keys.remove(key)
 
 
 def _bucket_records(records: list[_ImportRecord]) -> list[_ProviderBucket]:
@@ -811,13 +996,13 @@ async def _verify_imported_key_models(
         db.commit()
 
 
-async def _run_imported_key_model_fetch(key_id: str) -> None:
+async def _run_imported_key_model_fetch(key_id: str) -> str:
     async with _IMPORTED_KEY_MODEL_FETCH_SEMAPHORE:
         db = create_session()
         try:
             key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
             if key is None:
-                return
+                return "skipped"
             key.auto_fetch_models = True
             db.commit()
             status = await _verify_imported_key_models(db=db, key=key)
@@ -825,6 +1010,8 @@ async def _run_imported_key_model_fetch(key_id: str) -> None:
                 key.is_active = False
                 db.commit()
                 logger.warning("all-in-hub 后台模型抓取失败 key_id={} status={}", key_id, status)
+                return "failed"
+            return "completed"
         except Exception as exc:
             try:
                 key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
@@ -834,6 +1021,7 @@ async def _run_imported_key_model_fetch(key_id: str) -> None:
             except Exception:
                 pass
             logger.warning("all-in-hub 后台模型抓取异常 key_id={}: {}", key_id, exc)
+            return "failed"
         finally:
             try:
                 key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
@@ -848,6 +1036,27 @@ async def _run_imported_key_model_fetch(key_id: str) -> None:
 async def _run_imported_key_model_fetch_batch(key_ids: list[str]) -> None:
     for key_id in key_ids:
         await _run_imported_key_model_fetch(key_id)
+
+
+async def run_imported_key_model_fetch_batch(
+    key_ids: list[str],
+    *,
+    progress_callback: Callable[[int, int, int, str], Awaitable[None]] | None = None,
+) -> dict[str, int]:
+    summary = {
+        "total": len(key_ids),
+        "completed": 0,
+        "failed": 0,
+    }
+    for index, key_id in enumerate(key_ids, start=1):
+        status = await _run_imported_key_model_fetch(key_id)
+        if status == "completed":
+            summary["completed"] += 1
+        elif status == "failed":
+            summary["failed"] += 1
+        if progress_callback is not None:
+            await progress_callback(index, summary["completed"], summary["failed"], key_id)
+    return summary
 
 
 def _schedule_imported_key_model_fetches(key_ids: list[str]) -> None:
@@ -889,8 +1098,11 @@ async def execute_all_in_hub_import(
     db: Session,
     schedule_model_fetch: bool = True,
     created_key_ids_out: list[str] | None = None,
+    touched_provider_ids_out: list[str] | None = None,
 ) -> AllInHubImportResponse:
-    records, version = _collect_records(content)
+    data, version = _parse_json_content(content)
+    records, _ = _collect_records(content)
+    sync_states = _collect_provider_sync_states_from_data(data)
     buckets = _bucket_records(records)
     providers = list(db.query(Provider).all())
     endpoints = list(db.query(ProviderEndpoint).all())
@@ -910,6 +1122,7 @@ async def execute_all_in_hub_import(
     preview.stats.pending_tasks_reused = 0
 
     created_keys: list[tuple[Provider, ProviderEndpoint, ProviderAPIKey, _ImportRecord]] = []
+    processed_sync_origins: set[str] = set()
     now = datetime.now(timezone.utc)
 
     try:
@@ -934,6 +1147,19 @@ async def execute_all_in_hub_import(
                 db.add(provider)
                 providers.append(provider)
                 preview.stats.providers_created += 1
+            elif bucket.provider_origin in sync_states:
+                _sync_existing_provider_from_backup(
+                    provider=provider,
+                    sync_state=sync_states.get(bucket.provider_origin),
+                    keys=keys,
+                    db=db,
+                    now=now,
+                )
+                processed_sync_origins.add(bucket.provider_origin)
+            if touched_provider_ids_out is not None:
+                provider_id = str(provider.id)
+                if provider_id not in touched_provider_ids_out:
+                    touched_provider_ids_out.append(provider_id)
 
             candidate_endpoints = _resolve_bucket_endpoint_candidates(bucket)
             created_or_existing_endpoints: dict[str, ProviderEndpoint] = {}
@@ -1108,6 +1334,20 @@ async def execute_all_in_hub_import(
                             tasks=tasks,
                             now=now,
                         )
+
+        for provider_origin, sync_state in sync_states.items():
+            if provider_origin in processed_sync_origins:
+                continue
+            provider = _find_existing_provider(provider_origin, providers, endpoints)
+            if provider is None:
+                continue
+            _sync_existing_provider_from_backup(
+                provider=provider,
+                sync_state=sync_state,
+                keys=keys,
+                db=db,
+                now=now,
+            )
 
         db.flush()
         db.commit()

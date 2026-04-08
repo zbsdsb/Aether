@@ -67,12 +67,13 @@
       </div>
     </Card>
 
-    <ImportTaskOverviewCard
-      :overview="importTaskOverview"
-      :active-filter="filterImportTaskStatus"
-      @select-needs-key="filterImportTaskStatus = 'needs_key'"
-      @select-manual-review="filterImportTaskStatus = 'manual_review'"
-      @clear-filter="filterImportTaskStatus = 'all'"
+      <ImportTaskOverviewCard
+        :overview="importTaskOverview"
+        :active-filter="filterImportTaskStatus"
+        @view-import-tasks="openImportTasksPage()"
+        @select-needs-key="filterImportTaskStatus = 'needs_key'"
+        @select-manual-review="filterImportTaskStatus = 'manual_review'"
+        @clear-filter="filterImportTaskStatus = 'all'"
     />
 
     <!-- 提供商表格 -->
@@ -274,19 +275,19 @@
     :job-status="allInHubImportJobStatus"
     :preview="allInHubImportPreview"
     :execution-result="allInHubTaskExecutionResult"
-    :can-execute-tasks="canExecuteAllInHubTasks"
     :loading="allInHubImportLoading"
     @update:open="allInHubImportDialogOpen = $event"
     @update:content="allInHubImportContent = $event"
     @error="showError($event, '导入内容错误')"
     @preview="handlePreviewAllInHubImport"
     @confirm="handleConfirmAllInHubImport"
-    @execute-tasks="handleExecuteAllInHubTasks"
+    @view-task="openImportTasksPage($event)"
   />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import Button from '@/components/ui/button.vue'
 import Card from '@/components/ui/card.vue'
 import Table from '@/components/ui/table.vue'
@@ -316,7 +317,6 @@ import {
   getProvidersSummary,
   getProvider,
   getAllInHubImportJob,
-  executeAllInHubImportTasks,
   deleteProvider,
   getProviderDeleteTask,
   previewAllInHubImport,
@@ -351,6 +351,7 @@ interface ProviderDeleteProgressState {
 const { error: showError, success: showSuccess, warning: showWarning, info: showInfo } = useToast()
 const { confirmDanger } = useConfirm()
 const { getQueryValue, patchQuery } = useRouteQuery()
+const router = useRouter()
 
 const EMPTY_IMPORT_TASK_OVERVIEW: ProviderImportTaskOverview = {
   providers_with_import_tasks: 0,
@@ -379,7 +380,6 @@ const allInHubImportContent = ref('')
 const allInHubImportPreview = ref<AllInHubImportResponse | null>(null)
 const allInHubTaskExecutionResult = ref<AllInHubTaskExecutionResponse | null>(null)
 const allInHubImportJobStatus = ref<AllInHubImportJobStatusResponse | null>(null)
-const canExecuteAllInHubTasks = ref(false)
 const allInHubImportLoading = ref(false)
 let allInHubImportPollTimer: ReturnType<typeof setTimeout> | null = null
 let deletePollAbort: AbortController | null = null
@@ -492,7 +492,6 @@ const providerDeleteEndpointsPercent = computed(() => {
 watch(allInHubImportContent, () => {
   allInHubImportPreview.value = null
   allInHubTaskExecutionResult.value = null
-  canExecuteAllInHubTasks.value = false
 })
 
 function buildManualItemKey(item: Pick<AllInHubImportManualItem, 'item_type' | 'provider_website' | 'source_id' | 'task_type'>): string {
@@ -838,7 +837,13 @@ function openAllInHubImportDialog() {
   allInHubImportPreview.value = null
   allInHubTaskExecutionResult.value = null
   allInHubImportJobStatus.value = null
-  canExecuteAllInHubTasks.value = false
+}
+
+function openImportTasksPage(taskId?: string) {
+  void router.push({
+    path: '/admin/provider-import-tasks',
+    query: taskId ? { task: taskId } : undefined,
+  })
 }
 
 async function handlePreviewAllInHubImport() {
@@ -850,7 +855,6 @@ async function handlePreviewAllInHubImport() {
   try {
     allInHubImportPreview.value = await previewAllInHubImport(allInHubImportContent.value)
     allInHubTaskExecutionResult.value = null
-    canExecuteAllInHubTasks.value = false
     if (allInHubImportPreview.value.stats.providers_total === 0) {
       showInfo('未识别到可导入的站点记录')
     }
@@ -874,11 +878,11 @@ async function handleConfirmAllInHubImport() {
       status: submission.status,
       stage: submission.stage,
       message: submission.message,
+      background_tasks: [],
       import_result: null,
       execution_result: null,
     }
     allInHubTaskExecutionResult.value = null
-    canExecuteAllInHubTasks.value = false
     showInfo(`后台导入任务已提交：${submission.task_id}`)
     startAllInHubImportPolling(submission.task_id)
   } catch (err: unknown) {
@@ -908,7 +912,6 @@ async function pollAllInHubImportJob(taskId: string) {
     allInHubImportJobStatus.value = status
     allInHubImportPreview.value = status.import_result
     allInHubTaskExecutionResult.value = status.execution_result
-    canExecuteAllInHubTasks.value = !!status.execution_result && status.execution_result.total_selected >= 20
 
     if (status.status === 'completed') {
       stopAllInHubImportPolling()
@@ -918,6 +921,8 @@ async function pollAllInHubImportJob(taskId: string) {
       await loadProviders()
       const importStats = status.import_result?.stats
       const executionStats = status.execution_result
+      const fetchModelsTask = status.background_tasks.find((item) => item.key === 'fetch_models')
+      const proxyProbeTask = status.background_tasks.find((item) => item.key === 'proxy_probe')
       let successMessage = '后台导入已完成'
       if (importStats) {
         successMessage = `导入完成：新增 ${importStats.providers_created} 个 Provider，${importStats.endpoints_created} 个 Endpoint，${importStats.keys_created} 个 Key`
@@ -925,9 +930,21 @@ async function pollAllInHubImportJob(taskId: string) {
       if (executionStats && executionStats.total_selected > 0) {
         successMessage += `；自动执行 ${executionStats.total_selected} 条任务，成功 ${executionStats.completed}，失败 ${executionStats.failed}`
       }
+      if (fetchModelsTask && fetchModelsTask.total > 0) {
+        successMessage += `；上游模型抓取成功 ${fetchModelsTask.completed}/${fetchModelsTask.total}`
+      }
+      if (proxyProbeTask && proxyProbeTask.total > 0) {
+        successMessage += `；代理检测完成 ${proxyProbeTask.completed}/${proxyProbeTask.total}`
+      }
       const pendingReviewCount = allInHubImportPreview.value?.manual_items.length || 0
       if (pendingReviewCount > 0) {
         showWarning(`仍有 ${pendingReviewCount} 条待人工处理或复核`, '导入结果已更新')
+      }
+      if ((fetchModelsTask?.failed || 0) > 0) {
+        showWarning(`上游模型抓取失败 ${fetchModelsTask?.failed} 个，请在导入任务详情里处理`, '抓取未全部成功')
+      }
+      if ((proxyProbeTask?.failed || 0) > 0) {
+        showWarning(`代理检测失败 ${proxyProbeTask?.failed} 个，请在导入任务详情里复核`, '代理检测未全部成功')
       }
       showSuccess(successMessage)
       return
@@ -948,28 +965,6 @@ async function pollAllInHubImportJob(taskId: string) {
 
 function startAllInHubImportPolling(taskId: string) {
   scheduleAllInHubImportPolling(taskId, 500)
-}
-
-async function handleExecuteAllInHubTasks() {
-  allInHubImportLoading.value = true
-  try {
-    const result = await executeAllInHubImportTasks(20)
-    allInHubTaskExecutionResult.value = result
-    if (allInHubImportPreview.value) {
-      allInHubImportPreview.value = mergeExecutionManualItems(allInHubImportPreview.value, result)
-    }
-    canExecuteAllInHubTasks.value = result.total_selected === 20
-    await loadProviders()
-    const pendingReviewCount = allInHubImportPreview.value?.manual_items.length || 0
-    if (pendingReviewCount > 0) {
-      showWarning(`剩余 ${pendingReviewCount} 条待人工处理或复核`, '补钥执行完成')
-    }
-    showSuccess(`补钥完成：成功 ${result.completed}，失败 ${result.failed}，新建 Key ${result.keys_created}`)
-  } catch (err: unknown) {
-    showError(parseApiError(err, '执行补钥任务失败'), '补钥失败')
-  } finally {
-    allInHubImportLoading.value = false
-  }
 }
 
 // 打开编辑提供商对话框

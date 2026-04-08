@@ -270,6 +270,32 @@ class GlobalModelProvidersResponse(BaseModel):
     total: int
 
 
+class GlobalModelProviderCandidate(BaseModel):
+    """GlobalModel 关联 Provider 候选条目"""
+
+    provider_id: str
+    provider_name: str
+    provider_website: str | None = None
+    provider_active: bool
+    already_linked: bool
+    match_status: str = Field(description="matched | not_matched | unknown")
+    cached_models: list[dict[str, Any]] = Field(default_factory=list)
+    cached_model_count: int = 0
+
+
+class GlobalModelProviderCandidatesResponse(BaseModel):
+    """GlobalModel 关联 Provider 候选列表响应"""
+
+    items: list[GlobalModelProviderCandidate]
+    total: int
+
+
+class RefreshGlobalModelProviderCandidatesRequest(BaseModel):
+    """刷新 GlobalModel 关联 Provider 支持情况请求"""
+
+    provider_ids: list[str] = Field(..., min_length=1, description="需要刷新的 Provider ID 列表")
+
+
 class BatchAssignToProvidersRequest(BaseModel):
     """批量为 Provider 添加 GlobalModel 实现"""
 
@@ -344,6 +370,9 @@ __all__ = [
     "BatchAssignToProvidersResponse",
     "GlobalModelCreate",
     "GlobalModelListResponse",
+    "GlobalModelProviderCandidate",
+    "GlobalModelProviderCandidatesResponse",
+    "GlobalModelProvidersResponse",
     "GlobalModelResponse",
     "GlobalModelUpdate",
     "GlobalModelWithStats",
@@ -359,4 +388,5 @@ __all__ = [
     "ProviderAvailableSourceModel",
     "ProviderAvailableSourceModelsResponse",
     "ProviderModelPriceInfo",
+    "RefreshGlobalModelProviderCandidatesRequest",
 ]

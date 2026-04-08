@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -312,6 +313,42 @@ async def probe_provider_proxy(provider_id: str, *, db: Session) -> dict[str, An
         raise RuntimeError("provider not found")
     result = await _probe_single_provider(provider, db)
     return asdict(result)
+
+
+async def probe_provider_proxies(
+    provider_ids: list[str],
+    *,
+    db: Session,
+    progress_callback: Callable[[int, ProviderProxyProbeSummary, ProviderProxyProbeItem], Awaitable[None]] | None = None,
+) -> ProviderProxyProbeSummary:
+    selected_ids = {provider_id for provider_id in provider_ids if str(provider_id).strip()}
+    providers = [
+        provider
+        for provider in _all_providers(db)
+        if str(getattr(provider, "id", "") or "") in selected_ids and _is_pending_probe_candidate(provider)
+    ]
+    summary = ProviderProxyProbeSummary(total_selected=len(providers))
+    for index, provider in enumerate(providers, start=1):
+        try:
+            result = await _probe_single_provider(provider, db)
+        except Exception as exc:
+            logger.warning("provider proxy probe failed provider_id={}: {}", provider.id, exc)
+            result = ProviderProxyProbeItem(
+                provider_id=str(provider.id),
+                provider_name=str(provider.name),
+                status="failed",
+                message=str(exc),
+            )
+        if result.status == "completed":
+            summary.completed += 1
+        elif result.status == "failed":
+            summary.failed += 1
+        else:
+            summary.skipped += 1
+        summary.results.append(asdict(result))
+        if progress_callback is not None:
+            await progress_callback(index, summary, result)
+    return summary
 
 
 async def probe_pending_provider_proxies(*, db: Session, limit: int = 20) -> ProviderProxyProbeSummary:

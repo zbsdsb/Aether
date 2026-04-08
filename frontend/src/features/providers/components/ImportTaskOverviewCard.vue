@@ -32,6 +32,12 @@
         <div class="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
+            @click="$emit('viewImportTasks')"
+          >
+            导入任务页
+          </Button>
+          <Button
+            size="sm"
             variant="outline"
             @click="$emit('selectNeedsKey')"
           >
@@ -93,6 +99,7 @@ watch(
 const visible = computed(() => hasActionableImportTasks(props.overview) && !dismissed.value)
 
 defineEmits<{
+  viewImportTasks: []
   selectNeedsKey: []
   selectManualReview: []
   clearFilter: []
