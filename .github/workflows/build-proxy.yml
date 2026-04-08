@@ -11,8 +11,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  GHCR_IMAGE: fawney19/aether-proxy
-  DOCKERHUB_IMAGE: fawney19/aether-proxy
+  GHCR_IMAGE: aether-proxy
 
 jobs:
   build:
@@ -127,6 +126,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Prepare image ref
+        id: prep
+        shell: bash
+        run: |
+          OWNER_LC="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "ghcr_image=${{ env.REGISTRY }}/$OWNER_LC/${{ env.GHCR_IMAGE }}" >> "$GITHUB_OUTPUT"
+
       - name: Download Linux artifacts
         uses: actions/download-artifact@v5
         with:
@@ -153,19 +159,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.GHCR_IMAGE }}
-            docker.io/${{ env.DOCKERHUB_IMAGE }}
+          images: ${{ steps.prep.outputs.ghcr_image }}
           tags: |
             type=match,pattern=proxy-v(.*),group=1
             type=match,pattern=proxy-v(\d+\.\d+),group=1
@@ -196,7 +194,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           VERSION="${TAG#proxy-v}"
-          BASE="https://github.com/fawney19/Aether/releases/download/${TAG}"
+          BASE="https://github.com/${{ github.repository }}/releases/download/${TAG}"
           cd aether-proxy
 
           TABLE="| Platform | Download |\n|----------|----------|\n"

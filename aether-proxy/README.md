@@ -16,6 +16,8 @@ docker compose up -d
 
 ### 下载预编译二进制
 
+首次在 fork 中发布 `proxy-v*` tag 后，下面这张下载表会由 GitHub Actions 自动改写为当前仓库的 Release 地址；在首次发布前，这里保留上游最近一次已发布版本作为示例。
+
 <!-- DOWNLOAD_TABLE_START -->
 | Platform | Download |
 |----------|----------|
@@ -145,7 +147,7 @@ node_name = "jp-proxy-02"
 
 推送 `proxy-v*` 格式的 tag，GitHub Actions 会自动：
 - 编译所有平台二进制并发布到 Releases
-- 构建 Docker 镜像并推送到 GHCR 和 Docker Hub
+- 构建 Docker 镜像并推送到当前仓库 owner 名下的 GHCR
 - 更新 README 中的下载链接表格
 
 ```bash
