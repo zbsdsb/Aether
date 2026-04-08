@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import case, func
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, load_only
 
 from src.api.base.admin_adapter import AdminApiAdapter
@@ -189,6 +189,7 @@ async def get_providers_summary(
     status: str = Query("all", description="all/active/inactive"),
     api_format: str = Query("all", description="API 格式筛选"),
     model_id: str = Query("all", description="全局模型 ID 筛选"),
+    proxy_enabled: str = Query("all", description="all/enabled/disabled"),
     import_task_status: str = Query(
         "all",
         description="all/needs_key/manual_review",
@@ -203,6 +204,7 @@ async def get_providers_summary(
         status=status,
         api_format=api_format,
         model_id=model_id,
+        proxy_enabled=proxy_enabled,
         import_task_status=import_task_status,
     )
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
@@ -975,6 +977,7 @@ class AdminProviderSummaryAdapter(AdminApiAdapter):
     status: str = "all"
     api_format: str = "all"
     model_id: str = "all"
+    proxy_enabled: str = "all"
     import_task_status: str = "all"
 
     async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
@@ -1032,6 +1035,22 @@ class AdminProviderSummaryAdapter(AdminApiAdapter):
                     db.query(ProviderImportTask.provider_id)
                     .filter(ProviderImportTask.status == IMPORT_TASK_STATUS_FAILED)
                     .distinct()
+                )
+            )
+
+        if self.proxy_enabled == "enabled":
+            query = query.filter(
+                Provider.proxy.isnot(None),
+                or_(
+                    Provider.proxy["enabled"].as_string().is_(None),
+                    Provider.proxy["enabled"].as_string() != "false",
+                ),
+            )
+        elif self.proxy_enabled == "disabled":
+            query = query.filter(
+                or_(
+                    Provider.proxy.is_(None),
+                    Provider.proxy["enabled"].as_string() == "false",
                 )
             )
 

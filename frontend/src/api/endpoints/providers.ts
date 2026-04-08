@@ -20,6 +20,7 @@ export interface ProviderSummaryQuery {
   api_format?: string
   model_id?: string
   import_task_status?: string
+  proxy_enabled?: string
 }
 
 export interface ProviderSummaryPageResponse {

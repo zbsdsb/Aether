@@ -7,6 +7,7 @@ import pytest
 
 from src.core.crypto import crypto_service
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint, ProviderImportTask
+from src.api.admin.providers.summary import _summarize_provider_import_tasks
 from src.services.provider_import.reissue import (
     _create_new_api_token,
     detect_import_task_strategy,
@@ -826,6 +827,94 @@ async def test_submit_plaintext_reuses_inactive_existing_key_by_hash(
     assert task.status == "completed"
     assert task.source_metadata["result_key_id"] == "key-existing"
     assert task.source_metadata["plaintext_submission_note"] == "retry existing key"
+
+
+@pytest.mark.asyncio
+async def test_submit_plaintext_resolves_same_source_failed_sibling_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_side_effects(**_kwargs: Any) -> None:
+        return None
+
+    async def _verify(_key_id: str) -> str:
+        return "success"
+
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue.run_create_key_side_effects",
+        _noop_side_effects,
+    )
+    monkeypatch.setattr(
+        "src.services.provider_import.reissue._verify_reissued_key_models",
+        _verify,
+    )
+
+    task = _build_task(task_id="task-current", status="waiting_plaintext", source_id="acct-shared")
+    task.source_metadata["plaintext_capture_status"] = "pending"
+    task.source_metadata["action_required"] = "submit_plaintext"
+    task.source_metadata["masked_key_preview"] = "xBLk**********d1O9"
+
+    sibling_failed = _build_task(
+        task_id="task-failed",
+        status="failed",
+        source_id="acct-shared",
+    )
+    sibling_failed.last_error = "model verification failed: timeout"
+    sibling_failed.source_metadata["action_required"] = "submit_plaintext"
+    sibling_failed.source_metadata["plaintext_capture_status"] = "pending"
+
+    unrelated_failed = _build_task(
+        task_id="task-other",
+        status="failed",
+        source_id="acct-other",
+    )
+    unrelated_failed.last_error = "still broken"
+
+    db = _FakeDB(
+        providers=[
+            Provider(
+                id="provider-1",
+                name="Provider One",
+                provider_type="custom",
+                billing_type="pay_as_you_go",
+            )
+        ],
+        endpoints=[
+            ProviderEndpoint(
+                id="endpoint-1",
+                provider_id="provider-1",
+                api_format="openai:chat",
+                api_family="openai",
+                endpoint_kind="chat",
+                base_url="https://provider-1.example.com",
+            )
+        ],
+        tasks=[task, sibling_failed, unrelated_failed],
+    )
+
+    before_summary = _summarize_provider_import_tasks(db.tasks)
+    assert before_summary.import_task_failed == 2
+    assert before_summary.needs_manual_review is True
+
+    result = await submit_all_in_hub_task_plaintext(
+        db=db,
+        task_id="task-current",
+        plaintext_api_key="sk-reissued-from-submit",
+        note="captured via browser",
+    )
+
+    assert result["status"] == "completed"
+    assert task.status == "completed"
+    assert sibling_failed.status == "completed"
+    assert sibling_failed.last_error is None
+    assert sibling_failed.source_metadata["plaintext_capture_status"] == "consumed"
+    assert sibling_failed.source_metadata["action_required"] is None
+    assert unrelated_failed.status == "failed"
+
+    after_summary = _summarize_provider_import_tasks(db.tasks)
+    assert after_summary.import_task_waiting_plaintext == 0
+    assert after_summary.import_task_failed == 1
+    assert after_summary.needs_manual_key_input is False
+    assert after_summary.needs_manual_review is True
 
 
 @pytest.mark.asyncio

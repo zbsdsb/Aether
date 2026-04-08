@@ -87,21 +87,28 @@
         :filter-api-format="filterApiFormat"
         :filter-model="filterModel"
         :filter-import-task-status="filterImportTaskStatus"
+        :filter-proxy-enabled="filterProxyEnabled"
+        :visible-filter-keys="visibleFilterKeys"
         :status-filters="statusFilters"
         :api-format-filters="apiFormatFilters"
         :model-filters="modelFilters"
         :import-task-filters="importTaskFilters"
+        :proxy-filters="proxyFilters"
         :has-active-filters="hasActiveFilters"
         :priority-mode-label="priorityModeConfig.label"
         :loading="loading"
+        :refreshing-capabilities="refreshingCapabilities"
         @update:search-query="searchQuery = $event"
         @update:filter-status="filterStatus = $event"
         @update:filter-api-format="filterApiFormat = $event"
         @update:filter-model="filterModel = $event"
         @update:filter-import-task-status="filterImportTaskStatus = $event"
+        @update:filter-proxy-enabled="filterProxyEnabled = $event"
+        @set-filter-visible="setFilterVisible"
         @reset-filters="resetFilters"
         @open-priority-dialog="openPriorityDialog"
         @open-all-in-hub-import="openAllInHubImportDialog"
+        @refresh-all-capabilities="refreshAllProviderCapabilities"
         @add-provider="openAddProviderDialog"
         @refresh="loadProviders"
       />
@@ -367,6 +374,7 @@ const EMPTY_IMPORT_TASK_OVERVIEW: ProviderImportTaskOverview = {
 const loading = ref(false)
 const providers = ref<ProviderWithEndpointsSummary[]>([])
 const importTaskOverview = ref<ProviderImportTaskOverview>(EMPTY_IMPORT_TASK_OVERVIEW)
+const refreshingCapabilities = ref(false)
 let providersRequestId = 0
 const providerDialogOpen = ref(false)
 const providerToEdit = ref<ProviderWithEndpointsSummary | null>(null)
@@ -589,16 +597,20 @@ const {
   filterApiFormat,
   filterModel,
   filterImportTaskStatus,
+  filterProxyEnabled,
+  visibleFilterKeys,
   statusFilters,
   apiFormatFilters,
   modelFilters,
   importTaskFilters,
+  proxyFilters,
   hasActiveFilters,
   currentPage,
   pageSize,
   total,
   queryParams,
   resetFilters,
+  setFilterVisible,
 } = useProviderFilters(
   () => globalModels.value,
 )
@@ -786,6 +798,36 @@ async function loadProviders() {
   }
 }
 
+async function refreshAllProviderCapabilities() {
+  if (refreshingCapabilities.value) return
+  refreshingCapabilities.value = true
+  try {
+    const result = await adminApi.refreshAndSyncAllProviderModels(true)
+    const data = result.data
+    const summary = [
+      `刷新 ${data.providers_refreshed}/${data.providers_total} 个渠道商`,
+      data.created_endpoint_formats.length > 0
+        ? `补建 Endpoint ${data.created_endpoint_formats.length} 个`
+        : '未补建新 Endpoint',
+      data.updated_key_ids.length > 0
+        ? `同步账号格式 ${data.updated_key_ids.length} 个`
+        : '账号格式无需同步',
+    ].join('；')
+    if (data.providers_with_errors > 0) {
+      const preview = data.error_preview.length > 0
+        ? `：${data.error_preview.join('、')}${data.providers_with_errors > data.error_preview.length ? ' 等' : ''}`
+        : ''
+      showWarning(`有 ${data.providers_with_errors} 个渠道刷新未完全成功${preview}`, '部分渠道刷新失败')
+    }
+    showSuccess(summary)
+    await loadProviders()
+  } catch (err: unknown) {
+    showError(parseApiError(err, '刷新全部渠道能力失败'), '错误')
+  } finally {
+    refreshingCapabilities.value = false
+  }
+}
+
 // 分页/筛选/搜索变化时重新加载
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 watch(queryParams, (newParams, oldParams) => {
@@ -797,7 +839,8 @@ watch(queryParams, (newParams, oldParams) => {
     newParams.status === oldParams?.status &&
     newParams.api_format === oldParams?.api_format &&
     newParams.model_id === oldParams?.model_id &&
-    newParams.import_task_status === oldParams?.import_task_status
+    newParams.import_task_status === oldParams?.import_task_status &&
+    newParams.proxy_enabled === oldParams?.proxy_enabled
   if (isSearchOnly) {
     debounceTimer = setTimeout(loadProviders, 300)
   } else {

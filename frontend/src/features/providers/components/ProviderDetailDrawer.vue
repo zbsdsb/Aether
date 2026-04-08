@@ -967,7 +967,7 @@
                       @click="refreshProviderUpstreamModels(true)"
                     >
                       <Layers class="w-3.5 h-3.5 mr-1.5" />
-                      {{ upstreamModelsLoading ? '查询中...' : '刷新上游模型' }}
+                      {{ upstreamModelsLoading ? '处理中...' : '刷新并适配' }}
                     </Button>
                   </div>
                 </div>
@@ -1196,6 +1196,7 @@ import {
   Layers,
 } from 'lucide-vue-next'
 import { parseApiError } from '@/utils/errorParser'
+import { extractUpstreamRefreshPayload } from '@/features/providers/utils/upstream-refresh'
 import { useEscapeKey } from '@/composables/useEscapeKey'
 import Button from '@/components/ui/button.vue'
 import Badge from '@/components/ui/badge.vue'
@@ -1701,14 +1702,46 @@ async function refreshProviderUpstreamModels(forceRefresh = false) {
 
   upstreamModelsLoading.value = true
   upstreamModelsError.value = ''
+  const previousModels = [...upstreamModels.value]
+  const previousFromCache = upstreamModelsFromCache.value
   try {
-    const result = await fetchUpstreamModelsCached(props.providerId, undefined, forceRefresh)
-    upstreamModels.value = result.models
-    upstreamModelsFromCache.value = Boolean(result.fromCache)
+    const rawResult = forceRefresh
+      ? await adminApi.refreshAndSyncProviderModels(props.providerId)
+      : await fetchUpstreamModelsCached(props.providerId, undefined, false)
+    const result = extractUpstreamRefreshPayload(rawResult, forceRefresh)
+    const nextModels = result.models || []
+    const hasFreshModels = nextModels.length > 0
+    if (hasFreshModels || !forceRefresh) {
+      upstreamModels.value = nextModels
+      upstreamModelsFromCache.value = result.fromCache
+    } else {
+      upstreamModels.value = previousModels
+      upstreamModelsFromCache.value = previousFromCache
+    }
     upstreamModelsError.value = result.error || ''
+    if (forceRefresh) {
+      await Promise.all([loadProvider(), loadEndpoints(), loadMappingPreview()])
+      const createdEndpointFormats = result.createdEndpointFormats
+      const updatedKeyIds = result.updatedKeyIds
+      const summary = [
+        createdEndpointFormats.length > 0
+          ? `补建 Endpoint ${createdEndpointFormats.length} 个`
+          : '未补建新 Endpoint',
+        updatedKeyIds.length > 0
+          ? `同步账号格式 ${updatedKeyIds.length} 个`
+          : '账号格式无需同步',
+      ].join('；')
+      if (!hasFreshModels) {
+        showWarning('本次未获取到新的上游模型结果，已保留刷新前的展示内容', '上游模型未更新')
+      }
+      if (result.keyErrorCount > 0) {
+        showWarning(`有 ${result.keyErrorCount} 个账号刷新未完全成功`, '部分模型刷新失败')
+      }
+      showSuccess(summary)
+    }
   } catch (err: unknown) {
-    upstreamModels.value = []
-    upstreamModelsFromCache.value = false
+    upstreamModels.value = previousModels
+    upstreamModelsFromCache.value = previousFromCache
     upstreamModelsError.value = parseApiError(err, '查询上游模型失败')
   } finally {
     upstreamModelsLoading.value = false

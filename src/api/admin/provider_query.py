@@ -20,6 +20,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from src.core.api_format.metadata import get_default_body_rules_for_endpoint
+from src.core.api_format.signature import parse_signature_key
+from src.api.base.models_service import invalidate_models_list_cache
 from src.api.handlers.base.chat_adapter_base import get_adapter_class
 from src.api.handlers.base.cli_adapter_base import get_cli_adapter_class
 from src.config.constants import TimeoutDefaults
@@ -90,6 +93,96 @@ _ANTIGRAVITY_TIER_PRIORITY: dict[str, int] = {"ultra": 3, "pro": 2, "free": 1}
 def _get_adapter_for_format(api_format: str) -> Any:
     """按 api_format 获取 Chat/CLI adapter 类。"""
     return get_adapter_class(api_format) or get_cli_adapter_class(api_format)
+
+
+def _extract_model_api_formats(models: list[dict[str, Any]]) -> list[str]:
+    formats: list[str] = []
+    seen: set[str] = set()
+    for model in models:
+        raw_values: list[str] = []
+        single = str(model.get("api_format") or "").strip()
+        if single:
+            raw_values.append(single)
+        existing_formats = model.get("api_formats")
+        if isinstance(existing_formats, list):
+            raw_values.extend(str(item).strip() for item in existing_formats if str(item).strip())
+        for raw in raw_values:
+            normalized = parse_signature_key(raw).key
+            if normalized not in seen:
+                seen.add(normalized)
+                formats.append(normalized)
+    return formats
+
+
+def _sync_provider_capabilities_from_models(
+    *,
+    db: Any,
+    provider: Provider,
+    provider_keys: list[ProviderAPIKey],
+    provider_endpoints: list[ProviderEndpoint],
+    models: list[dict[str, Any]],
+) -> dict[str, list[str]]:
+    """半自动同步 Provider/Key 的 API 格式能力，并只补建缺失 Endpoint。"""
+    supported_formats = _extract_model_api_formats(models)
+    if not supported_formats:
+        return {"created_endpoint_formats": [], "updated_key_ids": []}
+
+    existing_endpoints = {
+        str(getattr(endpoint, "api_format", "") or "").strip(): endpoint
+        for endpoint in provider_endpoints
+        if str(getattr(endpoint, "api_format", "") or "").strip()
+    }
+    template_endpoint = next(iter(existing_endpoints.values()), None)
+
+    created_endpoint_formats: list[str] = []
+    provider_type = str(getattr(provider, "provider_type", "") or "").strip().lower()
+    allow_endpoint_autocreate = provider_type in {"", "custom"}
+
+    for api_format in supported_formats:
+        if api_format in existing_endpoints or not allow_endpoint_autocreate or template_endpoint is None:
+            continue
+        sig = parse_signature_key(api_format)
+        new_endpoint = ProviderEndpoint(
+            id=str(uuid4()),
+            provider_id=str(provider.id),
+            api_format=sig.key,
+            api_family=sig.api_family.value,
+            endpoint_kind=sig.endpoint_kind.value,
+            base_url=str(getattr(template_endpoint, "base_url", "") or ""),
+            custom_path=None,
+            header_rules=None,
+            body_rules=get_default_body_rules_for_endpoint(sig.key, provider_type=provider_type) or None,
+            max_retries=int(getattr(template_endpoint, "max_retries", 2) or 2),
+            is_active=True,
+            config=None,
+            proxy=None,
+            format_acceptance_config=None,
+        )
+        db.add(new_endpoint)
+        existing_endpoints[sig.key] = new_endpoint
+        created_endpoint_formats.append(sig.key)
+
+    updated_key_ids: list[str] = []
+    for key in provider_keys:
+        existing_formats = getattr(key, "api_formats", None)
+        if existing_formats is None:
+            continue
+        merged = list(existing_formats or [])
+        merged_set = {str(item).strip() for item in merged if str(item).strip()}
+        changed = False
+        for api_format in supported_formats:
+            if api_format not in merged_set:
+                merged.append(api_format)
+                merged_set.add(api_format)
+                changed = True
+        if changed:
+            key.api_formats = merged
+            updated_key_ids.append(str(key.id))
+
+    return {
+        "created_endpoint_formats": created_endpoint_formats,
+        "updated_key_ids": updated_key_ids,
+    }
 
 
 def _require_test_endpoint_base_url(endpoint: Any) -> str:
@@ -225,6 +318,15 @@ class ModelsQueryRequest(BaseModel):
     provider_id: str
     api_key_id: str | None = None
     force_refresh: bool = False  # 强制刷新，跳过缓存
+
+
+class ProviderModelsRefreshRequest(BaseModel):
+    provider_id: str
+    api_key_id: str | None = None
+
+
+class ProviderModelsRefreshAllRequest(BaseModel):
+    only_active: bool = True
 
 
 class TestModelRequest(BaseModel):
@@ -678,6 +780,112 @@ def _aggregate_models_by_id(models: list[dict]) -> list[dict]:
     return result
 
 
+async def _refresh_provider_models_and_sync(
+    *,
+    db: Session,
+    provider: Provider,
+    api_key_id: str | None = None,
+) -> dict[str, Any]:
+    active_keys = [key for key in provider.api_keys if key.is_active]
+    if api_key_id:
+        active_keys = [key for key in active_keys if str(key.id) == api_key_id]
+        if not active_keys:
+            raise HTTPException(status_code=404, detail="API Key not found")
+    if not active_keys:
+        raise HTTPException(status_code=400, detail="No active API Key found for this provider")
+
+    from src.services.model.fetch_scheduler import get_model_fetch_scheduler
+
+    scheduler = get_model_fetch_scheduler()
+    refreshed_key_ids: list[str] = []
+    error_messages: list[str] = []
+    all_models: list[dict[str, Any]] = []
+
+    for key in active_keys:
+        key_id = str(key.id)
+        result = await _refresh_models_for_active_key(
+            provider=provider,
+            api_key=key,
+        )
+        refreshed_key_ids.append(key_id)
+        all_models.extend(item for item in result["models"] if isinstance(item, dict))
+        if result["error"]:
+            error_messages.append(f"{key.name or key_id}: {result['error']}")
+
+    unique_models = _aggregate_models_by_id(all_models)
+    sync_result = _sync_provider_capabilities_from_models(
+        db=db,
+        provider=provider,
+        provider_keys=active_keys,
+        provider_endpoints=list(provider.endpoints),
+        models=unique_models,
+    )
+    if sync_result["created_endpoint_formats"] or sync_result["updated_key_ids"]:
+        db.commit()
+        await invalidate_models_list_cache()
+
+    error = "; ".join(error_messages) if error_messages else None
+    return {
+        "success": len(unique_models) > 0,
+        "data": {
+            "models": unique_models,
+            "error": error,
+            "from_cache": False,
+            "keys_total": len(active_keys),
+            "keys_refreshed": len(refreshed_key_ids),
+            "key_error_count": len(error_messages),
+            "created_endpoint_formats": sync_result["created_endpoint_formats"],
+            "updated_key_ids": sync_result["updated_key_ids"],
+        },
+        "provider": {
+            "id": provider.id,
+            "name": provider.name,
+        },
+    }
+
+
+async def _refresh_models_for_active_key(
+    *,
+    provider: Provider,
+    api_key: ProviderAPIKey,
+) -> dict[str, Any]:
+    """手动刷新时直接对活跃 Key 做上游模型抓取，不受 auto_fetch_models 开关影响。"""
+    format_to_endpoint = build_format_to_config(provider.endpoints)
+    if not format_to_endpoint:
+        return {"models": [], "error": "No active endpoints"}
+
+    effective_proxy = resolve_effective_proxy(
+        getattr(provider, "proxy", None), getattr(api_key, "proxy", None)
+    )
+    try:
+        api_key_value, auth_config = await _resolve_key_auth(
+            api_key, provider, provider_proxy_config=effective_proxy
+        )
+    except _KeyAuthError as exc:
+        return {"models": [], "error": exc.message}
+
+    fetch_ctx = UpstreamModelsFetchContext(
+        provider_type=str(getattr(provider, "provider_type", "") or ""),
+        api_key_value=str(api_key_value or ""),
+        format_to_endpoint=format_to_endpoint,
+        proxy_config=effective_proxy,
+        auth_config=auth_config,
+    )
+    models, errors, has_success, _meta = await fetch_models_for_key(
+        fetch_ctx,
+        timeout_seconds=MODEL_FETCH_HTTP_TIMEOUT,
+    )
+    unique_models = _aggregate_models_by_id([m for m in models if isinstance(m, dict)])
+    if unique_models:
+        await set_upstream_models_to_cache(str(provider.id), str(api_key.id), unique_models)
+    if not has_success:
+        return {"models": unique_models, "error": "; ".join(errors) if errors else "refresh failed"}
+    return {
+        "models": unique_models,
+        "error": "; ".join(errors) if errors else None,
+    }
+
+
 async def _fetch_models_antigravity_ordered(
     provider: Provider,
     active_keys: list[Any],
@@ -861,6 +1069,91 @@ async def _fetch_models_for_single_key(
         "provider": {
             "id": provider.id,
             "name": provider.name,
+        },
+    }
+
+
+@router.post("/models/refresh-sync")
+async def refresh_and_sync_provider_models(
+    request: ProviderModelsRefreshRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    del current_user
+    provider = (
+        db.query(Provider)
+        .options(
+            joinedload(Provider.endpoints),
+            selectinload(Provider.api_keys),
+        )
+        .filter(Provider.id == request.provider_id)
+        .first()
+    )
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    return await _refresh_provider_models_and_sync(
+        db=db,
+        provider=provider,
+        api_key_id=request.api_key_id,
+    )
+
+
+@router.post("/models/refresh-sync-all")
+async def refresh_and_sync_all_provider_models(
+    request: ProviderModelsRefreshAllRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    del current_user
+    providers = (
+        db.query(Provider)
+        .options(
+            joinedload(Provider.endpoints),
+            selectinload(Provider.api_keys),
+        )
+        .all()
+    )
+    if request.only_active:
+        providers = [provider for provider in providers if provider.is_active]
+
+    refreshed = 0
+    skipped = 0
+    created_endpoint_formats: list[str] = []
+    updated_key_ids: list[str] = []
+    errors: list[str] = []
+    error_preview: list[str] = []
+
+    for provider in providers:
+        if not any(key.is_active for key in provider.api_keys):
+            skipped += 1
+            continue
+        try:
+            result = await _refresh_provider_models_and_sync(db=db, provider=provider)
+            refreshed += 1
+            data = result.get("data") or {}
+            created_endpoint_formats.extend(data.get("created_endpoint_formats") or [])
+            updated_key_ids.extend(data.get("updated_key_ids") or [])
+            if data.get("error"):
+                errors.append(provider.name)
+                if len(error_preview) < 3:
+                    error_preview.append(provider.name)
+        except HTTPException as exc:
+            skipped += 1
+            errors.append(provider.name)
+            if len(error_preview) < 3:
+                error_preview.append(provider.name)
+
+    return {
+        "success": refreshed > 0,
+        "data": {
+            "providers_total": len(providers),
+            "providers_refreshed": refreshed,
+            "providers_skipped": skipped,
+            "providers_with_errors": len(errors),
+            "error_preview": error_preview,
+            "created_endpoint_formats": sorted(set(created_endpoint_formats)),
+            "updated_key_ids": sorted(set(updated_key_ids)),
+            "error": f"{len(errors)} 个渠道刷新未完全成功" if errors else None,
         },
     }
 

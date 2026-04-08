@@ -6,6 +6,55 @@ export interface FilterOption {
   label: string
 }
 
+export type ProviderFilterKey =
+  | 'status'
+  | 'apiFormat'
+  | 'model'
+  | 'importTaskStatus'
+  | 'proxyEnabled'
+
+const VISIBLE_FILTERS_STORAGE_KEY = 'provider-management-visible-filters'
+const ALL_FILTER_KEYS: ProviderFilterKey[] = [
+  'status',
+  'apiFormat',
+  'model',
+  'importTaskStatus',
+  'proxyEnabled',
+]
+const DEFAULT_VISIBLE_FILTER_KEYS: ProviderFilterKey[] = [
+  'status',
+  'model',
+  'proxyEnabled',
+]
+
+function getLocalStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage ?? null
+}
+
+function loadVisibleFilterKeys(): ProviderFilterKey[] {
+  const storage = getLocalStorage()
+  if (!storage) return [...DEFAULT_VISIBLE_FILTER_KEYS]
+  try {
+    const raw = storage.getItem(VISIBLE_FILTERS_STORAGE_KEY)
+    if (!raw) return [...DEFAULT_VISIBLE_FILTER_KEYS]
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return [...DEFAULT_VISIBLE_FILTER_KEYS]
+    const valid = parsed.filter((item): item is ProviderFilterKey =>
+      ALL_FILTER_KEYS.includes(item as ProviderFilterKey),
+    )
+    return valid.length > 0 ? valid : [...DEFAULT_VISIBLE_FILTER_KEYS]
+  } catch {
+    return [...DEFAULT_VISIBLE_FILTER_KEYS]
+  }
+}
+
+function saveVisibleFilterKeys(keys: ProviderFilterKey[]) {
+  const storage = getLocalStorage()
+  if (!storage) return
+  storage.setItem(VISIBLE_FILTERS_STORAGE_KEY, JSON.stringify(keys))
+}
+
 export function useProviderFilters(
   globalModels: () => { id: string; name: string }[],
 ) {
@@ -15,6 +64,8 @@ export function useProviderFilters(
   const filterApiFormat = ref('all')
   const filterModel = ref('all')
   const filterImportTaskStatus = ref('all')
+  const filterProxyEnabled = ref('all')
+  const visibleFilterKeys = ref<ProviderFilterKey[]>(loadVisibleFilterKeys())
 
   const statusFilters: FilterOption[] = [
     { value: 'all', label: '全部状态' },
@@ -39,6 +90,12 @@ export function useProviderFilters(
     { value: 'manual_review', label: '待复核' },
   ]
 
+  const proxyFilters: FilterOption[] = [
+    { value: 'all', label: '全部代理状态' },
+    { value: 'enabled', label: '已启用代理' },
+    { value: 'disabled', label: '未启用代理' },
+  ]
+
   const modelFilters = computed<FilterOption[]>(() => {
     const items = globalModels()
       .map(m => ({ value: m.id, label: m.name }))
@@ -52,7 +109,8 @@ export function useProviderFilters(
       filterStatus.value !== 'all' ||
       filterApiFormat.value !== 'all' ||
       filterModel.value !== 'all' ||
-      filterImportTaskStatus.value !== 'all'
+      filterImportTaskStatus.value !== 'all' ||
+      filterProxyEnabled.value !== 'all'
     )
   })
 
@@ -71,12 +129,33 @@ export function useProviderFilters(
     model_id: filterModel.value !== 'all' ? filterModel.value : undefined,
     import_task_status:
       filterImportTaskStatus.value !== 'all' ? filterImportTaskStatus.value : undefined,
+    proxy_enabled: filterProxyEnabled.value !== 'all' ? filterProxyEnabled.value : undefined,
   }))
 
   // 搜索/筛选变化时重置分页到第1页
-  watch([searchQuery, filterStatus, filterApiFormat, filterModel, filterImportTaskStatus], () => {
+  watch([
+    searchQuery,
+    filterStatus,
+    filterApiFormat,
+    filterModel,
+    filterImportTaskStatus,
+    filterProxyEnabled,
+  ], () => {
     currentPage.value = 1
   })
+
+  watch(
+    visibleFilterKeys,
+    (keys) => {
+      saveVisibleFilterKeys(keys)
+      if (!keys.includes('status')) filterStatus.value = 'all'
+      if (!keys.includes('apiFormat')) filterApiFormat.value = 'all'
+      if (!keys.includes('model')) filterModel.value = 'all'
+      if (!keys.includes('importTaskStatus')) filterImportTaskStatus.value = 'all'
+      if (!keys.includes('proxyEnabled')) filterProxyEnabled.value = 'all'
+    },
+    { deep: true },
+  )
 
   function resetFilters() {
     searchQuery.value = ''
@@ -84,6 +163,24 @@ export function useProviderFilters(
     filterApiFormat.value = 'all'
     filterModel.value = 'all'
     filterImportTaskStatus.value = 'all'
+    filterProxyEnabled.value = 'all'
+  }
+
+  function setFilterVisible(filterKey: ProviderFilterKey, visible: boolean) {
+    const next = new Set(visibleFilterKeys.value)
+    if (visible) {
+      next.add(filterKey)
+    } else {
+      if (filterKey === 'status') filterStatus.value = 'all'
+      if (filterKey === 'apiFormat') filterApiFormat.value = 'all'
+      if (filterKey === 'model') filterModel.value = 'all'
+      if (filterKey === 'importTaskStatus') filterImportTaskStatus.value = 'all'
+      if (filterKey === 'proxyEnabled') filterProxyEnabled.value = 'all'
+      next.delete(filterKey)
+    }
+    const normalized = ALL_FILTER_KEYS.filter(key => next.has(key))
+    visibleFilterKeys.value = normalized
+    saveVisibleFilterKeys(normalized)
   }
 
   return {
@@ -92,15 +189,19 @@ export function useProviderFilters(
     filterApiFormat,
     filterModel,
     filterImportTaskStatus,
+    filterProxyEnabled,
+    visibleFilterKeys,
     statusFilters,
     apiFormatFilters,
     modelFilters,
     importTaskFilters,
+    proxyFilters,
     hasActiveFilters,
     currentPage,
     pageSize,
     total,
     queryParams,
     resetFilters,
+    setFilterVisible,
   }
 }

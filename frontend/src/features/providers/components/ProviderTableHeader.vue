@@ -23,6 +23,7 @@
 
         <!-- 状态筛选 -->
         <Select
+          v-if="visibleFilterKeys.includes('status')"
           :model-value="filterStatus"
           @update:model-value="$emit('update:filterStatus', $event)"
         >
@@ -42,6 +43,7 @@
 
         <!-- API 格式筛选 -->
         <Select
+          v-if="visibleFilterKeys.includes('apiFormat')"
           :model-value="filterApiFormat"
           @update:model-value="$emit('update:filterApiFormat', $event)"
         >
@@ -61,6 +63,7 @@
 
         <!-- 模型筛选 -->
         <Select
+          v-if="visibleFilterKeys.includes('model')"
           :model-value="filterModel"
           @update:model-value="$emit('update:filterModel', $event)"
         >
@@ -79,6 +82,7 @@
         </Select>
 
         <Select
+          v-if="visibleFilterKeys.includes('importTaskStatus')"
           :model-value="filterImportTaskStatus"
           @update:model-value="$emit('update:filterImportTaskStatus', $event)"
         >
@@ -95,6 +99,56 @@
             </SelectItem>
           </SelectContent>
         </Select>
+
+        <Select
+          v-if="visibleFilterKeys.includes('proxyEnabled')"
+          :model-value="filterProxyEnabled"
+          @update:model-value="$emit('update:filterProxyEnabled', $event)"
+        >
+          <SelectTrigger class="w-24 sm:w-32 h-8 text-xs border-border/60">
+            <SelectValue placeholder="代理状态" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              v-for="item in proxyFilters"
+              :key="item.value"
+              :value="item.value"
+            >
+              {{ item.label }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+
+        <DropdownMenu :modal="false">
+          <DropdownMenuTrigger as-child>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-8 w-8"
+              title="配置筛选项"
+            >
+              <SlidersHorizontal class="w-3.5 h-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent class="w-56 p-3" align="end">
+            <div class="space-y-2">
+              <div class="text-xs font-medium text-foreground">
+                显示筛选项
+              </div>
+              <label
+                v-for="item in filterVisibilityOptions"
+                :key="item.key"
+                class="flex items-center gap-2 text-xs text-foreground"
+              >
+                <Checkbox
+                  :model-value="visibleFilterKeys.includes(item.key)"
+                  @update:model-value="$emit('setFilterVisible', item.key, $event)"
+                />
+                <span>{{ item.label }}</span>
+              </label>
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <!-- 重置筛选 -->
         <Button
@@ -137,6 +191,16 @@
           variant="ghost"
           size="icon"
           class="h-8 w-8"
+          :disabled="refreshingCapabilities"
+          title="刷新全部上游模型并适配"
+          @click="$emit('refreshAllCapabilities')"
+        >
+          <Layers class="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-8 w-8"
           title="新增提供商"
           @click="$emit('addProvider')"
         >
@@ -152,8 +216,9 @@
 </template>
 
 <script setup lang="ts">
-import { Search, Plus, ChevronDown, FilterX, Upload } from 'lucide-vue-next'
+import { Search, Plus, ChevronDown, FilterX, Upload, SlidersHorizontal, Layers } from 'lucide-vue-next'
 import Button from '@/components/ui/button.vue'
+import Checkbox from '@/components/ui/checkbox.vue'
 import Input from '@/components/ui/input.vue'
 import Select from '@/components/ui/select.vue'
 import SelectTrigger from '@/components/ui/select-trigger.vue'
@@ -161,7 +226,8 @@ import SelectValue from '@/components/ui/select-value.vue'
 import SelectContent from '@/components/ui/select-content.vue'
 import SelectItem from '@/components/ui/select-item.vue'
 import RefreshButton from '@/components/ui/refresh-button.vue'
-import type { FilterOption } from '@/features/providers/composables/useProviderFilters'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '@/components/ui'
+import type { FilterOption, ProviderFilterKey } from '@/features/providers/composables/useProviderFilters'
 
 defineProps<{
   searchQuery: string
@@ -169,14 +235,26 @@ defineProps<{
   filterApiFormat: string
   filterModel: string
   filterImportTaskStatus: string
+  filterProxyEnabled: string
+  visibleFilterKeys: ProviderFilterKey[]
   statusFilters: FilterOption[]
   apiFormatFilters: FilterOption[]
   modelFilters: FilterOption[]
   importTaskFilters: FilterOption[]
+  proxyFilters: FilterOption[]
   hasActiveFilters: boolean
   priorityModeLabel: string
   loading: boolean
+  refreshingCapabilities?: boolean
 }>()
+
+const filterVisibilityOptions: Array<{ key: ProviderFilterKey; label: string }> = [
+  { key: 'status', label: '状态' },
+  { key: 'apiFormat', label: 'API 格式' },
+  { key: 'model', label: '模型' },
+  { key: 'importTaskStatus', label: '导入状态' },
+  { key: 'proxyEnabled', label: '代理状态' },
+]
 
 defineEmits<{
   'update:searchQuery': [value: string]
@@ -184,9 +262,12 @@ defineEmits<{
   'update:filterApiFormat': [value: string]
   'update:filterModel': [value: string]
   'update:filterImportTaskStatus': [value: string]
+  'update:filterProxyEnabled': [value: string]
+  'setFilterVisible': [key: ProviderFilterKey, visible: boolean]
   'resetFilters': []
   'openPriorityDialog': []
   'openAllInHubImport': []
+  'refreshAllCapabilities': []
   'addProvider': []
   'refresh': []
 }>()

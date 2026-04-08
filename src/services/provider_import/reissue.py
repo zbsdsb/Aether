@@ -101,6 +101,58 @@ def _normalize_waiting_plaintext_metadata(task: ProviderImportTask, metadata: di
     return normalized
 
 
+def _resolve_same_source_actionable_tasks(
+    *,
+    db: Session,
+    current_task: ProviderImportTask,
+    resolved_metadata: dict[str, Any],
+    completed_at: datetime,
+) -> None:
+    """补钥成功后，把同 provider/source 的历史可操作 sibling task 一并收敛。
+
+    目标是避免同一来源之前遗留的 failed/waiting_plaintext 任务继续让 overview 卡住。
+    这里只处理和当前任务同 provider_id + source_id 的 actionable reissue 任务；
+    不会影响其它来源的失败任务。
+    """
+
+    source_id = str(getattr(current_task, "source_id", "") or "").strip()
+    provider_id = str(getattr(current_task, "provider_id", "") or "").strip()
+    task_type = str(getattr(current_task, "task_type", "") or "").strip()
+    if not source_id or not provider_id:
+        return
+
+    for sibling in db.query(ProviderImportTask).all():
+        if sibling is current_task:
+            continue
+        if str(getattr(sibling, "provider_id", "") or "").strip() != provider_id:
+            continue
+        if str(getattr(sibling, "source_id", "") or "").strip() != source_id:
+            continue
+        if str(getattr(sibling, "task_type", "") or "").strip() != task_type:
+            continue
+
+        sibling_status = str(getattr(sibling, "status", "") or "").strip().lower()
+        if sibling_status not in {
+            TASK_STATUS_WAITING_PLAINTEXT,
+            TASK_STATUS_FAILED,
+            TASK_STATUS_PENDING,
+            TASK_STATUS_PROCESSING,
+        }:
+            continue
+
+        sibling_metadata = _normalize_waiting_plaintext_metadata(sibling, _task_metadata(sibling))
+        sibling_metadata["plaintext_capture_status"] = PLAINTEXT_CAPTURE_CONSUMED
+        sibling_metadata["action_required"] = None
+        sibling_metadata["result_key_id"] = resolved_metadata.get("result_key_id")
+        sibling_metadata["result_token_id"] = resolved_metadata.get("result_token_id")
+        sibling_metadata["result_token_name"] = resolved_metadata.get("result_token_name")
+        sibling.source_metadata = sibling_metadata
+        sibling.status = TASK_STATUS_COMPLETED
+        sibling.last_error = None
+        sibling.last_attempt_at = completed_at
+        sibling.completed_at = completed_at
+
+
 def _task_payload(task: ProviderImportTask) -> dict[str, Any]:
     decrypted = crypto_service.decrypt(task.credential_payload)
     parsed = json.loads(decrypted)
@@ -1066,6 +1118,12 @@ async def submit_all_in_hub_task_plaintext(
         task.last_error = None
         task.last_attempt_at = now
         task.completed_at = datetime.now(timezone.utc)
+        _resolve_same_source_actionable_tasks(
+            db=db,
+            current_task=task,
+            resolved_metadata=metadata,
+            completed_at=task.completed_at,
+        )
         db.commit()
         return {
             "task_id": str(task.id),

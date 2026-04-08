@@ -2,6 +2,8 @@ import apiClient from './client'
 import { cachedRequest, buildCacheKey } from '@/utils/cache'
 import type { BillingSummary } from './auth'
 
+const PROVIDER_CAPABILITY_REFRESH_TIMEOUT_MS = 10 * 60 * 1000
+
 // LDAP 配置导出结构
 export interface LDAPConfigExport {
   server_url: string
@@ -293,9 +295,15 @@ export interface ProviderModelsQueryResponse {
       owned_by?: string
       display_name?: string
       api_format?: string
+      api_formats?: string[]
     }>
     error?: string
     from_cache?: boolean
+    keys_total?: number
+    keys_refreshed?: number
+    key_error_count?: number
+    created_endpoint_formats?: string[]
+    updated_key_ids?: string[]
   }
   provider: {
     id: string
@@ -559,6 +567,48 @@ export const adminApi = {
     const response = await apiClient.post<ProviderModelsQueryResponse>(
       '/api/admin/provider-query/models',
       { provider_id: providerId, api_key_id: apiKeyId, force_refresh: forceRefresh }
+    )
+    return response.data
+  },
+
+  async refreshAndSyncProviderModels(providerId: string, apiKeyId?: string): Promise<ProviderModelsQueryResponse> {
+    const response = await apiClient.post<ProviderModelsQueryResponse>(
+      '/api/admin/provider-query/models/refresh-sync',
+      { provider_id: providerId, api_key_id: apiKeyId },
+      { timeout: PROVIDER_CAPABILITY_REFRESH_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async refreshAndSyncAllProviderModels(onlyActive = true): Promise<{
+    success: boolean
+    data: {
+      providers_total: number
+      providers_refreshed: number
+      providers_skipped: number
+      providers_with_errors: number
+      error_preview: string[]
+      created_endpoint_formats: string[]
+      updated_key_ids: string[]
+      error?: string | null
+    }
+  }> {
+    const response = await apiClient.post<{
+      success: boolean
+      data: {
+        providers_total: number
+        providers_refreshed: number
+        providers_skipped: number
+        providers_with_errors: number
+        error_preview: string[]
+        created_endpoint_formats: string[]
+        updated_key_ids: string[]
+        error?: string | null
+      }
+    }>(
+      '/api/admin/provider-query/models/refresh-sync-all',
+      { only_active: onlyActive },
+      { timeout: PROVIDER_CAPABILITY_REFRESH_TIMEOUT_MS }
     )
     return response.data
   },
