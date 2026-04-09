@@ -19,6 +19,49 @@
           </template>
         </div>
         <div class="flex items-center gap-2">
+          <template v-if="routingData">
+            <span
+              v-if="editingOverrides"
+              class="text-[10px] text-muted-foreground"
+            >
+              只影响当前模型，不改全局配置
+            </span>
+            <Button
+              v-if="!editingOverrides"
+              variant="ghost"
+              size="icon"
+              class="h-8 w-8"
+              title="编辑模型级优先级"
+              @click="startEditOverrides"
+            >
+              <Pencil class="w-3.5 h-3.5" />
+            </Button>
+            <template v-else>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                title="保存模型级优先级"
+                :disabled="savingOverrides || !hasOverrideChanges"
+                @click="saveRoutingOverrides"
+              >
+                <Save
+                  class="w-3.5 h-3.5"
+                  :class="savingOverrides ? 'animate-pulse' : ''"
+                />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                title="取消编辑"
+                :disabled="savingOverrides"
+                @click="cancelEditOverrides"
+              >
+                <X class="w-3.5 h-3.5" />
+              </Button>
+            </template>
+          </template>
           <Button
             variant="ghost"
             size="icon"
@@ -154,15 +197,44 @@
                         >
                           <div class="flex items-center gap-3">
                             <!-- 优先级标签 -->
-                            <div
-                              v-if="keyEntry.key.is_active"
-                              class="px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0"
-                              :class="groupIndex === 0 && keyIndex === 0
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-muted-foreground/20 text-muted-foreground'"
-                            >
-                              <span v-if="groupIndex === 0 && keyIndex === 0">首选</span>
-                              <span v-else>P{{ keyGroup.priority ?? '?' }}</span>
+                            <div class="flex items-center gap-1.5 shrink-0">
+                              <div
+                                v-if="keyEntry.key.is_active"
+                                class="px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0"
+                                :class="groupIndex === 0 && keyIndex === 0
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted-foreground/20 text-muted-foreground'"
+                              >
+                                <span v-if="groupIndex === 0 && keyIndex === 0">首选</span>
+                                <span v-else>P{{ keyGroup.priority ?? '?' }}</span>
+                              </div>
+                              <template v-if="editingOverrides">
+                                <Badge
+                                  variant="outline"
+                                  class="text-[10px] px-1.5 py-0 h-5 shrink-0"
+                                >
+                                  {{ isKeyFormatPriorityOverridden(keyEntry.key, formatGroup.api_format) ? '模型覆盖' : '继承全局' }}
+                                </Badge>
+                                <Input
+                                  size="sm"
+                                  class="w-14 h-7 rounded-md bg-background"
+                                  type="number"
+                                  min="0"
+                                  :model-value="getKeyFormatPriorityInputValue(keyEntry.key, formatGroup.api_format)"
+                                  @click.stop
+                                  @update:model-value="(value) => updateKeyFormatPriorityOverride(keyEntry.key.id, formatGroup.api_format, value)"
+                                />
+                                <Button
+                                  v-if="isKeyFormatPriorityOverridden(keyEntry.key, formatGroup.api_format)"
+                                  variant="ghost"
+                                  size="icon"
+                                  class="h-6 w-6"
+                                  title="恢复全局优先级"
+                                  @click.stop="restoreKeyFormatPriorityOverride(keyEntry.key.id, formatGroup.api_format)"
+                                >
+                                  <RotateCcw class="w-3 h-3" />
+                                </Button>
+                              </template>
                             </div>
 
                             <!-- Key 信息：两行 -->
@@ -319,7 +391,7 @@
                                   : 'bg-muted-foreground/20 text-muted-foreground'"
                               >
                                 <span v-if="providerIndex === 0">首选</span>
-                                <span v-else>P{{ providerEntry.provider.provider_priority }}</span>
+                                <span v-else>P{{ providerEntry.provider.effective_provider_priority }}</span>
                               </div>
 
                               <!-- 第二列：状态指示灯 -->
@@ -362,6 +434,33 @@
                                 <span class="text-[10px] text-muted-foreground">
                                   {{ providerEntry.active_keys }}/{{ providerEntry.keys.length }} Keys
                                 </span>
+                                <template v-if="editingOverrides">
+                                  <Badge
+                                    variant="outline"
+                                    class="text-[10px] px-1.5 py-0 h-5"
+                                  >
+                                    {{ isProviderPriorityOverridden(providerEntry.provider) ? '模型覆盖' : '继承全局' }}
+                                  </Badge>
+                                  <Input
+                                    size="sm"
+                                    class="w-14 h-7 rounded-md bg-background"
+                                    type="number"
+                                    min="0"
+                                    :model-value="getProviderPriorityInputValue(providerEntry.provider)"
+                                    @click.stop
+                                    @update:model-value="(value) => updateProviderPriorityOverride(providerEntry.provider.id, value)"
+                                  />
+                                  <Button
+                                    v-if="isProviderPriorityOverridden(providerEntry.provider)"
+                                    variant="ghost"
+                                    size="icon"
+                                    class="h-6 w-6"
+                                    title="恢复全局优先级"
+                                    @click.stop="restoreProviderPriorityOverride(providerEntry.provider.id)"
+                                  >
+                                    <RotateCcw class="w-3 h-3" />
+                                  </Button>
+                                </template>
                                 <!-- 操作按钮 -->
                                 <Button
                                   variant="ghost"
@@ -473,6 +572,33 @@
                                           </div>
                                         </div>
                                         <span class="flex-1" />
+                                        <template v-if="editingOverrides">
+                                          <Badge
+                                            variant="outline"
+                                            class="text-[10px] px-1.5 py-0 h-5 shrink-0"
+                                          >
+                                            {{ isKeyInternalPriorityOverridden(key) ? '模型覆盖' : '继承全局' }}
+                                          </Badge>
+                                          <Input
+                                            size="sm"
+                                            class="w-14 h-7 rounded-md bg-background shrink-0"
+                                            type="number"
+                                            min="0"
+                                            :model-value="getKeyInternalPriorityInputValue(key)"
+                                            @click.stop
+                                            @update:model-value="(value) => updateKeyInternalPriorityOverride(key.id, value)"
+                                          />
+                                          <Button
+                                            v-if="isKeyInternalPriorityOverridden(key)"
+                                            variant="ghost"
+                                            size="icon"
+                                            class="h-6 w-6 shrink-0"
+                                            title="恢复全局优先级"
+                                            @click.stop="restoreKeyInternalPriorityOverride(key.id)"
+                                          >
+                                            <RotateCcw class="w-3 h-3" />
+                                          </Button>
+                                        </template>
                                         <!-- 熔断徽章（带倒计时）- 靠右 -->
                                         <Badge
                                           v-if="key.circuit_breaker_open"
@@ -591,13 +717,20 @@ import {
   Route,
   AlertCircle,
   Power,
-  Link
+  Link,
+  Pencil,
+  RotateCcw,
+  Save,
+  X,
 } from 'lucide-vue-next'
 import Card from '@/components/ui/card.vue'
 import Badge from '@/components/ui/badge.vue'
 import Button from '@/components/ui/button.vue'
+import Input from '@/components/ui/input.vue'
 import {
+  getGlobalModel,
   getGlobalModelRoutingPreview,
+  updateGlobalModel,
   type ModelRoutingPreviewResponse,
   type RoutingProviderInfo,
   type RoutingKeyInfo,
@@ -610,6 +743,13 @@ import { parseApiError } from '@/utils/errorParser'
 import { useToast } from '@/composables/useToast'
 import { useCountdownTimer, getProbeCountdown } from '@/composables/useCountdownTimer'
 import { MAX_MODEL_NAME_LENGTH, createLRURegexCache, getCompiledModelMappingRegex } from '@/features/models/utils/model-mapping-regex'
+import {
+  buildGlobalModelConfigWithRoutingOverrides,
+  cloneRoutingOverrideDraft,
+  createEmptyRoutingOverrideDraft,
+  extractRoutingOverrideDraft,
+  routingOverrideDraftEquals,
+} from '@/features/models/utils/routing-overrides'
 
 const props = defineProps<{
   globalModelId: string
@@ -633,6 +773,10 @@ const { tick: countdownTick, start: startCountdownTimer } = useCountdownTimer()
 const internalRoutingData = ref<ModelRoutingPreviewResponse | null>(null)
 const internalLoading = ref(false)
 const internalError = ref<string | null>(null)
+const editingOverrides = ref(false)
+const savingOverrides = ref(false)
+const originalOverrideDraft = ref(createEmptyRoutingOverrideDraft())
+const overrideDraft = ref(createEmptyRoutingOverrideDraft())
 
 // 计算属性：优先使用外部传入的数据
 const routingData = computed(() => props.routingData ?? internalRoutingData.value)
@@ -645,6 +789,169 @@ const compiledGlobalModelMappingRegexes = ref<RegExp[]>([])
 
 // 是否为全局 Key 优先模式
 const isGlobalKeyMode = computed(() => routingData.value?.priority_mode === 'global_key')
+const hasOverrideChanges = computed(() =>
+  !routingOverrideDraftEquals(overrideDraft.value, originalOverrideDraft.value)
+)
+
+function syncOverrideDraftFromRouting() {
+  const extracted = extractRoutingOverrideDraft(routingData.value)
+  originalOverrideDraft.value = cloneRoutingOverrideDraft(extracted)
+  overrideDraft.value = cloneRoutingOverrideDraft(extracted)
+}
+
+function startEditOverrides() {
+  syncOverrideDraftFromRouting()
+  editingOverrides.value = true
+}
+
+function cancelEditOverrides() {
+  syncOverrideDraftFromRouting()
+  editingOverrides.value = false
+}
+
+function normalizePriorityInput(value: string): number | null {
+  const trimmed = value.trim()
+  if (!/^\d+$/.test(trimmed)) return null
+  return Number.parseInt(trimmed, 10)
+}
+
+function getProviderPriorityInputValue(provider: RoutingProviderInfo): string {
+  return String(
+    overrideDraft.value.provider_priorities[provider.id]
+      ?? provider.effective_provider_priority
+      ?? provider.provider_priority
+      ?? 0,
+  )
+}
+
+function isProviderPriorityOverridden(provider: RoutingProviderInfo): boolean {
+  return typeof overrideDraft.value.provider_priorities[provider.id] === 'number'
+}
+
+function updateProviderPriorityOverride(providerId: string, value: string) {
+  const normalized = normalizePriorityInput(value)
+  if (normalized === null) return
+  overrideDraft.value = {
+    ...overrideDraft.value,
+    provider_priorities: {
+      ...overrideDraft.value.provider_priorities,
+      [providerId]: normalized,
+    },
+  }
+}
+
+function restoreProviderPriorityOverride(providerId: string) {
+  const next = { ...overrideDraft.value.provider_priorities }
+  delete next[providerId]
+  overrideDraft.value = {
+    ...overrideDraft.value,
+    provider_priorities: next,
+  }
+}
+
+function getKeyInternalPriorityInputValue(key: RoutingKeyInfo): string {
+  return String(
+    overrideDraft.value.key_internal_priorities[key.id]
+      ?? key.effective_internal_priority
+      ?? key.internal_priority
+      ?? 0,
+  )
+}
+
+function isKeyInternalPriorityOverridden(key: RoutingKeyInfo): boolean {
+  return typeof overrideDraft.value.key_internal_priorities[key.id] === 'number'
+}
+
+function updateKeyInternalPriorityOverride(keyId: string, value: string) {
+  const normalized = normalizePriorityInput(value)
+  if (normalized === null) return
+  overrideDraft.value = {
+    ...overrideDraft.value,
+    key_internal_priorities: {
+      ...overrideDraft.value.key_internal_priorities,
+      [keyId]: normalized,
+    },
+  }
+}
+
+function restoreKeyInternalPriorityOverride(keyId: string) {
+  const next = { ...overrideDraft.value.key_internal_priorities }
+  delete next[keyId]
+  overrideDraft.value = {
+    ...overrideDraft.value,
+    key_internal_priorities: next,
+  }
+}
+
+function getKeyFormatPriorityInputValue(key: RoutingKeyInfo, apiFormat: string): string {
+  return String(
+    overrideDraft.value.key_priorities_by_format[key.id]?.[apiFormat]
+      ?? key.effective_global_priority
+      ?? key.default_global_priority
+      ?? 0,
+  )
+}
+
+function isKeyFormatPriorityOverridden(key: RoutingKeyInfo, apiFormat: string): boolean {
+  return typeof overrideDraft.value.key_priorities_by_format[key.id]?.[apiFormat] === 'number'
+}
+
+function updateKeyFormatPriorityOverride(keyId: string, apiFormat: string, value: string) {
+  const normalized = normalizePriorityInput(value)
+  if (normalized === null) return
+  overrideDraft.value = {
+    ...overrideDraft.value,
+    key_priorities_by_format: {
+      ...overrideDraft.value.key_priorities_by_format,
+      [keyId]: {
+        ...(overrideDraft.value.key_priorities_by_format[keyId] || {}),
+        [apiFormat]: normalized,
+      },
+    },
+  }
+}
+
+function restoreKeyFormatPriorityOverride(keyId: string, apiFormat: string) {
+  const nextByFormat = { ...(overrideDraft.value.key_priorities_by_format[keyId] || {}) }
+  delete nextByFormat[apiFormat]
+  const next = { ...overrideDraft.value.key_priorities_by_format }
+  if (Object.keys(nextByFormat).length === 0) {
+    delete next[keyId]
+  } else {
+    next[keyId] = nextByFormat
+  }
+  overrideDraft.value = {
+    ...overrideDraft.value,
+    key_priorities_by_format: next,
+  }
+}
+
+async function saveRoutingOverrides() {
+  savingOverrides.value = true
+  try {
+    const currentModel = await getGlobalModel(props.globalModelId)
+    const updatedConfig = buildGlobalModelConfigWithRoutingOverrides(
+      (currentModel.config as Record<string, unknown> | null | undefined) ?? {},
+      overrideDraft.value,
+    )
+
+    await updateGlobalModel(props.globalModelId, {
+      config: updatedConfig,
+    })
+
+    originalOverrideDraft.value = cloneRoutingOverrideDraft(overrideDraft.value)
+    editingOverrides.value = false
+    showSuccess('模型级优先级已保存')
+    emit('refresh')
+    if (props.routingData === undefined) {
+      await loadRoutingData()
+    }
+  } catch (err: unknown) {
+    showError(parseApiError(err, '保存模型级优先级失败'), '错误')
+  } finally {
+    savingOverrides.value = false
+  }
+}
 
 // ========== 数据结构定义 ==========
 
@@ -727,17 +1034,14 @@ const apiFormatGroups = computed<ApiFormatGroup[]>(() => {
       const aActive = a.provider.is_active && a.provider.model_is_active
       const bActive = b.provider.is_active && b.provider.model_is_active
       if (aActive !== bActive) return bActive ? 1 : -1
-      return a.provider.provider_priority - b.provider.provider_priority
+      return a.provider.effective_provider_priority - b.provider.effective_provider_priority
     })
 
     // Key 按全局优先级分组排序（全局 Key 优先模式）
     // 从 global_priority_by_format 中提取当前 API 格式的优先级
     const keyGroupMap = new Map<number, GlobalKeyEntry[]>()
     for (const keyEntry of data.allKeys) {
-      const priorityByFormat = keyEntry.key.global_priority_by_format
-      const priority = (priorityByFormat && format in priorityByFormat)
-        ? priorityByFormat[format]
-        : 999
+      const priority = keyEntry.key.effective_global_priority ?? 999
       if (!keyGroupMap.has(priority)) {
         keyGroupMap.set(priority, [])
       }
@@ -871,6 +1175,12 @@ watch(() => props.routingData, (data) => {
   }
 }, { immediate: true })
 
+watch(routingData, () => {
+  if (!editingOverrides.value) {
+    syncOverrideDraftFromRouting()
+  }
+}, { immediate: true })
+
 // 获取调度模式标签
 function getSchedulingModeLabel(mode: string): string {
   const labels: Record<string, string> = {
@@ -971,7 +1281,7 @@ function getKeyPriorityGroups(keys: RoutingKeyInfo[]): KeyPriorityGroup[] {
 
   for (const key of keys) {
     // 提供商优先模式：按 internal_priority 分组
-    const priority = key.internal_priority ?? 999
+    const priority = key.effective_internal_priority ?? key.internal_priority ?? 999
 
     if (!groups.has(priority)) {
       groups.set(priority, {

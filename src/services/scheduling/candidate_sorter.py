@@ -16,6 +16,14 @@ from typing import TYPE_CHECKING
 from src.services.scheduling.scheduling_config import SchedulingConfig
 from src.services.scheduling.schemas import PoolCandidate
 from src.services.scheduling.utils import affinity_hash
+from src.services.model.routing_overrides import (
+    GlobalModelRoutingOverrides,
+    empty_global_model_routing_overrides,
+    get_effective_key_format_priority,
+    get_effective_key_internal_priority,
+    get_effective_provider_priority,
+    load_global_model_routing_overrides,
+)
 from src.services.system.config import SystemConfigService
 
 if TYPE_CHECKING:
@@ -61,6 +69,7 @@ class CandidateSorter:
         db: Session,
         affinity_key: str | None = None,
         api_format: str | None = None,
+        global_model_id: str | None = None,
     ) -> list[ProviderCandidate]:
         """
         根据优先级模式对候选列表排序（数字越小越优先）
@@ -78,8 +87,14 @@ class CandidateSorter:
         if not candidates:
             return candidates
 
+        routing_overrides = load_global_model_routing_overrides(db, global_model_id)
         return self._with_capability_split(
-            candidates, self._apply_priority_mode_sort_inner, db, affinity_key, api_format
+            candidates,
+            self._apply_priority_mode_sort_inner,
+            db,
+            affinity_key,
+            api_format,
+            routing_overrides,
         )
 
     def _apply_priority_mode_sort_inner(
@@ -88,6 +103,7 @@ class CandidateSorter:
         db: Session,
         affinity_key: str | None = None,
         api_format: str | None = None,
+        routing_overrides: GlobalModelRoutingOverrides | None = None,
     ) -> list[ProviderCandidate]:
         """优先级模式排序的内部实现（不含 capability_miss_count 分组）"""
         if not candidates:
@@ -95,13 +111,18 @@ class CandidateSorter:
 
         # 全局配置：如果开启，所有候选保持原优先级
         global_keep_priority = SystemConfigService.is_keep_priority_on_conversion(db)
+        overrides = routing_overrides or empty_global_model_routing_overrides()
 
         if global_keep_priority:
             # 全局开启：不分组，直接按优先级模式排序
             if self._config.priority_mode == SchedulingConfig.PRIORITY_MODE_GLOBAL_KEY:
-                return self._sort_by_global_priority_with_hash(candidates, affinity_key, api_format)
-            # 提供商优先模式：保持构建时的顺序（已按 provider_priority 排序）
-            return candidates
+                return self._sort_by_global_priority_with_hash(
+                    candidates,
+                    affinity_key,
+                    api_format,
+                    overrides,
+                )
+            return self._sort_by_provider_priority(candidates, overrides)
 
         # 全局未开启：按是否需要降级分组
         # - 不需要降级：exact 候选 或 provider.keep_priority_on_conversion=True 的 convertible 候选
@@ -123,21 +144,58 @@ class CandidateSorter:
         if self._config.priority_mode == SchedulingConfig.PRIORITY_MODE_GLOBAL_KEY:
             # 全局 Key 优先模式：分别对两组排序后合并
             sorted_keep = self._sort_by_global_priority_with_hash(
-                keep_priority_candidates, affinity_key, api_format
+                keep_priority_candidates,
+                affinity_key,
+                api_format,
+                overrides,
             )
             sorted_demote = self._sort_by_global_priority_with_hash(
-                demote_candidates, affinity_key, api_format
+                demote_candidates,
+                affinity_key,
+                api_format,
+                overrides,
             )
             return sorted_keep + sorted_demote
 
-        # 提供商优先模式：保持优先级的在前，降级的在后（各组内部顺序已由构建时保证）
-        return keep_priority_candidates + demote_candidates
+        sorted_keep = self._sort_by_provider_priority(keep_priority_candidates, overrides)
+        sorted_demote = self._sort_by_provider_priority(demote_candidates, overrides)
+        return sorted_keep + sorted_demote
+
+    def _sort_by_provider_priority(
+        self,
+        candidates: list[ProviderCandidate],
+        routing_overrides: GlobalModelRoutingOverrides,
+    ) -> list[ProviderCandidate]:
+        if not candidates:
+            return candidates
+
+        indexed_candidates = list(enumerate(candidates))
+
+        def sort_key(item: tuple[int, ProviderCandidate]) -> tuple[int, int, int]:
+            index, candidate = item
+            provider_priority = get_effective_provider_priority(
+                getattr(candidate.provider, "id", None),
+                getattr(candidate.provider, "provider_priority", None),
+                routing_overrides,
+            )
+            if isinstance(candidate, PoolCandidate):
+                internal_priority = int(getattr(candidate, "pool_priority", 999999) or 999999)
+            else:
+                internal_priority = get_effective_key_internal_priority(
+                    getattr(candidate.key, "id", None),
+                    getattr(candidate.key, "internal_priority", None),
+                    routing_overrides,
+                )
+            return (provider_priority, internal_priority, index)
+
+        return [candidate for _, candidate in sorted(indexed_candidates, key=sort_key)]
 
     def _sort_by_global_priority_with_hash(
         self,
         candidates: list[ProviderCandidate],
         affinity_key: str | None = None,
         api_format: str | None = None,
+        routing_overrides: GlobalModelRoutingOverrides | None = None,
     ) -> list[ProviderCandidate]:
         """
         按 global_priority_by_format 分组排序，同优先级内通过哈希分散实现负载均衡
@@ -155,9 +213,15 @@ class CandidateSorter:
             if not candidate.key:
                 return 999999
             priority_by_format = candidate.key.global_priority_by_format or {}
+            default_priority = None
             if api_format and api_format in priority_by_format:
-                return priority_by_format[api_format]
-            return 999999  # NULL 排在后面
+                default_priority = priority_by_format[api_format]
+            return get_effective_key_format_priority(
+                getattr(candidate.key, "id", None),
+                api_format,
+                default_priority,
+                routing_overrides or empty_global_model_routing_overrides(),
+            )
 
         # 按优先级分组
         priority_groups: dict[int, list[ProviderCandidate]] = defaultdict(list)
@@ -186,12 +250,20 @@ class CandidateSorter:
             else:
                 # 单个候选或没有 affinity_key，按次要排序条件排序
                 def secondary_sort(c: ProviderCandidate) -> tuple[int, int, str]:
-                    pp = c.provider.provider_priority
+                    pp = get_effective_provider_priority(
+                        getattr(c.provider, "id", None),
+                        getattr(c.provider, "provider_priority", None),
+                        routing_overrides or empty_global_model_routing_overrides(),
+                    )
                     if isinstance(c, PoolCandidate):
                         ip = int(getattr(c, "pool_priority", 999999) or 999999)
                         key_id = str(getattr(c.provider, "id", "") or "")
                     else:
-                        ip = c.key.internal_priority if c.key else None
+                        ip = get_effective_key_internal_priority(
+                            getattr(c.key, "id", None) if c.key else None,
+                            getattr(c.key, "internal_priority", None) if c.key else None,
+                            routing_overrides or empty_global_model_routing_overrides(),
+                        )
                         key_id = c.key.id if c.key else ""
                     return (
                         pp if pp is not None else 999999,
@@ -204,7 +276,11 @@ class CandidateSorter:
         return result
 
     def _apply_load_balance(
-        self, candidates: list[ProviderCandidate], api_format: str | None = None
+        self,
+        candidates: list[ProviderCandidate],
+        db: Session | None = None,
+        api_format: str | None = None,
+        global_model_id: str | None = None,
     ) -> list[ProviderCandidate]:
         """
         负载均衡模式：同优先级内随机轮换
@@ -218,10 +294,23 @@ class CandidateSorter:
         if not candidates:
             return candidates
 
-        return self._with_capability_split(candidates, self._apply_load_balance_inner, api_format)
+        routing_overrides = (
+            load_global_model_routing_overrides(db, global_model_id)
+            if db is not None
+            else empty_global_model_routing_overrides()
+        )
+        return self._with_capability_split(
+            candidates,
+            self._apply_load_balance_inner,
+            api_format,
+            routing_overrides,
+        )
 
     def _apply_load_balance_inner(
-        self, candidates: list[ProviderCandidate], api_format: str | None = None
+        self,
+        candidates: list[ProviderCandidate],
+        api_format: str | None = None,
+        routing_overrides: GlobalModelRoutingOverrides | None = None,
     ) -> list[ProviderCandidate]:
         """负载均衡排序的内部实现（不含 capability_miss_count 分组）"""
         if not candidates:
@@ -242,18 +331,33 @@ class CandidateSorter:
                     priority = 999999
                 if candidate.key:
                     priority_by_format = candidate.key.global_priority_by_format or {}
+                    default_priority = None
                     if api_format and api_format in priority_by_format:
-                        priority = priority_by_format[api_format]
+                        default_priority = priority_by_format[api_format]
+                    priority = get_effective_key_format_priority(
+                        getattr(candidate.key, "id", None),
+                        api_format,
+                        default_priority,
+                        routing_overrides or empty_global_model_routing_overrides(),
+                    )
                 priority_groups[(priority, 0)].append(candidate)
         else:
             # 提供商优先模式：按 (provider_priority, internal_priority) 分组
             for candidate in candidates:
-                pp = candidate.provider.provider_priority
+                pp = get_effective_provider_priority(
+                    getattr(candidate.provider, "id", None),
+                    getattr(candidate.provider, "provider_priority", None),
+                    routing_overrides or empty_global_model_routing_overrides(),
+                )
                 if isinstance(candidate, PoolCandidate):
                     # 号池候选独立成组，不与普通 key 候选混组打乱。
                     ip = -1
                 else:
-                    ip = candidate.key.internal_priority if candidate.key else None
+                    ip = get_effective_key_internal_priority(
+                        getattr(candidate.key, "id", None) if candidate.key else None,
+                        getattr(candidate.key, "internal_priority", None) if candidate.key else None,
+                        routing_overrides or empty_global_model_routing_overrides(),
+                    )
                 key = (
                     pp if pp is not None else 999999,
                     ip if ip is not None else 999999,

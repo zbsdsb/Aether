@@ -579,7 +579,7 @@ class CacheAwareScheduler:
 
         # 1. 优先级模式排序（委托给 CandidateSorter）
         candidates = self._candidate_sorter._apply_priority_mode_sort(
-            candidates, db, affinity_key, api_format
+            candidates, db, affinity_key, api_format, global_model_id
         )
 
         # 排序完成后释放 DB 连接，避免后续 Redis 操作期间占用连接
@@ -596,7 +596,12 @@ class CacheAwareScheduler:
                     global_model_id=global_model_id,
                 )
         elif self.scheduling_mode == self.SCHEDULING_MODE_LOAD_BALANCE:
-            candidates = self._candidate_sorter._apply_load_balance(candidates, api_format)
+            candidates = self._candidate_sorter._apply_load_balance(
+                candidates,
+                db,
+                api_format,
+                global_model_id,
+            )
             for candidate in candidates:
                 candidate.is_cached = False
         else:

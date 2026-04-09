@@ -8,7 +8,12 @@ export interface RoutingKeyInfo {
   name: string
   masked_key: string
   internal_priority: number
+  override_internal_priority?: number | null
+  effective_internal_priority: number
   global_priority_by_format?: Record<string, number> | null  // 按 API 格式的全局优先级
+  default_global_priority?: number | null
+  override_global_priority?: number | null
+  effective_global_priority?: number | null
   rpm_limit?: number | null
   is_adaptive: boolean
   effective_rpm?: number | null
@@ -53,6 +58,8 @@ export interface RoutingProviderInfo {
   name: string
   model_id: string
   provider_priority: number
+  override_provider_priority?: number | null
+  effective_provider_priority: number
   billing_type?: string | null
   monthly_quota_usd?: number | null
   monthly_used_usd?: number | null

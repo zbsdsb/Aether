@@ -486,6 +486,7 @@ import {
   getLogoType,
   getLogoClass
 } from './home-config'
+import { coerceTypewriterText } from './home-typewriter'
 import {
   useSectionAnimations,
   useLogoPosition,
@@ -582,7 +583,7 @@ const showLoginDialog = ref(false)
 // Typewriter effect for site name
 const aetherText = ref('')
 const showCursor = ref(true)
-const typewriterFullText = computed(() => siteName.value)
+const typewriterFullText = computed(() => coerceTypewriterText(siteName.value))
 let typewriterTimer: ReturnType<typeof setTimeout> | null = null
 const hasTypewriterStarted = ref(false)
 

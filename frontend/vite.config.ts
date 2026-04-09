@@ -3,6 +3,10 @@ import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import { execSync } from 'child_process'
 
+function getDevProxyTarget(): string {
+  return process.env.AETHER_DEV_PROXY_TARGET || 'http://localhost:8084'
+}
+
 function getGitVersion(): string {
   try {
     return execSync('git describe --tags --always').toString().trim()
@@ -56,17 +60,17 @@ export default defineConfig(({ mode }) => ({
       // 注意：本地开发时后端默认运行在 8084 端口（见 src/config/settings.py）
       // 如果使用 Docker，则通过 APP_PORT 环境变量映射（默认 80）
       '/api/': {
-        target: 'http://localhost:8084',  // 本地开发端口
+        target: getDevProxyTarget(),
         changeOrigin: true,
         secure: false,
       },
       '/v1/': {
-        target: 'http://localhost:8084',  // 本地开发端口
+        target: getDevProxyTarget(),
         changeOrigin: true,
         secure: false,
       },
       '/health': {
-        target: 'http://localhost:8084',  // 本地开发端口
+        target: getDevProxyTarget(),
         changeOrigin: true,
         secure: false,
       },

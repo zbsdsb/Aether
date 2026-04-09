@@ -32,11 +32,75 @@ from src.models.database import (
     ProviderAPIKey,
     ProviderEndpoint,
 )
+from src.services.model.routing_overrides import (
+    GlobalModelRoutingOverrides,
+    get_effective_key_format_priority,
+    get_effective_key_internal_priority,
+    get_effective_provider_priority,
+    normalize_global_model_routing_overrides,
+)
 from src.services.scheduling.aware_scheduler import CacheAwareScheduler
 from src.services.system.config import SystemConfigService
 
 router = APIRouter(prefix="/global", tags=["Admin - Global Models"])
 pipeline = get_pipeline()
+
+
+def build_provider_priority_snapshot(
+    provider: Provider,
+    overrides: GlobalModelRoutingOverrides,
+) -> dict[str, int | None]:
+    default_priority = provider.provider_priority
+    override_priority = overrides["provider_priorities"].get(provider.id or "")
+    effective_priority = get_effective_provider_priority(provider.id, default_priority, overrides)
+    return {
+        "provider_priority": default_priority,
+        "override_provider_priority": override_priority,
+        "effective_provider_priority": effective_priority,
+    }
+
+
+def build_key_priority_snapshot(
+    key: ProviderAPIKey,
+    api_format: str,
+    overrides: GlobalModelRoutingOverrides,
+) -> dict[str, int | None]:
+    default_internal_priority = key.internal_priority or 0
+    override_internal_priority = overrides["key_internal_priorities"].get(key.id or "")
+    effective_internal_priority = get_effective_key_internal_priority(
+        key.id,
+        key.internal_priority,
+        overrides,
+    )
+
+    priority_by_format = key.global_priority_by_format or {}
+    default_global_priority = (
+        priority_by_format[api_format] if api_format and api_format in priority_by_format else None
+    )
+    override_global_priority = (
+        overrides["key_priorities_by_format"].get(key.id or "", {}).get(api_format)
+        if api_format
+        else None
+    )
+    effective_global_priority = (
+        get_effective_key_format_priority(
+            key.id,
+            api_format,
+            default_global_priority,
+            overrides,
+        )
+        if default_global_priority is not None or override_global_priority is not None
+        else None
+    )
+
+    return {
+        "internal_priority": default_internal_priority,
+        "override_internal_priority": override_internal_priority,
+        "effective_internal_priority": effective_internal_priority,
+        "default_global_priority": default_global_priority,
+        "override_global_priority": override_global_priority,
+        "effective_global_priority": effective_global_priority,
+    }
 
 
 # ========== Response Models ==========
@@ -49,8 +113,19 @@ class RoutingKeyInfo(BaseModel):
     name: str
     masked_key: str = Field("", description="脱敏的 API Key")
     internal_priority: int = Field(..., description="Key 内部优先级")
+    override_internal_priority: int | None = Field(
+        None, description="当前模型下覆盖的 Key 内部优先级"
+    )
+    effective_internal_priority: int = Field(..., description="当前模型下生效的 Key 内部优先级")
     global_priority_by_format: dict[str, int] | None = Field(
         None, description="按 API 格式的全局优先级"
+    )
+    default_global_priority: int | None = Field(None, description="当前格式下默认全局 Key 优先级")
+    override_global_priority: int | None = Field(
+        None, description="当前模型下覆盖的当前格式全局 Key 优先级"
+    )
+    effective_global_priority: int | None = Field(
+        None, description="当前模型下生效的当前格式全局 Key 优先级"
     )
     rpm_limit: int | None = Field(None, description="RPM 限制，null 表示自适应")
     is_adaptive: bool = Field(False, description="是否为自适应 RPM 模式")
@@ -101,6 +176,10 @@ class RoutingProviderInfo(BaseModel):
     name: str
     model_id: str = Field(..., description="Model ID（GlobalModel 与 Provider 的关联记录 ID）")
     provider_priority: int = Field(..., description="提供商优先级（数字越小优先级越高）")
+    override_provider_priority: int | None = Field(
+        None, description="当前模型下覆盖的提供商优先级"
+    )
+    effective_provider_priority: int = Field(..., description="当前模型下生效的提供商优先级")
     billing_type: str | None = Field(None, description="计费类型")
     monthly_quota_usd: float | None = Field(None, description="月额度（美元）")
     monthly_used_usd: float | None = Field(None, description="已用额度（美元）")
@@ -256,6 +335,9 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
 
         # 提取 GlobalModel 的 model_mappings（用于 Key 白名单匹配）
         global_model_mappings: list[str] = []
+        routing_overrides = normalize_global_model_routing_overrides(
+            global_model.config if isinstance(global_model.config, dict) else None
+        )
         if global_model.config and isinstance(global_model.config, dict):
             mappings = global_model.config.get("model_mappings")
             if isinstance(mappings, list):
@@ -324,10 +406,11 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
                 api_format = ep.api_format or ""
 
                 def get_key_priority(k: ProviderAPIKey) -> tuple[int, int]:
-                    format_priority = 999
-                    if k.global_priority_by_format and api_format in k.global_priority_by_format:
-                        format_priority = k.global_priority_by_format[api_format]
-                    return (format_priority, k.internal_priority or 0)
+                    snapshot = build_key_priority_snapshot(k, api_format, routing_overrides)
+                    return (
+                        snapshot["effective_global_priority"] or 999999,
+                        snapshot["effective_internal_priority"] or 999999,
+                    )
 
                 ep_keys.sort(key=get_key_priority)
 
@@ -381,14 +464,33 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
                         if raw_allowed_models
                         else None
                     )
+                    key_priority_snapshot = build_key_priority_snapshot(
+                        key,
+                        ep.api_format or "",
+                        routing_overrides,
+                    )
 
                     key_infos.append(
                         RoutingKeyInfo(
                             id=key.id or "",
                             name=key.name or "",
                             masked_key=masked_key,
-                            internal_priority=key.internal_priority or 0,
+                            internal_priority=key_priority_snapshot["internal_priority"] or 0,
+                            override_internal_priority=key_priority_snapshot[
+                                "override_internal_priority"
+                            ],
+                            effective_internal_priority=key_priority_snapshot[
+                                "effective_internal_priority"
+                            ]
+                            or 0,
                             global_priority_by_format=key.global_priority_by_format,
+                            default_global_priority=key_priority_snapshot["default_global_priority"],
+                            override_global_priority=key_priority_snapshot[
+                                "override_global_priority"
+                            ],
+                            effective_global_priority=key_priority_snapshot[
+                                "effective_global_priority"
+                            ],
                             rpm_limit=key.rpm_limit,
                             is_adaptive=is_adaptive,
                             effective_rpm=effective_rpm,
@@ -436,12 +538,20 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
             )
 
             active_endpoints = sum(1 for e in endpoint_infos if e.is_active)
+            provider_priority_snapshot = build_provider_priority_snapshot(provider, routing_overrides)
             provider_infos.append(
                 RoutingProviderInfo(
                     id=provider.id,
                     name=provider.name,
                     model_id=model.id,
-                    provider_priority=provider.provider_priority,
+                    provider_priority=provider_priority_snapshot["provider_priority"] or 0,
+                    override_provider_priority=provider_priority_snapshot[
+                        "override_provider_priority"
+                    ],
+                    effective_provider_priority=provider_priority_snapshot[
+                        "effective_provider_priority"
+                    ]
+                    or 0,
                     billing_type=provider.billing_type,
                     monthly_quota_usd=provider.monthly_quota_usd,
                     monthly_used_usd=provider.monthly_used_usd,
@@ -455,8 +565,8 @@ class AdminGetModelRoutingPreviewAdapter(AdminApiAdapter):
                 )
             )
 
-        # 按 provider_priority 排序
-        provider_infos.sort(key=lambda p: p.provider_priority)
+        # 按当前模型下生效的 provider_priority 排序
+        provider_infos.sort(key=lambda p: p.effective_provider_priority)
 
         active_providers = sum(1 for p in provider_infos if p.is_active and p.model_is_active)
 
