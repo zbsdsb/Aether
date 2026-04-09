@@ -113,6 +113,62 @@
 
             <!-- Right Actions -->
             <div class="flex items-center gap-3">
+              <div
+                v-if="isAdminTaskCenterVisible"
+                class="relative"
+              >
+                <button
+                  class="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
+                  title="任务通知"
+                  @click.stop="toggleTaskNotifications"
+                >
+                  <Bell class="h-4 w-4" />
+                  <span
+                    v-if="taskNotificationBadgeCount > 0"
+                    class="absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-4 text-white"
+                  >
+                    {{ taskNotificationBadgeCount }}
+                  </span>
+                </button>
+                <div
+                  v-if="taskNotificationOpen"
+                  class="task-notification-panel absolute right-0 top-full z-[60] mt-2 w-[320px] overflow-hidden rounded-md border bg-popover p-0 text-popover-foreground shadow-md"
+                  @click.stop
+                >
+                  <div class="border-b border-border/60 px-4 py-3">
+                    <p class="text-sm font-semibold">任务通知</p>
+                    <p class="mt-1 text-xs text-muted-foreground">导入任务与刷新并适配任务会在这里提示完成或失败。</p>
+                  </div>
+                  <div
+                    v-if="taskNotificationItems.length === 0"
+                    class="px-4 py-6 text-sm text-muted-foreground"
+                  >
+                    当前没有需要关注的 provider 任务。
+                  </div>
+                  <div
+                    v-else
+                    class="divide-y divide-border/50"
+                  >
+                    <RouterLink
+                      v-for="item in taskNotificationItems"
+                      :key="item.id"
+                      :to="item.href"
+                      class="block px-4 py-3 hover:bg-muted/40"
+                      @click="closeTaskNotifications"
+                    >
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <p class="truncate text-sm font-medium">{{ item.label }}</p>
+                          <p class="mt-1 text-xs text-muted-foreground">{{ item.message }}</p>
+                        </div>
+                        <Badge :variant="item.status === 'failed' ? 'destructive' : 'outline'">
+                          {{ item.status === 'failed' ? '失败' : '进行中' }}
+                        </Badge>
+                      </div>
+                    </RouterLink>
+                  </div>
+                </div>
+              </div>
               <button
                 class="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
                 :title="themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色模式' : '浅色模式'"
@@ -286,6 +342,73 @@
             id="header-actions-right"
             class="flex items-center"
           />
+          <div
+            v-if="isAdminTaskCenterVisible"
+            class="relative"
+          >
+            <button
+              class="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
+              title="任务通知"
+              @click.stop="toggleTaskNotifications"
+            >
+              <Bell class="h-4 w-4" />
+              <span
+                v-if="taskNotificationBadgeCount > 0"
+                class="absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-4 text-white"
+              >
+                {{ taskNotificationBadgeCount }}
+              </span>
+            </button>
+            <div
+              v-if="taskNotificationOpen"
+              class="task-notification-panel absolute right-0 top-full z-[60] mt-2 w-[340px] overflow-hidden rounded-md border bg-popover p-0 text-popover-foreground shadow-md"
+              @click.stop
+            >
+              <div class="border-b border-border/60 px-4 py-3">
+                <p class="text-sm font-semibold">任务通知</p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  右上角仅聚合 provider 导入 / 刷新并适配任务。
+                </p>
+              </div>
+              <div
+                v-if="taskNotificationItems.length === 0"
+                class="px-4 py-6 text-sm text-muted-foreground"
+              >
+                当前没有需要关注的 provider 任务。
+              </div>
+              <div
+                v-else
+                class="divide-y divide-border/50"
+              >
+                <RouterLink
+                  v-for="item in taskNotificationItems"
+                  :key="item.id"
+                  :to="item.href"
+                  class="block px-4 py-3 hover:bg-muted/40"
+                  @click="closeTaskNotifications"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <p class="truncate text-sm font-medium">{{ item.label }}</p>
+                      <p class="mt-1 text-xs text-muted-foreground">{{ item.message }}</p>
+                    </div>
+                    <Badge :variant="item.status === 'failed' ? 'destructive' : 'outline'">
+                      {{ item.status === 'failed' ? '失败' : '进行中' }}
+                    </Badge>
+                  </div>
+                </RouterLink>
+              </div>
+              <div class="border-t border-border/60 px-4 py-3">
+                <RouterLink
+                  to="/admin/async-tasks"
+                  class="text-xs font-medium text-primary hover:underline"
+                  @click="closeTaskNotifications"
+                >
+                  打开统一异步任务中心
+                </RouterLink>
+              </div>
+            </div>
+          </div>
           <!-- Theme Toggle -->
           <button
             class="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition"
@@ -343,11 +466,14 @@ import { useDarkMode } from '@/composables/useDarkMode'
 import { useSiteInfo } from '@/composables/useSiteInfo'
 import { isDemoMode } from '@/config/demo'
 import { adminApi, type CheckUpdateResponse } from '@/api/admin'
+import { asyncTasksApi, type AsyncTaskItem } from '@/api/async-tasks'
 import Button from '@/components/ui/button.vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import SidebarNav from '@/components/layout/SidebarNav.vue'
 import HeaderLogo from '@/components/HeaderLogo.vue'
 import UpdateDialog from '@/components/common/UpdateDialog.vue'
+import Badge from '@/components/ui/badge.vue'
+import { summarizeAsyncTaskNotifications } from '@/views/admin/async-task-center'
 import {
   Home,
   Users,
@@ -377,6 +503,7 @@ import {
   Zap,
   FileUp,
   Server,
+  Bell,
   type LucideIcon,
 } from 'lucide-vue-next'
 
@@ -393,14 +520,20 @@ const isDemo = computed(() => isDemoMode())
 
 const showAuthError = ref(false)
 const mobileMenuOpen = ref(false)
+const taskNotificationItems = ref<Array<{ id: string; href: string; label: string; message: string; status: string }>>([])
+const taskNotificationBadgeCount = ref(0)
+const taskNotificationOpen = ref(false)
+let taskNotificationTimer: ReturnType<typeof setInterval> | null = null
 
 // 更新检查相关
 const showUpdateDialog = ref(false)
 const updateInfo = ref<CheckUpdateResponse | null>(null)
+const isAdminTaskCenterVisible = computed(() => authStore.user?.role === 'admin')
 
 // 路由变化时自动关闭移动端菜单
 watch(() => route.path, () => {
   mobileMenuOpen.value = false
+  taskNotificationOpen.value = false
 })
 
 // 检查是否应该显示更新提示
@@ -444,6 +577,41 @@ async function checkForUpdate() {
   }
 }
 
+async function refreshTaskNotifications() {
+  if (!isAdminTaskCenterVisible.value) {
+    taskNotificationItems.value = []
+    taskNotificationBadgeCount.value = 0
+    return
+  }
+
+  try {
+    const response = await asyncTasksApi.list({ page: 1, page_size: 8 })
+    const summary = summarizeAsyncTaskNotifications(response.items as AsyncTaskItem[])
+    taskNotificationItems.value = summary.topItems
+    taskNotificationBadgeCount.value = summary.runningCount + summary.failedCount
+  } catch {
+    taskNotificationItems.value = []
+    taskNotificationBadgeCount.value = 0
+  }
+}
+
+function toggleTaskNotifications() {
+  taskNotificationOpen.value = !taskNotificationOpen.value
+}
+
+function closeTaskNotifications() {
+  taskNotificationOpen.value = false
+}
+
+function handleDocumentPointerDown(event: MouseEvent) {
+  if (!taskNotificationOpen.value) return
+  const target = event.target as HTMLElement | null
+  if (!target) return
+  if (target.closest('[title="任务通知"]')) return
+  if (target.closest('.task-notification-panel')) return
+  taskNotificationOpen.value = false
+}
+
 function syncAuthNotice() {
   authStore.syncToken()
   showAuthError.value = !!authStore.user && !authStore.token
@@ -472,6 +640,7 @@ watch(
 onMounted(() => {
   window.addEventListener('storage', handleStorageChange)
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  document.addEventListener('mousedown', handleDocumentPointerDown)
   syncAuthNotice()
 
   // 管理员预加载模块状态（路由守卫会按需加载，这里提前加载以避免菜单闪烁）
@@ -483,11 +652,21 @@ onMounted(() => {
   setTimeout(() => {
     checkForUpdate()
   }, 2000)
+
+  void refreshTaskNotifications()
+  taskNotificationTimer = setInterval(() => {
+    void refreshTaskNotifications()
+  }, 15000)
 })
 
 onUnmounted(() => {
   window.removeEventListener('storage', handleStorageChange)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  document.removeEventListener('mousedown', handleDocumentPointerDown)
+  if (taskNotificationTimer) {
+    clearInterval(taskNotificationTimer)
+    taskNotificationTimer = null
+  }
 })
 
 async function handleRelogin() {
@@ -583,7 +762,6 @@ const navigation = computed(() => {
       items: [
         { name: '用户管理', href: '/admin/users', icon: Users },
         { name: '提供商', href: '/admin/providers', icon: FolderTree },
-        { name: '导入任务', href: '/admin/provider-import-tasks', icon: FileUp },
         { name: '模型管理', href: '/admin/models', icon: Layers },
         { name: '号池管理', href: '/admin/pool', icon: Database },
         { name: '独立密钥', href: '/admin/keys', icon: Key },

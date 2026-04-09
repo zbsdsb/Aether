@@ -113,3 +113,94 @@ def test_sync_provider_capabilities_never_deletes_existing_endpoints() -> None:
     assert key.api_formats == ["openai:chat", "openai:cli"]
     assert result["created_endpoint_formats"] == []
     assert result["updated_key_ids"] == []
+
+
+def test_sync_provider_capabilities_infers_gemini_formats_from_model_names() -> None:
+    provider = Provider(
+        id="provider-1",
+        name="Provider One",
+        provider_type="custom",
+        billing_type="pay_as_you_go",
+    )
+    endpoint = ProviderEndpoint(
+        id="endpoint-1",
+        provider_id="provider-1",
+        api_format="openai:chat",
+        api_family="openai",
+        endpoint_kind="chat",
+        base_url="https://provider-1.example.com",
+    )
+    key = ProviderAPIKey(
+        id="key-1",
+        provider_id="provider-1",
+        api_formats=["openai:chat"],
+        auth_type="api_key",
+        api_key="enc",
+        name="Key One",
+    )
+    db = _FakeDB(endpoints=[endpoint])
+
+    result = _sync_provider_capabilities_from_models(
+        db=db,
+        provider=provider,
+        provider_keys=[key],
+        provider_endpoints=db.endpoints,
+        models=[
+            {"id": "gemini-2.0-flash", "api_formats": ["openai:chat"]},
+            {"id": "gemini-2.0-flash-lite", "api_format": "openai:chat"},
+        ],
+    )
+
+    assert "gemini:chat" in (key.api_formats or [])
+    assert "gemini:cli" in (key.api_formats or [])
+    assert sorted(item.api_format for item in db.endpoints) == [
+        "gemini:chat",
+        "gemini:cli",
+        "openai:chat",
+    ]
+    assert result["created_endpoint_formats"] == ["gemini:chat", "gemini:cli"]
+
+
+def test_sync_provider_capabilities_infers_claude_formats_from_model_names() -> None:
+    provider = Provider(
+        id="provider-2",
+        name="Provider Two",
+        provider_type="custom",
+        billing_type="pay_as_you_go",
+    )
+    endpoint = ProviderEndpoint(
+        id="endpoint-1",
+        provider_id="provider-2",
+        api_format="openai:chat",
+        api_family="openai",
+        endpoint_kind="chat",
+        base_url="https://provider-2.example.com",
+    )
+    key = ProviderAPIKey(
+        id="key-2",
+        provider_id="provider-2",
+        api_formats=["openai:chat"],
+        auth_type="api_key",
+        api_key="enc",
+        name="Key Two",
+    )
+    db = _FakeDB(endpoints=[endpoint])
+
+    result = _sync_provider_capabilities_from_models(
+        db=db,
+        provider=provider,
+        provider_keys=[key],
+        provider_endpoints=db.endpoints,
+        models=[
+            {"id": "claude-sonnet-4.5", "api_formats": ["openai:chat"]},
+        ],
+    )
+
+    assert "claude:chat" in (key.api_formats or [])
+    assert "claude:cli" in (key.api_formats or [])
+    assert sorted(item.api_format for item in db.endpoints) == [
+        "claude:chat",
+        "claude:cli",
+        "openai:chat",
+    ]
+    assert result["created_endpoint_formats"] == ["claude:chat", "claude:cli"]

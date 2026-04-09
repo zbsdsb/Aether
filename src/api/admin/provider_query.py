@@ -33,7 +33,18 @@ from src.core.logger import logger
 from src.core.provider_types import ProviderType
 from src.database import create_session
 from src.database.database import get_db
+from src.models.admin_async_tasks import (
+    ProviderRefreshSyncJobListResponse,
+    ProviderRefreshSyncJobStartResponse,
+    ProviderRefreshSyncJobStatusResponse,
+)
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint, RequestCandidate, User
+from src.services.provider_query.async_job import (
+    get_provider_refresh_sync_job,
+    list_provider_refresh_sync_jobs,
+    submit_provider_refresh_sync_all_job,
+    submit_provider_refresh_sync_job,
+)
 from src.services.model.fetch_scheduler import (
     MODEL_FETCH_HTTP_TIMEOUT,
     UPSTREAM_MODELS_CACHE_TTL_SECONDS,
@@ -107,6 +118,30 @@ def _extract_model_api_formats(models: list[dict[str, Any]]) -> list[str]:
         if isinstance(existing_formats, list):
             raw_values.extend(str(item).strip() for item in existing_formats if str(item).strip())
         for raw in raw_values:
+            normalized = parse_signature_key(raw).key
+            if normalized not in seen:
+                seen.add(normalized)
+                formats.append(normalized)
+
+        # Fallback: infer protocol family from model identifiers when upstream only reports
+        # the transport used to fetch models (for example openai:chat) but model names clearly
+        # belong to Gemini/Claude families.
+        identity_values = [
+            str(model.get("id") or "").strip().lower(),
+            str(model.get("name") or "").strip().lower(),
+            str(model.get("display_name") or "").strip().lower(),
+        ]
+        combined = " ".join(value for value in identity_values if value)
+
+        inferred_formats: list[str] = []
+        if any(token in combined for token in ("gemini", "veo", "imagen")):
+            inferred_formats.extend(["gemini:chat", "gemini:cli"])
+            if "veo" in combined:
+                inferred_formats.append("gemini:video")
+        if any(token in combined for token in ("claude", "anthropic")):
+            inferred_formats.extend(["claude:chat", "claude:cli"])
+
+        for raw in inferred_formats:
             normalized = parse_signature_key(raw).key
             if normalized not in seen:
                 seen.add(normalized)
@@ -1098,6 +1133,25 @@ async def refresh_and_sync_provider_models(
     )
 
 
+@router.post("/models/refresh-sync/submit")
+async def submit_refresh_and_sync_provider_models(
+    request: ProviderModelsRefreshRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProviderRefreshSyncJobStartResponse:
+    del db, current_user
+    task_id = await submit_provider_refresh_sync_job(
+        provider_id=request.provider_id,
+        api_key_id=request.api_key_id,
+    )
+    return ProviderRefreshSyncJobStartResponse(
+        task_id=task_id,
+        status="pending",
+        stage="queued",
+        message="刷新并适配任务已提交，后台处理中",
+    )
+
+
 @router.post("/models/refresh-sync-all")
 async def refresh_and_sync_all_provider_models(
     request: ProviderModelsRefreshAllRequest,
@@ -1156,6 +1210,45 @@ async def refresh_and_sync_all_provider_models(
             "error": f"{len(errors)} 个渠道刷新未完全成功" if errors else None,
         },
     }
+
+
+@router.post("/models/refresh-sync-all/submit")
+async def submit_refresh_and_sync_all_provider_models(
+    request: ProviderModelsRefreshAllRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProviderRefreshSyncJobStartResponse:
+    del db, current_user
+    task_id = await submit_provider_refresh_sync_all_job(only_active=request.only_active)
+    return ProviderRefreshSyncJobStartResponse(
+        task_id=task_id,
+        status="pending",
+        stage="queued",
+        message="批量刷新并适配任务已提交，后台处理中",
+    )
+
+
+@router.get("/models/refresh-sync/tasks/{task_id}")
+async def get_refresh_and_sync_provider_models_task(
+    task_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProviderRefreshSyncJobStatusResponse:
+    del db, current_user
+    result = await get_provider_refresh_sync_job(task_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return result
+
+
+@router.get("/models/refresh-sync/tasks")
+async def list_refresh_and_sync_provider_models_tasks(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProviderRefreshSyncJobListResponse:
+    del db, current_user
+    return await list_provider_refresh_sync_jobs(limit=limit)
 
 
 @router.post("/test-model")

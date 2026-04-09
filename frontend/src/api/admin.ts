@@ -246,6 +246,39 @@ export interface CheckUpdateResponse {
   error: string | null
 }
 
+export interface ProviderRefreshSyncJobStartResponse {
+  task_id: string
+  status: string
+  stage: string
+  message: string
+}
+
+export interface ProviderRefreshSyncJobStatusResponse {
+  task_id: string
+  status: string
+  stage: string
+  message: string
+  scope: string
+  provider_id: string | null
+  provider_name: string | null
+  created_at: string | null
+  updated_at: string | null
+  result: {
+    providers_total: number
+    providers_refreshed: number
+    providers_skipped: number
+    providers_with_errors: number
+    error_preview: string[]
+    failed_providers?: Array<{
+      provider_name: string
+      error: string
+    }>
+    created_endpoint_formats: string[]
+    updated_key_ids: string[]
+    error?: string | null
+  } | null
+}
+
 // LDAP 配置响应
 export interface LdapConfigResponse {
   server_url: string | null
@@ -580,6 +613,24 @@ export const adminApi = {
     return response.data
   },
 
+  async submitRefreshAndSyncProviderModels(
+    providerId: string,
+    apiKeyId?: string,
+  ): Promise<ProviderRefreshSyncJobStartResponse> {
+    const response = await apiClient.post<ProviderRefreshSyncJobStartResponse>(
+      '/api/admin/provider-query/models/refresh-sync/submit',
+      { provider_id: providerId, api_key_id: apiKeyId },
+    )
+    return response.data
+  },
+
+  async getProviderRefreshSyncJob(taskId: string): Promise<ProviderRefreshSyncJobStatusResponse> {
+    const response = await apiClient.get<ProviderRefreshSyncJobStatusResponse>(
+      `/api/admin/provider-query/models/refresh-sync/tasks/${taskId}`,
+    )
+    return response.data
+  },
+
   async refreshAndSyncAllProviderModels(onlyActive = true): Promise<{
     success: boolean
     data: {
@@ -609,6 +660,16 @@ export const adminApi = {
       '/api/admin/provider-query/models/refresh-sync-all',
       { only_active: onlyActive },
       { timeout: PROVIDER_CAPABILITY_REFRESH_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async submitRefreshAndSyncAllProviderModels(
+    onlyActive = true,
+  ): Promise<ProviderRefreshSyncJobStartResponse> {
+    const response = await apiClient.post<ProviderRefreshSyncJobStartResponse>(
+      '/api/admin/provider-query/models/refresh-sync-all/submit',
+      { only_active: onlyActive },
     )
     return response.data
   },

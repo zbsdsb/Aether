@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from .adaptive import router as adaptive_router
+from .async_tasks import router as async_tasks_router
 from .api_keys import router as api_keys_router
 from .billing import router as billing_router
 from .endpoints import router as endpoints_router
@@ -36,6 +37,7 @@ router.include_router(endpoints_router)
 router.include_router(provider_strategy_router)
 router.include_router(provider_oauth_router)
 router.include_router(adaptive_router)
+router.include_router(async_tasks_router)
 router.include_router(models_router)
 router.include_router(security_router)
 router.include_router(provider_query_router)

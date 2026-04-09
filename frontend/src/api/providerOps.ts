@@ -203,6 +203,20 @@ export interface ImportedAuthPrefillResponse {
   source_summary: Record<string, unknown> | null
 }
 
+export interface ProxyProbeRunResponse {
+  total_selected: number
+  completed: number
+  failed: number
+  skipped: number
+  results: Array<{
+    provider_id?: string
+    provider_name?: string
+    status: string
+    mode?: string | null
+    message?: string | null
+  }>
+}
+
 /**
  * 获取 Provider 的操作配置（脱敏）
  */
@@ -220,6 +234,49 @@ export async function getImportedAuthPrefill(
 ): Promise<ImportedAuthPrefillResponse> {
   const response = await client.get<ImportedAuthPrefillResponse>(
     `${BASE_URL}/providers/${providerId}/imported-auth-prefill`
+  )
+  return response.data
+}
+
+export async function runProviderProxyProbe(providerId: string): Promise<ProxyProbeRunResponse> {
+  const response = await client.post<ProxyProbeRunResponse>(
+    `${BASE_URL}/providers/${providerId}/proxy-probe`
+  )
+  return response.data
+}
+
+export interface ProxyProbeJobStartResponse {
+  task_id: string
+  status: string
+  stage: string
+  message: string
+}
+
+export async function submitProviderProxyProbe(providerId: string): Promise<ProxyProbeJobStartResponse> {
+  const response = await client.post<ProxyProbeJobStartResponse>(
+    `${BASE_URL}/providers/${providerId}/proxy-probe/submit`
+  )
+  return response.data
+}
+
+export async function runProviderProxyProbeBatch(
+  limit = 200,
+  scope: 'pending' | 'all' = 'all'
+): Promise<ProxyProbeRunResponse> {
+  const response = await client.post<ProxyProbeRunResponse>(
+    `${BASE_URL}/proxy-probe/run`,
+    { limit, scope }
+  )
+  return response.data
+}
+
+export async function submitProviderProxyProbeBatch(
+  limit = 200,
+  scope: 'pending' | 'all' = 'all'
+): Promise<ProxyProbeJobStartResponse> {
+  const response = await client.post<ProxyProbeJobStartResponse>(
+    `${BASE_URL}/proxy-probe/run/submit`,
+    { limit, scope }
   )
   return response.data
 }

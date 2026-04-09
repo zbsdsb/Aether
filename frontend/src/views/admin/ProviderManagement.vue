@@ -98,6 +98,7 @@
         :priority-mode-label="priorityModeConfig.label"
         :loading="loading"
         :refreshing-capabilities="refreshingCapabilities"
+        :refreshing-proxy-probe="refreshingProxyProbe"
         @update:search-query="searchQuery = $event"
         @update:filter-status="filterStatus = $event"
         @update:filter-api-format="filterApiFormat = $event"
@@ -109,6 +110,7 @@
         @open-priority-dialog="openPriorityDialog"
         @open-all-in-hub-import="openAllInHubImportDialog"
         @refresh-all-capabilities="refreshAllProviderCapabilities"
+        @run-proxy-probe-all="runAllProviderProxyProbe"
         @add-provider="openAddProviderDialog"
         @refresh="loadProviders"
       />
@@ -337,7 +339,11 @@ import {
   type ProviderImportTaskOverview,
   type ProviderWithEndpointsSummary,
 } from '@/api/endpoints'
-import type { ImportedAuthPrefillResponse } from '@/api/providerOps'
+import {
+  runProviderProxyProbeBatch,
+  submitProviderProxyProbeBatch,
+  type ImportedAuthPrefillResponse,
+} from '@/api/providerOps'
 import { adminApi } from '@/api/admin'
 import { parseApiError } from '@/utils/errorParser'
 import { useRouteQuery } from '@/composables/useRouteQuery'
@@ -375,6 +381,7 @@ const loading = ref(false)
 const providers = ref<ProviderWithEndpointsSummary[]>([])
 const importTaskOverview = ref<ProviderImportTaskOverview>(EMPTY_IMPORT_TASK_OVERVIEW)
 const refreshingCapabilities = ref(false)
+const refreshingProxyProbe = ref(false)
 let providersRequestId = 0
 const providerDialogOpen = ref(false)
 const providerToEdit = ref<ProviderWithEndpointsSummary | null>(null)
@@ -802,29 +809,25 @@ async function refreshAllProviderCapabilities() {
   if (refreshingCapabilities.value) return
   refreshingCapabilities.value = true
   try {
-    const result = await adminApi.refreshAndSyncAllProviderModels(true)
-    const data = result.data
-    const summary = [
-      `刷新 ${data.providers_refreshed}/${data.providers_total} 个渠道商`,
-      data.created_endpoint_formats.length > 0
-        ? `补建 Endpoint ${data.created_endpoint_formats.length} 个`
-        : '未补建新 Endpoint',
-      data.updated_key_ids.length > 0
-        ? `同步账号格式 ${data.updated_key_ids.length} 个`
-        : '账号格式无需同步',
-    ].join('；')
-    if (data.providers_with_errors > 0) {
-      const preview = data.error_preview.length > 0
-        ? `：${data.error_preview.join('、')}${data.providers_with_errors > data.error_preview.length ? ' 等' : ''}`
-        : ''
-      showWarning(`有 ${data.providers_with_errors} 个渠道刷新未完全成功${preview}`, '部分渠道刷新失败')
-    }
-    showSuccess(summary)
-    await loadProviders()
+    const result = await adminApi.submitRefreshAndSyncAllProviderModels(true)
+    showSuccess(`${result.message}，可在右上角任务通知或异步任务页继续查看`)
   } catch (err: unknown) {
     showError(parseApiError(err, '刷新全部渠道能力失败'), '错误')
   } finally {
     refreshingCapabilities.value = false
+  }
+}
+
+async function runAllProviderProxyProbe() {
+  if (refreshingProxyProbe.value) return
+  refreshingProxyProbe.value = true
+  try {
+    const submission = await submitProviderProxyProbeBatch(200, 'all')
+    showInfo(`${submission.message}，可在异步任务页查看进度`)
+  } catch (err: unknown) {
+    showError(parseApiError(err, '全局代理检测失败'), '错误')
+  } finally {
+    refreshingProxyProbe.value = false
   }
 }
 
@@ -884,8 +887,10 @@ function openAllInHubImportDialog() {
 
 function openImportTasksPage(taskId?: string) {
   void router.push({
-    path: '/admin/provider-import-tasks',
-    query: taskId ? { task: taskId } : undefined,
+    path: '/admin/async-tasks',
+    query: taskId
+      ? { task: `provider_import:${taskId}`, taskType: 'provider_import' }
+      : { taskType: 'provider_import' },
   })
 }
 

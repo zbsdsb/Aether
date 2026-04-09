@@ -26,6 +26,9 @@ _CHALLENGE_MESSAGE_MARKERS = (
     "acw_sc__v2",
 )
 
+_MSG_DIRECT_SUCCEEDED = "直连探测成功"
+_MSG_PROXY_FAILED = "代理探测失败"
+
 
 @dataclass(slots=True)
 class ProviderProxyProbeItem:
@@ -78,6 +81,11 @@ def _is_pending_probe_candidate(provider: Provider) -> bool:
     connector_cfg = cfg.get("connector", {}).get("config", {})
     has_proxy_node = isinstance(connector_cfg, dict) and bool(connector_cfg.get("proxy_node_id"))
     return not has_proxy_node and status in {"pending", "failed"}
+
+
+def _is_configured_probe_candidate(provider: Provider) -> bool:
+    cfg = _provider_ops_config_dict(provider)
+    return bool(cfg and cfg.get("connector"))
 
 
 def _normalize_connector_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -158,7 +166,7 @@ async def _probe_single_provider(provider: Provider, db: Session) -> ProviderPro
             provider_id=str(provider.id),
             provider_name=str(provider.name),
             status="skipped",
-            message="provider_ops not configured",
+            message="未配置扩展操作",
         )
 
     service = ProviderOpsService(db)
@@ -168,19 +176,19 @@ async def _probe_single_provider(provider: Provider, db: Session) -> ProviderPro
             provider_id=str(provider.id),
             provider_name=str(provider.name),
             status="skipped",
-            message="provider_ops not configured",
+            message="未配置扩展操作",
         )
 
     credentials = service._decrypt_credentials(config.connector_credentials)  # noqa: SLF001
     base_url = config.base_url or getattr(provider, "website", None) or ""
     if not base_url:
-        _persist_probe_metadata(provider, status="failed", mode=None, message="missing base_url")
+        _persist_probe_metadata(provider, status="failed", mode=None, message="缺少 base_url")
         db.commit()
         return ProviderProxyProbeItem(
             provider_id=str(provider.id),
             provider_name=str(provider.name),
             status="failed",
-            message="missing base_url",
+            message="缺少 base_url",
         )
 
     direct_config = dict(config.connector_config)
@@ -204,20 +212,20 @@ async def _probe_single_provider(provider: Provider, db: Session) -> ProviderPro
             service=service,
         )
         _set_provider_proxy(provider, None)
-        _persist_probe_metadata(provider, status="completed", mode="direct", message="direct probe succeeded")
+        _persist_probe_metadata(provider, status="completed", mode="direct", message=_MSG_DIRECT_SUCCEEDED)
         db.commit()
         return ProviderProxyProbeItem(
             provider_id=str(provider.id),
             provider_name=str(provider.name),
             status="completed",
             mode="direct",
-            message="direct probe succeeded",
+            message=_MSG_DIRECT_SUCCEEDED,
         )
 
     system_proxy = await get_system_proxy_config_async()
     proxy_node_id = str((system_proxy or {}).get("node_id") or "").strip()
     if not proxy_node_id:
-        message = direct_result.get("message") or "direct probe failed"
+        message = direct_result.get("message") or "直连探测失败"
         manual_review_mode, manual_review_message = _resolve_manual_review(message)
         if manual_review_mode:
             _persist_probe_metadata(
@@ -253,7 +261,7 @@ async def _probe_single_provider(provider: Provider, db: Session) -> ProviderPro
         provider_id=None,
     )
     if not proxy_result.get("success", False):
-        message = proxy_result.get("message") or direct_result.get("message") or "proxy probe failed"
+        message = proxy_result.get("message") or direct_result.get("message") or _MSG_PROXY_FAILED
         manual_review_mode, manual_review_message = _resolve_manual_review(
             proxy_result.get("message"),
             direct_result.get("message"),
@@ -295,7 +303,7 @@ async def _probe_single_provider(provider: Provider, db: Session) -> ProviderPro
         provider,
         status="completed",
         mode="system_proxy",
-        message=f"persisted proxy_node_id={proxy_node_id}",
+        message=f"已切换为系统代理节点 {proxy_node_id}",
     )
     db.commit()
     return ProviderProxyProbeItem(
@@ -303,7 +311,7 @@ async def _probe_single_provider(provider: Provider, db: Session) -> ProviderPro
         provider_name=str(provider.name),
         status="completed",
         mode="system_proxy",
-        message=f"persisted proxy_node_id={proxy_node_id}",
+        message=f"已切换为系统代理节点 {proxy_node_id}",
     )
 
 
@@ -371,6 +379,34 @@ async def probe_pending_provider_proxies(*, db: Session, limit: int = 20) -> Pro
             summary.failed += 1
         elif result.status == _MANUAL_REVIEW_STATUS:
             summary.skipped += 1
+        else:
+            summary.skipped += 1
+        summary.results.append(asdict(result))
+    return summary
+
+
+async def probe_all_provider_proxies(*, db: Session, limit: int = 200) -> ProviderProxyProbeSummary:
+    providers = [
+        provider
+        for provider in _all_providers(db)
+        if _is_configured_probe_candidate(provider) and bool(getattr(provider, "is_active", True))
+    ][: max(limit, 0)]
+    summary = ProviderProxyProbeSummary(total_selected=len(providers))
+    for provider in providers:
+        try:
+            result = await _probe_single_provider(provider, db)
+        except Exception as exc:
+            logger.warning("provider proxy probe failed provider_id={}: {}", provider.id, exc)
+            result = ProviderProxyProbeItem(
+                provider_id=str(provider.id),
+                provider_name=str(provider.name),
+                status="failed",
+                message=str(exc),
+            )
+        if result.status == "completed":
+            summary.completed += 1
+        elif result.status == "failed":
+            summary.failed += 1
         else:
             summary.skipped += 1
         summary.results.append(asdict(result))

@@ -119,48 +119,62 @@
           </SelectContent>
         </Select>
 
-        <DropdownMenu :modal="false">
-          <DropdownMenuTrigger as-child>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="h-8 w-8"
-              title="配置筛选项"
-            >
-              <SlidersHorizontal class="w-3.5 h-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent class="w-56 p-3" align="end">
-            <div class="space-y-2">
-              <div class="text-xs font-medium text-foreground">
-                显示筛选项
-              </div>
-              <label
-                v-for="item in filterVisibilityOptions"
-                :key="item.key"
-                class="flex items-center gap-2 text-xs text-foreground"
-              >
-                <Checkbox
-                  :model-value="visibleFilterKeys.includes(item.key)"
-                  @update:model-value="$emit('setFilterVisible', item.key, $event)"
-                />
-                <span>{{ item.label }}</span>
-              </label>
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <TooltipProvider :delay-duration="120">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <DropdownMenu :modal="false">
+                <DropdownMenuTrigger as-child>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                  >
+                    <SlidersHorizontal class="w-3.5 h-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent class="w-56 p-3" align="end">
+                  <div class="space-y-2">
+                    <div class="text-xs font-medium text-foreground">
+                      显示筛选项
+                    </div>
+                    <label
+                      v-for="item in filterVisibilityOptions"
+                      :key="item.key"
+                      class="flex items-center gap-2 text-xs text-foreground"
+                    >
+                      <Checkbox
+                        :model-value="visibleFilterKeys.includes(item.key)"
+                        @update:model-value="$emit('setFilterVisible', item.key, $event)"
+                      />
+                      <span>{{ item.label }}</span>
+                    </label>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </TooltipTrigger>
+            <TooltipContent>配置筛选项</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         <!-- 重置筛选 -->
-        <Button
+        <TooltipProvider
           v-if="hasActiveFilters"
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="重置筛选"
-          @click="$emit('resetFilters')"
+          :delay-duration="120"
         >
-          <FilterX class="w-3.5 h-3.5" />
-        </Button>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                @click="$emit('resetFilters')"
+              >
+                <FilterX class="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>重置筛选</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         <div class="hidden sm:block h-4 w-px bg-border" />
 
@@ -178,34 +192,68 @@
         <div class="hidden sm:block h-4 w-px bg-border" />
 
         <!-- 操作按钮 -->
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="导入 All-in-Hub"
-          @click="$emit('openAllInHubImport')"
-        >
-          <Upload class="w-3.5 h-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          :disabled="refreshingCapabilities"
-          title="刷新全部上游模型并适配"
-          @click="$emit('refreshAllCapabilities')"
-        >
-          <Layers class="w-3.5 h-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="新增提供商"
-          @click="$emit('addProvider')"
-        >
-          <Plus class="w-3.5 h-3.5" />
-        </Button>
+        <TooltipProvider :delay-duration="120">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                @click="$emit('openAllInHubImport')"
+              >
+                <Upload class="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>导入 All-in-Hub</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <TooltipProvider :delay-duration="120">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                :disabled="refreshingCapabilities"
+                @click="$emit('refreshAllCapabilities')"
+              >
+                <Layers class="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>刷新全部上游模型并适配</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <TooltipProvider :delay-duration="120">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                :disabled="refreshingProxyProbe"
+                @click="$emit('runProxyProbeAll')"
+              >
+                <Radar class="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>全局代理检测</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <TooltipProvider :delay-duration="120">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                @click="$emit('addProvider')"
+              >
+                <Plus class="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>新增提供商</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <RefreshButton
           :loading="loading"
           @click="$emit('refresh')"
@@ -216,7 +264,7 @@
 </template>
 
 <script setup lang="ts">
-import { Search, Plus, ChevronDown, FilterX, Upload, SlidersHorizontal, Layers } from 'lucide-vue-next'
+import { Search, Plus, ChevronDown, FilterX, Upload, SlidersHorizontal, Layers, Radar } from 'lucide-vue-next'
 import Button from '@/components/ui/button.vue'
 import Checkbox from '@/components/ui/checkbox.vue'
 import Input from '@/components/ui/input.vue'
@@ -227,6 +275,7 @@ import SelectContent from '@/components/ui/select-content.vue'
 import SelectItem from '@/components/ui/select-item.vue'
 import RefreshButton from '@/components/ui/refresh-button.vue'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '@/components/ui'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { FilterOption, ProviderFilterKey } from '@/features/providers/composables/useProviderFilters'
 
 defineProps<{
@@ -246,6 +295,7 @@ defineProps<{
   priorityModeLabel: string
   loading: boolean
   refreshingCapabilities?: boolean
+  refreshingProxyProbe?: boolean
 }>()
 
 const filterVisibilityOptions: Array<{ key: ProviderFilterKey; label: string }> = [
@@ -268,6 +318,7 @@ defineEmits<{
   'openPriorityDialog': []
   'openAllInHubImport': []
   'refreshAllCapabilities': []
+  'runProxyProbeAll': []
   'addProvider': []
   'refresh': []
 }>()

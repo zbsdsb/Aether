@@ -252,3 +252,47 @@ def test_run_pending_proxy_probe_route_returns_summary(monkeypatch) -> None:  # 
     assert payload["total_selected"] == 1
     assert payload["completed"] == 1
     assert payload["results"][0]["mode"] == "direct"
+
+
+def test_run_all_proxy_probe_route_uses_all_scope(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    async def _fake_probe_all_provider_proxies(*, db, limit):  # type: ignore[no-untyped-def]
+        _ = db
+        assert limit == 7
+        from src.services.provider_ops.proxy_probe import ProviderProxyProbeSummary
+
+        return ProviderProxyProbeSummary(
+            total_selected=2,
+            completed=1,
+            failed=1,
+            skipped=0,
+            results=[
+                {
+                    "provider_id": "provider-1",
+                    "provider_name": "Provider One",
+                    "status": "completed",
+                    "mode": "direct",
+                    "message": "direct probe succeeded",
+                },
+                {
+                    "provider_id": "provider-2",
+                    "provider_name": "Provider Two",
+                    "status": "failed",
+                    "mode": "system_proxy",
+                    "message": "proxy probe failed",
+                },
+            ],
+        )
+
+    monkeypatch.setattr(
+        "src.api.admin.provider_ops.routes.probe_all_provider_proxies",
+        _fake_probe_all_provider_proxies,
+    )
+
+    client = _build_provider_ops_app(_FakeDB())
+    response = client.post("/api/admin/provider-ops/proxy-probe/run", json={"limit": 7, "scope": "all"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_selected"] == 2
+    assert payload["failed"] == 1
+    assert payload["results"][1]["provider_name"] == "Provider Two"

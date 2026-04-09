@@ -27,7 +27,22 @@ from src.services.provider_ops import (
     ProviderOpsService,
     get_registry,
 )
-from src.services.provider_ops.proxy_probe import probe_pending_provider_proxies, probe_provider_proxy
+from src.services.provider_ops.proxy_probe import (
+    probe_all_provider_proxies,
+    probe_pending_provider_proxies,
+    probe_provider_proxy,
+)
+from src.services.provider_ops.async_job import (
+    get_provider_proxy_probe_job,
+    list_provider_proxy_probe_jobs,
+    submit_provider_proxy_probe_all_job,
+    submit_provider_proxy_probe_job,
+)
+from src.models.admin_async_tasks import (
+    ProviderProxyProbeJobListResponse,
+    ProviderProxyProbeJobStartResponse,
+    ProviderProxyProbeJobStatusResponse,
+)
 from src.utils.auth_utils import require_admin
 
 router = APIRouter(prefix="/api/admin/provider-ops", tags=["Provider Operations"])
@@ -148,6 +163,7 @@ class ImportedAuthPrefillResponse(BaseModel):
 
 class ProxyProbeRunRequest(BaseModel):
     limit: int = Field(20, ge=1, le=200)
+    scope: str = Field("pending", description="pending | all")
 
 
 class ProxyProbeRunResponse(BaseModel):
@@ -545,13 +561,33 @@ async def run_provider_proxy_probe(
     return ProxyProbeRunResponse(**summary)
 
 
+@router.post("/providers/{provider_id}/proxy-probe/submit", response_model=ProviderProxyProbeJobStartResponse)
+async def submit_provider_proxy_probe(
+    provider_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> Any:
+    del db
+    task_id = await submit_provider_proxy_probe_job(provider_id)
+    return ProviderProxyProbeJobStartResponse(
+        task_id=task_id,
+        status="pending",
+        stage="queued",
+        message="单渠道代理检测任务已提交，后台处理中",
+    )
+
+
 @router.post("/proxy-probe/run", response_model=ProxyProbeRunResponse)
 async def run_pending_proxy_probe(
     request: ProxyProbeRunRequest,
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> Any:
-    result = await probe_pending_provider_proxies(db=db, limit=request.limit)
+    result = (
+        await probe_all_provider_proxies(db=db, limit=request.limit)
+        if str(request.scope or "").strip().lower() == "all"
+        else await probe_pending_provider_proxies(db=db, limit=request.limit)
+    )
     return ProxyProbeRunResponse(
         total_selected=result.total_selected,
         completed=result.completed,
@@ -559,6 +595,48 @@ async def run_pending_proxy_probe(
         skipped=result.skipped,
         results=result.results,
     )
+
+
+@router.post("/proxy-probe/run/submit", response_model=ProviderProxyProbeJobStartResponse)
+async def submit_pending_proxy_probe(
+    request: ProxyProbeRunRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> Any:
+    del db
+    if str(request.scope or "").strip().lower() == "all":
+      task_id = await submit_provider_proxy_probe_all_job(limit=request.limit)
+    else:
+      task_id = await submit_provider_proxy_probe_all_job(limit=request.limit)
+    return ProviderProxyProbeJobStartResponse(
+        task_id=task_id,
+        status="pending",
+        stage="queued",
+        message="全局代理检测任务已提交，后台处理中",
+    )
+
+
+@router.get("/proxy-probe/tasks/{task_id}", response_model=ProviderProxyProbeJobStatusResponse)
+async def get_proxy_probe_task(
+    task_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> Any:
+    del db
+    result = await get_provider_proxy_probe_job(task_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return result
+
+
+@router.get("/proxy-probe/tasks", response_model=ProviderProxyProbeJobListResponse)
+async def list_proxy_probe_tasks(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> Any:
+    del db
+    return await list_provider_proxy_probe_jobs(limit=limit)
 
 
 @router.post("/providers/{provider_id}/connect")

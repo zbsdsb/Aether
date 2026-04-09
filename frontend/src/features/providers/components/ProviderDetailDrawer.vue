@@ -39,42 +39,60 @@
                   </Badge>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
-                  <span :title="systemFormatConversionEnabled ? '系统级格式转换已启用' : (provider.enable_format_conversion ? '已启用格式转换（点击关闭）' : '启用格式转换')">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      :class="(provider.enable_format_conversion || systemFormatConversionEnabled) ? 'text-primary' : ''"
-                      :disabled="systemFormatConversionEnabled"
-                      @click="toggleFormatConversion"
-                    >
-                      <Shuffle class="w-4 h-4" />
-                    </Button>
-                  </span>
-                  <span :title="hasFailoverRules ? '已配置故障转移规则（点击编辑）' : '配置故障转移规则'">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      :class="hasFailoverRules ? 'text-orange-500 dark:text-orange-400' : ''"
-                      @click="failoverRulesDialogOpen = true"
-                    >
-                      <GitBranch class="w-4 h-4" />
-                    </Button>
-                  </span>
+                  <TooltipProvider :delay-duration="120">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          :class="(provider.enable_format_conversion || systemFormatConversionEnabled) ? 'text-primary' : ''"
+                          :disabled="systemFormatConversionEnabled"
+                          @click="toggleFormatConversion"
+                        >
+                          <Shuffle class="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {{ systemFormatConversionEnabled ? '系统级格式转换已启用' : (provider.enable_format_conversion ? '已启用格式转换，点击关闭' : '启用格式转换') }}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider :delay-duration="120">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          :class="hasFailoverRules ? 'text-orange-500 dark:text-orange-400' : ''"
+                          @click="failoverRulesDialogOpen = true"
+                        >
+                          <GitBranch class="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{{ hasFailoverRules ? '已配置故障转移规则，点击编辑' : '配置故障转移规则' }}</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                   <Popover
                     :open="providerProxyPopoverOpen"
                     @update:open="handleProviderProxyPopoverToggle"
                   >
-                    <PopoverTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        :class="provider.proxy?.node_id ? 'text-blue-500' : ''"
-                        :disabled="savingProviderProxy"
-                        :title="provider.proxy?.node_id ? `代理: ${getProviderProxyNodeName()}` : '设置代理节点'"
-                      >
-                        <Globe class="w-4 h-4" />
-                      </Button>
-                    </PopoverTrigger>
+                    <TooltipProvider :delay-duration="120">
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <PopoverTrigger as-child>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              :class="provider.proxy?.node_id ? 'text-blue-500' : ''"
+                              :disabled="savingProviderProxy"
+                            >
+                              <Globe class="w-4 h-4" />
+                            </Button>
+                          </PopoverTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>{{ provider.proxy?.node_id ? `代理节点：${getProviderProxyNodeName()}` : '设置代理节点' }}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <PopoverContent
                       class="w-72 p-3"
                       side="bottom"
@@ -105,30 +123,65 @@
                       </div>
                     </PopoverContent>
                   </Popover>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title="编辑提供商"
-                    @click="$emit('edit', provider)"
-                  >
-                    <Edit class="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    :title="provider.is_active ? '点击停用' : '点击启用'"
-                    @click="$emit('toggleStatus', provider)"
-                  >
-                    <Power class="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title="关闭"
-                    @click="handleClose"
-                  >
-                    <X class="w-4 h-4" />
-                  </Button>
+                  <TooltipProvider :delay-duration="120">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          :disabled="!canRunProviderProxyProbe || runningProviderProxyProbe"
+                          @click="handleProviderProxyProbe"
+                        >
+                          <Radar class="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {{ canRunProviderProxyProbe ? '执行单渠道代理检测' : '请先配置扩展操作后再执行代理检测' }}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider :delay-duration="120">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          @click="$emit('edit', provider)"
+                        >
+                          <Edit class="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>编辑提供商</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider :delay-duration="120">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          @click="$emit('toggleStatus', provider)"
+                        >
+                          <Power class="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{{ provider.is_active ? '停用提供商' : '启用提供商' }}</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider :delay-duration="120">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          @click="handleClose"
+                        >
+                          <X class="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>关闭</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               </div>
               <!-- 网站地址（独占整行，紧贴名称行下方） -->
@@ -1188,6 +1241,7 @@ import {
   Copy,
   Download,
   Shield,
+  Radar,
   Shuffle,
   BarChart3,
   ShieldX,
@@ -1202,6 +1256,7 @@ import Button from '@/components/ui/button.vue'
 import Badge from '@/components/ui/badge.vue'
 import Card from '@/components/ui/card.vue'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { useClipboard } from '@/composables/useClipboard'
@@ -1216,7 +1271,11 @@ import {
   type ProviderWithEndpointsSummary,
 } from '@/api/endpoints'
 import { adminApi } from '@/api/admin'
-import { getImportedAuthPrefill, type ImportedAuthPrefillResponse } from '@/api/providerOps'
+import {
+  getImportedAuthPrefill,
+  runProviderProxyProbe,
+  type ImportedAuthPrefillResponse,
+} from '@/api/providerOps'
 import {
   KeyFormDialog,
   KeyAllowedModelsDialog,
@@ -1308,6 +1367,7 @@ const systemFormatConversionEnabled = ref(false)
 const showProxyProbeManualReview = computed(() =>
   provider.value?.proxy_probe_status === 'manual_review'
 )
+const canRunProviderProxyProbe = computed(() => Boolean(provider.value?.ops_configured))
 
 // 端点相关状态
 const endpointDialogOpen = ref(false)
@@ -1328,6 +1388,7 @@ const upstreamModelsLoading = ref(false)
 const upstreamModelsError = ref('')
 const upstreamModels = ref<UpstreamModel[]>([])
 const upstreamModelsFromCache = ref(false)
+const runningProviderProxyProbe = ref(false)
 
 // 密钥显示状态：key_id -> 完整密钥
 const revealedKeys = ref<Map<string, string>>(new Map())
@@ -1519,6 +1580,7 @@ watch(
       if (newOpen && !oldOpen) {
         startCountdownTimer()
       }
+      void refreshProviderUpstreamModels()
       void autoRefreshQuotaInBackground()
     } else if (!newOpen && oldOpen) {
       // 使在途请求失效，避免关闭后旧响应回写
@@ -1637,6 +1699,28 @@ async function clearProviderProxy() {
     showError(parseApiError(err, '清除代理失败'))
   } finally {
     savingProviderProxy.value = false
+  }
+}
+
+async function handleProviderProxyProbe() {
+  if (!props.providerId || !canRunProviderProxyProbe.value || runningProviderProxyProbe.value) return
+  runningProviderProxyProbe.value = true
+  try {
+    const result = await runProviderProxyProbe(props.providerId)
+    await Promise.all([loadProvider(), loadEndpoints()])
+    emit('refresh')
+    const item = result.results[0]
+    if (item?.status === 'completed') {
+      showSuccess(item.message || '代理检测完成')
+    } else if (item?.status === 'failed' || item?.status === 'manual_review') {
+      showWarning(item.message || '代理检测未通过', '单渠道代理检测')
+    } else {
+      showWarning(item?.message || '代理检测已跳过', '单渠道代理检测')
+    }
+  } catch (err: unknown) {
+    showError(parseApiError(err, '单渠道代理检测失败'), '错误')
+  } finally {
+    runningProviderProxyProbe.value = false
   }
 }
 
