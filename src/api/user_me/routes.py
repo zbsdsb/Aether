@@ -32,6 +32,7 @@ from src.models.api import (
     CreateMyApiKeyRequest,
     PublicGlobalModelListResponse,
     PublicGlobalModelResponse,
+    UserModelMarketplaceResponse,
     UpdateMyApiKeyRequest,
     UpdatePreferencesRequest,
     UpdateProfileRequest,
@@ -52,6 +53,7 @@ from src.services.cache.user_cache import UserCacheService
 from src.services.system.config import SystemConfigService
 from src.services.user.apikey import ApiKeyService
 from src.services.user.bulk_cleanup import pre_clean_api_key
+from src.services.user.model_marketplace import build_user_model_marketplace_response
 from src.services.user.preference import PreferenceService
 
 router = APIRouter(prefix="/api/users/me", tags=["User Profile"])
@@ -606,6 +608,30 @@ async def list_available_models(
     - total: 符合条件的模型总数
     """
     adapter = ListAvailableModelsAdapter(skip=skip, limit=limit, search=search)
+    return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
+
+
+@router.get("/model-marketplace", response_model=UserModelMarketplaceResponse)
+async def list_model_marketplace(
+    request: Request,
+    search: str | None = Query(None, description="搜索关键词"),
+    brand: str | None = Query(None, description="品牌筛选"),
+    tag: str | None = Query(None, description="标签筛选"),
+    capability: str | None = Query(None, description="能力筛选"),
+    only_available: bool = Query(False, description="仅看有活跃来源"),
+    sort_by: str = Query("provider_count", description="排序字段"),
+    sort_dir: str = Query("desc", description="排序方向"),
+    db: Session = Depends(get_db),
+) -> Any:
+    adapter = ListModelMarketplaceAdapter(
+        search=search,
+        brand=brand,
+        tag=tag,
+        capability=capability,
+        only_available=only_available,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
     return await pipeline.run(adapter=adapter, http_request=request, db=db, mode=adapter.mode)
 
 
@@ -1315,6 +1341,30 @@ class UpdateModelCapabilitySettingsAdapter(AuthenticatedApiAdapter):
             f"用户 {context.user.id} 更新模型能力配置: {result['model_capability_settings']}"
         )
         return result
+
+
+@dataclass
+class ListModelMarketplaceAdapter(AuthenticatedApiAdapter):
+    search: str | None
+    brand: str | None
+    tag: str | None
+    capability: str | None
+    only_available: bool
+    sort_by: str
+    sort_dir: str
+
+    async def handle(self, context: ApiRequestContext) -> Any:  # type: ignore[override]
+        return build_user_model_marketplace_response(
+            db=context.db,
+            user=context.user,
+            search=self.search,
+            brand=self.brand,
+            tag=self.tag,
+            capability=self.capability,
+            only_available=self.only_available,
+            sort_by=self.sort_by,
+            sort_dir=self.sort_dir,
+        )
 
 
 class GetEndpointStatusAdapter(AuthenticatedApiAdapter):

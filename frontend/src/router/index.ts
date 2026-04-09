@@ -133,6 +133,11 @@ const routes: RouteRecordRaw[] = [
         component: () => importWithRetry(() => import('@/views/user/WalletCenter.vue'))
       },
       {
+        path: 'model-marketplace',
+        name: 'ModelMarketplace',
+        component: () => importWithRetry(() => import('@/views/user/ModelMarketplace.vue'))
+      },
+      {
         path: 'models',
         name: 'ModelCatalog',
         component: () => importWithRetry(() => import('@/views/user/ModelCatalog.vue'))
@@ -297,6 +302,7 @@ router.beforeEach(async (to, from, next) => {
   const moduleStore = useModuleStore()
 
   try {
+    authStore.syncToken()
     const isAuthenticated = await ensureUserLoaded(authStore)
 
     // 首页重定向

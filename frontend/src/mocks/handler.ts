@@ -1368,6 +1368,89 @@ const mockHandlers: Record<string, (config: AxiosRequestConfig) => Promise<Axios
     })))
   },
 
+  'GET /api/users/me/model-marketplace': async () => {
+    await delay()
+
+    const providerPool = MOCK_PROVIDERS.slice(0, 6)
+    const models = MOCK_GLOBAL_MODELS.slice(0, 6).map((model, index) => {
+      const providers = providerPool
+        .slice(0, 2 + (index % 3))
+        .map((provider, providerIndex) => ({
+          provider_id: provider.id,
+          provider_name: provider.name,
+          provider_website: provider.website || null,
+          is_active: providerIndex % 2 === 0,
+          endpoint_count: Math.max(1, provider.endpoints_count || provider.api_formats?.length || 1),
+          active_endpoint_count: Math.max(1, provider.active_endpoints_count || 1),
+          supported_api_formats: provider.api_formats || ['openai:chat'],
+        }))
+
+      const providerCount = providers.length
+      const activeProviderCount = providers.filter(provider => provider.is_active).length
+      const successRate = Number((0.92 - index * 0.03).toFixed(2))
+      const avgLatencyMs = 420 + index * 110
+      const safeConfig = sanitizePublicModelConfig(model.config)
+
+      return {
+        id: model.id,
+        name: model.name,
+        display_name: model.display_name,
+        description: typeof safeConfig?.description === 'string' ? safeConfig.description : `${model.display_name || model.name} 的演示模式描述`,
+        brand: (
+          String(model.name).includes('claude') ? 'anthropic'
+            : String(model.name).includes('gemini') ? 'google'
+              : String(model.name).includes('deepseek') ? 'deepseek'
+                : 'openai'
+        ),
+        icon_url: typeof safeConfig?.icon_url === 'string' ? safeConfig.icon_url : null,
+        is_active: model.is_active,
+        supported_capabilities: model.supported_capabilities || [],
+        tags: (
+          String(model.name).includes('embedding') ? ['embedding']
+            : String(model.name).includes('claude') ? ['thinking']
+              : String(model.name).includes('gemini') ? ['image']
+                : ['coding']
+        ),
+        usage_count: 180 - index * 21,
+        provider_count: providerCount,
+        active_provider_count: activeProviderCount,
+        endpoint_count: providers.reduce((sum, provider) => sum + provider.endpoint_count, 0),
+        active_endpoint_count: providers.reduce((sum, provider) => sum + provider.active_endpoint_count, 0),
+        supported_api_formats: [...new Set(providers.flatMap(provider => provider.supported_api_formats))],
+        success_rate: successRate,
+        avg_latency_ms: avgLatencyMs,
+        is_recommended: index === 0,
+        recommendation_reason: index === 0 ? `当前有 ${activeProviderCount} 个活跃来源，最近成功率 ${Math.round(successRate * 100)}%。` : null,
+        is_most_stable: index === 1,
+        stability_reason: index === 1 ? `最近窗口成功率 ${Math.round(successRate * 100)}%，平均延迟 ${avgLatencyMs}ms。` : null,
+        default_price_per_request: model.default_price_per_request,
+        default_tiered_pricing: model.default_tiered_pricing,
+        providers,
+      }
+    })
+
+    const totalProviderCount = models.reduce((sum, model) => sum + model.provider_count, 0)
+    const activeProviderCount = models.reduce((sum, model) => sum + model.active_provider_count, 0)
+    const overallSuccessRate = Number(
+      (
+        models.reduce((sum, model) => sum + (model.success_rate || 0) * model.provider_count, 0) /
+        Math.max(1, totalProviderCount)
+      ).toFixed(2)
+    )
+
+    return createMockResponse({
+      summary: {
+        total_models: models.length,
+        total_provider_count: totalProviderCount,
+        active_provider_count: activeProviderCount,
+        overall_success_rate: overallSuccessRate,
+      },
+      models,
+      total: models.length,
+      generated_at: new Date().toISOString(),
+    })
+  },
+
   'GET /api/users/me/preferences': async () => {
     await delay()
     return createMockResponse(getCurrentProfile().preferences || { theme: 'auto', language: 'zh-CN' })

@@ -751,6 +751,65 @@ class PublicGlobalModelListResponse(BaseModel):
     total: int
 
 
+class UserModelMarketplaceProviderItem(BaseModel):
+    """用户侧模型广场中的来源 Provider 简述"""
+
+    provider_id: str
+    provider_name: str
+    provider_website: str | None = None
+    is_active: bool = True
+    endpoint_count: int = 0
+    active_endpoint_count: int = 0
+    supported_api_formats: list[str] = Field(default_factory=list)
+
+
+class UserModelMarketplaceItem(BaseModel):
+    """用户侧模型广场中的模型卡片项"""
+
+    id: str
+    name: str
+    display_name: str | None = None
+    description: str | None = None
+    brand: str = "other"
+    icon_url: str | None = None
+    is_active: bool = True
+    supported_capabilities: list[str] | None = None
+    tags: list[str] = Field(default_factory=list)
+    usage_count: int = 0
+    provider_count: int = 0
+    active_provider_count: int = 0
+    endpoint_count: int = 0
+    active_endpoint_count: int = 0
+    supported_api_formats: list[str] = Field(default_factory=list)
+    success_rate: float | None = None
+    avg_latency_ms: int | None = None
+    is_recommended: bool = False
+    recommendation_reason: str | None = None
+    is_most_stable: bool = False
+    stability_reason: str | None = None
+    default_price_per_request: float | None = None
+    default_tiered_pricing: dict | None = None
+    providers: list[UserModelMarketplaceProviderItem] = Field(default_factory=list)
+
+
+class UserModelMarketplaceSummary(BaseModel):
+    """用户侧模型广场顶部摘要"""
+
+    total_models: int = 0
+    total_provider_count: int = 0
+    active_provider_count: int = 0
+    overall_success_rate: float | None = None
+
+
+class UserModelMarketplaceResponse(BaseModel):
+    """用户侧模型广场响应"""
+
+    summary: UserModelMarketplaceSummary
+    models: list[UserModelMarketplaceItem]
+    total: int
+    generated_at: datetime
+
+
 # ========== 个人中心相关模型 ==========
 class UpdateProfileRequest(BaseModel):
     """更新个人信息请求"""

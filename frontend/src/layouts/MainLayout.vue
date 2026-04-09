@@ -492,6 +492,7 @@ import {
   FolderTree,
   Database,
   Box,
+  Sparkles,
   LogOut,
   SunMoon,
   ChevronRight,
@@ -702,6 +703,7 @@ const navigation = computed(() => {
     {
       title: '资源',
       items: [
+        { name: '模型广场', href: '/dashboard/model-marketplace', icon: Sparkles },
         { name: '模型目录', href: '/dashboard/models', icon: Box },
         { name: '模型操练场', href: '/dashboard/playground', icon: FlaskConical },
         { name: 'API 密钥', href: '/dashboard/api-keys', icon: Key },
