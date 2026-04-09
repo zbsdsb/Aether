@@ -502,6 +502,7 @@ import {
   Puzzle,
   Zap,
   FileUp,
+  FlaskConical,
   Server,
   Bell,
   type LucideIcon,
@@ -702,6 +703,7 @@ const navigation = computed(() => {
       title: '资源',
       items: [
         { name: '模型目录', href: '/dashboard/models', icon: Box },
+        { name: '模型操练场', href: '/dashboard/playground', icon: FlaskConical },
         { name: 'API 密钥', href: '/dashboard/api-keys', icon: Key },
       ]
     },
@@ -763,6 +765,7 @@ const navigation = computed(() => {
         { name: '用户管理', href: '/admin/users', icon: Users },
         { name: '提供商', href: '/admin/providers', icon: FolderTree },
         { name: '模型管理', href: '/admin/models', icon: Layers },
+        { name: '模型操练场', href: '/admin/playground', icon: FlaskConical },
         { name: '号池管理', href: '/admin/pool', icon: Database },
         { name: '独立密钥', href: '/admin/keys', icon: Key },
         { name: '钱包管理', href: '/admin/wallets', icon: Wallet },

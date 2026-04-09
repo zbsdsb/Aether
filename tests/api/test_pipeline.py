@@ -833,6 +833,61 @@ class TestPipelineAdminAuth:
         mock_db.commit.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_authenticate_admin_allows_local_dev_session_rebind(
+        self, pipeline: ApiRequestPipeline
+    ) -> None:
+        created_at = datetime.now(timezone.utc)
+        mock_session = MagicMock()
+        mock_session.id = "session-123"
+        mock_session.client_device_id = "device-old"
+
+        mock_user = MagicMock()
+        mock_user.id = "admin-123"
+        mock_user.is_active = True
+        mock_user.is_deleted = False
+        mock_user.role = UserRole.ADMIN
+        mock_user.email = "admin@example.com"
+        mock_user.created_at = created_at
+
+        mock_request = MagicMock()
+        mock_request.headers = {
+            "authorization": "Bearer valid-token",
+            "X-Client-Device-Id": "device-new",
+            "user-agent": "pytest-agent",
+        }
+        mock_request.query_params = {}
+        mock_request.client = SimpleNamespace(host="127.0.0.1")
+        mock_request.state = MagicMock()
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
+
+        with (
+            patch.object(
+                pipeline.auth_service,
+                "verify_token",
+                new_callable=AsyncMock,
+                return_value={
+                    "user_id": "admin-123",
+                    "created_at": created_at.isoformat(),
+                    "session_id": "session-123",
+                },
+            ),
+            patch(
+                "src.api.base.pipeline.SessionService.get_active_session",
+                return_value=mock_session,
+            ),
+            patch("src.api.base.pipeline.SessionService.touch_session", return_value=False),
+            patch("src.api.base.pipeline.config.environment", "development"),
+        ):
+            user, management_token = await pipeline._authenticate_admin(mock_request, mock_db)
+
+        assert user == mock_user
+        assert management_token is None
+        assert mock_session.client_device_id == "device-new"
+        mock_db.commit.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_authenticate_admin_lowercase_bearer(self, pipeline: ApiRequestPipeline) -> None:
         """测试 bearer (小写) 前缀也能正确解析"""
         created_at = datetime.now(timezone.utc)

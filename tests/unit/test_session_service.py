@@ -221,6 +221,66 @@ def test_assert_session_device_matches_rejects_mismatch() -> None:
         SessionService.assert_session_device_matches(session, "device-actual")
 
 
+def test_allow_local_dev_rebind_updates_session_device_fields() -> None:
+    session = _make_session()
+    session.client_device_id = "device-old"
+    session.device_label = "旧设备"
+    session.device_type = "desktop"
+
+    client = SessionClientContext(
+        client_device_id="device-new",
+        device_label="新设备",
+        device_type="desktop",
+        browser_name="Chrome",
+        browser_version="123",
+        os_name="macOS",
+        os_version="15",
+        device_model=None,
+        client_hints={},
+        ip_address="127.0.0.1",
+        user_agent="pytest-agent",
+    )
+
+    changed = SessionService.allow_local_dev_rebind(
+        session,
+        client=client,
+        environment="development",
+    )
+
+    assert changed is True
+    assert session.client_device_id == "device-new"
+    assert session.device_label == "新设备"
+    assert session.browser_name == "Chrome"
+    assert session.os_name == "macOS"
+
+
+def test_allow_local_dev_rebind_keeps_production_strict() -> None:
+    session = _make_session()
+    session.client_device_id = "device-old"
+    client = SessionClientContext(
+        client_device_id="device-new",
+        device_label="新设备",
+        device_type="desktop",
+        browser_name="Chrome",
+        browser_version="123",
+        os_name="macOS",
+        os_version="15",
+        device_model=None,
+        client_hints={},
+        ip_address="127.0.0.1",
+        user_agent="pytest-agent",
+    )
+
+    changed = SessionService.allow_local_dev_rebind(
+        session,
+        client=client,
+        environment="production",
+    )
+
+    assert changed is False
+    assert session.client_device_id == "device-old"
+
+
 # ── set_refresh_token preserves previous hash ──
 
 

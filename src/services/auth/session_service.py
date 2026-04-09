@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
+from src.config import config
 from src.core.logger import logger
 from src.models.database import AuditEventType, User, UserSession
 from src.services.system.audit import AuditService
@@ -242,6 +243,34 @@ class SessionService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="设备标识与登录会话不匹配",
             )
+
+    @staticmethod
+    def allow_local_dev_rebind(
+        session: UserSession,
+        *,
+        client: SessionClientContext,
+        environment: str | None = None,
+    ) -> bool:
+        current_environment = environment or config.environment
+        if current_environment not in {"development", "test", "testing"}:
+            return False
+
+        if client.ip_address not in {"127.0.0.1", "::1", "localhost"}:
+            return False
+
+        session.client_device_id = client.client_device_id
+        session.device_label = client.device_label
+        session.device_type = client.device_type
+        session.browser_name = client.browser_name
+        session.browser_version = client.browser_version
+        session.os_name = client.os_name
+        session.os_version = client.os_version
+        session.device_model = client.device_model
+        session.client_hints = client.client_hints
+        session.ip_address = client.ip_address
+        session.user_agent = client.user_agent[:1000]
+        session.updated_at = SessionService._utcnow()
+        return True
 
     @staticmethod
     def create_session(

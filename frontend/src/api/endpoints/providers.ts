@@ -381,6 +381,8 @@ export interface TestModelFailoverRequest {
 export interface TestAttemptDetail {
   candidate_index: number
   retry_index?: number
+  provider_id?: string | null
+  provider_name?: string | null
   endpoint_api_format: string
   endpoint_base_url: string
   key_name: string | null
@@ -410,11 +412,54 @@ export interface TestModelFailoverResponse {
   error?: string | null
 }
 
+export interface GlobalModelPlaygroundTestRequest {
+  model_name: string
+  api_format?: string
+  message?: string
+  request_headers?: Record<string, unknown>
+  request_body?: Record<string, unknown>
+  request_id?: string
+  concurrency?: number
+}
+
+export interface ProviderPlaygroundProbeRequest {
+  provider_id: string
+  model_name: string
+  api_format: string
+  message?: string
+  request_headers?: Record<string, unknown>
+  request_body?: Record<string, unknown>
+  request_id?: string
+  concurrency?: number
+}
+
 export async function testModelFailover(
   data: TestModelFailoverRequest,
   options: { signal?: AbortSignal } = {}
 ): Promise<TestModelFailoverResponse> {
   const response = await client.post('/api/admin/provider-query/test-model-failover', data, {
+    timeout: 10 * 60 * 1000,
+    signal: options.signal,
+  })
+  return response.data
+}
+
+export async function testGlobalModelPlayground(
+  data: GlobalModelPlaygroundTestRequest,
+  options: { signal?: AbortSignal } = {},
+): Promise<TestModelFailoverResponse> {
+  const response = await client.post('/api/admin/provider-query/test-global-model', data, {
+    timeout: 10 * 60 * 1000,
+    signal: options.signal,
+  })
+  return response.data
+}
+
+export async function runProviderPlaygroundProbe(
+  data: ProviderPlaygroundProbeRequest,
+  options: { signal?: AbortSignal } = {},
+): Promise<TestModelFailoverResponse> {
+  const response = await client.post('/api/admin/provider-query/playground-probe', data, {
     timeout: 10 * 60 * 1000,
     signal: options.signal,
   })

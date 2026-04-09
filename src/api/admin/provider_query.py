@@ -11,6 +11,7 @@ import time
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -402,11 +403,38 @@ class TestModelFailoverRequest(BaseModel):
     concurrency: int = Field(default=1, ge=1, le=20)
 
 
+class GlobalModelPlaygroundRequest(BaseModel):
+    """全局模型操练场测试请求"""
+
+    model_name: str
+    api_format: str | None = None
+    message: str | None = None
+    request_headers: dict[str, Any] | None = None
+    request_body: dict[str, Any] | None = None
+    request_id: str | None = None
+    concurrency: int = Field(default=1, ge=1, le=20)
+
+
+class ProviderPlaygroundProbeRequest(BaseModel):
+    """渠道模型的未配置协议探测请求"""
+
+    provider_id: str
+    model_name: str
+    api_format: str
+    message: str | None = None
+    request_headers: dict[str, Any] | None = None
+    request_body: dict[str, Any] | None = None
+    request_id: str | None = None
+    concurrency: int = Field(default=1, ge=1, le=20)
+
+
 class TestAttemptDetail(BaseModel):
     """单次测试尝试的详情"""
 
     candidate_index: int
     retry_index: int = 0
+    provider_id: str | None = None
+    provider_name: str | None = None
     endpoint_api_format: str
     endpoint_base_url: str
     key_name: str | None = None
@@ -449,27 +477,44 @@ def _resolve_test_message(message: str | None) -> str:
     return normalized or DEFAULT_MODEL_TEST_MESSAGE
 
 
-def _build_test_request_payload(request: TestModelFailoverRequest) -> dict[str, Any]:
-    if isinstance(request.request_body, dict):
-        payload = deepcopy(request.request_body)
-        payload["model"] = request.model_name
+def _build_test_request_payload_from_values(
+    *,
+    model_name: str,
+    message: str | None,
+    request_body: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if isinstance(request_body, dict):
+        payload = deepcopy(request_body)
+        payload["model"] = model_name
         return payload
 
     return {
-        "model": request.model_name,
-        "messages": [{"role": "user", "content": _resolve_test_message(request.message)}],
+        "model": model_name,
+        "messages": [{"role": "user", "content": _resolve_test_message(message)}],
         "max_tokens": 30,
         "temperature": 0.7,
         "stream": True,
     }
 
 
-def _build_test_request_headers(request: TestModelFailoverRequest) -> dict[str, str]:
-    if not isinstance(request.request_headers, dict):
+def _build_test_request_payload(
+    request: TestModelFailoverRequest | GlobalModelPlaygroundRequest,
+) -> dict[str, Any]:
+    return _build_test_request_payload_from_values(
+        model_name=request.model_name,
+        message=request.message,
+        request_body=request.request_body,
+    )
+
+
+def _build_test_request_headers_from_values(
+    request_headers: dict[str, Any] | None,
+) -> dict[str, str]:
+    if not isinstance(request_headers, dict):
         return {}
 
     headers: dict[str, str] = {}
-    for raw_key, raw_value in request.request_headers.items():
+    for raw_key, raw_value in request_headers.items():
         key = str(raw_key or "").strip()
         if not key or raw_value is None:
             continue
@@ -487,6 +532,12 @@ def _build_test_request_headers(request: TestModelFailoverRequest) -> dict[str, 
         headers[key] = value
 
     return headers
+
+
+def _build_test_request_headers(
+    request: TestModelFailoverRequest | GlobalModelPlaygroundRequest,
+) -> dict[str, str]:
+    return _build_test_request_headers_from_values(request.request_headers)
 
 
 def _extract_test_debug_payload(response: dict[str, Any]) -> dict[str, Any] | None:
@@ -1868,15 +1919,17 @@ def _parse_jsonish(value: Any) -> Any:
 
 def _resolve_test_effective_model(
     *,
-    provider: Provider,
+    provider: Provider | None,
     candidate: Any,
-    request: TestModelFailoverRequest,
+    request: Any,
     gm_obj: Any,
     key: Any | None = None,
 ) -> str:
     effective_model = request.model_name
     if request.mode != "global":
         return effective_model
+
+    current_provider = provider or getattr(candidate, "provider", None)
 
     current_key = key or getattr(candidate, "key", None)
     pool_mapping = (
@@ -1886,13 +1939,13 @@ def _resolve_test_effective_model(
     if mapping_matched_model:
         return str(mapping_matched_model)
 
-    if not gm_obj:
+    if not gm_obj or current_provider is None:
         return effective_model
 
     gm_id_str = str(gm_obj.id)
     endpoint = getattr(candidate, "endpoint", None)
     ep_format = str(getattr(endpoint, "api_format", "") or "")
-    for model in provider.models or []:
+    for model in current_provider.models or []:
         if not getattr(model, "is_active", False):
             continue
         if str(getattr(model, "global_model_id", "") or "") != gm_id_str:
@@ -1906,8 +1959,8 @@ def _resolve_test_effective_model(
 def _build_test_candidate_meta(
     *,
     candidates: list[ProviderCandidate],
-    provider: Provider,
-    request: TestModelFailoverRequest,
+    provider: Provider | None,
+    request: Any,
     gm_obj: Any,
 ) -> tuple[dict[tuple[int, str], dict[str, Any]], dict[int, dict[str, Any]]]:
     from src.services.scheduling.schemas import PoolCandidate
@@ -1917,11 +1970,18 @@ def _build_test_candidate_meta(
 
     for candidate_index, candidate in enumerate(candidates):
         endpoint = candidate.endpoint
+        current_provider = provider or getattr(candidate, "provider", None)
         base_meta = {
+            "provider_id": (
+                str(getattr(current_provider, "id", "") or "") if current_provider else ""
+            ),
+            "provider_name": (
+                str(getattr(current_provider, "name", "") or "") if current_provider else ""
+            ),
             "endpoint_api_format": str(getattr(endpoint, "api_format", "") or ""),
             "endpoint_base_url": str(getattr(endpoint, "base_url", "") or "")[:80],
             "effective_model": _resolve_test_effective_model(
-                provider=provider,
+                provider=current_provider,
                 candidate=candidate,
                 request=request,
                 gm_obj=gm_obj,
@@ -1938,10 +1998,12 @@ def _build_test_candidate_meta(
                 if not getattr(pool_key, "id", None):
                     continue
                 by_pair[(candidate_index, str(pool_key.id))] = {
+                    "provider_id": base_meta["provider_id"],
+                    "provider_name": base_meta["provider_name"],
                     "endpoint_api_format": base_meta["endpoint_api_format"],
                     "endpoint_base_url": base_meta["endpoint_base_url"],
                     "effective_model": _resolve_test_effective_model(
-                        provider=provider,
+                        provider=current_provider,
                         candidate=candidate,
                         request=request,
                         gm_obj=gm_obj,
@@ -2645,6 +2707,8 @@ def _build_test_attempts_from_candidate_keys(
             TestAttemptDetail(
                 candidate_index=candidate_index,
                 retry_index=retry_index,
+                provider_id=str(meta.get("provider_id", "") or "") or None,
+                provider_name=str(meta.get("provider_name", "") or "") or None,
                 endpoint_api_format=str(meta.get("endpoint_api_format", "") or ""),
                 endpoint_base_url=str(meta.get("endpoint_base_url", "") or ""),
                 key_name=getattr(candidate_key, "key_name", None),
@@ -2682,6 +2746,348 @@ def _build_test_attempts_from_candidate_keys(
     return attempts
 
 
+async def _load_global_model_test_context(
+    db: Session,
+    model_name: str,
+) -> tuple[Any | None, list[str]]:
+    from src.services.cache.model_cache import ModelCacheService
+
+    model_mappings: list[str] = []
+    gm_obj = None
+    try:
+        gm_obj = await ModelCacheService.get_global_model_by_name(db, model_name)
+        if gm_obj and isinstance(gm_obj.config, dict):
+            raw_mappings = gm_obj.config.get("model_mappings", [])
+            if isinstance(raw_mappings, list):
+                model_mappings = raw_mappings
+    except Exception as e:
+        logger.warning("[provider-query] Failed to get GlobalModel mappings: {}", e)
+
+    return gm_obj, model_mappings
+
+
+def _resolve_test_response_provider(
+    *,
+    default_provider: Provider | None,
+    candidates: list[ProviderCandidate],
+    attempts: list[TestAttemptDetail],
+) -> dict[str, str]:
+    if default_provider is not None:
+        return {
+            "id": str(getattr(default_provider, "id", "") or ""),
+            "name": str(getattr(default_provider, "name", "") or ""),
+        }
+
+    success_attempt = next((attempt for attempt in attempts if attempt.status == "success"), None)
+    chosen_attempt = success_attempt or (attempts[0] if attempts else None)
+    if chosen_attempt and chosen_attempt.provider_id and chosen_attempt.provider_name:
+        return {
+            "id": chosen_attempt.provider_id,
+            "name": chosen_attempt.provider_name,
+        }
+
+    if candidates:
+        provider = getattr(candidates[0], "provider", None)
+        return {
+            "id": str(getattr(provider, "id", "") or ""),
+            "name": str(getattr(provider, "name", "") or ""),
+        }
+
+    return {"id": "", "name": ""}
+
+
+def _build_probe_candidates(
+    provider: Provider,
+    api_format: str,
+) -> list[ProviderCandidate]:
+    from src.services.scheduling.schemas import ProviderCandidate
+
+    active_endpoints = [
+        endpoint for endpoint in (provider.endpoints or []) if getattr(endpoint, "is_active", False)
+    ]
+    if not active_endpoints:
+        raise HTTPException(
+            status_code=400,
+            detail="No active endpoint found to determine probe base URL",
+        )
+
+    requested_family = str(api_format or "").split(":", 1)[0].lower()
+    source_endpoint = next(
+        (
+            endpoint
+            for endpoint in active_endpoints
+            if str(getattr(endpoint, "api_format", "") or "").split(":", 1)[0].lower()
+            == requested_family
+        ),
+        active_endpoints[0],
+    )
+
+    probe_endpoint = SimpleNamespace(
+        id=f"probe:{getattr(provider, 'id', '')}:{api_format}",
+        api_format=api_format,
+        base_url=str(getattr(source_endpoint, "base_url", "") or ""),
+        is_active=True,
+        body_rules=None,
+        header_rules=None,
+        proxy=getattr(source_endpoint, "proxy", None),
+    )
+
+    candidates: list[ProviderCandidate] = []
+    for key in provider.api_keys or []:
+        if not getattr(key, "is_active", False):
+            continue
+        candidates.append(
+            ProviderCandidate(
+                provider=provider,
+                endpoint=probe_endpoint,
+                key=key,
+                is_skipped=False,
+                provider_api_format=api_format,
+            )
+        )
+
+    candidates.sort(key=lambda candidate: _direct_candidate_sort_key(candidate))
+    return candidates
+
+
+async def _run_test_candidates(
+    *,
+    request_mode: str,
+    model_name: str,
+    message: str | None,
+    request_headers_input: dict[str, Any] | None,
+    request_body_input: dict[str, Any] | None,
+    request_id_input: str | None,
+    client_format: str | None,
+    candidates: list[ProviderCandidate],
+    default_provider: Provider | None,
+    gm_obj: Any,
+    concurrency: int,
+    http_request: Request,
+    db: Session,
+    current_user: User,
+) -> dict[str, Any]:
+    from src.core.exceptions import ProviderNotAvailableException
+    from src.services.candidate.recorder import CandidateRecorder
+    from src.services.task import TaskService
+    from src.services.task.request_state import MutableRequestBodyState
+
+    response_provider = _resolve_test_response_provider(
+        default_provider=default_provider,
+        candidates=candidates,
+        attempts=[],
+    )
+    if not candidates:
+        return TestModelFailoverResponse(
+            success=False,
+            model=model_name,
+            provider=response_provider,
+            attempts=[],
+            total_candidates=0,
+            total_attempts=0,
+            error="No available candidates found for this model",
+        ).model_dump()
+
+    request_payload = _build_test_request_payload_from_values(
+        model_name=model_name,
+        message=message,
+        request_body=request_body_input,
+    )
+    request_headers = _build_test_request_headers_from_values(request_headers_input)
+    request_id = str(request_id_input or f"provider-test-{uuid4().hex[:12]}")
+
+    request_like = SimpleNamespace(mode=request_mode, model_name=model_name)
+
+    async def _request_func(provider_obj: Any, endpoint: Any, key: Any, candidate: Any) -> Any:
+        effective_provider = default_provider or provider_obj
+        request_timeout = float(
+            getattr(provider_obj, "request_timeout", 0) or TimeoutDefaults.HTTP_REQUEST
+        )
+        provider_type = str(getattr(provider_obj, "provider_type", "") or "").lower()
+        effective_model = _resolve_test_effective_model(
+            provider=effective_provider,
+            candidate=candidate,
+            request=request_like,
+            gm_obj=gm_obj,
+            key=key,
+        )
+        response, auth_type = await _execute_test_check(
+            provider_obj=provider_obj,
+            endpoint=endpoint,
+            key=key,
+            effective_model=effective_model,
+            request_payload=request_payload,
+            request_headers=request_headers or None,
+            request_timeout=request_timeout,
+            provider_type=provider_type,
+            user=current_user,
+            db=db,
+        )
+        set_candidate_model_test_debug(candidate, _extract_test_debug_payload(response))
+        return await _extract_test_response_or_raise(
+            response=response,
+            endpoint=endpoint,
+            provider_name=str(provider_obj.name),
+            auth_type=auth_type,
+            api_key=key,
+            db=db,
+        )
+
+    candidate_recorder = CandidateRecorder(db)
+    task_service = TaskService(db)
+    exec_result = None
+    run_error: Exception | None = None
+    concurrent_result: dict[str, Any] | None = None
+    result_candidates = candidates
+
+    if concurrency > 1:
+        result_candidates = _flatten_test_candidates_for_concurrency(candidates)
+
+    candidate_meta_by_pair, candidate_meta_by_index = _build_test_candidate_meta(
+        candidates=result_candidates,
+        provider=default_provider,
+        request=request_like,
+        gm_obj=gm_obj,
+    )
+    effective_model_by_candidate_index = {
+        index: str(meta.get("effective_model") or model_name)
+        for index, meta in candidate_meta_by_index.items()
+    }
+
+    base_provider = default_provider or getattr(result_candidates[0], "provider", None)
+    request_timeout = float(
+        getattr(base_provider, "request_timeout", 0) or TimeoutDefaults.HTTP_REQUEST
+    )
+    provider_type = str(getattr(base_provider, "provider_type", "") or "").lower()
+
+    try:
+        if concurrency > 1:
+            concurrent_result = await _run_concurrent_test(
+                candidates=result_candidates,
+                concurrency=concurrency,
+                is_cancelled=http_request.is_disconnected,
+                request_id=request_id,
+                request_payload=dict(request_payload),
+                request_headers=request_headers or None,
+                effective_model_by_candidate_index=effective_model_by_candidate_index,
+                request_timeout=request_timeout,
+                provider_type=provider_type,
+                user=current_user,
+                db=db,
+            )
+        else:
+            exec_result = await task_service.execute_sync_candidates(
+                api_format=client_format or "openai:chat",
+                model_name=model_name,
+                candidates=result_candidates,
+                request_func=_request_func,
+                request_id=request_id,
+                current_user=current_user,
+                user_api_key=None,
+                is_stream=False,
+                capability_requirements=None,
+                request_body_state=MutableRequestBodyState(dict(request_payload)),
+                request_headers=request_headers or None,
+                request_body=dict(request_payload),
+                affinity_key=f"provider-test:{response_provider['id'] or 'global'}",
+                create_pending_usage=False,
+                enable_cache_affinity=False,
+                is_cancelled=http_request.is_disconnected,
+            )
+    except Exception as exc:
+        run_error = exc
+        logger.error("[test-model-failover] Error: {}", exc)
+
+    try:
+        candidate_keys = (
+            list(concurrent_result.get("candidate_keys", []))
+            if concurrent_result is not None
+            else candidate_recorder.get_candidate_keys(request_id)
+        )
+    except Exception:
+        candidate_keys = list(exec_result.candidate_keys) if exec_result else []
+    attempts = _build_test_attempts_from_candidate_keys(
+        candidate_keys=candidate_keys,
+        candidate_meta_by_pair=candidate_meta_by_pair,
+        candidate_meta_by_index=candidate_meta_by_index,
+    )
+    response_provider = _resolve_test_response_provider(
+        default_provider=default_provider,
+        candidates=result_candidates,
+        attempts=attempts,
+    )
+    total_attempts = (
+        int(exec_result.attempt_count)
+        if exec_result is not None
+        else (
+            int(concurrent_result.get("attempt_count", 0))
+            if concurrent_result is not None
+            else sum(1 for attempt in attempts if attempt.status not in {"skipped", "cancelled"})
+        )
+    )
+
+    if concurrent_result is not None and concurrent_result.get("success"):
+        return TestModelFailoverResponse(
+            success=True,
+            model=model_name,
+            provider=response_provider,
+            attempts=attempts,
+            total_candidates=len(result_candidates),
+            total_attempts=total_attempts,
+            data={
+                "stream": True,
+                "response": concurrent_result.get("response"),
+            },
+            error=None,
+        ).model_dump()
+
+    if exec_result and exec_result.success:
+        return TestModelFailoverResponse(
+            success=True,
+            model=model_name,
+            provider=response_provider,
+            attempts=attempts,
+            total_candidates=len(result_candidates),
+            total_attempts=exec_result.attempt_count,
+            data={
+                "stream": True,
+                "response": exec_result.response,
+            },
+            error=None,
+        ).model_dump()
+
+    error_message = None
+    if run_error is not None:
+        if isinstance(run_error, ProviderNotAvailableException) and getattr(
+            run_error, "upstream_response", None
+        ):
+            error_message = str(run_error.upstream_response)[:500]
+        if not error_message:
+            error_message = str(run_error)
+    if not error_message and concurrent_result is not None and concurrent_result.get("run_error"):
+        error_message = str(concurrent_result.get("run_error"))
+    if not error_message and exec_result is not None and exec_result.error_message:
+        error_message = str(exec_result.error_message)
+    if not error_message:
+        failed_attempt = next(
+            (attempt for attempt in reversed(attempts) if attempt.error_message),
+            None,
+        )
+        error_message = (
+            failed_attempt.error_message if failed_attempt else "服务暂时不可用，请稍后重试"
+        )
+
+    return TestModelFailoverResponse(
+        success=False,
+        model=model_name,
+        provider=response_provider,
+        attempts=attempts,
+        total_candidates=len(result_candidates),
+        total_attempts=total_attempts,
+        error=str(error_message)[:500],
+    ).model_dump()
+
+
 @router.post("/test-model-failover")
 async def test_model_failover(
     request: TestModelFailoverRequest,
@@ -2696,16 +3102,9 @@ async def test_model_failover(
     - global: 模拟外部请求，用全局模型名走候选解析（限定当前 Provider）
     - direct: 直接测试 provider_model_name，在当前 Provider 内多 Key 故障转移
     """
-    from src.core.exceptions import ProviderNotAvailableException
-    from src.services.candidate.failover import FailoverEngine
-    from src.services.candidate.policy import RetryMode, RetryPolicy, SkipPolicy
-    from src.services.candidate.recorder import CandidateRecorder
     from src.services.scheduling.candidate_builder import CandidateBuilder
     from src.services.scheduling.candidate_sorter import CandidateSorter
     from src.services.scheduling.scheduling_config import SchedulingConfig
-    from src.services.task import TaskService
-    from src.services.task.core.protocol import AttemptKind, AttemptResult
-    from src.services.task.request_state import MutableRequestBodyState
 
     provider = (
         db.query(Provider)
@@ -2757,17 +3156,7 @@ async def test_model_failover(
                 status_code=400, detail="No active endpoint found to determine API format"
             )
 
-        from src.services.cache.model_cache import ModelCacheService
-
-        model_mappings: list[str] = []
-        try:
-            gm_obj = await ModelCacheService.get_global_model_by_name(db, request.model_name)
-            if gm_obj and isinstance(gm_obj.config, dict):
-                raw_mappings = gm_obj.config.get("model_mappings", [])
-                if isinstance(raw_mappings, list):
-                    model_mappings = raw_mappings
-        except Exception as e:
-            logger.warning("[test-model-failover] Failed to get GlobalModel mappings: {}", e)
+        gm_obj, model_mappings = await _load_global_model_test_context(db, request.model_name)
 
         try:
             candidates = await builder._build_candidates(
@@ -2794,192 +3183,135 @@ async def test_model_failover(
             endpoint_id=request.endpoint_id,
         )
 
-    if not candidates:
-        return TestModelFailoverResponse(
-            success=False,
-            model=request.model_name,
-            provider={"id": str(provider.id), "name": provider.name},
-            attempts=[],
-            total_candidates=0,
-            total_attempts=0,
-            error="No available candidates found for this model",
-        ).model_dump()
-
-    request_payload = _build_test_request_payload(request)
-    request_headers = _build_test_request_headers(request)
-    request_id = str(request.request_id or f"provider-test-{uuid4().hex[:12]}")
-    request_timeout = float(getattr(provider, "request_timeout", 0) or TimeoutDefaults.HTTP_REQUEST)
-    provider_type = str(getattr(provider, "provider_type", "") or "").lower()
-
-    async def _request_func(provider_obj: Any, endpoint: Any, key: Any, candidate: Any) -> Any:
-        effective_model = _resolve_test_effective_model(
-            provider=provider,
-            candidate=candidate,
-            request=request,
-            gm_obj=gm_obj,
-            key=key,
-        )
-        response, auth_type = await _execute_test_check(
-            provider_obj=provider_obj,
-            endpoint=endpoint,
-            key=key,
-            effective_model=effective_model,
-            request_payload=request_payload,
-            request_headers=request_headers or None,
-            request_timeout=request_timeout,
-            provider_type=provider_type,
-            user=current_user,
-            db=db,
-        )
-        set_candidate_model_test_debug(candidate, _extract_test_debug_payload(response))
-        return await _extract_test_response_or_raise(
-            response=response,
-            endpoint=endpoint,
-            provider_name=str(provider_obj.name),
-            auth_type=auth_type,
-            api_key=key,
-            db=db,
-        )
-
-    candidate_recorder = CandidateRecorder(db)
-    task_service = TaskService(db)
-    exec_result = None
-    run_error: Exception | None = None
-    concurrent_result: dict[str, Any] | None = None
-    result_candidates = candidates
-
-    if request.concurrency > 1:
-        result_candidates = _flatten_test_candidates_for_concurrency(candidates)
-
-    candidate_meta_by_pair, candidate_meta_by_index = _build_test_candidate_meta(
-        candidates=result_candidates,
-        provider=provider,
-        request=request,
+    return await _run_test_candidates(
+        request_mode=request.mode,
+        model_name=request.model_name,
+        message=request.message,
+        request_headers_input=request.request_headers,
+        request_body_input=request.request_body,
+        request_id_input=request.request_id,
+        client_format=client_format,
+        candidates=candidates,
+        default_provider=provider,
         gm_obj=gm_obj,
+        concurrency=request.concurrency,
+        http_request=http_request,
+        db=db,
+        current_user=current_user,
     )
-    effective_model_by_candidate_index = {
-        index: str(meta.get("effective_model") or request.model_name)
-        for index, meta in candidate_meta_by_index.items()
-    }
 
+
+@router.post("/test-global-model")
+async def test_global_model_playground(
+    request: GlobalModelPlaygroundRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """全局模型操练场测试，按平台级候选路由执行。"""
+    from src.services.scheduling.candidate_builder import CandidateBuilder
+    from src.services.scheduling.candidate_sorter import CandidateSorter
+    from src.services.scheduling.scheduling_config import SchedulingConfig
+
+    providers = (
+        db.query(Provider)
+        .options(
+            joinedload(Provider.endpoints),
+            joinedload(Provider.api_keys),
+            joinedload(Provider.models),
+        )
+        .filter(Provider.is_active == True)  # noqa: E712
+        .all()
+    )
+
+    client_format = request.api_format
+    if not client_format:
+        for provider in providers:
+            for endpoint in provider.endpoints or []:
+                if getattr(endpoint, "is_active", False):
+                    client_format = str(getattr(endpoint, "api_format", "") or "")
+                    if client_format:
+                        break
+            if client_format:
+                break
+    if not client_format:
+        raise HTTPException(
+            status_code=400,
+            detail="No active endpoint found to determine API format",
+        )
+
+    gm_obj, model_mappings = await _load_global_model_test_context(db, request.model_name)
+
+    sorter = CandidateSorter(SchedulingConfig())
+    builder = CandidateBuilder(sorter)
     try:
-        if request.concurrency > 1:
-            concurrent_result = await _run_concurrent_test(
-                candidates=result_candidates,
-                concurrency=request.concurrency,
-                is_cancelled=http_request.is_disconnected,
-                request_id=request_id,
-                request_payload=dict(request_payload),
-                request_headers=request_headers or None,
-                effective_model_by_candidate_index=effective_model_by_candidate_index,
-                request_timeout=request_timeout,
-                provider_type=provider_type,
-                user=current_user,
-                db=db,
-            )
-        else:
-            exec_result = await task_service.execute_sync_candidates(
-                api_format=client_format or "openai:chat",
-                model_name=request.model_name,
-                candidates=result_candidates,
-                request_func=_request_func,
-                request_id=request_id,
-                current_user=current_user,
-                user_api_key=None,
-                is_stream=False,
-                capability_requirements=None,
-                request_body_state=MutableRequestBodyState(dict(request_payload)),
-                request_headers=request_headers or None,
-                request_body=dict(request_payload),
-                affinity_key=f"provider-test:{provider.id}",
-                create_pending_usage=False,
-                enable_cache_affinity=False,
-                is_cancelled=http_request.is_disconnected,
-            )
-    except Exception as exc:
-        run_error = exc
-        logger.error("[test-model-failover] Error: {}", exc)
+        candidates = await builder._build_candidates(
+            db=db,
+            providers=providers,
+            client_format=client_format,
+            model_name=request.model_name,
+            model_mappings=model_mappings if model_mappings else None,
+            affinity_key=None,
+            is_stream=False,
+        )
+    except Exception as e:
+        logger.warning("[test-global-model] CandidateBuilder failed: {}", e)
+        candidates = []
 
-    try:
-        candidate_keys = (
-            list(concurrent_result.get("candidate_keys", []))
-            if concurrent_result is not None
-            else candidate_recorder.get_candidate_keys(request_id)
-        )
-    except Exception:
-        candidate_keys = list(exec_result.candidate_keys) if exec_result else []
-    attempts = _build_test_attempts_from_candidate_keys(
-        candidate_keys=candidate_keys,
-        candidate_meta_by_pair=candidate_meta_by_pair,
-        candidate_meta_by_index=candidate_meta_by_index,
-    )
-    total_attempts = (
-        int(exec_result.attempt_count)
-        if exec_result is not None
-        else (
-            int(concurrent_result.get("attempt_count", 0))
-            if concurrent_result is not None
-            else sum(1 for attempt in attempts if attempt.status not in {"skipped", "cancelled"})
-        )
+    return await _run_test_candidates(
+        request_mode="global",
+        model_name=request.model_name,
+        message=request.message,
+        request_headers_input=request.request_headers,
+        request_body_input=request.request_body,
+        request_id_input=request.request_id,
+        client_format=client_format,
+        candidates=candidates,
+        default_provider=None,
+        gm_obj=gm_obj,
+        concurrency=request.concurrency,
+        http_request=http_request,
+        db=db,
+        current_user=current_user,
     )
 
-    if concurrent_result is not None and concurrent_result.get("success"):
-        return TestModelFailoverResponse(
-            success=True,
-            model=request.model_name,
-            provider={"id": str(provider.id), "name": provider.name},
-            attempts=attempts,
-            total_candidates=len(result_candidates),
-            total_attempts=total_attempts,
-            data={
-                "stream": True,
-                "response": concurrent_result.get("response"),
-            },
-            error=None,
-        ).model_dump()
 
-    if exec_result and exec_result.success:
-        return TestModelFailoverResponse(
-            success=True,
-            model=request.model_name,
-            provider={"id": str(provider.id), "name": provider.name},
-            attempts=attempts,
-            total_candidates=len(result_candidates),
-            total_attempts=exec_result.attempt_count,
-            data={
-                "stream": True,
-                "response": exec_result.response,
-            },
-            error=None,
-        ).model_dump()
-
-    error_message = None
-    if run_error is not None:
-        if isinstance(run_error, ProviderNotAvailableException) and getattr(
-            run_error, "upstream_response", None
-        ):
-            error_message = str(run_error.upstream_response)[:500]
-        if not error_message:
-            error_message = str(run_error)
-    if not error_message and concurrent_result is not None and concurrent_result.get("run_error"):
-        error_message = str(concurrent_result.get("run_error"))
-    if not error_message and exec_result is not None and exec_result.error_message:
-        error_message = str(exec_result.error_message)
-    if not error_message:
-        failed_attempt = next(
-            (attempt for attempt in reversed(attempts) if attempt.error_message),
-            None,
+@router.post("/playground-probe")
+async def provider_playground_probe(
+    request: ProviderPlaygroundProbeRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """针对单个 Provider 的未配置协议做一次非持久化探测。"""
+    provider = (
+        db.query(Provider)
+        .options(
+            joinedload(Provider.endpoints),
+            joinedload(Provider.api_keys),
+            joinedload(Provider.models),
         )
-        error_message = (
-            failed_attempt.error_message if failed_attempt else "服务暂时不可用，请稍后重试"
-        )
+        .filter(Provider.id == request.provider_id)
+        .first()
+    )
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
 
-    return TestModelFailoverResponse(
-        success=False,
-        model=request.model_name,
-        provider={"id": str(provider.id), "name": provider.name},
-        attempts=attempts,
-        total_candidates=len(result_candidates),
-        total_attempts=total_attempts,
-        error=str(error_message)[:500],
-    ).model_dump()
+    candidates = _build_probe_candidates(provider, request.api_format)
+
+    return await _run_test_candidates(
+        request_mode="probe",
+        model_name=request.model_name,
+        message=request.message,
+        request_headers_input=request.request_headers,
+        request_body_input=request.request_body,
+        request_id_input=request.request_id,
+        client_format=request.api_format,
+        candidates=candidates,
+        default_provider=provider,
+        gm_obj=None,
+        concurrency=request.concurrency,
+        http_request=http_request,
+        db=db,
+        current_user=current_user,
+    )

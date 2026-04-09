@@ -138,6 +138,11 @@ const routes: RouteRecordRaw[] = [
         component: () => importWithRetry(() => import('@/views/user/ModelCatalog.vue'))
       },
       {
+        path: 'playground',
+        name: 'ModelPlayground',
+        component: () => importWithRetry(() => import('@/views/shared/ModelPlayground.vue'))
+      },
+      {
         path: 'async-tasks',
         name: 'UserAsyncTasks',
         component: () => importWithRetry(() => import('@/views/admin/AsyncTasks.vue'))
@@ -194,6 +199,11 @@ const routes: RouteRecordRaw[] = [
         path: 'models',
         name: 'ModelManagement',
         component: () => importWithRetry(() => import('@/views/admin/ModelManagement.vue'))
+      },
+      {
+        path: 'playground',
+        name: 'AdminModelPlayground',
+        component: () => importWithRetry(() => import('@/views/shared/ModelPlayground.vue'))
       },
       {
         path: 'health-monitor',

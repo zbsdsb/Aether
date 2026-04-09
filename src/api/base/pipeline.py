@@ -510,13 +510,25 @@ class ApiRequestPipeline:
         from src.utils.request_utils import get_client_ip
 
         client_device_id = SessionService.extract_client_device_id(request)
+        client_ip = get_client_ip(request)
+        client_context = SessionService.build_client_context(
+            client_device_id=client_device_id,
+            client_ip=client_ip,
+            user_agent=request.headers.get("user-agent", "unknown"),
+            headers=dict(request.headers),
+        )
         session = SessionService.get_active_session(db, str(session_id), str(user_id))
         if not session:
             raise HTTPException(status_code=401, detail="登录会话已失效，请重新登录")
-        SessionService.assert_session_device_matches(session, client_device_id)
+        try:
+            SessionService.assert_session_device_matches(session, client_device_id)
+        except HTTPException:
+            if not SessionService.allow_local_dev_rebind(session, client=client_context):
+                raise
+            self._commit_session_touch(db, scope="admin")
         session_touched = SessionService.touch_session(
             session,
-            client_ip=get_client_ip(request),
+            client_ip=client_ip,
             user_agent=request.headers.get("user-agent", "unknown"),
         )
         if session_touched:
@@ -569,13 +581,25 @@ class ApiRequestPipeline:
         from src.utils.request_utils import get_client_ip
 
         client_device_id = SessionService.extract_client_device_id(request)
+        client_ip = get_client_ip(request)
+        client_context = SessionService.build_client_context(
+            client_device_id=client_device_id,
+            client_ip=client_ip,
+            user_agent=request.headers.get("user-agent", "unknown"),
+            headers=dict(request.headers),
+        )
         session = SessionService.get_active_session(db, str(session_id), str(user_id))
         if not session:
             raise HTTPException(status_code=401, detail="登录会话已失效，请重新登录")
-        SessionService.assert_session_device_matches(session, client_device_id)
+        try:
+            SessionService.assert_session_device_matches(session, client_device_id)
+        except HTTPException:
+            if not SessionService.allow_local_dev_rebind(session, client=client_context):
+                raise
+            self._commit_session_touch(db, scope="user")
         session_touched = SessionService.touch_session(
             session,
-            client_ip=get_client_ip(request),
+            client_ip=client_ip,
             user_agent=request.headers.get("user-agent", "unknown"),
         )
         if session_touched:
