@@ -66,8 +66,32 @@ class _FakeQueryAll:
         _ = args, kwargs
         return self
 
+    def order_by(self, *args: Any, **kwargs: Any) -> _FakeQueryAll:
+        _ = args, kwargs
+        return self
+
     def all(self) -> list[Any]:
         return self._rows
+
+    def first(self) -> Any:
+        return self._rows[0] if self._rows else None
+
+
+class _FakeCreateProviderKeyDB:
+    def __init__(self, key: Any, waiting_tasks: list[Any]) -> None:
+        self._key = key
+        self._waiting_tasks = waiting_tasks
+        self.expire_all_count = 0
+
+    def expire_all(self) -> None:
+        self.expire_all_count += 1
+
+    def query(self, model: Any) -> _FakeQueryAll:
+        if model is command_module.ProviderAPIKey:
+            return _FakeQueryAll([self._key])
+        if model is command_module.ProviderImportTask:
+            return _FakeQueryAll(self._waiting_tasks)
+        raise AssertionError(f"unexpected query model: {model}")
 
 
 def _build_key(**overrides: Any) -> SimpleNamespace:
@@ -400,3 +424,146 @@ async def test_batch_delete_endpoint_keys_response_cleans_related_references(
     assert side_effect_calls == ["provider-1"]
     assert db.commit_count == 1
     assert len(db.executed) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_provider_key_response_resolves_single_waiting_plaintext_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def _fake_run_in_threadpool(func: Any, *args: Any, **kwargs: Any) -> str:
+        _ = func, args, kwargs
+        return "key-1"
+
+    async def _fake_run_create_key_side_effects(**kwargs: Any) -> None:
+        captured["side_effects"] = kwargs
+
+    async def _fake_submit_all_in_hub_task_plaintext(**kwargs: Any) -> dict[str, Any]:
+        captured["plaintext_submit"] = kwargs
+        return {"task_id": kwargs["task_id"], "status": "completed"}
+
+    monkeypatch.setattr(command_module, "run_in_threadpool", _fake_run_in_threadpool)
+    monkeypatch.setattr(
+        command_module,
+        "run_create_key_side_effects",
+        _fake_run_create_key_side_effects,
+    )
+    monkeypatch.setattr(
+        command_module,
+        "_submit_import_task_plaintext_for_manual_key_resolution",
+        _fake_submit_all_in_hub_task_plaintext,
+    )
+    monkeypatch.setattr(
+        command_module,
+        "build_key_response",
+        lambda key, api_key_plain=None: {
+            "id": key.id,
+            "api_key_plain": api_key_plain,
+            "is_active": key.is_active,
+        },
+    )
+
+    db = _FakeCreateProviderKeyDB(
+        key=SimpleNamespace(id="key-1", is_active=True),
+        waiting_tasks=[
+            SimpleNamespace(
+                id="task-1",
+                provider_id="provider-1",
+                status="waiting_plaintext",
+                created_at=datetime.now(timezone.utc),
+            )
+        ],
+    )
+    payload = EndpointAPIKeyCreate.model_validate(
+        {
+            "name": "manual-key",
+            "api_key": "sk-manual-plain",
+            "api_formats": ["openai:chat"],
+        }
+    )
+
+    result = await command_module.create_provider_key_response(
+        cast(Any, db),
+        "provider-1",
+        payload,
+    )
+
+    assert result["id"] == "key-1"
+    assert captured["plaintext_submit"]["task_id"] == "task-1"
+    assert captured["plaintext_submit"]["plaintext_api_key"] == "sk-manual-plain"
+    assert captured["plaintext_submit"]["note"] == "resolved via manual provider key creation"
+
+
+@pytest.mark.asyncio
+async def test_create_provider_key_response_skips_auto_resolution_when_multiple_waiting_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {"submit_calls": 0}
+
+    async def _fake_run_in_threadpool(func: Any, *args: Any, **kwargs: Any) -> str:
+        _ = func, args, kwargs
+        return "key-1"
+
+    async def _fake_run_create_key_side_effects(**kwargs: Any) -> None:
+        captured["side_effects"] = kwargs
+
+    async def _fake_submit_all_in_hub_task_plaintext(**kwargs: Any) -> dict[str, Any]:
+        captured["submit_calls"] += 1
+        captured["plaintext_submit"] = kwargs
+        return {"task_id": kwargs["task_id"], "status": "completed"}
+
+    monkeypatch.setattr(command_module, "run_in_threadpool", _fake_run_in_threadpool)
+    monkeypatch.setattr(
+        command_module,
+        "run_create_key_side_effects",
+        _fake_run_create_key_side_effects,
+    )
+    monkeypatch.setattr(
+        command_module,
+        "_submit_import_task_plaintext_for_manual_key_resolution",
+        _fake_submit_all_in_hub_task_plaintext,
+    )
+    monkeypatch.setattr(
+        command_module,
+        "build_key_response",
+        lambda key, api_key_plain=None: {
+            "id": key.id,
+            "api_key_plain": api_key_plain,
+            "is_active": key.is_active,
+        },
+    )
+
+    db = _FakeCreateProviderKeyDB(
+        key=SimpleNamespace(id="key-1", is_active=True),
+        waiting_tasks=[
+            SimpleNamespace(
+                id="task-1",
+                provider_id="provider-1",
+                status="waiting_plaintext",
+                created_at=datetime.now(timezone.utc),
+            ),
+            SimpleNamespace(
+                id="task-2",
+                provider_id="provider-1",
+                status="waiting_plaintext",
+                created_at=datetime.now(timezone.utc),
+            ),
+        ],
+    )
+    payload = EndpointAPIKeyCreate.model_validate(
+        {
+            "name": "manual-key",
+            "api_key": "sk-manual-plain",
+            "api_formats": ["openai:chat"],
+        }
+    )
+
+    result = await command_module.create_provider_key_response(
+        cast(Any, db),
+        "provider-1",
+        payload,
+    )
+
+    assert result["id"] == "key-1"
+    assert captured["submit_calls"] == 0

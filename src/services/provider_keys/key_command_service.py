@@ -23,6 +23,7 @@ from src.database import get_db_context
 from src.models.database import (
     Provider,
     ProviderAPIKey,
+    ProviderImportTask,
 )
 from src.models.endpoint_models import (
     EndpointAPIKeyCreate,
@@ -39,6 +40,8 @@ from src.services.provider_keys.key_side_effects import (
     run_update_key_side_effects,
 )
 from src.services.provider_keys.response_builder import build_key_response
+
+_MANUAL_KEY_IMPORT_TASK_RESOLVE_NOTE = "resolved via manual provider key creation"
 
 
 def _validate_vertex_api_formats(
@@ -473,6 +476,52 @@ def _prepare_create_key_payload(
     return auth_type, new_key
 
 
+async def _resolve_waiting_plaintext_import_task_after_manual_key_creation(
+    *,
+    db: Session,
+    provider_id: str,
+    plaintext_api_key: str | None,
+) -> None:
+    normalized_plaintext = str(plaintext_api_key or "").strip()
+    if not normalized_plaintext:
+        return
+
+    waiting_tasks = (
+        db.query(ProviderImportTask)
+        .filter(ProviderImportTask.provider_id == provider_id)
+        .filter(ProviderImportTask.status == "waiting_plaintext")
+        .order_by(ProviderImportTask.created_at.asc())
+        .all()
+    )
+    if len(waiting_tasks) != 1:
+        return
+
+    task_id = str(getattr(waiting_tasks[0], "id", "") or "").strip()
+    if not task_id:
+        return
+
+    try:
+        await _submit_import_task_plaintext_for_manual_key_resolution(
+            db=db,
+            task_id=task_id,
+            plaintext_api_key=normalized_plaintext,
+            note=_MANUAL_KEY_IMPORT_TASK_RESOLVE_NOTE,
+        )
+    except Exception as exc:
+        logger.warning(
+            "手工新增 Key 后自动收口导入待补钥任务失败: provider_id={}, task_id={}, error={}",
+            provider_id,
+            task_id,
+            exc,
+        )
+
+
+async def _submit_import_task_plaintext_for_manual_key_resolution(**kwargs: Any) -> dict[str, Any]:
+    from src.services.provider_import.reissue import submit_all_in_hub_task_plaintext
+
+    return await submit_all_in_hub_task_plaintext(**kwargs)
+
+
 async def update_endpoint_key_response(
     db: Session,
     key_id: str,
@@ -524,6 +573,18 @@ async def create_provider_key_response(
     )
 
     await run_create_key_side_effects(db=db, provider_id=provider_id, key=new_key)
+    if (key_data.auth_type or "api_key") == "api_key":
+        await _resolve_waiting_plaintext_import_task_after_manual_key_creation(
+            db=db,
+            provider_id=provider_id,
+            plaintext_api_key=key_data.api_key,
+        )
+
+    db.expire_all()
+    new_key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
+    if not new_key:
+        raise NotFoundException(f"Key {key_id} 不存在")
+
     return build_key_response(new_key, api_key_plain=key_data.api_key)
 
 
