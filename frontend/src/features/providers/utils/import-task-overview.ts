@@ -25,3 +25,14 @@ export function shouldResetImportTaskOverviewDismissed(
     buildImportTaskOverviewSignature(previousOverview) !== buildImportTaskOverviewSignature(nextOverview)
   )
 }
+
+export function isImportTaskOverviewPermanentlyDismissed(
+  savedSignature: string | null | undefined,
+  overview: ProviderImportTaskOverview,
+): boolean {
+  if (!savedSignature) return false
+  return (
+    hasActionableImportTasks(overview) &&
+    savedSignature === buildImportTaskOverviewSignature(overview)
+  )
+}

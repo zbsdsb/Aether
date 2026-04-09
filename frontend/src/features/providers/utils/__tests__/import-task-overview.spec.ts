@@ -5,6 +5,7 @@ import type { ProviderImportTaskOverview } from '@/api/endpoints'
 import {
   buildImportTaskOverviewSignature,
   hasActionableImportTasks,
+  isImportTaskOverviewPermanentlyDismissed,
   shouldResetImportTaskOverviewDismissed,
 } from '../import-task-overview'
 
@@ -52,5 +53,17 @@ describe('import task overview utils', () => {
       }),
     ).toBe(true)
     expect(buildImportTaskOverviewSignature(waitingOverview)).toBe('1:0:1:0')
+  })
+
+  it('treats matching actionable signature as permanently dismissed', () => {
+    const waitingOverview: ProviderImportTaskOverview = {
+      ...emptyOverview,
+      providers_needing_manual_key_input: 1,
+      tasks_waiting_plaintext: 1,
+    }
+
+    expect(isImportTaskOverviewPermanentlyDismissed('1:0:1:0', waitingOverview)).toBe(true)
+    expect(isImportTaskOverviewPermanentlyDismissed('0:0:0:0', waitingOverview)).toBe(false)
+    expect(isImportTaskOverviewPermanentlyDismissed('1:0:1:0', emptyOverview)).toBe(false)
   })
 })

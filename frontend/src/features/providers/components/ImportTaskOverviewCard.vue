@@ -58,6 +58,13 @@
           >
             清除导入筛选
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            @click="dismissPermanently"
+          >
+            永久关闭提醒
+          </Button>
         </div>
       </div>
     </div>
@@ -72,7 +79,9 @@ import Button from '@/components/ui/button.vue'
 import Card from '@/components/ui/card.vue'
 import type { ProviderImportTaskOverview } from '@/api/endpoints'
 import {
+  buildImportTaskOverviewSignature,
   hasActionableImportTasks,
+  isImportTaskOverviewPermanentlyDismissed,
   shouldResetImportTaskOverviewDismissed,
 } from '@/features/providers/utils/import-task-overview'
 
@@ -82,21 +91,72 @@ const props = defineProps<{
 }>()
 
 const dismissed = ref(false)
+const DISMISSED_SIGNATURE_STORAGE_KEY = 'provider-import-task-overview-dismissed-signature'
+
+function getLocalStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage ?? null
+}
+
+function loadDismissedSignature(): string | null {
+  try {
+    return getLocalStorage()?.getItem(DISMISSED_SIGNATURE_STORAGE_KEY) ?? null
+  } catch {
+    return null
+  }
+}
+
+function saveDismissedSignature(signature: string | null) {
+  const storage = getLocalStorage()
+  if (!storage) return
+  try {
+    if (signature) {
+      storage.setItem(DISMISSED_SIGNATURE_STORAGE_KEY, signature)
+    } else {
+      storage.removeItem(DISMISSED_SIGNATURE_STORAGE_KEY)
+    }
+  } catch {
+    // ignore storage errors and fall back to in-memory dismissal
+  }
+}
+
+const permanentlyDismissedSignature = ref<string | null>(loadDismissedSignature())
 
 watch(
   () => props.overview,
   (nextOverview, previousOverview) => {
+    const nextSignature = buildImportTaskOverviewSignature(nextOverview)
     if (previousOverview && shouldResetImportTaskOverviewDismissed(previousOverview, nextOverview)) {
       dismissed.value = false
+      if (permanentlyDismissedSignature.value !== nextSignature) {
+        permanentlyDismissedSignature.value = null
+        saveDismissedSignature(null)
+      }
     }
     if (!hasActionableImportTasks(nextOverview)) {
       dismissed.value = false
+      permanentlyDismissedSignature.value = null
+      saveDismissedSignature(null)
     }
   },
   { deep: true },
 )
 
-const visible = computed(() => hasActionableImportTasks(props.overview) && !dismissed.value)
+const visible = computed(() => {
+  return (
+    hasActionableImportTasks(props.overview) &&
+    !dismissed.value &&
+    !isImportTaskOverviewPermanentlyDismissed(permanentlyDismissedSignature.value, props.overview)
+  )
+})
+
+function dismissPermanently() {
+  if (!hasActionableImportTasks(props.overview)) return
+  const signature = buildImportTaskOverviewSignature(props.overview)
+  permanentlyDismissedSignature.value = signature
+  saveDismissedSignature(signature)
+  dismissed.value = false
+}
 
 defineEmits<{
   viewImportTasks: []

@@ -76,23 +76,18 @@
                     :open="providerProxyPopoverOpen"
                     @update:open="handleProviderProxyPopoverToggle"
                   >
-                    <TooltipProvider :delay-duration="120">
-                      <Tooltip>
-                        <TooltipTrigger as-child>
-                          <PopoverTrigger as-child>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              :class="provider.proxy?.node_id ? 'text-blue-500' : ''"
-                              :disabled="savingProviderProxy"
-                            >
-                              <Globe class="w-4 h-4" />
-                            </Button>
-                          </PopoverTrigger>
-                        </TooltipTrigger>
-                        <TooltipContent>{{ provider.proxy?.node_id ? `代理节点：${getProviderProxyNodeName()}` : '设置代理节点' }}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                    <PopoverTrigger as-child>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        :class="provider.proxy?.node_id ? 'text-blue-500' : ''"
+                        :disabled="savingProviderProxy"
+                        :title="provider.proxy?.node_id ? `代理节点：${getProviderProxyNodeName()}` : '设置代理节点'"
+                        @click.stop
+                      >
+                        <Globe class="w-4 h-4" />
+                      </Button>
+                    </PopoverTrigger>
                     <PopoverContent
                       class="w-72 p-3"
                       side="bottom"
