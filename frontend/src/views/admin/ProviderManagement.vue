@@ -265,6 +265,7 @@
     :provider-id="selectedProviderId"
     @update:open="providerDrawerOpen = $event"
     @edit="openEditProviderDialog"
+    @open-ops-config="openOpsConfigDialog"
     @open-imported-auth-prefill="openImportedAuthPrefill"
     @toggle-status="toggleProviderStatus"
     @refresh="handleDrawerRefresh"

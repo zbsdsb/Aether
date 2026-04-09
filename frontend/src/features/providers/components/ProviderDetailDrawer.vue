@@ -124,14 +124,14 @@
                         <Button
                           variant="ghost"
                           size="icon"
-                          :disabled="!canRunProviderProxyProbe || runningProviderProxyProbe"
+                          :disabled="runningProviderProxyProbe"
                           @click="handleProviderProxyProbe"
                         >
                           <Radar class="w-4 h-4" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {{ canRunProviderProxyProbe ? '执行单渠道代理检测' : '请先配置扩展操作后再执行代理检测' }}
+                        {{ canRunProviderProxyProbe ? '执行单渠道代理检测' : '未配置扩展操作，点击去配置后再执行代理检测' }}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -1335,6 +1335,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:open', value: boolean): void
   (e: 'edit', provider: ProviderWithEndpointsSummary): void
+  (e: 'openOpsConfig', provider: ProviderWithEndpointsSummary): void
   (e: 'openImportedAuthPrefill', payload: { provider: ProviderWithEndpointsSummary; prefill: ImportedAuthPrefillResponse }): void
   (e: 'toggleStatus', provider: ProviderWithEndpointsSummary): void
   (e: 'refresh'): void
@@ -1698,7 +1699,12 @@ async function clearProviderProxy() {
 }
 
 async function handleProviderProxyProbe() {
-  if (!props.providerId || !canRunProviderProxyProbe.value || runningProviderProxyProbe.value) return
+  if (!props.providerId || !provider.value || runningProviderProxyProbe.value) return
+  if (!canRunProviderProxyProbe.value) {
+    showWarning('请先配置扩展操作或导入认证信息，再执行单渠道代理检测', '需要先配置扩展操作')
+    emit('openOpsConfig', provider.value)
+    return
+  }
   runningProviderProxyProbe.value = true
   try {
     const result = await runProviderProxyProbe(props.providerId)

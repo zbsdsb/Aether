@@ -267,6 +267,14 @@
       :open="providerDrawerOpen"
       :provider-id="selectedProviderId"
       @update:open="providerDrawerOpen = $event"
+      @open-ops-config="openOpsConfigDialog"
+    />
+
+    <ProviderAuthDialog
+      v-model:open="opsConfigDialogOpen"
+      :provider-id="opsConfigProviderId"
+      :provider-website="opsConfigProviderWebsite"
+      @saved="handleOpsConfigSaved"
     />
   </div>
 </template>
@@ -285,12 +293,14 @@ import TableHead from '@/components/ui/table-head.vue'
 import TableHeader from '@/components/ui/table-header.vue'
 import TableRow from '@/components/ui/table-row.vue'
 import Badge from '@/components/ui/badge.vue'
+import { ProviderAuthDialog } from '@/features/providers/components'
 import ProviderDetailDrawer from '@/features/providers/components/ProviderDetailDrawer.vue'
 import {
   getAllInHubImportJob,
   listAllInHubImportJobs,
   type AllInHubImportBackgroundTaskStatus,
   type AllInHubImportJobStatusResponse,
+  type ProviderWithEndpointsSummary,
 } from '@/api/endpoints'
 import { useToast } from '@/composables/useToast'
 import { parseApiError } from '@/utils/errorParser'
@@ -304,6 +314,9 @@ const jobs = ref<AllInHubImportJobStatusResponse[]>([])
 const selectedTaskId = ref<string>('')
 const providerDrawerOpen = ref(false)
 const selectedProviderId = ref<string | null>(null)
+const opsConfigDialogOpen = ref(false)
+const opsConfigProviderId = ref('')
+const opsConfigProviderWebsite = ref('')
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -442,6 +455,16 @@ function selectJob(taskId: string) {
 function openProvider(providerId: string) {
   selectedProviderId.value = providerId
   providerDrawerOpen.value = true
+}
+
+function openOpsConfigDialog(provider: ProviderWithEndpointsSummary) {
+  opsConfigProviderId.value = provider.id
+  opsConfigProviderWebsite.value = provider.website || ''
+  opsConfigDialogOpen.value = true
+}
+
+function handleOpsConfigSaved() {
+  opsConfigDialogOpen.value = false
 }
 
 watch(
