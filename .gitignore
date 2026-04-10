@@ -238,6 +238,9 @@ src/_version.py
 
 # Analysis folder (third-party code for reference)
 analysis/
+
+# Proofshot local artifacts
+proofshot-artifacts/
 new-api/
 /aether-proxy/target/
 .ace-tool/
