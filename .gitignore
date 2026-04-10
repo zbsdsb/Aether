@@ -194,6 +194,7 @@ pyrightconfig.json
 
 # Captured requests (debugging data)
 captured_requests/
+STATUS.md
 
 # macOS
 .DS_Store
