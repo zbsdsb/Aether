@@ -114,6 +114,7 @@ export function filterProviderCandidates(
 
   return {
     items: candidates.filter((candidate) => (
+      candidate.provider_active &&
       matchesProviderQuery(candidate, providerQuery) &&
       (!modelQuery.trim() || getMatchedModelNames(candidate, modelQuery).length > 0)
     )),

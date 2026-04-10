@@ -156,8 +156,13 @@ def _sync_provider_capabilities_from_models(
     provider_keys: list[ProviderAPIKey],
     provider_endpoints: list[ProviderEndpoint],
     models: list[dict[str, Any]],
+    key_models_by_key_id: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, list[str]]:
-    """半自动同步 Provider/Key 的 API 格式能力，并只补建缺失 Endpoint。"""
+    """半自动同步 Provider/Key 的 API 格式能力，并只补建缺失 Endpoint。
+
+    Endpoint 按 Provider 级聚合模型补建；Key 的 api_formats 只按各自 Key 的模型结果增量同步，
+    避免把某个 Key 独有的协议能力错误扩散到同 Provider 下的其他 Key。
+    """
     supported_formats = _extract_model_api_formats(models)
     if not supported_formats:
         return {"created_endpoint_formats": [], "updated_key_ids": []}
@@ -202,10 +207,16 @@ def _sync_provider_capabilities_from_models(
         existing_formats = getattr(key, "api_formats", None)
         if existing_formats is None:
             continue
+        key_models = (key_models_by_key_id or {}).get(str(key.id))
+        key_supported_formats = (
+            _extract_model_api_formats(key_models) if key_models is not None else supported_formats
+        )
+        if not key_supported_formats:
+            continue
         merged = list(existing_formats or [])
         merged_set = {str(item).strip() for item in merged if str(item).strip()}
         changed = False
-        for api_format in supported_formats:
+        for api_format in key_supported_formats:
             if api_format not in merged_set:
                 merged.append(api_format)
                 merged_set.add(api_format)
@@ -835,6 +846,7 @@ async def _refresh_provider_models_and_sync(
     refreshed_key_ids: list[str] = []
     error_messages: list[str] = []
     all_models: list[dict[str, Any]] = []
+    key_models_by_key_id: dict[str, list[dict[str, Any]]] = {}
 
     for key in active_keys:
         key_id = str(key.id)
@@ -843,7 +855,9 @@ async def _refresh_provider_models_and_sync(
             api_key=key,
         )
         refreshed_key_ids.append(key_id)
-        all_models.extend(item for item in result["models"] if isinstance(item, dict))
+        key_models = [item for item in result["models"] if isinstance(item, dict)]
+        key_models_by_key_id[key_id] = _aggregate_models_by_id(key_models)
+        all_models.extend(key_models)
         if result["error"]:
             error_messages.append(f"{key.name or key_id}: {result['error']}")
 
@@ -854,6 +868,7 @@ async def _refresh_provider_models_and_sync(
         provider_keys=active_keys,
         provider_endpoints=list(provider.endpoints),
         models=unique_models,
+        key_models_by_key_id=key_models_by_key_id,
     )
     if sync_result["created_endpoint_formats"] or sync_result["updated_key_ids"]:
         db.commit()

@@ -25,6 +25,7 @@ from src.models.provider_import import (
     AllInHubImportResponse,
     AllInHubImportStats,
 )
+from src.services.provider_import.failure_state import disable_provider_for_import_failure
 from src.services.provider_import.endpoint_candidates import (
     EndpointCandidate,
     resolve_endpoint_candidates,
@@ -1007,20 +1008,25 @@ async def _run_imported_key_model_fetch(key_id: str) -> str:
             db.commit()
             status = await _verify_imported_key_models(db=db, key=key)
             if status != "success":
-                key.is_active = False
+                disable_provider_for_import_failure(db=db, provider_id=str(key.provider_id))
                 db.commit()
-                logger.warning("all-in-hub 后台模型抓取失败 key_id={} status={}", key_id, status)
+                logger.warning(
+                    "all-in-hub 后台模型抓取失败，已禁用 provider key_id={} provider_id={} status={}",
+                    key_id,
+                    key.provider_id,
+                    status,
+                )
                 return "failed"
             return "completed"
         except Exception as exc:
             try:
                 key = db.query(ProviderAPIKey).filter(ProviderAPIKey.id == key_id).first()
                 if key is not None:
-                    key.is_active = False
+                    disable_provider_for_import_failure(db=db, provider_id=str(key.provider_id))
                     db.commit()
             except Exception:
                 pass
-            logger.warning("all-in-hub 后台模型抓取异常 key_id={}: {}", key_id, exc)
+            logger.warning("all-in-hub 后台模型抓取异常，已禁用 provider key_id={}: {}", key_id, exc)
             return "failed"
         finally:
             try:

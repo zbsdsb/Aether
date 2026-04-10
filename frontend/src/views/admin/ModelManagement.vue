@@ -1010,7 +1010,9 @@ async function refreshBatchProviderCandidates() {
   if (!selectedModel.value || refreshingProviderCandidates.value) return
   const candidateIds = selectableFilteredBatchProviderIds.value.length > 0
     ? selectableFilteredBatchProviderIds.value
-    : providerCandidates.value.map((item) => item.provider_id)
+    : providerCandidates.value
+      .filter((item) => item.provider_active)
+      .map((item) => item.provider_id)
   if (candidateIds.length === 0) return
 
   refreshingProviderCandidates.value = true

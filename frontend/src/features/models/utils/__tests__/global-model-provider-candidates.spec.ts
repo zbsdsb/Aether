@@ -83,6 +83,29 @@ describe('global-model-provider-candidates', () => {
     expect(result.items.map((item) => item.provider_id)).toEqual(['p1'])
   })
 
+  it('filterProviderCandidates hides inactive providers by default', () => {
+    const result = filterProviderCandidates([
+      candidate({
+        provider_id: 'p1',
+        provider_name: 'Active Hub',
+        provider_active: true,
+        cached_models: [{ id: 'gpt-5.4' }],
+        cached_model_count: 1,
+      }),
+      candidate({
+        provider_id: 'p2',
+        provider_name: 'Inactive Hub',
+        provider_active: false,
+        cached_models: [{ id: 'gpt-5.4' }],
+        cached_model_count: 1,
+      }),
+    ], {
+      modelQuery: 'gpt-5.4',
+    })
+
+    expect(result.items.map((item) => item.provider_id)).toEqual(['p1'])
+  })
+
   it('filterProviderCandidates matches provider text only against provider fields', () => {
     const result = filterProviderCandidates([candidate()], {
       providerQuery: 'provider',

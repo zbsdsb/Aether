@@ -22,6 +22,12 @@ class _FakeQuery:
     def __init__(self, rows: list[Any]) -> None:
         self._rows = rows
 
+    def filter(self, *_args: Any, **_kwargs: Any) -> "_FakeQuery":
+        return self
+
+    def first(self) -> Any | None:
+        return self._rows[0] if self._rows else None
+
     def all(self) -> list[Any]:
         return list(self._rows)
 
@@ -440,7 +446,8 @@ async def test_execute_pending_reissue_marks_task_failed_when_model_verification
     assert result.failed == 1
     assert result.keys_created == 1
     assert len(db.keys) == 1
-    assert db.keys[0].is_active is False
+    assert db.keys[0].is_active is True
+    assert db.providers[0].is_active is False
     assert db.tasks[0].status == "failed"
     assert "model verification failed" in str(db.tasks[0].last_error)
     assert result.results[0]["stage"] == "verify_models"
@@ -743,7 +750,8 @@ async def test_submit_plaintext_keeps_task_retryable_when_model_verification_fai
         )
 
     assert len(db.keys) == 1
-    assert db.keys[0].is_active is False
+    assert db.keys[0].is_active is True
+    assert db.providers[0].is_active is False
     assert task.status == "waiting_plaintext"
     assert task.last_error == "model verification failed: error"
     assert task.retry_count == 1

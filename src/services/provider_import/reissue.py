@@ -16,6 +16,7 @@ from src.core.crypto import crypto_service
 from src.core.logger import logger
 from src.models.database import Provider, ProviderAPIKey, ProviderImportTask
 from src.services.provider.fingerprint import generate_fingerprint
+from src.services.provider_import.failure_state import disable_provider_for_import_failure
 from src.services.provider_keys.key_side_effects import run_create_key_side_effects
 from src.services.provider_ops.service import ProviderOpsService
 from src.services.provider_ops.types import (
@@ -940,7 +941,7 @@ async def _execute_task(
             stage = RESULT_STAGE_VERIFY_MODELS
             verification_status = await _verify_reissued_key_models(str(new_key.id))
             if verification_status != "success":
-                new_key.is_active = False
+                disable_provider_for_import_failure(db=db, provider_id=str(task.provider_id))
                 db.commit()
                 raise RuntimeError(f"model verification failed: {verification_status}")
         else:
@@ -959,6 +960,8 @@ async def _execute_task(
                     was_inactive=was_inactive,
                     was_auto_fetch_disabled=was_auto_fetch_disabled,
                 )
+                disable_provider_for_import_failure(db=db, provider_id=str(task.provider_id))
+                db.commit()
                 raise RuntimeError(f"model verification failed: {verification_status}")
 
         task.status = TASK_STATUS_COMPLETED
@@ -1090,7 +1093,7 @@ async def submit_all_in_hub_task_plaintext(
             await run_create_key_side_effects(db=db, provider_id=task.provider_id, key=new_key)
             verification_status = await _verify_reissued_key_models(str(new_key.id))
             if verification_status != "success":
-                new_key.is_active = False
+                disable_provider_for_import_failure(db=db, provider_id=str(task.provider_id))
                 db.commit()
                 raise RuntimeError(f"model verification failed: {verification_status}")
         else:
@@ -1108,6 +1111,8 @@ async def submit_all_in_hub_task_plaintext(
                     was_inactive=was_inactive,
                     was_auto_fetch_disabled=was_auto_fetch_disabled,
                 )
+                disable_provider_for_import_failure(db=db, provider_id=str(task.provider_id))
+                db.commit()
                 raise RuntimeError(f"model verification failed: {verification_status}")
 
         metadata["plaintext_capture_status"] = PLAINTEXT_CAPTURE_CONSUMED

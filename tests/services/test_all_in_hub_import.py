@@ -7,6 +7,7 @@ import pytest
 
 from src.core.crypto import crypto_service
 from src.models.database import Provider, ProviderAPIKey, ProviderEndpoint, ProviderImportTask
+from src.services.provider_import import all_in_hub as all_in_hub_module
 from src.services.provider_import.all_in_hub import (
     execute_all_in_hub_import,
     preview_all_in_hub_import,
@@ -16,6 +17,12 @@ from src.services.provider_import.all_in_hub import (
 class _FakeQuery:
     def __init__(self, rows: list[Any]) -> None:
         self._rows = rows
+
+    def filter(self, *_args: Any, **_kwargs: Any) -> "_FakeQuery":
+        return self
+
+    def first(self) -> Any | None:
+        return self._rows[0] if self._rows else None
 
     def all(self) -> list[Any]:
         return list(self._rows)
@@ -79,6 +86,9 @@ class _FakeDB:
 
     def rollback(self) -> None:
         self.rollback_count += 1
+
+    def close(self) -> None:
+        return None
 
 
 def test_preview_counts_direct_and_pending_records() -> None:
@@ -953,3 +963,81 @@ async def test_execute_import_keeps_existing_imported_keys_when_backup_key_is_ma
     assert result.stats.keys_created == 0
     assert {key.id for key in db.keys} == {"key-old"}
     assert crypto_service.decrypt(db.keys[0].api_key) == "sk-old"
+
+
+@pytest.mark.asyncio
+async def test_run_imported_key_model_fetch_disables_provider_instead_of_key_on_failed_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = Provider(
+        id="provider-1",
+        name="Provider One",
+        website="https://provider-1.example.com",
+        is_active=True,
+    )
+    key = ProviderAPIKey(
+        id="key-1",
+        provider_id=provider.id,
+        auth_type="api_key",
+        api_key=crypto_service.encrypt("sk-direct-1"),
+        api_formats=["openai:chat"],
+        name="imported-key",
+        note="Imported from all-in-hub",
+        is_active=True,
+        auto_fetch_models=False,
+    )
+    db = _FakeDB(providers=[provider], keys=[key])
+
+    async def _fake_verify(*, db: Any, key: ProviderAPIKey) -> str:
+        assert db is not None
+        assert key.id == "key-1"
+        return "error"
+
+    monkeypatch.setattr(all_in_hub_module, "create_session", lambda: db)
+    monkeypatch.setattr(all_in_hub_module, "_verify_imported_key_models", _fake_verify)
+
+    result = await all_in_hub_module._run_imported_key_model_fetch("key-1")
+
+    assert result == "failed"
+    assert provider.is_active is False
+    assert key.is_active is True
+    assert key.auto_fetch_models is False
+
+
+@pytest.mark.asyncio
+async def test_run_imported_key_model_fetch_disables_provider_instead_of_key_on_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = Provider(
+        id="provider-1",
+        name="Provider One",
+        website="https://provider-1.example.com",
+        is_active=True,
+    )
+    key = ProviderAPIKey(
+        id="key-1",
+        provider_id=provider.id,
+        auth_type="api_key",
+        api_key=crypto_service.encrypt("sk-direct-1"),
+        api_formats=["openai:chat"],
+        name="imported-key",
+        note="Imported from all-in-hub",
+        is_active=True,
+        auto_fetch_models=False,
+    )
+    db = _FakeDB(providers=[provider], keys=[key])
+
+    async def _boom(*, db: Any, key: ProviderAPIKey) -> str:
+        assert db is not None
+        assert key.id == "key-1"
+        raise RuntimeError("fetch exploded")
+
+    monkeypatch.setattr(all_in_hub_module, "create_session", lambda: db)
+    monkeypatch.setattr(all_in_hub_module, "_verify_imported_key_models", _boom)
+
+    result = await all_in_hub_module._run_imported_key_model_fetch("key-1")
+
+    assert result == "failed"
+    assert provider.is_active is False
+    assert key.is_active is True
+    assert key.auto_fetch_models is False
