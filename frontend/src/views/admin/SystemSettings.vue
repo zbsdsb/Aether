@@ -92,6 +92,7 @@
             :max-response-body-size-k-b="maxResponseBodySizeKB"
             :sensitive-headers-str="sensitiveHeadersStr"
             :loading="logConfigLoading"
+            :disabled="configLoading"
             :has-changes="hasLogConfigChanges"
             @save="saveLogConfig"
             @update:request-record-level="systemConfig.request_record_level = $event"
@@ -300,6 +301,7 @@ function setupScrollSpy() {
 const {
   systemConfig,
   systemVersion,
+  configLoading,
   siteInfoLoading,
   proxyConfigLoading,
   basicConfigLoading,

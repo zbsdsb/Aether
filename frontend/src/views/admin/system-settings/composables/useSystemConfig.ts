@@ -142,6 +142,7 @@ export function useSystemConfig() {
   const systemConfig = ref<SystemConfig>(createDefaultConfig())
   const originalConfig = ref<SystemConfig | null>(null)
   const systemVersion = ref<string>('')
+  const configLoading = ref(false)
 
   // 各模块 loading 状态
   const siteInfoLoading = ref(false)
@@ -257,21 +258,26 @@ export function useSystemConfig() {
 
   // 加载配置
   async function loadSystemConfig() {
+    configLoading.value = true
     try {
+      const loadedConfig = createDefaultConfig()
+      const responses = await adminApi.getAllSystemConfigs()
+      const configMap = new Map(responses.map((item) => [item.key, item.value]))
+
       for (const key of CONFIG_KEYS) {
-        try {
-          const response = await adminApi.getSystemConfig(key)
-          if (response.value !== null && response.value !== undefined) {
-            ; (systemConfig.value as Record<string, unknown>)[key] = response.value
-          }
-        } catch {
-          // 单个配置项加载失败时忽略，使用默认值
+        const value = configMap.get(key)
+        if (value !== null && value !== undefined) {
+          ;(loadedConfig as Record<string, unknown>)[key] = value
         }
       }
-      originalConfig.value = JSON.parse(JSON.stringify(systemConfig.value))
+
+      systemConfig.value = loadedConfig
+      originalConfig.value = JSON.parse(JSON.stringify(loadedConfig))
     } catch (err) {
       error('加载系统配置失败')
       log.error('加载系统配置失败:', err)
+    } finally {
+      configLoading.value = false
     }
   }
 
@@ -571,6 +577,7 @@ export function useSystemConfig() {
     systemConfig,
     originalConfig,
     systemVersion,
+    configLoading,
     // loading 状态
     siteInfoLoading,
     proxyConfigLoading,

@@ -6,7 +6,7 @@
     <template #actions>
       <Button
         size="sm"
-        :disabled="loading || !hasChanges"
+        :disabled="loading || disabled || !hasChanges"
         @click="$emit('save')"
       >
         {{ loading ? '保存中...' : '保存' }}
@@ -22,6 +22,7 @@
         </Label>
         <Select
           :model-value="requestRecordLevel"
+          :disabled="disabled || loading"
           @update:model-value="$emit('update:requestRecordLevel', $event)"
         >
           <SelectTrigger
@@ -60,6 +61,7 @@
           type="number"
           placeholder="512"
           class="mt-1"
+          :disabled="disabled || loading"
           @update:model-value="$emit('update:maxRequestBodySizeKB', Number($event))"
         />
         <p class="mt-1 text-xs text-muted-foreground">
@@ -80,6 +82,7 @@
           type="number"
           placeholder="512"
           class="mt-1"
+          :disabled="disabled || loading"
           @update:model-value="$emit('update:maxResponseBodySizeKB', Number($event))"
         />
         <p class="mt-1 text-xs text-muted-foreground">
@@ -99,6 +102,7 @@
           :model-value="sensitiveHeadersStr"
           placeholder="authorization, x-api-key, cookie"
           class="mt-1"
+          :disabled="disabled || loading"
           @update:model-value="$emit('update:sensitiveHeadersStr', $event)"
         />
         <p class="mt-1 text-xs text-muted-foreground">
@@ -126,6 +130,7 @@ defineProps<{
   maxResponseBodySizeKB: number
   sensitiveHeadersStr: string
   loading: boolean
+  disabled?: boolean
   hasChanges: boolean
 }>()
 
