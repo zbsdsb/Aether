@@ -133,6 +133,89 @@
           </div>
         </section>
 
+        <section class="space-y-3">
+          <div class="flex items-center gap-2 border-b border-border/60 pb-2">
+            <span class="text-sm font-medium">调度策略</span>
+          </div>
+
+          <div class="space-y-2">
+            <Label class="text-sm font-medium">专用调度策略</Label>
+            <Select
+              v-model="routingGroupSelectValue"
+              :disabled="routingLoading || !routingStateReady"
+            >
+              <SelectTrigger
+                class="h-10 w-full"
+                data-testid="routing-group-select"
+              >
+                <SelectValue placeholder="选择调度策略" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem :value="FOLLOW_SYSTEM_ROUTING_GROUP_VALUE">
+                  跟随系统默认（不单独绑定）
+                </SelectItem>
+                <SelectItem
+                  v-if="unavailableCurrentRoutingGroup"
+                  :value="unavailableCurrentRoutingGroup.groupId"
+                  disabled
+                >
+                  {{ unavailableCurrentRoutingGroup.label }}
+                </SelectItem>
+                <SelectItem
+                  v-for="group in enabledRoutingGroups"
+                  :key="group.id"
+                  :value="group.id"
+                >
+                  {{ group.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <p
+              v-if="routingLoading"
+              class="text-xs text-muted-foreground"
+              data-testid="routing-binding-loading"
+            >
+              正在加载调度策略与当前绑定…若现在保存，本次不会修改绑定。
+            </p>
+            <div
+              v-else-if="routingLoadError"
+              class="flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+              data-testid="routing-binding-load-error"
+            >
+              <span>{{ routingLoadError }}。API Key 仍可保存，但本次不会修改调度策略绑定。</span>
+              <button
+                type="button"
+                class="shrink-0 font-medium underline underline-offset-2"
+                @click="emit('retry-routing-load')"
+              >
+                重试
+              </button>
+            </div>
+            <p
+              v-else-if="unavailableCurrentRoutingGroup"
+              class="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
+              data-testid="routing-binding-unavailable"
+            >
+              {{ unavailableCurrentRoutingGroup.label }}。可选择可用策略替换，或改为跟随系统默认以移除此绑定。
+            </p>
+            <p
+              v-else
+              class="text-xs text-muted-foreground"
+            >
+              仅设置该 API Key 的默认调度策略；跟随系统默认时不创建专用绑定。
+            </p>
+
+            <p
+              v-if="routingSaveError"
+              class="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+              data-testid="routing-binding-save-error"
+            >
+              {{ routingSaveError }}
+            </p>
+          </div>
+        </section>
+
         <section>
           <div class="rounded-lg border border-border bg-muted/30 px-4 py-3">
             <div class="flex items-center justify-between gap-3">
@@ -357,6 +440,11 @@ import {
   Button,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Switch,
 } from '@/components/ui'
 import { ChevronDown, Plus, SquarePen, X } from 'lucide-vue-next'
@@ -372,6 +460,12 @@ import {
   readChatPiiRedactionFeatureSettings,
 } from '@/utils/featureSettings'
 import type { ProviderWithEndpointsSummary, GlobalModelResponse } from '@/api/endpoints/types'
+import type { RoutingGroupBindingRecord, RoutingGroupRecord } from '@/api/routing-profiles'
+import {
+  FOLLOW_SYSTEM_ROUTING_GROUP_VALUE,
+  describeCurrentRoutingGroup,
+  enabledRoutingGroupsByName,
+} from '@/features/api-keys/utils/apiKeyRoutingBinding'
 
 export interface StandaloneKeyFormData {
   id?: string
@@ -388,6 +482,8 @@ export interface StandaloneKeyFormData {
   allowed_models?: string[] | null
   ip_rules?: string[] | null
   feature_settings?: Record<string, unknown> | null
+  /** undefined 表示绑定状态未成功读取，本次提交不得修改绑定。 */
+  routing_group_id?: string | null
 }
 
 interface StandaloneKeyFormState {
@@ -411,21 +507,30 @@ interface StandaloneKeyFormState {
   ip_rules_text: string
   chat_pii_redaction_enabled: boolean
   chat_pii_redaction_placeholder_notice: boolean
+  routing_group_id?: string | null
 }
 
 const props = defineProps<{
   open: boolean
   apiKey: StandaloneKeyFormData | null
+  routingGroups?: RoutingGroupRecord[]
+  routingBinding?: RoutingGroupBindingRecord | null
+  routingLoading?: boolean
+  routingStateReady?: boolean
+  routingLoadError?: string | null
+  routingSaveError?: string | null
 }>()
 
 const emit = defineEmits<{
   close: []
   submit: [data: StandaloneKeyFormData]
+  'retry-routing-load': []
 }>()
 
 const isOpen = computed(() => props.open)
 const saving = ref(false)
 const accessRestrictionsExpanded = ref(false)
+const routingSelectionInitialized = ref(false)
 
 // 选项数据
 const providers = ref<ProviderWithEndpointsSummary[]>([])
@@ -450,7 +555,27 @@ const modelOptions = computed(() =>
     label: model.name,
   }))
 )
-
+const enabledRoutingGroups = computed(() => enabledRoutingGroupsByName(props.routingGroups ?? []))
+const currentRoutingGroupState = computed(() => {
+  if (!props.routingBinding) return null
+  return describeCurrentRoutingGroup(props.routingBinding, props.routingGroups ?? [])
+})
+const unavailableCurrentRoutingGroup = computed(() => {
+  const current = currentRoutingGroupState.value
+  if (!props.routingBinding || !current || current.kind === 'active') return null
+  return {
+    groupId: props.routingBinding.group_id,
+    label: current.label,
+  }
+})
+const routingGroupSelectValue = computed({
+  get: () => form.value.routing_group_id == null
+    ? FOLLOW_SYSTEM_ROUTING_GROUP_VALUE
+    : form.value.routing_group_id,
+  set: (value: string) => {
+    form.value.routing_group_id = value === FOLLOW_SYSTEM_ROUTING_GROUP_VALUE ? null : value
+  },
+})
 // 表单数据
 const form = ref<StandaloneKeyFormState>({
   name: '',
@@ -472,6 +597,7 @@ const form = ref<StandaloneKeyFormState>({
   ip_rules_text: '',
   chat_pii_redaction_enabled: false,
   chat_pii_redaction_placeholder_notice: true,
+  routing_group_id: undefined,
 })
 
 function formatDateInputValue(date: Date): string {
@@ -501,6 +627,7 @@ const balanceDisplayText = computed(() => {
 })
 
 function resetForm() {
+  routingSelectionInitialized.value = false
   form.value = {
     name: '',
     initial_balance_usd: 10,
@@ -521,11 +648,22 @@ function resetForm() {
     ip_rules_text: '',
     chat_pii_redaction_enabled: false,
     chat_pii_redaction_placeholder_notice: true,
+    routing_group_id: undefined,
   } as typeof form.value
+  initializeRoutingSelection()
+}
+
+function initializeRoutingSelection() {
+  if (!props.routingStateReady || routingSelectionInitialized.value) return
+  form.value.routing_group_id = props.apiKey?.routing_group_id !== undefined
+    ? props.apiKey.routing_group_id
+    : (props.routingBinding?.group_id ?? null)
+  routingSelectionInitialized.value = true
 }
 
 function loadKeyData() {
   if (!props.apiKey) return
+  routingSelectionInitialized.value = false
   const redactionFeature = readChatPiiRedactionFeatureSettings(props.apiKey.feature_settings)
   form.value = {
     id: props.apiKey.id,
@@ -548,7 +686,9 @@ function loadKeyData() {
     ip_rules_text: props.apiKey.ip_rules?.join(', ') ?? '',
     chat_pii_redaction_enabled: redactionFeature.enabled,
     chat_pii_redaction_placeholder_notice: redactionFeature.inject_model_instruction,
+    routing_group_id: undefined,
   } as typeof form.value
+  initializeRoutingSelection()
 }
 
 const { isEditMode, handleDialogUpdate, handleCancel } = useFormDialog({
@@ -584,6 +724,10 @@ function clearExpiryDate() {
 
 // 提交表单
 function handleSubmit() {
+  if (saving.value) return
+  const routingGroupId = form.value.routing_group_id === undefined && props.routingStateReady
+    ? null
+    : form.value.routing_group_id
   emit('submit', {
     id: form.value.id,
     name: form.value.name,
@@ -601,6 +745,7 @@ function handleSubmit() {
       enabled: form.value.chat_pii_redaction_enabled,
       inject_model_instruction: form.value.chat_pii_redaction_placeholder_notice,
     }),
+    routing_group_id: routingGroupId,
   })
 }
 
@@ -624,6 +769,11 @@ watch(isOpen, (val) => {
     loadAccessRestrictionOptions()
   }
 })
+
+watch(
+  () => [props.routingStateReady, props.routingBinding] as const,
+  () => initializeRoutingSelection(),
+)
 
 watch(
   () => form.value.unlimited_balance,

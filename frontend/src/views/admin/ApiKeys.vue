@@ -611,8 +611,15 @@
       ref="keyFormDialogRef"
       :open="showKeyFormDialog"
       :api-key="editingKeyData"
+      :routing-groups="routingGroups"
+      :routing-binding="routingBinding"
+      :routing-loading="routingLoading"
+      :routing-state-ready="routingStateReady"
+      :routing-load-error="routingLoadError"
+      :routing-save-error="routingSaveError"
       @close="closeKeyFormDialog"
       @submit="handleKeyFormSubmit"
+      @retry-routing-load="retryRoutingStateLoad"
     />
 
     <!-- 新 Key 显示对话框 -->
@@ -658,6 +665,13 @@
             </Button>
           </div>
         </div>
+        <p
+          v-if="newKeyBindingWarning"
+          class="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
+          data-testid="new-key-binding-warning"
+        >
+          {{ newKeyBindingWarning }}
+        </p>
       </div>
 
       <template #footer>
@@ -807,6 +821,11 @@ import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { useClipboard } from '@/composables/useClipboard'
 import { adminApi, type AdminApiKey, type CreateStandaloneApiKeyRequest } from '@/api/admin'
+import {
+  listRoutingGroups,
+  type RoutingGroupBindingRecord,
+  type RoutingGroupRecord,
+} from '@/api/routing-profiles'
 import type { ApiKeyInstallSession, InstallSessionTargetSystem, InstallTargetCli } from '@/api/me'
 import type { AdminWallet } from '@/api/admin-wallets'
 import { walletStatusBadge, walletStatusLabel } from '@/utils/walletDisplay'
@@ -850,12 +869,18 @@ import {
   Terminal
 } from 'lucide-vue-next'
 
-import { StandaloneKeyFormDialog, type StandaloneKeyFormData } from '@/features/api-keys'
+import {
+  StandaloneKeyFormDialog,
+  createApiKeyWithRoutingBinding,
+  readApiKeyDefaultRoutingBinding,
+  saveApiKeyDefaultRoutingBinding,
+  type StandaloneKeyFormData,
+} from '@/features/api-keys'
 import { parseApiError } from '@/utils/errorParser'
 import { formatTokens, formatRateLimitInheritable, isRateLimitInherited, isRateLimitUnlimited } from '@/utils/format'
 import { log } from '@/utils/logger'
 
-const { success, error } = useToast()
+const { success, error, warning } = useToast()
 const { confirmDanger } = useConfirm()
 const { copyToClipboard } = useClipboard()
 
@@ -868,6 +893,7 @@ const limit = ref(100)
 const showNewKeyDialog = ref(false)
 const showInstallDialog = ref(false)
 const newKeyValue = ref('')
+const newKeyBindingWarning = ref<string | null>(null)
 const keyInput = ref<HTMLInputElement>()
 const selectedInstallApiKey = ref<AdminApiKey | null>(null)
 const installCli = ref<InstallTargetCli>('claude_code')
@@ -881,6 +907,13 @@ let installCopiedResetTimer: ReturnType<typeof setTimeout> | null = null
 const showKeyFormDialog = ref(false)
 const editingKeyData = ref<StandaloneKeyFormData | null>(null)
 const keyFormDialogRef = ref<InstanceType<typeof StandaloneKeyFormDialog>>()
+const routingGroups = ref<RoutingGroupRecord[]>([])
+const routingBinding = ref<RoutingGroupBindingRecord | null>(null)
+const routingLoading = ref(false)
+const routingStateReady = ref(false)
+const routingLoadError = ref<string | null>(null)
+const routingSaveError = ref<string | null>(null)
+let routingLoadRequestId = 0
 
 const EXPIRY_SOON_DAYS = 7
 
@@ -1210,7 +1243,9 @@ function editApiKey(apiKey: AdminApiKey) {
     feature_settings: apiKey.feature_settings ?? null
   }
 
+  resetRoutingFormState()
   showKeyFormDialog.value = true
+  void loadRoutingFormState(apiKey.id)
 }
 
 function getApiKeyWallet(apiKeyId: string): AdminWallet | null {
@@ -1331,6 +1366,7 @@ async function copyKeyPrefix(apiKey: AdminApiKey) {
 function closeNewKeyDialog() {
   showNewKeyDialog.value = false
   newKeyValue.value = ''
+  newKeyBindingWarning.value = null
 }
 
 function isBalanceLimited(apiKey: AdminApiKey): boolean {
@@ -1378,18 +1414,63 @@ function getRelativeTime(dateString: string): string {
 // 打开创建对话框
 function openCreateDialog() {
   editingKeyData.value = null
+  resetRoutingFormState()
   showKeyFormDialog.value = true
+  void loadRoutingFormState()
 }
 
 // 关闭表单对话框
 function closeKeyFormDialog() {
   showKeyFormDialog.value = false
   editingKeyData.value = null
+  resetRoutingFormState()
+}
+
+function resetRoutingFormState() {
+  routingLoadRequestId += 1
+  routingGroups.value = []
+  routingBinding.value = null
+  routingLoading.value = false
+  routingStateReady.value = false
+  routingLoadError.value = null
+  routingSaveError.value = null
+}
+
+async function loadRoutingFormState(apiKeyId?: string) {
+  const requestId = ++routingLoadRequestId
+  routingLoading.value = true
+  routingStateReady.value = false
+  routingLoadError.value = null
+  routingSaveError.value = null
+
+  try {
+    const [groupsResponse, currentBinding] = await Promise.all([
+      listRoutingGroups(),
+      apiKeyId ? readApiKeyDefaultRoutingBinding(apiKeyId) : Promise.resolve(null),
+    ])
+    if (requestId !== routingLoadRequestId || !showKeyFormDialog.value) return
+    routingGroups.value = groupsResponse.items
+    routingBinding.value = currentBinding
+    routingStateReady.value = true
+  } catch (err: unknown) {
+    if (requestId !== routingLoadRequestId || !showKeyFormDialog.value) return
+    routingGroups.value = []
+    routingBinding.value = null
+    routingLoadError.value = parseApiError(err, '加载调度策略绑定失败')
+    log.error('加载 API Key 调度策略绑定失败:', err)
+  } finally {
+    if (requestId === routingLoadRequestId) {
+      routingLoading.value = false
+    }
+  }
+}
+
+function retryRoutingStateLoad() {
+  void loadRoutingFormState(editingKeyData.value?.id)
 }
 
 // 统一处理表单提交
 async function handleKeyFormSubmit(data: StandaloneKeyFormData) {
-  // 验证过期日期（如果设置了，必须晚于今天）
   if (data.expires_at) {
     const selectedDate = parseDateInput(data.expires_at)
     if (!selectedDate) {
@@ -1406,6 +1487,7 @@ async function handleKeyFormSubmit(data: StandaloneKeyFormData) {
   }
 
   keyFormDialogRef.value?.setSaving(true)
+  routingSaveError.value = null
   try {
     if (data.id) {
       // 更新
@@ -1433,6 +1515,23 @@ async function handleKeyFormSubmit(data: StandaloneKeyFormData) {
         }
         apiKeyWalletMap.value = buildApiKeyWalletMap(apiKeys.value)
       }
+
+      if (routingStateReady.value && data.routing_group_id !== undefined) {
+        try {
+          const mutation = await saveApiKeyDefaultRoutingBinding({
+            apiKeyId: data.id,
+            selectedGroupId: data.routing_group_id,
+            currentBinding: routingBinding.value,
+          })
+          routingBinding.value = mutation.binding
+        } catch (bindingErr: unknown) {
+          const detail = parseApiError(bindingErr, '保存调度策略绑定失败')
+          routingSaveError.value = `API Key 已更新，但调度策略绑定失败：${detail}`
+          log.error('保存 API Key 默认调度策略绑定失败:', bindingErr)
+          warning(`API Key 已更新，但调度策略绑定失败：${detail}`)
+          return
+        }
+      }
       success('API Key 更新成功')
     } else {
       // 创建
@@ -1455,9 +1554,28 @@ async function handleKeyFormSubmit(data: StandaloneKeyFormData) {
         ip_rules: data.ip_rules,
         feature_settings: data.feature_settings ?? null
       }
-      const response = await adminApi.createStandaloneApiKey(createData)
-      newKeyValue.value = response.key
-      showNewKeyDialog.value = true
+      const result = await createApiKeyWithRoutingBinding({
+        request: createData,
+        selectedGroupId: routingStateReady.value ? (data.routing_group_id ?? null) : null,
+        createApiKey: request => adminApi.createStandaloneApiKey(request),
+        onApiKeyCreated: (created) => {
+          newKeyValue.value = created.key
+          newKeyBindingWarning.value = null
+          showNewKeyDialog.value = true
+        },
+      })
+
+      if (result.bindingStatus === 'failed') {
+        const detail = parseApiError(result.bindingError, '保存调度策略绑定失败')
+        const partialMessage = `独立 Key 已创建，但调度策略绑定失败：${detail}`
+        newKeyBindingWarning.value = `${partialMessage}。请先复制并妥善保存上方一次性 Key。`
+        log.error('新 API Key 的默认调度策略绑定失败:', result.bindingError)
+        warning(partialMessage)
+        await refreshApiKeys()
+        closeKeyFormDialog()
+        return
+      }
+
       success('独立 Key 创建成功')
       await refreshApiKeys()
     }
