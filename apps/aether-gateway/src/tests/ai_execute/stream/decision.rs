@@ -2924,11 +2924,15 @@ async fn gateway_retries_next_local_openai_chat_stream_candidate_after_http_200_
     assert_eq!(seen_execution_runtime_requests.len(), 2);
     let primary_request = seen_execution_runtime_requests
         .iter()
-        .find(|request| request.url == "https://api.openai.embedded-primary.example/chat/completions")
+        .find(|request| {
+            request.url == "https://api.openai.embedded-primary.example/chat/completions"
+        })
         .expect("primary execution runtime request should be captured");
     let backup_request = seen_execution_runtime_requests
         .iter()
-        .find(|request| request.url == "https://api.openai.embedded-backup.example/chat/completions")
+        .find(|request| {
+            request.url == "https://api.openai.embedded-backup.example/chat/completions"
+        })
         .expect("backup execution runtime request should be captured");
     assert_eq!(
         primary_request.trace_id,
