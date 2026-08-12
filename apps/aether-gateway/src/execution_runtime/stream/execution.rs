@@ -5429,8 +5429,7 @@ where
 {
     let mut aggregated = String::new();
     let mut frames_probed = 0usize;
-    while frames_probed < MAX_STREAM_PREFETCH_FRAMES
-        && aggregated.len() < MAX_STREAM_PREFETCH_BYTES
+    while frames_probed < MAX_STREAM_PREFETCH_FRAMES && aggregated.len() < MAX_STREAM_PREFETCH_BYTES
     {
         let Some(observed_frame) = read_next_observed_stream_frame(lines).await? else {
             break;
@@ -6339,12 +6338,11 @@ async fn execute_stream_from_frame_stream_with_retry_scope(
                             // analysis, so service_unavailable_error-style
                             // nested bodies classify as retryable 5xx instead of
                             // passing the raw 200 through to the classifier.
-                            let error_status_code =
-                                resolve_provider_stream_error_status_code(
-                                    plan.provider_api_format.as_str(),
-                                    status_code,
-                                    &body_json,
-                                );
+                            let error_status_code = resolve_provider_stream_error_status_code(
+                                plan.provider_api_format.as_str(),
+                                status_code,
+                                &body_json,
+                            );
                             // Keep diagnostic parity with the plain non-2xx
                             // path: attach upstream response body/headers to
                             // the report context so the failed candidate
