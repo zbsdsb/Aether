@@ -2722,7 +2722,7 @@ async fn gateway_combined_import_round_trips_provider_key_scopes_with_remap_and_
                     "auth_type": "api_key",
                     "api_key": "sk-import-123",
                     "internal_priority": 5,
-                    "is_active": true
+                    "is_active": false
                 }]
             }]
         },
@@ -2816,6 +2816,10 @@ async fn gateway_combined_import_round_trips_provider_key_scopes_with_remap_and_
     assert_ne!(
         actual_key_id, "key-exported-1",
         "imported keys get fresh ids"
+    );
+    assert!(
+        !keys[0].is_active,
+        "disabled imported key must remain disabled"
     );
 
     // ... and every imported scope was canonicalized to the actual provider
