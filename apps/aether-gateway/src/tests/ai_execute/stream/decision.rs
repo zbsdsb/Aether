@@ -3011,7 +3011,6 @@ async fn gateway_retries_next_local_openai_chat_stream_candidate_after_http_200_
     upstream_handle.abort();
 }
 
-
 #[test]
 fn gateway_retries_next_local_openai_chat_stream_candidate_after_http_200_embedded_error_split_across_frames(
 ) {
@@ -3517,7 +3516,10 @@ async fn gateway_retries_next_local_openai_chat_stream_candidate_after_http_200_
         primary_request.trace_id,
         "trace-openai-chat-local-stream-embedded-split-split-456"
     );
-    assert_eq!(primary_request.model, "gpt-5-upstream-embedded-split-primary");
+    assert_eq!(
+        primary_request.model,
+        "gpt-5-upstream-embedded-split-primary"
+    );
     assert!(primary_request.stream);
     assert_eq!(
         primary_request.authorization,

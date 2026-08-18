@@ -57,9 +57,8 @@ mod execution_failures;
 use self::execution_failures::{
     build_stream_failure_from_execution_error, build_stream_failure_from_provider_error_body,
     build_stream_failure_report, build_stream_retryable_upstream_failure_report,
-    build_stream_transport_failure_report,
-    handle_prefetch_provider_private_stream_error, handle_prefetch_stream_failure,
-    submit_midstream_stream_failure, StreamFailureReport,
+    build_stream_transport_failure_report, handle_prefetch_provider_private_stream_error,
+    handle_prefetch_stream_failure, submit_midstream_stream_failure, StreamFailureReport,
 };
 use crate::ai_serving::api::{
     extract_provider_private_stream_error_body, maybe_bridge_standard_sync_json_to_stream,
@@ -6366,8 +6365,7 @@ async fn execute_stream_from_frame_stream_with_retry_scope(
                             || stripped.starts_with(b"[")
                             || upstream_content_type.is_some_and(|content_type| {
                                 let content_type = content_type.to_ascii_lowercase();
-                                content_type.contains("json")
-                                    || content_type.ends_with("+json")
+                                content_type.contains("json") || content_type.ends_with("+json")
                             });
                         prefetch_waits_for_complete_json = looks_like_json;
                     }
